@@ -1,0 +1,275 @@
+{% extends "base.html" %}
+{% block title %}Kelola Data AWE · Camerad Studio{% endblock %}
+
+{% block head %}
+<style>
+/* Layout & Typography */
+.page-header { margin-bottom: 24px; }
+.page-title { font-size: 24px; font-weight: 800; margin: 0 0 8px; color: var(--text-main); }
+.page-desc { font-size: 14.5px; color: var(--text-muted); margin: 0; line-height: 1.6; max-width: 800px; }
+
+/* Card Component */
+.c-card {
+  background: var(--panel-bg);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  padding: 24px;
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.3s;
+}
+.c-card:hover { border-color: var(--accent-glow); }
+
+/* Stage Headers */
+.stage-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+.stage-num {
+  width: 28px; height: 28px; border-radius: 8px;
+  background: var(--accent); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 14px; flex: 0 0 auto;
+  box-shadow: 0 4px 10px var(--accent-glow);
+}
+.stage-title { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-main); }
+.pill.stage { 
+  font-size: 12px; padding: 4px 12px; border-radius: 99px; 
+  background: var(--c-green); color: var(--c-green-txt); font-weight: 600; 
+}
+
+/* Forms & Inputs */
+.form-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+.field { flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.form-row .field { margin-bottom: 0; }
+.field label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+.field input:not([type="checkbox"]) {
+  padding: 11px 14px; border: 1px solid var(--panel-border); border-radius: 10px;
+  background: var(--bg-base); color: var(--text-main); font-size: 14.5px; 
+  font-family: inherit; transition: 0.2s; outline: none;
+}
+.field input:not([type="checkbox"]):focus { 
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); background: transparent; 
+}
+
+/* Checkbox */
+.checkbox-label { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-main); cursor: pointer; margin: 16px 0; }
+.checkbox-label input { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+
+/* Buttons */
+.btn-modern {
+  padding: 11px 20px; border: none; border-radius: 10px;
+  background: var(--accent); color: #fff; font-weight: 600; font-size: 14px;
+  cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+.btn-modern:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
+.btn-modern:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; background: var(--panel-border); color: var(--text-muted); }
+
+.btn-outline { background: transparent; border: 1px solid var(--panel-border); color: var(--text-main); box-shadow: none; }
+.btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
+
+/* Table */
+.table-modern { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13.5px; border-radius: 10px; overflow: hidden; }
+.table-modern th, .table-modern td { border: 1px solid var(--panel-border); padding: 10px 14px; text-align: left; }
+.table-modern th { background: var(--c-blue); color: var(--c-blue-txt); font-weight: 600; }
+.table-modern td { color: var(--text-main); background: rgba(0,0,0,0.1); }
+[data-theme="light"] .table-modern td { background: var(--bg-base); }
+
+/* Text Utilities */
+.muted-text { color: var(--text-muted); font-size: 13.5px; line-height: 1.5; margin-bottom: 16px; }
+.hint-text { font-size: 12.5px; color: var(--text-muted); margin-top: 8px; font-style: italic; }
+
+/* Status Alerts */
+.status { margin-top: 16px; padding: 12px 16px; border-radius: 10px; font-size: 14px; display: none; line-height: 1.5; }
+.status.show { display: block; background: var(--panel-border); color: var(--text-main); }
+.status.ok { background: var(--c-green); color: var(--c-green-txt); border: 1px solid rgba(16,185,129,0.2); }
+.status.err { background: var(--c-red); color: var(--c-red-txt); border: 1px solid rgba(239,68,68,0.2); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Kelola Data AWE</h1>
+  <p class="page-desc">Alur dua tahap murni: <b>(1) Tarik</b> data mentah AWE ke penyimpanan sementara, lalu <b>(2) Pemrosesan Bahasa</b> ke database AWE. Penarikan boleh dilakukan bertahap oleh beberapa orang; pemrosesan cukup dijalankan sekali untuk seluruh data yang sudah terkumpul.</p>
+</div>
+
+<section class="c-card">
+  <div class="stage-head">
+    <h2 class="stage-title">Penyimpanan Sementara</h2>
+    <span class="pill stage" id="stgCount">—</span>
+  </div>
+  <p class="muted-text" id="stgInfo">Memuat ringkasan…</p>
+  
+  <div style="overflow-x: auto;">
+    <table class="table-modern">
+      <thead>
+        <tr>
+          <th>Batch tarik</th>
+          <th>Rentang</th>
+          <th>Ditarik</th>
+          <th>Baru</th>
+          <th>Oleh</th>
+          <th>Waktu</th>
+        </tr>
+      </thead>
+      <tbody id="stgBatches">
+        <tr><td colspan="6" class="muted-text" style="text-align: center; border: none; background: transparent;">—</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="c-card">
+  <div class="stage-head">
+    <span class="stage-num">1</span>
+    <h2 class="stage-title">Tarik Data ke Penyimpanan Sementara</h2>
+  </div>
+  <p class="muted-text">Pilih rentang tanggal lalu <b>Cek Ketersediaan</b>. Hari yang sudah ada tidak perlu ditarik ulang (dedup otomatis berdasarkan <b>sid</b>). Untuk hari yang belum ada, masukkan kredensial AWE. <b>Kredensial tidak disimpan.</b></p>
+  
+  <div class="form-row">
+    <div class="field"><label>Dari tanggal</label><input type="date" id="s_from"></div>
+    <div class="field"><label>Sampai tanggal</label><input type="date" id="s_to"></div>
+  </div>
+  <div class="field">
+    <label>Base URL (opsional)</label>
+    <input type="text" id="s_base" placeholder="https://recapp.intranet.pajak.go.id">
+  </div>
+  
+  <button class="btn-modern btn-outline" id="sCheckBtn">Cek Ketersediaan</button>
+  
+  <div id="sLoginBox" style="display:none; margin-top:20px; border-top:1px solid var(--panel-border); padding-top:20px;">
+    <div class="form-row">
+      <div class="field"><label>Username Avaya WFO</label><input type="text" id="s_user" autocomplete="off" placeholder="Masukkan username"></div>
+      <div class="field"><label>Password AWE</label><input type="password" id="s_pass" autocomplete="off" placeholder="Masukkan password"></div>
+    </div>
+    <button class="btn-modern" id="sPullBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+      Tarik Tanggal yang Belum Ada
+    </button>
+    <div class="hint-text">Kredensial hanya dipakai untuk sesi tarik ini dan langsung dilupakan server (tidak ditulis ke disk/DB).</div>
+  </div>
+  
+  <div class="status" id="sStat"></div>
+</section>
+
+<section class="c-card">
+  <div class="stage-head">
+    <span class="stage-num">2</span>
+    <h2 class="stage-title">Pemrosesan Bahasa → Database AWE</h2>
+  </div>
+  <p class="muted-text">Jalankan pemrosesan bahasa (embedding, sentimen, topik, pemetaan intent, klaster) atas data di penyimpanan sementara, lalu simpan hasilnya ke database AWE. Kosongkan rentang untuk memproses <b>seluruh</b> isi penyimpanan.</p>
+  
+  <div class="form-row">
+    <div class="field"><label>Dari tanggal (opsional)</label><input type="date" id="p_from"></div>
+    <div class="field"><label>Sampai tanggal (opsional)</label><input type="date" id="p_to"></div>
+  </div>
+  
+  <label class="checkbox-label">
+    <input type="checkbox" id="p_purge"> 
+    <span>Hapus data mentah dari penyimpanan sementara setelah berhasil diproses</span>
+  </label>
+  
+  <button class="btn-modern" id="pRunBtn">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+    Mulai Pemrosesan Bahasa
+  </button>
+  
+  <div class="status" id="pStat"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+function el(id){return document.getElementById(id);}
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function setS(msg,k){var s=el('sStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
+function setP(msg,k){var s=el('pStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
+
+function loadSummary(){
+  fetch('/api/awe/stage/summary').then(function(r){return r.json();}).then(function(d){
+    if(!d.ok)return;
+    var st=d.stats||{};
+    el('stgCount').textContent=(st.total||0)+' percakapan';
+    el('stgInfo').textContent=(st.total? (st.total+' percakapan tersimpan • '+(st.days||0)+' hari • rentang '+(st.date_min||'-')+' s/d '+(st.date_max||'-')+' • '+(st.batches||0)+' batch tarik') : 'Belum ada data di penyimpanan sementara.');
+    var tb=el('stgBatches');
+    if(!d.batches||!d.batches.length){tb.innerHTML='<tr><td colspan="6" class="muted-text" style="text-align: center;">Belum ada tarikan.</td></tr>';return;}
+    tb.innerHTML=d.batches.map(function(b){return '<tr><td>'+esc(b.id)+'</td><td>'+esc(b.date_from)+' s/d '+esc(b.date_to)+'</td><td>'+(b.n_pulled||0)+'</td><td>'+(b.n_new||0)+'</td><td>'+esc(b.pulled_by||'-')+'</td><td>'+esc(b.created_at||'')+'</td></tr>';}).join('');
+  }).catch(function(){});
+}
+
+el('sCheckBtn').addEventListener('click',function(){
+  var df=el('s_from').value,dt=el('s_to').value;
+  if(!df||!dt){setS('Isi rentang tanggal dulu.','err');return;}
+  setS('Mengecek ketersediaan…');
+  fetch('/api/awe/stage/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){setS('Gagal: '+esc(d.error||''),'err');return;}
+     var nm=(d.missing||[]).length,ns=(d.staged||[]).length;
+     if(nm===0){setS('✅ Semua '+ns+' hari pada rentang ini sudah ada di penyimpanan sementara — tak perlu tarik ulang.','ok');el('sLoginBox').style.display='none';}
+     else{setS('ℹ️ '+ns+' hari sudah ada, <b>'+nm+' hari belum ada</b>. Masukkan kredensial untuk menariknya.');el('sLoginBox').style.display='block';}
+   }).catch(function(e){setS('Gagal: '+e,'err');});
+});
+
+el('sPullBtn').addEventListener('click',function(){
+  var df=el('s_from').value,dt=el('s_to').value,u=el('s_user').value.trim(),pw=el('s_pass').value;
+  if(!pw){setS('Password wajib diisi.','err');return;}
+  el('sPullBtn').disabled=true;setS('Menarik data…');
+  fetch('/api/awe/stage/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,username:u,password:pw,base_url:el('s_base').value.trim()})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){setS('Gagal: '+esc(d.error||''),'err');el('sPullBtn').disabled=false;return;}
+     pollStage(d.job);
+   }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
+});
+
+function pollStage(job){
+  fetch('/api/awe/stage/progress?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(res){
+    var p=res.progress||{};
+    if(!p.finished){setS(esc(p.message||'Menarik…'));setTimeout(function(){pollStage(job);},1500);return;}
+    fetchStage(job);
+  }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
+}
+
+function fetchStage(job){
+  fetch('/api/awe/stage/fetch?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(d){
+    el('sPullBtn').disabled=false;
+    if(!d.ok){
+      if(d.need_login){setS('Login gagal: '+esc(d.error||'')+' — periksa kredensial.','err');el('sLoginBox').style.display='block';}
+      else setS('Gagal: '+esc(d.error||''),'err');
+      return;
+    }
+    setS('✅ '+esc(d.message||'Selesai.'),'ok');el('s_pass').value='';el('sLoginBox').style.display='none';
+    loadSummary();
+  }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
+}
+
+el('pRunBtn').addEventListener('click',function(){
+  var df=el('p_from').value,dt=el('p_to').value,purge=el('p_purge').checked;
+  el('pRunBtn').disabled=true;setP('Menyiapkan pemrosesan…');
+  fetch('/api/awe/process/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,purge_after:purge})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){setP('Gagal: '+esc(d.error||''),'err');el('pRunBtn').disabled=false;return;}
+     setP('Memproses '+(d.n_staged||0)+' percakapan…');pollProc(d.job);
+   }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
+});
+
+function pollProc(job){
+  fetch('/api/awe/process/progress?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(res){
+    var p=res.progress||{};
+    if(!p.finished){setP(esc(p.message||'Memproses…'));setTimeout(function(){pollProc(job);},2000);return;}
+    fetchProc(job);
+  }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
+}
+
+function fetchProc(job){
+  fetch('/api/awe/process/fetch?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(d){
+    el('pRunBtn').disabled=false;
+    if(!d.ok){setP('Gagal: '+esc(d.error||''),'err');return;}
+    setP('✅ '+esc(d.message||'Selesai.')+' Hasil tersimpan di database AWE'+(d.purged?' dan penyimpanan sementara sudah dibersihkan.':'.'),'ok');
+    loadSummary();
+  }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
+}
+
+loadSummary();
+})();
+</script>
+{% endblock %}

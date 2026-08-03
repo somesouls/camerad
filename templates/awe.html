@@ -91,19 +91,28 @@ table.tbl tr:hover td{ background:var(--panel2); }
     </div>
   </div>
 
-  <!-- ===== Roadmap: Tarik Langsung tanpa Extension ===== -->
+  <!-- ===== Tarik Langsung tanpa Extension (§11.3) ===== -->
   <div class="section">
-    <h2>Tarik Langsung tanpa Extension <span class="tag">ROADMAP</span></h2>
-    <p class="cap">Rencana: ganti extension browser dengan modal login di dalam aplikasi — masukkan sandi, pilih rentang tanggal, server menarik &amp; menyimpan otomatis.</p>
-    <div class="card roadmap">
-      <div class="field"><label>Username Avaya WFO</label><input type="text" placeholder="mis. analis.kring" disabled></div>
-      <div class="field"><label>Password</label><input type="password" placeholder="••••••••" disabled></div>
+    <h2>Tarik Data Langsung <span class="pill pull">Tanpa Extension</span></h2>
+    <p class="cap">Pilih rentang tanggal lalu <b>Cek Ketersediaan</b>. Jika data tanggal itu sudah ada, cukup buka dashboard — tak perlu tarik ulang. Jika belum ada, masukkan username &amp; password AWE untuk menariknya. <b>Kredensial tidak disimpan</b>; jika sesi logout, harus masukkan lagi.</p>
+    <div class="card">
       <div style="display:flex;gap:12px;flex-wrap:wrap">
-        <div class="field" style="flex:1;min-width:150px"><label>Dari tanggal</label><input type="date" disabled></div>
-        <div class="field" style="flex:1;min-width:150px"><label>Sampai tanggal</label><input type="date" disabled></div>
+        <div class="field" style="flex:1;min-width:150px"><label>Dari tanggal</label><input type="date" id="p_from"></div>
+        <div class="field" style="flex:1;min-width:150px"><label>Sampai tanggal</label><input type="date" id="p_to"></div>
       </div>
-      <button class="btn" disabled>Tarik &amp; Simpan (segera hadir)</button>
-      <div class="hint" style="margin-top:10px">Secara teknis <b>mungkin</b> dilakukan server-side (login → CSRF handshake → replay endpoint Ultra/Platform yang sama seperti extension). Perlu satu kali validasi di jaringan intranet karena token sesi <code>Impact360AuthToken</code> tidak dapat diuji dari sandbox ini. Lihat catatan di chat.</div>
+      <div class="field">
+        <label>URL Avaya WFO <span style="color:var(--muted);font-weight:400">(opsional, default recapp intranet)</span></label>
+        <input type="text" id="p_base" placeholder="https://recapp.intranet.pajak.go.id">
+      </div>
+      <button class="btn" id="checkBtn">Cek Ketersediaan</button>
+      <div id="loginBox" style="display:none;margin-top:14px;border-top:1px solid var(--line);padding-top:14px">
+        <div class="field"><label>Username Avaya WFO</label><input type="text" id="p_user" placeholder="mis. analis.kring" autocomplete="off"></div>
+        <div class="field"><label>Password AWE</label><input type="password" id="p_pass" placeholder="••••••••" autocomplete="off"></div>
+        <button class="btn primary" id="pullBtn">Tarik &amp; Analisis Tanggal yang Belum Ada</button>
+        <div class="hint" style="margin-top:8px">Kredensial hanya dipakai untuk sesi tarik ini dan langsung dilupakan server (tidak ditulis ke disk/DB).</div>
+      </div>
+      <div class="status" id="pstat"></div>
+      <div class="hint" style="margin-top:10px">Catatan teknis: server login (CSRF handshake → signin) lalu memutar ulang endpoint Ultra/Platform yang sama seperti extension. Penurunan token sesi <code>Impact360AuthToken</code> murni server-side perlu satu kali validasi di jaringan intranet; bila gagal, unggah JSON manual tetap tersedia di atas.</div>
     </div>
   </div>
 </div>
@@ -230,6 +239,103 @@ function loadHistory(){
     });
   }).catch(function(){
     el('histBody').innerHTML = '<tr><td colspan="6" class="empty">Gagal memuat riwayat.</td></tr>';
+  });
+}
+
+// ===== §11.3 Tarik Langsung tanpa Extension =====
+function pel(id){ return document.getElementById(id); }
+function setPstat(msg, kind){ var s=pel('pstat'); s.className='status show'+(kind?(' '+kind):''); s.innerHTML=msg; }
+
+pel('checkBtn').addEventListener('click', function(){
+  var df=pel('p_from').value, dt=pel('p_to').value;
+  if(!df || !dt){ setPstat('Isi rentang tanggal (dari & sampai) dulu.', 'err'); return; }
+  setPstat('Mengecek ketersediaan data…');
+  pel('loginBox').style.display='none';
+  fetch('/api/awe/pull/check', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({date_from:df, date_to:dt})})
+  .then(function(r){ return r.json(); }).then(function(d){
+    if(!d.ok){ throw (d.error||'Gagal cek'); }
+    var nCov=(d.covered||[]).length, nMiss=(d.missing||[]).length;
+    if(d.fully_covered){
+      var links=(d.runs||[]).map(function(r){
+        return '<a class="btn sm" style="margin-top:6px" href="/awe/dashboard?id='+encodeURIComponent(r.id)+'" target="_blank">Buka Dashboard: '+esc(r.label||r.id)+'</a>';
+      }).join(' ');
+      setPstat('✅ Semua '+nCov+' hari pada rentang ini sudah ada di database — tidak perlu tarik ulang.<br>'+links, 'ok');
+    } else {
+      var mtxt=(d.missing||[]).slice(0,10).join(', ')+(nMiss>10?' …':'');
+      setPstat('⚠️ '+nCov+' hari sudah ada, <b>'+nMiss+' hari belum ada</b>: '+esc(mtxt)+'.<br>Masukkan kredensial AWE untuk menarik rentang ini.', '');
+      pel('loginBox').style.display='block';
+    }
+  }).catch(function(e){ setPstat('Gagal: '+e, 'err'); });
+});
+
+pel('pullBtn').addEventListener('click', function(){
+  var df=pel('p_from').value, dt=pel('p_to').value;
+  var u=pel('p_user').value.trim(), pw=pel('p_pass').value;
+  if(!pw){ setPstat('Password AWE wajib diisi.', 'err'); return; }
+  pel('pullBtn').disabled=true;
+  setPstat('Login & menarik data… (kredensial tidak disimpan)');
+  fetch('/api/awe/pull/start', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({run:RUN, date_from:df, date_to:dt, username:u, password:pw, base_url:pel('p_base').value.trim()})})
+  .then(function(r){ return r.json(); }).then(function(d){
+    pel('p_pass').value='';
+    if(!d.ok || !d.job){ throw (d.error||'Gagal memulai'); }
+    pollPull(d.job);
+  }).catch(function(e){ setPstat('Gagal: '+e, 'err'); pel('pullBtn').disabled=false; });
+});
+
+function pollPull(job){
+  fetch('/api/awe/pull/progress?job='+encodeURIComponent(job)).then(function(r){ return r.json(); }).then(function(res){
+    var p=res&&res.progress?res.progress:{};
+    if(p.finished){ return fetchPull(job); }
+    setPstat('⏳ '+esc(p.message||p.status||'proses')+'…');
+    setTimeout(function(){ pollPull(job); }, 3000);
+  }).catch(function(e){ setPstat('Gagal: '+e, 'err'); pel('pullBtn').disabled=false; });
+}
+
+function fetchPull(job){
+  fetch('/api/awe/pull/fetch?job='+encodeURIComponent(job)).then(function(r){ return r.json(); }).then(function(d){
+    if(d.pending){ setTimeout(function(){ fetchPull(job); }, 2000); return; }
+    if(!d.ok){
+      if(d.need_login){ setPstat('Login gagal: '+esc(d.error||'')+' — periksa username/sandi lalu coba lagi.', 'err'); pel('loginBox').style.display='block'; }
+      else { setPstat('Gagal: '+esc(d.error||''), 'err'); }
+      pel('pullBtn').disabled=false; return;
+    }
+    setPstat('✅ '+(d.n_conv||0)+' percakapan ditarik. Menganalisis & menyimpan…');
+    apiPOST('step13', new FormData()).then(function(r2){
+      if(!r2.ok) throw (r2.error||'Gagal tarik intent Dialogflow');
+      return startAnalyzePull();
+    }).catch(function(e){ setPstat('Data ditarik, tapi analisis gagal: '+e, 'err'); pel('pullBtn').disabled=false; });
+  });
+}
+
+function startAnalyzePull(){
+  var fd=new FormData(); fd.append('mode','auto');
+  apiPOST('step14start', fd).then(function(r){
+    if(!r.ok || !r.job_id) throw (r.error||'Server tidak memberi job_id');
+    pollPullAnalyze(r.job_id);
+  }).catch(function(e){ setPstat('Analisis gagal: '+e, 'err'); pel('pullBtn').disabled=false; });
+}
+
+function pollPullAnalyze(job){
+  apiGET('step14progress', '&job='+encodeURIComponent(job)).then(function(res){
+    var p=res&&res.progress?res.progress:{};
+    if(p.error){ setPstat('Analisis gagal: '+p.error, 'err'); pel('pullBtn').disabled=false; return; }
+    if(p.finished){ return fetchPullAnalyze(job); }
+    var stg=p.stage||'proses', dn=p.done||0, tt=p.total||0;
+    setPstat('🔎 Analisis: '+esc(stg)+(tt?(' ('+dn+'/'+tt+')'):'')+'…');
+    setTimeout(function(){ pollPullAnalyze(job); }, 4000);
+  });
+}
+
+function fetchPullAnalyze(job){
+  apiGET('step14fetch', '&job='+encodeURIComponent(job)).then(function(r){
+    if(r&&r.pending){ setTimeout(function(){ fetchPullAnalyze(job); }, 3000); return; }
+    if(!r.ok){ setPstat('Gagal ambil hasil: '+(r.error||''), 'err'); pel('pullBtn').disabled=false; return; }
+    var sm=(r.artifact||{}).summary||{};
+    setPstat('✅ Selesai & tersimpan ke database AWE. '+(sm.total_percakapan||'')+' percakapan, rentang '+(sm.rentang_tanggal||'-')+'. Tanggal ini kini tersimpan — tak perlu tarik ulang.', 'ok');
+    pel('pullBtn').disabled=false; pel('p_pass').value=''; pel('loginBox').style.display='none';
+    loadHistory();
   });
 }
 

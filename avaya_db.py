@@ -88,6 +88,43 @@ def init_db(conn):
             key TEXT PRIMARY KEY,
             value TEXT
         );
+        CREATE TABLE IF NOT EXISTS awe_day_coverage (
+            day        TEXT PRIMARY KEY,   -- 'YYYY-MM-DD'
+            run_id     TEXT,
+            source     TEXT DEFAULT 'pull',
+            total_conv INTEGER,
+            pulled_at  TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_awe_cov_run ON awe_day_coverage(run_id);
+        CREATE TABLE IF NOT EXISTS awe_staging (
+            sid          TEXT PRIMARY KEY,
+            tanggal      TEXT,
+            agent_id     TEXT,
+            agent_name   TEXT,
+            customer     TEXT,
+            durasi       INTEGER DEFAULT 0,
+            payload_json TEXT,
+            batch_id     TEXT,
+            pulled_by    TEXT,
+            pulled_at    TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_awe_staging_tgl ON awe_staging(tanggal);
+        CREATE TABLE IF NOT EXISTS awe_stage_batches (
+            id         TEXT PRIMARY KEY,
+            date_from  TEXT,
+            date_to    TEXT,
+            n_pulled   INTEGER DEFAULT 0,
+            n_new      INTEGER DEFAULT 0,
+            pulled_by  TEXT,
+            created_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS awe_stage_coverage (
+            day        TEXT PRIMARY KEY,
+            batch_id   TEXT,
+            total_conv INTEGER,
+            pulled_by  TEXT,
+            pulled_at  TEXT
+        );
         """
     )
     conn.commit()
@@ -115,7 +152,81 @@ def _make_run_id(dashboard, records):
     return _hashlib.sha1(basis.encode("utf-8", "replace")).hexdigest()[:16]
 
 
-def save_run(conn, dashboard, records=None, label=None, n_files=0, source="upload", build=None):
+def _days_in_range(day_from, day_to):
+    """List tanggal inklusif YYYY-MM-DD dari day_from s/d day_to."""
+    try:
+        a = _dt.date.fromisoformat(str(day_from)[:10])
+        b = _dt.date.fromisoformat(str(day_to)[:10])
+    except Exception:
+        return []
+    if b < a:
+        a, b = b, a
+    out, d = [], a
+    while d <= b:
+        out.append(d.isoformat())
+        d += _dt.timedelta(days=1)
+    return out
+
+
+def _mark_days(cur, days, run_id, source, total_conv):
+    now = _jkt_now_iso()
+    for d in days:
+        if not d:
+            continue
+        cur.execute(
+            "INSERT INTO awe_day_coverage(day,run_id,source,total_conv,pulled_at) "
+            "VALUES(?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET "
+            "run_id=excluded.run_id, source=excluded.source, "
+            "total_conv=excluded.total_conv, pulled_at=excluded.pulled_at",
+            (d, run_id, source, total_conv, now),
+        )
+
+
+def mark_days_covered(conn, day_from, day_to, run_id=None, source="pull", total_conv=None):
+    """Tandai rentang hari sebagai sudah ditarik (dipakai flow tarik-langsung)."""
+    cur = conn.cursor()
+    _mark_days(cur, _days_in_range(day_from, day_to), run_id, source, total_conv)
+    conn.commit()
+    return _days_in_range(day_from, day_to)
+
+
+def covered_days(conn):
+    cur = conn.cursor()
+    rs = cur.execute("SELECT day FROM awe_day_coverage").fetchall()
+    return set(r["day"] for r in rs)
+
+
+def coverage_for_range(conn, day_from, day_to):
+    """Bagi rentang jadi hari yang SUDAH ada vs BELUM ada di database AWE.
+
+    Return: {requested, covered, missing, runs} di mana runs = daftar run
+    (id,label,...) yang memuat hari-hari tercakup, agar UI bisa langsung buka
+    dashboard tanpa tarik ulang.
+    """
+    req = _days_in_range(day_from, day_to)
+    cur = conn.cursor()
+    cov_map = {}
+    if req:
+        qs = ",".join("?" for _ in req)
+        rs = cur.execute(
+            "SELECT day, run_id FROM awe_day_coverage WHERE day IN (%s)" % qs, req
+        ).fetchall()
+        for r in rs:
+            cov_map[r["day"]] = r["run_id"]
+    covered = [d for d in req if d in cov_map]
+    missing = [d for d in req if d not in cov_map]
+    run_ids = [rid for rid in dict.fromkeys(cov_map.values()) if rid]
+    runs = []
+    for rid in run_ids:
+        rr = get_run(conn, rid)
+        if rr:
+            runs.append({k: rr[k] for k in ("id", "label", "date_min", "date_max",
+                                             "total_conv", "total_cust", "source", "created_at")})
+    return {"requested": req, "covered": covered, "missing": missing, "runs": runs}
+
+
+def save_run(conn, dashboard, records=None, label=None, n_files=0, source="upload", build=None,
+             cover_from=None, cover_to=None):
     """Simpan satu hasil analisis AWE. Idempoten: run_id sama -> ditimpa.
 
     Mengembalikan dict {id, total_conv, total_cust, date_min, date_max, new}.
@@ -183,6 +294,13 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
+    # tandai cakupan hari (agar analis tak perlu tarik ulang tanggal yang sudah ada)
+    if cover_from and cover_to:
+        _mark_days(cur, _days_in_range(cover_from, cover_to), run_id, source, total_conv)
+    else:
+        _cdays = sorted({str(_g(c, "tanggal", "date", "start", default=""))[:10]
+                         for c in convs if isinstance(c, dict)})
+        _mark_days(cur, [d for d in _cdays if d], run_id, source, None)
     set_meta(conn, "last_saved_at", _jkt_now_iso())
     conn.commit()
     return {"id": run_id, "total_conv": total_conv, "total_cust": total_cust,
@@ -259,6 +377,161 @@ def set_meta(conn, key, value):
 def get_meta(conn, key, default=None):
     r = conn.execute("SELECT value FROM awe_meta WHERE key=?", (key,)).fetchone()
     return r["value"] if r else default
+
+
+# =============================================================
+# STAGING (penyimpanan sementara data mentah AWE) untuk alur
+# "Kelola Data AWE" 2-tahap: (1) TARIK ke staging, (2) PROSES ke awe_runs.
+# Dedup lintas tarikan & lintas pengguna berdasarkan sid.
+# =============================================================
+def _stage_day_of(c):
+    return str(_g(c, "tanggal", "date", "start", default=""))[:10]
+
+
+def stage_upsert_convs(conn, convs, batch_id=None, pulled_by=None):
+    """Sisipkan percakapan mentah ke staging. Dedup by sid (INSERT OR IGNORE:
+    percakapan yang sudah ada TIDAK ditimpa -> aman untuk melengkapi)."""
+    cur = conn.cursor()
+    now = _jkt_now_iso()
+    n_seen = n_new = 0
+    for c in convs:
+        if not isinstance(c, dict):
+            continue
+        sid = str(_g(c, "sid", "Sid", default="")).strip()
+        if not sid:
+            continue
+        n_seen += 1
+        r = cur.execute(
+            "INSERT OR IGNORE INTO awe_staging"
+            "(sid,tanggal,agent_id,agent_name,customer,durasi,payload_json,batch_id,pulled_by,pulled_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (sid, _stage_day_of(c),
+             str(_g(c, "agentId", "agent_id", default="")),
+             str(_g(c, "agentName", "agent", "agent_name", default="")),
+             str(_g(c, "customer", "pelanggan", default="")),
+             int(_g(c, "durasi", "duration", default=0) or 0),
+             _json.dumps(c, ensure_ascii=False),
+             batch_id or "", pulled_by or "", now),
+        )
+        if r.rowcount:
+            n_new += 1
+    conn.commit()
+    return {"seen": n_seen, "new": n_new, "dup": n_seen - n_new}
+
+
+def stage_add_batch(conn, batch_id, date_from, date_to, n_pulled, n_new, pulled_by=None):
+    conn.execute(
+        "INSERT OR REPLACE INTO awe_stage_batches"
+        "(id,date_from,date_to,n_pulled,n_new,pulled_by,created_at) VALUES(?,?,?,?,?,?,?)",
+        (batch_id, str(date_from)[:10], str(date_to)[:10], int(n_pulled or 0),
+         int(n_new or 0), pulled_by or "", _jkt_now_iso()),
+    )
+    conn.commit()
+
+
+def stage_mark_days(conn, convs, day_from=None, day_to=None, batch_id=None, pulled_by=None):
+    """Tandai hari-hari yang KINI ada di staging (pakai tanggal aktual dari
+    percakapan; fallback ke rentang bila kosong)."""
+    now = _jkt_now_iso()
+    by_day = {}
+    for c in convs:
+        if not isinstance(c, dict):
+            continue
+        d = _stage_day_of(c)
+        if d:
+            by_day[d] = by_day.get(d, 0) + 1
+    days = sorted(by_day) or [d for d in _days_in_range(day_from, day_to) if d]
+    cur = conn.cursor()
+    for d in days:
+        cur.execute(
+            "INSERT INTO awe_stage_coverage(day,batch_id,total_conv,pulled_by,pulled_at)"
+            " VALUES(?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET"
+            " batch_id=excluded.batch_id, total_conv=excluded.total_conv,"
+            " pulled_by=excluded.pulled_by, pulled_at=excluded.pulled_at",
+            (d, batch_id or "", by_day.get(d), pulled_by or "", now),
+        )
+    conn.commit()
+    return days
+
+
+def stage_coverage_for_range(conn, day_from, day_to):
+    req = _days_in_range(day_from, day_to)
+    cur = conn.cursor()
+    have = set()
+    if req:
+        qs = ",".join("?" for _ in req)
+        rs = cur.execute(
+            "SELECT day FROM awe_stage_coverage WHERE day IN (%s)" % qs, req
+        ).fetchall()
+        have = set(r["day"] for r in rs)
+    staged = [d for d in req if d in have]
+    missing = [d for d in req if d not in have]
+    return {"requested": req, "staged": staged, "missing": missing}
+
+
+def stage_stats(conn):
+    cur = conn.cursor()
+    row = cur.execute(
+        "SELECT COUNT(*) AS n, MIN(tanggal) AS dmin, MAX(tanggal) AS dmax FROM awe_staging"
+    ).fetchone()
+    ndays = cur.execute("SELECT COUNT(*) FROM awe_stage_coverage").fetchone()[0]
+    nb = cur.execute("SELECT COUNT(*) FROM awe_stage_batches").fetchone()[0]
+    return {"total": row["n"] or 0, "date_min": row["dmin"] or "",
+            "date_max": row["dmax"] or "", "days": ndays, "batches": nb}
+
+
+def stage_list_batches(conn, limit=100):
+    rs = conn.execute(
+        "SELECT id,date_from,date_to,n_pulled,n_new,pulled_by,created_at"
+        " FROM awe_stage_batches ORDER BY datetime(created_at) DESC LIMIT ?",
+        (int(limit),),
+    ).fetchall()
+    return [dict(r) for r in rs]
+
+
+def stage_count(conn, day_from=None, day_to=None):
+    if day_from and day_to:
+        return conn.execute(
+            "SELECT COUNT(*) FROM awe_staging WHERE tanggal>=? AND tanggal<=?",
+            (str(day_from)[:10], str(day_to)[:10]),
+        ).fetchone()[0]
+    return conn.execute("SELECT COUNT(*) FROM awe_staging").fetchone()[0]
+
+
+def stage_load_convs(conn, day_from=None, day_to=None):
+    if day_from and day_to:
+        rs = conn.execute(
+            "SELECT payload_json FROM awe_staging WHERE tanggal>=? AND tanggal<=?"
+            " ORDER BY tanggal, sid", (str(day_from)[:10], str(day_to)[:10]),
+        ).fetchall()
+    else:
+        rs = conn.execute(
+            "SELECT payload_json FROM awe_staging ORDER BY tanggal, sid"
+        ).fetchall()
+    out = []
+    for r in rs:
+        try:
+            out.append(_json.loads(r["payload_json"]))
+        except Exception:
+            pass
+    return out
+
+
+def stage_purge(conn, day_from=None, day_to=None):
+    cur = conn.cursor()
+    if day_from and day_to:
+        a, b = str(day_from)[:10], str(day_to)[:10]
+        n = cur.execute("SELECT COUNT(*) FROM awe_staging WHERE tanggal>=? AND tanggal<=?", (a, b)).fetchone()[0]
+        cur.execute("DELETE FROM awe_staging WHERE tanggal>=? AND tanggal<=?", (a, b))
+        cur.execute("DELETE FROM awe_stage_coverage WHERE day>=? AND day<=?", (a, b))
+        cur.execute("DELETE FROM awe_stage_batches WHERE date_from>=? AND date_to<=?", (a, b))
+    else:
+        n = cur.execute("SELECT COUNT(*) FROM awe_staging").fetchone()[0]
+        cur.execute("DELETE FROM awe_staging")
+        cur.execute("DELETE FROM awe_stage_coverage")
+        cur.execute("DELETE FROM awe_stage_batches")
+    conn.commit()
+    return n
 
 
 if __name__ == "__main__":

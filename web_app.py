@@ -38,6 +38,9 @@ import llm_client
 import users_db as usr
 import analytics_db as adb
 import avaya_db as avdb
+import avaya_client as avc
+import threading as _threading
+import uuid as _uuid
 import ingest
 import glossary_db as gdb
 import disambig_db as ddb
@@ -83,14 +86,27 @@ def _page_user_ctx(request):
     token = request.cookies.get("session")
     user = _user_from_token(token) if token else None
     nama = user.get("nama") if user and user.get("nama") else "Analis Pajak"
-    role = user.get("role") if user and user.get("role") else "Fungsional Penyuluh"
+    role_key = (user.get("role") if user and user.get("role") else "") or ""
+    role_lbl = usr.role_label(role_key) if role_key else "Fungsional Penyuluh"
     avatar = (nama[0].upper() if nama else "A")
-    return {"user_name": nama, "user_role": role, "user_avatar": avatar}
+    return {
+        "user_name": nama,
+        "user_role": role_lbl,
+        "user_role_key": role_key,
+        "user_avatar": avatar,
+        "can_dialogflow": usr.area_allowed(role_key, "dialogflow"),
+        "can_awe": usr.area_allowed(role_key, "awe"),
+        "can_awe_manage": usr.area_allowed(role_key, "awe_manage"),
+        "can_assess": usr.area_allowed(role_key, "assess"),
+        "can_users": usr.area_allowed(role_key, "users"),
+    }
 
 
-def render_page(request, template_name, active_page=""):
+def render_page(request, template_name, active_page="", extra=None):
     ctx = {"active_page": active_page}
     ctx.update(_page_user_ctx(request))
+    if extra:
+        ctx.update(extra)
     return _TEMPLATES.TemplateResponse(request, template_name, ctx)
 
 _PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico"}
@@ -99,6 +115,8 @@ _PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ic
 def _route_action(method, path):
     if path == "/users" or path.startswith("/api/users"):
         return "admin"
+    if path.startswith("/api/awe/assess") or path.startswith("/api/assess"):
+        return "assess"
     if path in ("/api/intentmap/approve", "/api/intentmap/describe", "/api/intentmap/describe/start", "/api/intentmap/describe/stop"):
         return "approve"
     if path == "/api/ingest" or path == "/api/ingest-upload":
@@ -106,6 +124,25 @@ def _route_action(method, path):
     if path.endswith("/save") or path.endswith("/delete"):
         return "edit"
     return "read"
+
+
+def _route_area(path):
+    if path == "/users" or path.startswith("/api/users"):
+        return "users"
+    if (path == "/awe/kelola" or path.startswith("/api/awe/pull")
+            or path.startswith("/api/awe/stage") or path.startswith("/api/awe/process")
+            or path.startswith("/api/awe/delete")):
+        return "awe_manage"
+    if (path == "/awe/penilaian" or path.startswith("/api/awe/assess")
+            or path.startswith("/api/assess")):
+        return "assess"
+    if path == "/awe" or path.startswith("/awe/") or path.startswith("/api/awe"):
+        return "awe"
+    if (path == "/" or path == "/studio" or path.startswith("/api/ask")
+            or path.startswith("/api/config") or path.startswith("/api/chat")
+            or path.startswith("/api/studio")):
+        return "common"
+    return "dialogflow"
 
 
 def _user_from_token(token):
@@ -133,7 +170,13 @@ async def _auth_middleware(request: Request, call_next):
         nxt = path + (("?" + request.url.query) if request.url.query else "")
         return RedirectResponse("/login?next=" + _quote(nxt, safe=""), status_code=302)
 
-    if not usr.can(user.get("role"), _route_action(request.method, path)):
+    role = user.get("role")
+    if not usr.area_allowed(role, _route_area(path)):
+        if path.startswith("/api/"):
+            return JSONResponse({"ok": False, "error": "Akses ditolak untuk peran Anda."}, status_code=403)
+        return RedirectResponse("/", status_code=302)
+
+    if not usr.can(role, _route_action(request.method, path)):
         if path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "Akses ditolak untuk peran Anda."}, status_code=403)
         return RedirectResponse("/", status_code=302)
@@ -150,6 +193,26 @@ async def login_page():
 @app.get("/users")
 async def users_page(request: Request):
     return render_page(request, "users.html", "users")
+
+@app.get("/awe/kelola")
+async def awe_kelola_page(request: Request):
+    return render_page(request, "awe_kelola.html", "awe_kelola")
+
+
+@app.get("/awe/penilaian")
+async def awe_penilaian_page(request: Request):
+    return render_page(request, "placeholder.html", "awe_penilaian", extra={
+        "page_title": "Penilaian QA (Assessor)",
+        "page_desc": "Filter percakapan agen lalu nilai atribut secara manual lewat formulir di dalam AWE. Segera dibangun pada tahap berikutnya.",
+    })
+
+
+@app.get("/awe/deflection-gap")
+async def awe_deflection_gap_page(request: Request):
+    return render_page(request, "placeholder.html", "awe_deflgap", extra={
+        "page_title": "Deflection Gap AWE",
+        "page_desc": "Pencocokan kemiripan topik/teks (tanpa ID) untuk menemukan pertanyaan yang belum tertangani; output di halaman sendiri. Segera dibangun pada tahap berikutnya.",
+    })
 
 
 @app.post("/api/login")
@@ -1320,7 +1383,7 @@ def _avaya_summary_from_result(result, src_label=None):
     return summary
 
 
-def _avaya_persist(result, n_files=0, source="upload"):
+def _avaya_persist(result, n_files=0, source="upload", cover_from=None, cover_to=None):
     """Simpan hasil analisis AWE ke database avaya.db (biar tak perlu analisa ulang)."""
     try:
         conn = avdb.init_db(avdb.connect())
@@ -1328,7 +1391,8 @@ def _avaya_persist(result, n_files=0, source="upload"):
             return avdb.save_run(conn, result.get("dashboard", {}) or {},
                                  records=result.get("records", []) or [],
                                  n_files=n_files, source=source,
-                                 build=result.get("build"))
+                                 build=result.get("build"),
+                                 cover_from=cover_from, cover_to=cover_to)
         finally:
             conn.close()
     except Exception as _e:
@@ -1381,7 +1445,10 @@ def avaya3_analyze(cfg, ctx):
     if not isinstance(result, dict) or "dashboard" not in result:
         raise Exception("Server tidak mengembalikan JSON hasil yang valid. Cuplikan: " + body.decode("utf-8", "replace")[:800])
     summary = _avaya_summary_from_result(result, src_label)
-    _info = _avaya_persist(result, source="upload")
+    _pr = load_state(cfg, ctx.run).get("awe_pull_range")
+    _info = _avaya_persist(result, source=("pull" if _pr else "upload"),
+                           cover_from=(_pr[0] if _pr else None),
+                           cover_to=(_pr[1] if _pr else None))
     if _info:
         summary["disimpan_ke_database"] = "Ya (id %s)" % _info["id"]
     data = save_artifact(cfg, ctx.run, 14, "json", json.dumps(result, ensure_ascii=False), "avaya_result.json", summary)
@@ -1438,7 +1505,10 @@ def avaya3_fetch(cfg, ctx):
     if "dashboard" not in result:
         raise Exception("Hasil tidak berisi dashboard. Cuplikan: " + body.decode("utf-8", "replace")[:800])
     summary = _avaya_summary_from_result(result)
-    _info = _avaya_persist(result, source="upload")
+    _pr = load_state(cfg, ctx.run).get("awe_pull_range")
+    _info = _avaya_persist(result, source=("pull" if _pr else "upload"),
+                           cover_from=(_pr[0] if _pr else None),
+                           cover_to=(_pr[1] if _pr else None))
     if _info:
         summary["disimpan_ke_database"] = "Ya (id %s)" % _info["id"]
     data = save_artifact(cfg, ctx.run, 14, "json", json.dumps(result, ensure_ascii=False), "avaya_result.json", summary)
@@ -2524,6 +2594,381 @@ async def awe_delete_run(request: Request):
             conn.close()
     n = await run_in_threadpool(_do)
     return JSONResponse({"ok": True, "deleted": n})
+
+
+
+# =============================================================
+# AWE §11.3 — Tarik data langsung tanpa extension
+#   - kredensial pegawai TIDAK disimpan (hanya di memori proses saat menarik)
+#   - cek cakupan tanggal dulu; kalau sudah ada, pakai data yang ada
+# =============================================================
+_AWE_PULL_JOBS = {}
+_AWE_PULL_LOCK = _threading.Lock()
+
+
+def _awe_job_set(job_id, **kw):
+    with _AWE_PULL_LOCK:
+        j = _AWE_PULL_JOBS.setdefault(job_id, {})
+        j.update(kw)
+
+
+def _awe_job_get(job_id):
+    with _AWE_PULL_LOCK:
+        j = _AWE_PULL_JOBS.get(job_id)
+        return dict(j) if j else {}
+
+
+def _awe_pull_worker(job_id, cfg, run, date_from, date_to, username, password, base_url):
+    """Login → tarik rentang tanggal → tulis step12 gabungan. Kredensial dilupakan."""
+    logs = []
+    def prog(m):
+        logs.append(m)
+        _awe_job_set(job_id, message=m, log=logs[-10:])
+    try:
+        _awe_job_set(job_id, status="login", message="Login ke Avaya WFO…")
+        client = avc.AvayaClient(base_url=(base_url or None))
+        client.login(username, password)
+        username = None
+        password = None  # jangan simpan kredensial
+        _awe_job_set(job_id, status="pull", message="Menarik data…")
+        convs = client.pull_range(date_from, date_to, on_prog=prog)
+        payload = json.dumps({"data": convs}, ensure_ascii=False)
+        summary = {
+            "status": "Selesai",
+            "sumber": "Tarik langsung (tanpa extension)",
+            "rentang_tanggal": "%s s/d %s" % (date_from, date_to),
+            "total_percakapan": len(convs),
+        }
+        save_artifact(cfg, run, 12, "json", payload, "avaya_gabungan.json", summary)
+        st = load_state(cfg, run)
+        st["awe_pull_range"] = [str(date_from)[:10], str(date_to)[:10]]
+        save_state(cfg, run, st)
+        _awe_job_set(job_id, status="done", finished=True, ok=True, run=run,
+                     n_conv=len(convs),
+                     message="Berhasil menarik %d percakapan. Lanjut analisis…" % len(convs))
+    except avc.AvayaAuthError as e:
+        _awe_job_set(job_id, status="error", finished=True, ok=False,
+                     need_login=True, error=str(e))
+    except Exception as e:
+        _awe_job_set(job_id, status="error", finished=True, ok=False,
+                     need_login=False, error=str(e))
+
+
+@app.post("/api/awe/pull/check")
+async def awe_pull_check(request: Request):
+    body = await request.json() or {}
+    df = str(body.get("date_from") or "").strip()
+    dt = str(body.get("date_to") or "").strip()
+    if not df or not dt:
+        return JSONResponse({"ok": False, "error": "Tanggal (dari & sampai) wajib diisi."}, status_code=400)
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return avdb.coverage_for_range(conn, df, dt)
+        finally:
+            conn.close()
+    cov = await run_in_threadpool(_do)
+    cov["ok"] = True
+    cov["fully_covered"] = (len(cov.get("missing", [])) == 0)
+    cov["need_login"] = (len(cov.get("missing", [])) > 0)
+    return JSONResponse(cov)
+
+
+@app.post("/api/awe/pull/start")
+async def awe_pull_start(request: Request):
+    body = await request.json() or {}
+    run = str(body.get("run") or "").strip()
+    df = str(body.get("date_from") or "").strip()
+    dt = str(body.get("date_to") or "").strip()
+    username = body.get("username") or ""
+    password = body.get("password") or ""
+    base_url = str(body.get("base_url") or "").strip()
+    if not re.match(r"^[A-Za-z0-9_\-]{1,64}$", run):
+        return JSONResponse({"ok": False, "error": "Run ID tidak valid."}, status_code=400)
+    if not df or not dt:
+        return JSONResponse({"ok": False, "error": "Tanggal wajib diisi."}, status_code=400)
+    if not password:
+        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi.", "need_login": True}, status_code=400)
+    job_id = _uuid.uuid4().hex
+    _awe_job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan…")
+    _threading.Thread(
+        target=_awe_pull_worker,
+        args=(job_id, CONFIG, run, df, dt, username, password, base_url),
+        daemon=True,
+    ).start()
+    # username/password hanya diteruskan ke thread lalu dilupakan; tidak ditulis ke disk/DB
+    return JSONResponse({"ok": True, "job": job_id})
+
+
+@app.get("/api/awe/pull/progress")
+async def awe_pull_progress(job: str = ""):
+    j = _awe_job_get(job)
+    if not j:
+        return JSONResponse({"ok": False, "error": "Job tidak ditemukan."}, status_code=404)
+    return JSONResponse({"ok": True, "progress": j})
+
+
+@app.get("/api/awe/pull/fetch")
+async def awe_pull_fetch(job: str = ""):
+    j = _awe_job_get(job)
+    if not j:
+        return JSONResponse({"ok": False, "error": "Job tidak ditemukan."}, status_code=404)
+    if not j.get("finished"):
+        return JSONResponse({"ok": True, "pending": True, "progress": j})
+    with _AWE_PULL_LOCK:
+        _AWE_PULL_JOBS.pop(job, None)  # bersihkan dari memori setelah diambil
+    return JSONResponse(j)
+
+
+# =============================================================
+# KELOLA DATA AWE  Tahap 1: TARIK ke staging (penyimpanan sementara)
+#   - kredensial pegawai TIDAK disimpan
+#   - dedup by sid lintas tarikan & lintas pengguna
+#   - TIDAK menganalisis (pemrosesan bahasa dilakukan di Tahap 2)
+# =============================================================
+def _awe_stage_worker(job_id, date_from, date_to, username, password, base_url, pulled_by):
+    logs = []
+    def prog(m):
+        logs.append(m)
+        _awe_job_set(job_id, message=m, log=logs[-10:])
+    try:
+        _awe_job_set(job_id, status="login", message="Login ke Avaya WFO")
+        client = avc.AvayaClient(base_url=(base_url or None))
+        client.login(username, password)
+        username = None
+        password = None
+        _awe_job_set(job_id, status="pull", message="Menarik data ke penyimpanan sementara")
+        convs = client.pull_range(date_from, date_to, on_prog=prog)
+        batch_id = _uuid.uuid4().hex[:12]
+        def _save():
+            conn = avdb.init_db(avdb.connect())
+            try:
+                res = avdb.stage_upsert_convs(conn, convs, batch_id=batch_id, pulled_by=pulled_by)
+                avdb.stage_mark_days(conn, convs, date_from, date_to, batch_id=batch_id, pulled_by=pulled_by)
+                avdb.stage_add_batch(conn, batch_id, date_from, date_to, res["seen"], res["new"], pulled_by)
+                return res
+            finally:
+                conn.close()
+        res = _save()
+        _awe_job_set(job_id, status="done", finished=True, ok=True,
+                     n_conv=len(convs), n_new=res["new"], n_dup=res["dup"],
+                     message="Berhasil menarik %d percakapan (%d baru, %d duplikat) ke penyimpanan sementara." % (len(convs), res["new"], res["dup"]))
+    except avc.AvayaAuthError as e:
+        _awe_job_set(job_id, status="error", finished=True, ok=False, need_login=True, error=str(e))
+    except Exception as e:
+        _awe_job_set(job_id, status="error", finished=True, ok=False, need_login=False, error=str(e))
+
+
+@app.post("/api/awe/stage/check")
+async def awe_stage_check(request: Request):
+    body = await request.json() or {}
+    df = str(body.get("date_from") or "").strip()
+    dt = str(body.get("date_to") or "").strip()
+    if not df or not dt:
+        return JSONResponse({"ok": False, "error": "Tanggal (dari & sampai) wajib diisi."}, status_code=400)
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return avdb.stage_coverage_for_range(conn, df, dt)
+        finally:
+            conn.close()
+    cov = await run_in_threadpool(_do)
+    cov["ok"] = True
+    cov["fully_staged"] = (len(cov.get("missing", [])) == 0)
+    return JSONResponse(cov)
+
+
+@app.post("/api/awe/stage/start")
+async def awe_stage_start(request: Request):
+    body = await request.json() or {}
+    df = str(body.get("date_from") or "").strip()
+    dt = str(body.get("date_to") or "").strip()
+    username = body.get("username") or ""
+    password = body.get("password") or ""
+    base_url = str(body.get("base_url") or "").strip()
+    if not df or not dt:
+        return JSONResponse({"ok": False, "error": "Tanggal wajib diisi."}, status_code=400)
+    if not password:
+        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi.", "need_login": True}, status_code=400)
+    me = getattr(request.state, "user", None) or {}
+    job_id = _uuid.uuid4().hex
+    _awe_job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan")
+    _threading.Thread(target=_awe_stage_worker,
+                      args=(job_id, df, dt, username, password, base_url, me.get("username") or ""),
+                      daemon=True).start()
+    return JSONResponse({"ok": True, "job": job_id})
+
+
+@app.get("/api/awe/stage/progress")
+async def awe_stage_progress(job: str = ""):
+    j = _awe_job_get(job)
+    if not j:
+        return JSONResponse({"ok": False, "error": "Job tidak ditemukan."}, status_code=404)
+    return JSONResponse({"ok": True, "progress": j})
+
+
+@app.get("/api/awe/stage/fetch")
+async def awe_stage_fetch(job: str = ""):
+    j = _awe_job_get(job)
+    if not j:
+        return JSONResponse({"ok": False, "error": "Job tidak ditemukan."}, status_code=404)
+    if not j.get("finished"):
+        return JSONResponse({"ok": True, "pending": True, "progress": j})
+    with _AWE_PULL_LOCK:
+        _AWE_PULL_JOBS.pop(job, None)
+    return JSONResponse(j)
+
+
+@app.get("/api/awe/stage/summary")
+async def awe_stage_summary():
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return {"stats": avdb.stage_stats(conn), "batches": avdb.stage_list_batches(conn)}
+        finally:
+            conn.close()
+    d = await run_in_threadpool(_do)
+    d["ok"] = True
+    return JSONResponse(d)
+
+
+@app.post("/api/awe/stage/purge")
+async def awe_stage_purge(request: Request):
+    body = await request.json() or {}
+    df = str(body.get("date_from") or "").strip()
+    dt = str(body.get("date_to") or "").strip()
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            if df and dt:
+                return avdb.stage_purge(conn, df, dt)
+            return avdb.stage_purge(conn)
+        finally:
+            conn.close()
+    n = await run_in_threadpool(_do)
+    return JSONResponse({"ok": True, "deleted": n})
+
+
+# =============================================================
+# KELOLA DATA AWE  Tahap 2: PROSES (pemrosesan bahasa) staging -> awe_runs
+#   - materialisasi staging ke run pemrosesan (step12)
+#   - tarik intent Dialogflow (step13) lalu analisis backend (step14)
+#   - hasil disimpan ke database AWE; opsional bersihkan staging
+# =============================================================
+_AWE_PROC_JOBS = {}
+
+
+def _proc_job_set(job_id, **kw):
+    with _AWE_PULL_LOCK:
+        j = _AWE_PROC_JOBS.setdefault(job_id, {})
+        j.update(kw)
+
+
+def _proc_job_get(job_id):
+    with _AWE_PULL_LOCK:
+        j = _AWE_PROC_JOBS.get(job_id)
+        return dict(j) if j else {}
+
+
+def _awe_process_worker(job_id, date_from, date_to, purge_after):
+    import time as _time
+    try:
+        _proc_job_set(job_id, status="load", message="Menyiapkan data dari penyimpanan sementara")
+        conn = avdb.init_db(avdb.connect())
+        try:
+            convs = avdb.stage_load_convs(conn, date_from or None, date_to or None)
+        finally:
+            conn.close()
+        if not convs:
+            _proc_job_set(job_id, status="error", finished=True, ok=False,
+                          error="Tidak ada data di penyimpanan sementara untuk diproses.")
+            return
+        days = sorted({str(c.get("tanggal") or "")[:10] for c in convs if isinstance(c, dict) and c.get("tanggal")})
+        d_min = days[0] if days else (str(date_from)[:10] if date_from else "")
+        d_max = days[-1] if days else (str(date_to)[:10] if date_to else "")
+        procrun = "awe_proc_" + _uuid.uuid4().hex[:8]
+        save_artifact(CONFIG, procrun, 12, "json",
+                      json.dumps({"data": convs}, ensure_ascii=False),
+                      "avaya_gabungan.json",
+                      {"status": "Disiapkan dari staging", "total_percakapan": len(convs)})
+        st = load_state(CONFIG, procrun)
+        st["awe_pull_range"] = [d_min, d_max]
+        save_state(CONFIG, procrun, st)
+        ctx = Ctx(procrun, {"mode": "auto"}, {}, {})
+        _proc_job_set(job_id, status="intent", message="Menarik katalog intent Dialogflow")
+        avaya2_pull_intents(CONFIG, ctx)
+        _proc_job_set(job_id, status="analyze", message="Memproses bahasa (analisis backend)")
+        started = avaya3_start(CONFIG, ctx)
+        job = started.get("job_id")
+        out = None
+        for _i in range(2000):
+            out = avaya3_fetch(CONFIG, Ctx(procrun, {}, {}, {"job": job}))
+            if isinstance(out, dict) and out.get("pending"):
+                info = out.get("progress") or {}
+                _proc_job_set(job_id, status="analyze",
+                              message="Proses bahasa: %s" % (info.get("message") or info.get("status") or "memproses"))
+                _time.sleep(2)
+                continue
+            break
+        art = (out or {}).get("artifact") or {}
+        summ = art.get("summary") or {}
+        saved = summ.get("disimpan_ke_database") or "Ya"
+        if purge_after:
+            conn = avdb.init_db(avdb.connect())
+            try:
+                if date_from and date_to:
+                    avdb.stage_purge(conn, date_from, date_to)
+                else:
+                    avdb.stage_purge(conn)
+            finally:
+                conn.close()
+        _proc_job_set(job_id, status="done", finished=True, ok=True,
+                      n_conv=len(convs), rentang="%s s/d %s" % (d_min, d_max),
+                      disimpan=saved, purged=bool(purge_after),
+                      message="Selesai memproses %d percakapan (%s s/d %s)." % (len(convs), d_min, d_max))
+    except Exception as e:
+        _proc_job_set(job_id, status="error", finished=True, ok=False, error=str(e))
+
+
+@app.post("/api/awe/process/start")
+async def awe_process_start(request: Request):
+    body = await request.json() or {}
+    df = str(body.get("date_from") or "").strip()
+    dt = str(body.get("date_to") or "").strip()
+    purge_after = bool(body.get("purge_after"))
+    def _cnt():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return avdb.stage_count(conn, df or None, dt or None)
+        finally:
+            conn.close()
+    n = await run_in_threadpool(_cnt)
+    if not n:
+        return JSONResponse({"ok": False, "error": "Penyimpanan sementara kosong untuk rentang ini. Tarik data dulu."}, status_code=400)
+    job_id = _uuid.uuid4().hex
+    _proc_job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan")
+    _threading.Thread(target=_awe_process_worker, args=(job_id, df, dt, purge_after), daemon=True).start()
+    return JSONResponse({"ok": True, "job": job_id, "n_staged": n})
+
+
+@app.get("/api/awe/process/progress")
+async def awe_process_progress(job: str = ""):
+    j = _proc_job_get(job)
+    if not j:
+        return JSONResponse({"ok": False, "error": "Job tidak ditemukan."}, status_code=404)
+    return JSONResponse({"ok": True, "progress": j})
+
+
+@app.get("/api/awe/process/fetch")
+async def awe_process_fetch(job: str = ""):
+    j = _proc_job_get(job)
+    if not j:
+        return JSONResponse({"ok": False, "error": "Job tidak ditemukan."}, status_code=404)
+    if not j.get("finished"):
+        return JSONResponse({"ok": True, "pending": True, "progress": j})
+    with _AWE_PULL_LOCK:
+        _AWE_PROC_JOBS.pop(job, None)
+    return JSONResponse(j)
 
 
 @app.get("/dashboard")

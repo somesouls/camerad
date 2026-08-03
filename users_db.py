@@ -10,8 +10,9 @@ from datetime import datetime, timezone
 PBKDF2_ITERATIONS = 200000
 
 _CAP = {
-    "admin": {"read", "edit", "approve", "ingest", "admin"},
+    "admin": {"read", "edit", "approve", "ingest", "admin", "assess"},
     "analis": {"read", "edit", "approve", "ingest"},
+    "assessor": {"read", "assess"},
     "viewer": {"read"},
 }
 
@@ -250,3 +251,31 @@ def seed_admin(conn):
     pw = os.environ.get("PIPELINE_ADMIN_PASSWORD", "admin123")
     res = create_user(conn, u, pw, nama="Administrator", role="admin")
     return {"username": u, "default_password": pw} if res.get("ok") else None
+
+
+# --- Fondasi RBAC: label peran + segregasi per-area (ditambahkan) ---
+ROLE_LABEL = {
+    "admin": "Administrator",
+    "analis": "Analis",
+    "assessor": "Assessor QA",
+    "viewer": "Peninjau",
+}
+
+# Area akses (di atas kapabilitas). Dipakai middleware & template menu.
+_AREA_ROLES = {
+    "dialogflow": {"admin", "analis", "viewer"},
+    "awe":        {"admin", "analis", "assessor", "viewer"},
+    "awe_manage": {"admin", "analis"},
+    "assess":     {"admin", "assessor"},
+    "common":     {"admin", "analis", "assessor", "viewer"},
+    "users":      {"admin"},
+}
+
+
+def role_label(role):
+    return ROLE_LABEL.get(role or "", (role or "-"))
+
+
+def area_allowed(role, area):
+    return (role or "") in _AREA_ROLES.get(area or "", set())
+

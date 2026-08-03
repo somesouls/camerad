@@ -285,6 +285,62 @@ def analyze_path(conv):
 # ==================================================================
 # 3) EMBEDDING BACKEND (MPNet -> fallback TF-IDF)
 # ==================================================================
+class _SparseEmb:
+    """Matriks embedding sparse (CSR) hemat memori untuk mode bag-of-words.
+
+    Menggantikan matriks dense (len(texts) x |vocab|) yang bisa memakan puluhan
+    GB. Mendukung operasi yang dipakai pipeline:
+      - A @ v         : v vektor 1D dense (|vocab|,) -> skor (n,)
+      - A @ M         : M dense (|vocab|, k)         -> (n, k)
+      - A[i]          : baris ke-i sebagai vektor 1D dense (|vocab|,)
+      - len(A)        : jumlah baris
+    Semua baris sudah ternormalisasi L2 saat dibangun, jadi A @ v = cosine sim.
+    """
+    __array_priority__ = 1000  # pastikan (A @ v) memakai __matmul__ ini
+
+    def __init__(self, indptr, indices, data, n, dim):
+        import numpy as _np
+        self.indptr = _np.asarray(indptr, dtype=_np.int64)
+        self.indices = _np.asarray(indices, dtype=_np.int64)
+        self.data = _np.asarray(data, dtype=_np.float32)
+        self.n = int(n)
+        self.dim = int(dim)
+        self.shape = (self.n, self.dim)
+        lengths = _np.diff(self.indptr)
+        # baris pemilik tiap nonzero (untuk reduksi bincount saat matmul)
+        self._row_of_nnz = _np.repeat(_np.arange(self.n, dtype=_np.int64), lengths)
+
+    def __len__(self):
+        return self.n
+
+    def __matmul__(self, v):
+        import numpy as _np
+        v = _np.asarray(v, dtype=_np.float32)
+        if v.ndim == 1:
+            if self.indices.size == 0:
+                return _np.zeros(self.n, dtype=_np.float32)
+            prod = self.data * v[self.indices]
+            out = _np.bincount(self._row_of_nnz, weights=prod, minlength=self.n)
+            return out.astype(_np.float32)
+        # v (dim, k) -> (n, k)
+        out = _np.zeros((self.n, v.shape[1]), dtype=_np.float32)
+        for i in range(self.n):
+            s, e = int(self.indptr[i]), int(self.indptr[i + 1])
+            if e > s:
+                out[i] = v[self.indices[s:e]].T @ self.data[s:e]
+        return out
+
+    def __getitem__(self, i):
+        import numpy as _np
+        if isinstance(i, (int, _np.integer)):
+            s, e = int(self.indptr[i]), int(self.indptr[i + 1])
+            row = _np.zeros(self.dim, dtype=_np.float32)
+            if e > s:
+                row[self.indices[s:e]] = self.data[s:e]
+            return row
+        raise TypeError("indeks _SparseEmb harus int")
+
+
 class EmbeddingBackend:
     """Bungkus MPNet bila tersedia; jika tidak, pakai TF-IDF cosine."""
 
@@ -314,22 +370,37 @@ class EmbeddingBackend:
         texts = [t if t else " " for t in texts]
         if self.mode == "mpnet":
             return self._model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
-        # bag-of-words + IDF fallback (pure numpy, tanpa sklearn)
+        # bag-of-words + IDF fallback, representasi SPARSE (CSR) hemat memori.
+        # Versi dense lama membuat matriks (len(texts) x |vocab|) yang untuk
+        # korpus besar bisa mencapai puluhan GB -> MemoryError. Versi sparse
+        # ini memakai memori sebanding jumlah token nonzero saja.
         import numpy as _np
         if self._vocab is None:
             self.fit_corpus(texts)
         dim = len(self._vocab)
-        arr = _np.zeros((len(texts), dim), dtype="float32")
-        for r, t in enumerate(texts):
+        vocab = self._vocab
+        idf = self._idf
+        indptr = [0]
+        indices = []
+        data = []
+        for t in texts:
+            counts = {}
             for tok in self._tokens(t):
-                j = self._vocab.get(tok)
+                j = vocab.get(tok)
                 if j is not None:
-                    arr[r, j] += 1.0
-        if self._idf is not None:
-            arr *= self._idf
-        norms = _np.linalg.norm(arr, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0
-        return arr / norms
+                    counts[j] = counts.get(j, 0.0) + 1.0
+            if counts:
+                js = list(counts.keys())
+                vals = _np.array([counts[j] for j in js], dtype="float32")
+                if idf is not None:
+                    vals = vals * idf[_np.asarray(js, dtype=_np.int64)]
+                nrm = float(_np.sqrt(float((vals * vals).sum())))
+                if nrm > 0.0:
+                    vals = vals / nrm
+                indices.extend(int(j) for j in js)
+                data.extend(float(x) for x in vals.tolist())
+            indptr.append(len(indices))
+        return _SparseEmb(indptr, indices, data, len(texts), dim)
 
     def fit_corpus(self, corpus):
         """Bangun vocabulary + IDF dari gabungan corpus (bow mode saja)."""
