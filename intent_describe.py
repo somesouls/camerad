@@ -120,3 +120,132 @@ def run_describe_batch(conn, limit=100, only_called=False, chat_fn=None, progres
             except Exception:
                 pass
     return {"target": len(target), "berhasil": berhasil, "gagal": gagal, "terkunci": terkunci}
+
+
+# ==== Drainer draf-AI latar belakang (lazy/bertahap) untuk sisa katalog ====
+# Aman untuk ~1.300 intent: berjalan di thread daemon, resumable, non-blocking.
+# Termination dijamin: berhenti bila antrean kosong ATAU tak ada kemajuan.
+import threading as _threading
+import time as _time
+import datetime as _dt
+
+_LOCK = _threading.Lock()
+_THREAD = None
+_STATE = {
+    "running": False, "stop": False, "started_at": "", "finished_at": "",
+    "done": 0, "ok": 0, "fail": 0, "locked": 0, "remaining": None,
+    "target_awal": None, "note": "", "last_error": "", "only_called": False,
+}
+
+
+def _now_iso():
+    return _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _count_needing(conn, only_called=False):
+    where = "perlu_deskripsi=1 AND sumber_status='aktif' AND sumber_deskripsi=''"
+    if only_called:
+        where += " AND frekuensi_panggil>0"
+    return conn.execute("SELECT COUNT(*) FROM intentmap_catalog WHERE " + where).fetchone()[0]
+
+
+def describe_progress():
+    with _LOCK:
+        return dict(_STATE)
+
+
+def stop_background_drain():
+    with _LOCK:
+        if not _STATE["running"]:
+            return {"ok": True, "running": False, "note": "tidak ada proses berjalan"}
+        _STATE["stop"] = True
+        return {"ok": True, "running": True, "stopping": True}
+
+
+def _drain_loop(connect_fn, chat_fn, chunk, sleep_s, max_items, only_called):
+    conn = None
+    processed = 0
+    try:
+        conn = connect_fn()
+        with _LOCK:
+            _STATE["target_awal"] = _count_needing(conn, only_called)
+        prev = None
+        while True:
+            with _LOCK:
+                stop = _STATE["stop"]
+            if stop:
+                with _LOCK:
+                    _STATE["note"] = "dihentikan pengguna"
+                break
+            remaining = _count_needing(conn, only_called)
+            with _LOCK:
+                _STATE["remaining"] = remaining
+            if remaining == 0:
+                with _LOCK:
+                    _STATE["note"] = "selesai — antrean kosong"
+                break
+            if prev is not None and remaining >= prev:
+                with _LOCK:
+                    _STATE["note"] = "berhenti: tak ada kemajuan (LLM gagal/tak tersedia)"
+                break
+            prev = remaining
+            res = run_describe_batch(conn, limit=chunk, only_called=only_called, chat_fn=chat_fn)
+            n = res.get("target", 0)
+            with _LOCK:
+                _STATE["done"] += n
+                _STATE["ok"] += res.get("berhasil", 0)
+                _STATE["fail"] += res.get("gagal", 0)
+                _STATE["locked"] += res.get("terkunci", 0)
+            processed += n
+            if n == 0:
+                with _LOCK:
+                    _STATE["note"] = "selesai — tidak ada target tersisa"
+                break
+            if max_items and processed >= max_items:
+                with _LOCK:
+                    _STATE["note"] = "berhenti: batas max_items tercapai"
+                break
+            if sleep_s:
+                _time.sleep(sleep_s)
+    except Exception as e:
+        with _LOCK:
+            _STATE["last_error"] = str(e)[:300]
+            _STATE["note"] = "error"
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        with _LOCK:
+            _STATE["running"] = False
+            _STATE["stop"] = False
+            _STATE["finished_at"] = _now_iso()
+
+
+def start_background_drain(connect_fn, chat_fn=None, chunk=25, sleep_s=0.0,
+                           max_items=None, only_called=False):
+    """Mulai drain draf-AI di thread daemon. Idempoten: jika sudah berjalan,
+    kembalikan status tanpa memulai job kedua."""
+    global _THREAD
+    with _LOCK:
+        if _STATE["running"]:
+            d = dict(_STATE)
+            d["ok"] = True
+            d["already_running"] = True
+            return d
+        _STATE.update({
+            "running": True, "stop": False, "started_at": _now_iso(),
+            "finished_at": "", "done": 0, "ok": 0, "fail": 0, "locked": 0,
+            "remaining": None, "target_awal": None, "note": "berjalan",
+            "last_error": "", "only_called": bool(only_called),
+        })
+    ch = max(1, min(200, int(chunk or 25)))
+    t = _threading.Thread(
+        target=_drain_loop,
+        args=(connect_fn, chat_fn, ch, float(sleep_s or 0), max_items, bool(only_called)),
+        daemon=True,
+    )
+    _THREAD = t
+    t.start()
+    return {"ok": True, "started": True, "chunk": ch, "only_called": bool(only_called)}

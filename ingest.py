@@ -263,6 +263,66 @@ def ensure_range(start, end, lang="id", db_path=None, force=False, verbose=True)
     return result
 
 
+def ingest_entries(entries, lang=None, db_path=None, verbose=True):
+    # Impor entri log Cloud Logging yang SUDAH dimuat (mis. dari unggah file
+    # manual di halaman Kelola Data) langsung ke analytics.db. Parser & dedup
+    # 100% sama dengan penarikan dari Google (parse_entries + upsert_interactions).
+    #   entries : list dict (ekspor Cloud Logging; punya textPayload/insertId/...)
+    #   lang    : "id"/"en" -> hanya impor baris bahasa itu; None -> auto per payload
+    # Return ringkasan dict. Tidak menyentuh status-hari agar tidak mengganggu
+    # logika tarik-pintar dari Google (unggahan bisa berupa potongan sebagian hari).
+    load_env_file()
+    conn = adb.init_db(adb.connect(db_path))
+    started = _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    status = "ok"
+    note = ""
+    parsed = inserted = skipped = raw_stored = 0
+    days = set()
+    langs = set()
+    per_day = {}
+    try:
+        entries = [e for e in (entries or []) if isinstance(e, dict)]
+        rows = parse_entries(entries)
+        pairs = list(zip(rows, entries))
+        if lang:
+            lg = str(lang).strip().lower()
+            pairs = [(r, e) for (r, e) in pairs if (r.get("lang") or "").lower() == lg]
+        parsed = len(pairs)
+        prows = [r for (r, _e) in pairs]
+        inserted, skipped = adb.upsert_interactions(conn, prows)
+        groups = {}
+        for (r, e) in pairs:
+            d = adb._day_from_ts(r.get("waktu interaksi") or e.get("timestamp") or "")
+            lg = (r.get("lang") or lang or "id")
+            days.add(d)
+            langs.add(lg)
+            per_day[d] = per_day.get(d, 0) + 1
+            groups.setdefault((d, lg), []).append(e)
+        for (d, lg), es in groups.items():
+            raw_stored += adb.upsert_raw_entries(conn, es, d, lg)
+        adb.set_meta(conn, "last_ingest_at", started)
+        adb.log_ingest(conn, started_at=started,
+                       finished_at=_dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                       start_date=(min(days) if days else ""),
+                       end_date=(max(days) if days else ""),
+                       lang=(",".join(sorted(langs)) if langs else (lang or "")),
+                       fetched=parsed, inserted=inserted, skipped=skipped,
+                       status="ok", note="unggah manual")
+    except Exception as ex:
+        status = "error"
+        note = str(ex)[:500]
+    conn.close()
+    result = {"ok": status == "ok", "source": "upload", "parsed": parsed,
+              "inserted": inserted, "skipped": skipped, "raw_stored": raw_stored,
+              "days": sorted(days), "per_day": per_day,
+              "start": (min(days) if days else None),
+              "end": (max(days) if days else None),
+              "langs": sorted(langs), "status": status, "note": note}
+    if verbose:
+        print(json.dumps(result, ensure_ascii=False))
+    return result
+
+
 def ingest_range(start, end, lang="id", db_path=None, verbose=True, force=False):
     """Kompatibilitas lama: delegasi ke ensure_range (ingest pintar)."""
     return ensure_range(start, end, lang=lang, db_path=db_path, force=force,

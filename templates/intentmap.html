@@ -85,9 +85,11 @@
   <header>
     <span class="ic blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></span>
     <div><h1>Peta Intent &amp; Maksud Analis</h1><div class="sub">Kunci jawaban analis: utterance mana masuk intent mana &amp; kenapa — acuan bagi AI</div></div>
+    <div class="spacer"></div>
+    <a class="navlink" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg> Beranda</a>
+    <a class="navlink" href="/glossary"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg> Istilah</a>
+    <a class="navlink" href="/disambig"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6M4 6v12"/></svg> Disambiguasi</a>
   </header>
-
-  {% include "_ask_ai.html" %}
 
   <details class="guide">
     <summary><span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span> 📖 Petunjuk pengisian (baca dulu sebelum menambah/mengedit)</summary>
@@ -186,7 +188,10 @@
       <select id="clang"><option value="">Semua bahasa</option><option value="id">ID</option><option value="en">EN</option></select>
       <input id="cLimit" type="number" min="1" max="500" value="50" title="Jumlah intent per batch" style="width:80px">
       <button class="btn primary" id="cDesc">Deskripsikan (AI)</button>
+      <button class="btn" id="cDrain" title="Draf AI bertahap di latar belakang untuk SEMUA intent yang belum dideskripsikan">Draf semua sisa (latar)</button>
+      <button class="btn" id="cDrainStop" style="display:none;">Hentikan</button>
       <button class="btn" id="cReload">Muat ulang</button>
+      <div id="cDrainProg" class="muted" style="width:100%;font-size:12px;margin-top:6px;display:none;"></div>
     </div>
     <div class="card" style="padding:0; overflow:hidden;">
       <table class="grid">
@@ -449,6 +454,53 @@ load();
     var a=ev.target.getAttribute("data-appr"); if(a){ approveDesc(a); return; }
     var e=ev.target.getAttribute("data-edit"); if(e){ editDesc(e); return; }
   });
+  var DRAIN_TIMER=null;
+  function fmtProg(p){
+    if(!p) return "";
+    var parts=[];
+    if(p.remaining!=null) parts.push("sisa "+p.remaining);
+    parts.push("selesai "+(p.done||0));
+    parts.push("ok "+(p.ok||0));
+    if(p.fail) parts.push("gagal "+p.fail);
+    if(p.locked) parts.push("terkunci "+p.locked);
+    var s=parts.join(" \u00b7 ");
+    if(p.note) s+=" \u2014 "+p.note;
+    return s;
+  }
+  function setDrainUI(running){
+    var b=document.getElementById("cDrain"), s=document.getElementById("cDrainStop");
+    if(b) b.style.display=running?"none":"";
+    if(s) s.style.display=running?"":"none";
+  }
+  function pollDrain(){
+    fetch("/api/intentmap/describe/progress").then(function(r){return r.json();}).then(function(d){
+      if(!d.ok) return;
+      var p=d.progress||{}; var el=document.getElementById("cDrainProg");
+      if(el){ el.style.display=""; el.textContent="Draf latar: "+fmtProg(p); }
+      setDrainUI(!!p.running);
+      if(p.running){ DRAIN_TIMER=setTimeout(pollDrain,1500); }
+      else { if(DRAIN_TIMER){ clearTimeout(DRAIN_TIMER); DRAIN_TIMER=null; loadCat(); } }
+    }).catch(function(){ DRAIN_TIMER=setTimeout(pollDrain,3000); });
+  }
+  function startDrain(){
+    var el=document.getElementById("cDrainProg"); if(el){ el.style.display=""; el.textContent="Memulai\u2026"; }
+    setDrainUI(true);
+    fetch("/api/intentmap/describe/start",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({only_called:false,chunk:25})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(!d.ok){ alert("Gagal memulai: "+(d.error||"")); setDrainUI(false); return; }
+        pollDrain();
+      }).catch(function(e){ alert("Error: "+e); setDrainUI(false); });
+  }
+  function stopDrain(){
+    fetch("/api/intentmap/describe/stop",{method:"POST",headers:{"Content-Type":"application/json"},body:"{}"})
+      .then(function(r){return r.json();}).then(function(){});
+  }
+  (function(){
+    var b=document.getElementById("cDrain"); if(b) b.addEventListener("click",startDrain);
+    var s=document.getElementById("cDrainStop"); if(s) s.addEventListener("click",stopDrain);
+    pollDrain();
+  })();
   document.getElementById("cDesc").addEventListener("click",runDescribe);
   document.getElementById("cReload").addEventListener("click",loadCat);
   CF.addEventListener("change",loadCat);

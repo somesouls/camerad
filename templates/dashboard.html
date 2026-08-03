@@ -386,7 +386,7 @@ function renderKpis(o){
   el('kpis').innerHTML=
     kpi('Total Interaksi',iChat,'blue',fmt(o.total),'Data mentah masuk')+
     kpi('Sesi Pelanggan',iUser,'green',fmt(o.sessions),'Estimasi penelepon unik')+
-    kpi('Volume Fallback',iWarn,'red',fmt(o.fallback),`Mewakili <b style="color:var(--c-red-txt)">${(o.fallback_rate||0)}%</b> dari total`)+
+    kpi('Volume Fallback',iWarn,'red',fmt(o.fallback),`Mewakili <b style="color:var(--c-red-txt)">${(o.fallback_rate||0)}%</b> dari total (FB1 ${fmt(o.fallback1||0)} / FB2 ${fmt(o.fallback2||0)})`)+
     kpi('Intent Terpanggil',iTag,'purple',fmt(o.distinct_intents),'Jumlah intent yang merespons');
 }
 
@@ -413,11 +413,11 @@ function renderVolume(rows){
   const max=Math.max.apply(null,rows.map(r=>r.total))||1;
   const H=140; // max height
   const cols=rows.map(r=>{
-    const fb=r.fallback||0, tot=r.total||0, ok=Math.max(0,tot-fb);
+    const fb=r.fallback||0, tot=r.total||0, ok=Math.max(0,tot-fb); const fb1=r.fallback1||0, fb2=r.fallback2||0;
     const t=Math.round(ok/max*H), f=Math.round(fb/max*H);
     const pct=tot?Math.round(ok/tot*100):0;
     const lbl=(r.day||'').slice(5);
-    return '<div class="col" title="'+esc(r.day)+'\n'+fmt(tot)+' Total Interaksi\n'+fmt(ok)+' Dikenali ('+pct+'% match rate)\n'+fmt(fb)+' Jatuh ke Fallback"><div class="pct">'+pct+'%</div><div class="b1" style="height:'+t+'px"></div><div class="b2" style="height:'+f+'px"></div><div class="cap">'+esc(lbl)+'</div></div>';
+    return '<div class="col" title="'+esc(r.day)+'\n'+fmt(tot)+' Total Interaksi\n'+fmt(ok)+' Dikenali ('+pct+'% match rate)\n'+fmt(fb)+' Jatuh ke Fallback ('+fmt(fb1)+' FB1 / '+fmt(fb2)+' FB2)"><div class="pct">'+pct+'%</div><div class="b1" style="height:'+t+'px"></div><div class="b2" style="height:'+f+'px"></div><div class="cap">'+esc(lbl)+'</div></div>';
   }).join('');
   el('volume').innerHTML='<div class="spark">'+cols+'</div><div class="legend"><span><i style="background:var(--c-green-txt)"></i>Dikenali Mesin</span><span><i style="background:var(--c-red-txt)"></i>Jatuh ke Fallback</span><span>% = match rate harian</span></div>';
 }

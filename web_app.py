@@ -37,6 +37,7 @@ from urllib.parse import quote as _quote
 import llm_client
 import users_db as usr
 import analytics_db as adb
+import avaya_db as avdb
 import ingest
 import glossary_db as gdb
 import disambig_db as ddb
@@ -98,9 +99,9 @@ _PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ic
 def _route_action(method, path):
     if path == "/users" or path.startswith("/api/users"):
         return "admin"
-    if path in ("/api/intentmap/approve", "/api/intentmap/describe"):
+    if path in ("/api/intentmap/approve", "/api/intentmap/describe", "/api/intentmap/describe/start", "/api/intentmap/describe/stop"):
         return "approve"
-    if path == "/api/ingest":
+    if path == "/api/ingest" or path == "/api/ingest-upload":
         return "ingest"
     if path.endswith("/save") or path.endswith("/delete"):
         return "edit"
@@ -1319,6 +1320,22 @@ def _avaya_summary_from_result(result, src_label=None):
     return summary
 
 
+def _avaya_persist(result, n_files=0, source="upload"):
+    """Simpan hasil analisis AWE ke database avaya.db (biar tak perlu analisa ulang)."""
+    try:
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return avdb.save_run(conn, result.get("dashboard", {}) or {},
+                                 records=result.get("records", []) or [],
+                                 n_files=n_files, source=source,
+                                 build=result.get("build"))
+        finally:
+            conn.close()
+    except Exception as _e:
+        print("[AWE persist] gagal simpan: %r" % _e, flush=True)
+        return None
+
+
 def _avaya_inputs(cfg, ctx):
     state = load_state(cfg, ctx.run)
     s12 = state["steps"].get("12")
@@ -1364,6 +1381,9 @@ def avaya3_analyze(cfg, ctx):
     if not isinstance(result, dict) or "dashboard" not in result:
         raise Exception("Server tidak mengembalikan JSON hasil yang valid. Cuplikan: " + body.decode("utf-8", "replace")[:800])
     summary = _avaya_summary_from_result(result, src_label)
+    _info = _avaya_persist(result, source="upload")
+    if _info:
+        summary["disimpan_ke_database"] = "Ya (id %s)" % _info["id"]
     data = save_artifact(cfg, ctx.run, 14, "json", json.dumps(result, ensure_ascii=False), "avaya_result.json", summary)
     return {"step": 14, "artifact": data}
 
@@ -1418,6 +1438,9 @@ def avaya3_fetch(cfg, ctx):
     if "dashboard" not in result:
         raise Exception("Hasil tidak berisi dashboard. Cuplikan: " + body.decode("utf-8", "replace")[:800])
     summary = _avaya_summary_from_result(result)
+    _info = _avaya_persist(result, source="upload")
+    if _info:
+        summary["disimpan_ke_database"] = "Ya (id %s)" % _info["id"]
     data = save_artifact(cfg, ctx.run, 14, "json", json.dumps(result, ensure_ascii=False), "avaya_result.json", summary)
     return {"step": 14, "artifact": data}
 
@@ -2438,6 +2461,71 @@ def answer_data_question(question):
         conn.close()
 
 
+@app.get("/awe")
+async def awe_page(request: Request):
+    """Menu Analisis AWE Avaya (terpisah dari Dialogflow)."""
+    return render_page(request, "awe.html", "awe")
+
+
+@app.get("/api/awe/runs")
+async def awe_list_runs():
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return {"ok": True, "runs": avdb.list_runs(conn), "stats": avdb.stats(conn)}
+        finally:
+            conn.close()
+    return JSONResponse(await run_in_threadpool(_do))
+
+
+@app.get("/api/awe/run")
+async def awe_get_run(id: str = ""):
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return avdb.get_run(conn, id, with_records=False)
+        finally:
+            conn.close()
+    r = await run_in_threadpool(_do)
+    if not r:
+        return JSONResponse({"ok": False, "error": "Analisis tidak ditemukan."}, status_code=404)
+    return JSONResponse({"ok": True, "run": r})
+
+
+@app.get("/awe/dashboard")
+async def awe_run_dashboard(id: str = ""):
+    def _get():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return avdb.get_run(conn, id)
+        finally:
+            conn.close()
+    r = await run_in_threadpool(_get)
+    if not r:
+        return PlainTextResponse("Analisis tidak ditemukan.", status_code=404)
+    endpoint = api_endpoint(CONFIG, "", "/api/avaya-render")
+    payload = json.dumps({"dashboard": r["dashboard"]}, ensure_ascii=False)
+    try:
+        html = await run_in_threadpool(curl_json_raw, CONFIG, endpoint, payload)
+        return Response(content=html, media_type="text/html; charset=utf-8")
+    except Exception as _e:
+        return PlainTextResponse("Backend AWE belum aktif (jalankan avaya_pipeline di :8000). Detail: %r" % _e, status_code=502)
+
+
+@app.post("/api/awe/delete")
+async def awe_delete_run(request: Request):
+    body = await request.json()
+    rid = (body or {}).get("id", "")
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return avdb.delete_run(conn, rid)
+        finally:
+            conn.close()
+    n = await run_in_threadpool(_do)
+    return JSONResponse({"ok": True, "deleted": n})
+
+
 @app.get("/dashboard")
 async def dashboard(request: Request):
     return render_page(request, "dashboard.html", "dashboard")
@@ -2610,34 +2698,6 @@ async def api_deflection_status_save(request: Request):
         return JSONResponse({"ok": False, "error": str(ex)})
 
 
-@app.post("/api/deflection/intent-status/save")
-async def api_deflection_intent_status_save(request: Request):
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    if not isinstance(body, dict):
-        body = {}
-    intent = (body.get("intent") or "").strip()
-    if not intent:
-        return JSONResponse({"ok": False, "error": "intent kosong."})
-    status = (body.get("status") or "").strip().lower()
-    note = body.get("note") or ""
-    _u = getattr(request.state, "user", None) or {}
-    who = (_u.get("nama") or _u.get("username") or "").strip()
-
-    def _run():
-        conn = adb.init_db(adb.connect())
-        try:
-            return adb.set_intent_status(conn, intent, status, note, who)
-        finally:
-            conn.close()
-    try:
-        return JSONResponse(await run_in_threadpool(_run))
-    except Exception as ex:
-        return JSONResponse({"ok": False, "error": str(ex)})
-
-
 @app.post("/api/ingest")
 async def api_ingest(request: Request):
     """Tarik data ke database (dipakai halaman Kelola Data). Ingest PINTAR:
@@ -2675,96 +2735,100 @@ async def api_ingest(request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
-@app.post("/api/data/import")
-async def api_data_import(request: Request):
-    # Impor data historis manual (CSV/TSV/JSON) ke tabel interactions.
-    import csv as _csv, io as _io, json as _json, hashlib as _hl
+def _parse_log_bytes(data):
+    # bytes -> list entri log (JSON array / objek / JSON Lines / pembungkus
+    # {"entries":[...]} atau {"data":[...]}). Sama dengan logika Step 2.
+    decoded = data.decode("utf-8", "replace")
+    if decoded.startswith("\ufeff"):
+        decoded = decoded[1:]
+    decoded = decoded.strip()
+    if not decoded:
+        return []
+    items = []
+    parsed = None
     try:
-        body = await request.json()
+        parsed = json.loads(decoded)
     except Exception:
-        body = {}
-    if not isinstance(body, dict):
-        body = {}
-    text = (body.get("text") or "").strip()
-    fmt = (body.get("format") or "auto").strip().lower()
-    lang_default = (body.get("lang") or "id").strip().lower()
-    if lang_default not in ("id", "en"):
-        lang_default = "id"
-    if not text:
-        return JSONResponse({"ok": False, "error": "Data kosong."})
-    ALIASES = {
-        "ID trace": ["id trace", "idtrace", "session", "session_id", "sessionid", "trace", "sesi"],
-        "waktu interaksi": ["waktu interaksi", "waktu", "ts", "timestamp", "time", "tanggal", "date", "datetime"],
-        "user phrase": ["user phrase", "user", "utterance", "pertanyaan", "phrase", "text", "user_phrase", "userphrase"],
-        "bot response": ["bot response", "bot", "response", "jawaban", "bot_response", "botresponse"],
-        "intent name": ["intent name", "intent", "intent_name", "intentname"],
-        "lang": ["lang", "language", "bahasa"],
-        "score": ["score", "confidence", "skor", "nilai"],
-        "insertId": ["insertid", "insert_id", "id"],
-    }
-    def _canon(key):
-        k = (key or "").strip().lower()
-        for canon, al in ALIASES.items():
-            if k == canon.lower() or k in al:
-                return canon
-        return None
-    rows_in = []
-    try:
-        looks_json = fmt == "json" or (fmt == "auto" and text[:1] in ("[", "{"))
-        if looks_json:
-            data = _json.loads(text)
-            if isinstance(data, dict):
-                data = data.get("rows") or data.get("data") or [data]
-            for obj in data:
-                if isinstance(obj, dict):
-                    rows_in.append({(_canon(k) or k): v for k, v in obj.items()})
+        parsed = None
+    if isinstance(parsed, list):
+        items = parsed
+    elif isinstance(parsed, dict):
+        if isinstance(parsed.get("entries"), list):
+            items = parsed["entries"]
+        elif isinstance(parsed.get("data"), list):
+            items = parsed["data"]
         else:
-            first = text.splitlines()[0] if text.splitlines() else ""
-            delim = "\t" if (fmt == "tsv" or (fmt == "auto" and "\t" in first)) else ","
-            reader = _csv.reader(_io.StringIO(text), delimiter=delim)
-            all_rows = [r for r in reader if any((c or "").strip() for c in r)]
-            if not all_rows:
-                return JSONResponse({"ok": False, "error": "Tidak ada baris terbaca."})
-            header = [(_canon(h) or (h or "").strip()) for h in all_rows[0]]
-            for raw in all_rows[1:]:
-                rec = {}
-                for idx, val in enumerate(raw):
-                    if idx < len(header) and header[idx]:
-                        rec[header[idx]] = val
-                rows_in.append(rec)
-    except Exception as ex:
-        return JSONResponse({"ok": False, "error": "Gagal mem-parse data: " + str(ex)})
-    norm = []
-    for rec in rows_in:
-        out = {
-            "ID trace": (rec.get("ID trace") or "").strip(),
-            "waktu interaksi": (rec.get("waktu interaksi") or "").strip(),
-            "user phrase": (rec.get("user phrase") or ""),
-            "bot response": (rec.get("bot response") or ""),
-            "intent name": (rec.get("intent name") or ""),
-            "lang": ((rec.get("lang") or lang_default) or lang_default).strip().lower() or lang_default,
-            "score": rec.get("score"),
-            "insertId": str(rec.get("insertId") or "").strip(),
-        }
-        if not out["insertId"]:
-            basis = "|".join([out["ID trace"], out["waktu interaksi"], str(out["user phrase"]), str(out["intent name"])])
-            out["insertId"] = "manual-" + _hl.sha1(basis.encode("utf-8")).hexdigest()[:20]
-        if not str(out["user phrase"]).strip() and not str(out["intent name"]).strip():
-            continue
-        norm.append(out)
-    if not norm:
-        return JSONResponse({"ok": False, "error": "Tidak ada baris valid untuk diimpor."})
-    def _run():
-        conn = adb.init_db(adb.connect())
-        try:
-            ins, skp = adb.upsert_interactions(conn, norm)
-            return {"ok": True, "inserted": ins, "skipped": skp, "total": len(norm)}
-        finally:
-            conn.close()
+            items = [parsed]
+    else:
+        for line in re.split(r"\r?\n", decoded):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                v = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(v, list):
+                items.extend(v)
+            elif isinstance(v, dict):
+                items.append(v)
+    return [it for it in items if isinstance(it, dict)]
+
+
+def _parse_log_upload(data, name):
+    # bytes (satu file) -> list entri. Mendukung .zip berisi banyak file JSON.
+    low = (name or "").lower()
+    is_zip = low.endswith(".zip") or (len(data) >= 2 and data[:2] == b"PK")
+    if is_zip:
+        out = []
+        zf = zipfile.ZipFile(io.BytesIO(data))
+        for info in zf.infolist():
+            if info.is_dir():
+                continue
+            nm = info.filename.lower()
+            if not (nm.endswith(".json") or nm.endswith(".jsonl")
+                    or nm.endswith(".ndjson") or nm.endswith(".txt")):
+                continue
+            out.extend(_parse_log_bytes(zf.read(info)))
+        return out
+    return _parse_log_bytes(data)
+
+
+@app.post("/api/ingest-upload")
+async def api_ingest_upload(request: Request):
+    # Impor manual: unggah file JSON hasil ekspor Google Cloud Logging langsung
+    # ke analytics.db (untuk uji end-to-end / data lampau tanpa akses Google).
     try:
-        return JSONResponse(await run_in_threadpool(_run))
-    except Exception as ex:
-        return JSONResponse({"ok": False, "error": str(ex)})
+        form = await request.form()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Form tidak valid."})
+    ups = [u for u in form.getlist("file") if isinstance(u, StarletteUploadFile)]
+    if not ups:
+        return JSONResponse({"ok": False, "error": "Tidak ada file diunggah."})
+    lang = (form.get("lang") or "").strip().lower()
+    if lang not in ("id", "en"):
+        lang = None  # auto: baca lang dari tiap payload
+    entries = []
+    errors = []
+    for u in ups:
+        try:
+            data = await u.read()
+            entries.extend(_parse_log_upload(data, u.filename or "log.json"))
+        except Exception as e:
+            errors.append("%s: %s" % ((u.filename or "file"), str(e)[:200]))
+    if not entries:
+        msg = "Tidak ada entri log yang bisa dibaca."
+        if errors:
+            msg += " " + " | ".join(errors)
+        return JSONResponse({"ok": False, "error": msg})
+    try:
+        res = await run_in_threadpool(ingest.ingest_entries, entries, lang, None, False)
+        if errors:
+            res["warnings"] = errors
+        return JSONResponse(res)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
 
 
 DATA_HTML = None
@@ -3378,6 +3442,82 @@ async def api_intentmap_approve(request: Request):
             return res
         finally:
             conn.close()
+    try:
+        return JSONResponse(await run_in_threadpool(_run))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.post("/api/intentmap/describe/start")
+async def api_intentmap_describe_start(request: Request):
+    """Mulai draf AI latar-belakang (lazy/bertahap) utk SEMUA sisa intent.
+    Aman utk ~1.300 intent: berjalan di thread, resumable, tak memblokir request."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    only_called = bool(body.get("only_called", False))
+    try:
+        chunk = int(body.get("chunk") or 25)
+    except Exception:
+        chunk = 25
+    try:
+        max_items = int(body["max_items"]) if body.get("max_items") not in (None, "") else None
+    except Exception:
+        max_items = None
+    try:
+        sleep_s = float(body.get("sleep_s") or 0)
+    except Exception:
+        sleep_s = 0.0
+
+    def _connect():
+        return imdb.init_db(imdb.connect())
+
+    def _run():
+        res = idesc.start_background_drain(_connect, chunk=chunk, sleep_s=sleep_s,
+                                           max_items=max_items, only_called=only_called)
+        try:
+            conn = _connect()
+            try:
+                res["stats"] = imdb.catalog_stats(conn)
+            finally:
+                conn.close()
+        except Exception:
+            pass
+        return res
+    try:
+        return JSONResponse(await run_in_threadpool(_run))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/api/intentmap/describe/progress")
+async def api_intentmap_describe_progress(request: Request):
+    """Progres job draf AI latar-belakang + statistik katalog terkini."""
+    def _run():
+        prog = idesc.describe_progress()
+        try:
+            conn = imdb.init_db(imdb.connect())
+            try:
+                prog["stats"] = imdb.catalog_stats(conn)
+            finally:
+                conn.close()
+        except Exception:
+            pass
+        return {"ok": True, "progress": prog}
+    try:
+        return JSONResponse(await run_in_threadpool(_run))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.post("/api/intentmap/describe/stop")
+async def api_intentmap_describe_stop(request: Request):
+    """Minta hentikan job draf AI latar-belakang (berhenti setelah batch berjalan)."""
+    def _run():
+        return idesc.stop_background_drain()
     try:
         return JSONResponse(await run_in_threadpool(_run))
     except Exception as e:

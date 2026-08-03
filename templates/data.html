@@ -56,40 +56,11 @@
   <header>
     <span class="ic blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></span>
     <div><h1>Kelola Data</h1><div class="sub">Tarik & simpan log Dialogflow ke database — dipakai bersama oleh Dashboard & Tools Step 1</div></div>
+    <div class="spacer"></div>
+    <a class="navlink" href="/"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg> Beranda</a>
+    <a class="navlink" href="/dashboard"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 14l4-4 3 3 4-5"/></svg> Dashboard</a>
+    <a class="navlink" href="/tools"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg> Tools</a>
   </header>
-
-  {% include "_ask_ai.html" %}
-
-  <div class="card" id="importCard" style="margin-top:14px;">
-    <h2 style="margin:0 0 4px; font-size:15px;">Impor data manual</h2>
-    <div class="sub" style="margin-bottom:10px;">Untuk data lama yang belum masuk lewat pipeline. Tempel data sebagai <b>CSV</b>, <b>TSV</b>, atau <b>JSON</b> (array objek). Kolom dikenali otomatis: <code>ID trace / session</code>, <code>waktu interaksi / ts</code>, <code>user phrase</code>, <code>bot response</code>, <code>intent name</code>, <code>lang</code>, <code>score</code>, <code>insertId</code> (opsional, dibuat otomatis bila kosong).</div>
-    <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:8px;">
-      <label>Format <select id="impFormat"><option value="auto">Deteksi otomatis</option><option value="csv">CSV</option><option value="tsv">TSV</option><option value="json">JSON</option></select></label>
-      <label>Bahasa <select id="impLang"><option value="id">id</option><option value="en">en</option></select></label>
-      <button class="btn" id="impBtn" type="button">Impor sekarang</button>
-      <span class="note" id="impMsg"></span>
-    </div>
-    <textarea id="impText" rows="8" style="width:100%; box-sizing:border-box; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:12.5px;" placeholder="Tempel CSV/TSV/JSON di sini...&#10;Contoh CSV:&#10;ID trace,waktu interaksi,user phrase,bot response,intent name,lang,score&#10;sesi-1,2025-01-10T08:00:00Z,cara bayar pajak,Silakan...,Bayar_Pajak,id,0.98"></textarea>
-  </div>
-  <script>
-  (function(){
-    var b=document.getElementById('impBtn'); if(!b) return;
-    b.onclick=function(){
-      var txt=document.getElementById('impText').value||'';
-      var fmt=document.getElementById('impFormat').value;
-      var lang=document.getElementById('impLang').value;
-      var msg=document.getElementById('impMsg');
-      if(!txt.trim()){ msg.textContent='Tempel data terlebih dahulu.'; return; }
-      msg.textContent='Mengimpor...'; b.disabled=true;
-      fetch('/api/data/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:txt,format:fmt,lang:lang})})
-        .then(function(r){return r.json();})
-        .then(function(d){ if(d.ok){ msg.textContent='Berhasil: '+d.inserted+' baris masuk, '+d.skipped+' dilewati (dari '+d.total+' baris).'; } else { msg.textContent='Gagal: '+(d.error||'tidak diketahui'); } })
-        .catch(function(e){ msg.textContent='Error: '+e.message; })
-        .then(function(){ b.disabled=false; });
-    };
-  })();
-  </script>
-
 
   <div class="card">
     <h2><span class="ic blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Pilih periode</h2>
@@ -132,6 +103,17 @@
       <label class="chk"><input type="checkbox" id="force"> Paksa tarik ulang semua hari</label>
     </div>
     <div class="result" id="result"></div>
+  </div>
+
+  <div class="card">
+    <h2><span class="ic amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg></span> Unggah JSON log (impor manual)</h2>
+    <div class="cap">Untuk uji coba / data lampau tanpa akses Google: unggah file hasil ekspor <b>Google Cloud Logging</b> (array JSON, objek, JSON Lines, atau .zip berisi file JSON). Parser &amp; anti-duplikat (insertId) sama persis dengan penarikan otomatis. Rentang tanggal &amp; bahasa dibaca otomatis dari isi log.</div>
+    <div class="controls">
+      <input type="file" id="logFile" accept=".json,.jsonl,.ndjson,.txt,.zip" multiple>
+      <div class="field"><label>Bahasa</label><select id="upLang"><option value="">Auto (dari log)</option><option value="id">Indonesia (id)</option><option value="en">English (en)</option></select></div>
+      <button class="btn primary" id="upBtn">Unggah &amp; impor</button>
+    </div>
+    <div class="result" id="upResult"></div>
   </div>
 </div>
 {% endblock %}
@@ -221,8 +203,34 @@ async function pull(){
   check();
 }
 
+async function uploadLog(){
+  const fi=el('logFile');
+  if(!fi||!fi.files||!fi.files.length){ alert('Pilih file JSON log dulu.'); return; }
+  const btn=el('upBtn'); btn.disabled=true; const old=btn.innerHTML;
+  btn.innerHTML='<span class="spin"></span> Mengimpor\u2026';
+  const R=el('upResult'); R.className='result show'; R.textContent='Mengunggah & mengimpor\u2026 (jangan tutup halaman)';
+  const fd=new FormData();
+  [].slice.call(fi.files).forEach(f=>fd.append('file', f));
+  fd.append('lang', el('upLang').value);
+  try{
+    const r=await (await fetch('/api/ingest-upload',{method:'POST',body:fd})).json();
+    if(r.ok){
+      let t='\u2713 Impor selesai. '+fmt(r.inserted)+' baris baru disimpan';
+      if(r.skipped!=null) t+=' \u00b7 '+fmt(r.skipped)+' duplikat dilewati';
+      if(r.parsed!=null) t+=' \u00b7 '+fmt(r.parsed)+' entri terbaca';
+      if(r.start&&r.end) t+='\nRentang: '+esc(r.start)+' s/d '+esc(r.end);
+      if(r.langs&&r.langs.length) t+=' \u00b7 bahasa: '+r.langs.join(', ');
+      if(r.warnings&&r.warnings.length) t+='\n\u26a0 '+esc(r.warnings.join(' | '));
+      R.textContent=t;
+    } else { R.textContent='\u2717 Gagal: '+esc(r.error||r.note||'tidak diketahui'); }
+  }catch(e){ R.textContent='\u2717 Gagal: '+e.message; }
+  btn.innerHTML=old; btn.disabled=false;
+  check();
+}
+
 el('checkBtn').onclick=check;
 el('pullBtn').onclick=pull;
+el('upBtn').onclick=uploadLog;
 check();
 </script>
 {% endblock %}

@@ -138,8 +138,6 @@ input[type=file]{padding:8px}
     <div>Klik lingkaran step untuk membuka formnya. Setiap step berdiri sendiri: kalau ada yang gagal, step lain yang sudah sukses tidak hilang. Setelah sebuah step selesai, step berikutnya bisa langsung memakai hasilnya tanpa upload ulang.</div>
   </div>
 
-  {% include "_ask_ai.html" %}
-
 <div id="flows-container"></div>
 
   <div class="legend">
@@ -235,7 +233,6 @@ function renderRail(){
   // Ubah nama judul sesuai permintaan Anda
   const flows = [
     {title:'Analisis DialogFlow (Step 1-11)', diag:false, steps:STEPS.filter(s=>s.n<=11)},
-    {title:'Analisis AWE (Step 12-16)', diag:true, steps:STEPS.filter(s=>s.n>=12)},
   ];
   
   flows.forEach((fl,fi)=>{

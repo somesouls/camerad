@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
-"""Masking PII (Fase A) — regex ringan untuk pola Indonesia.
+"""Masking PII — Fase A (regex) + Fase B (Presidio, opsional).
 
-Titik integrasi TERPUSAT: panggil `mask_text(t)` pada teks apa pun sebelum
-dikirim ke LLM cloud. Aktif secara default; matikan dengan env `PII_MASKING`
-diset ke off/0/false/no.
+Titik integrasi TERPUSAT: panggil mask_text(t) sebelum teks dikirim ke LLM.
+Aktif default; matikan via env PII_MASKING=off/0/false/no.
 
-Fase B (Presidio) nanti cukup mengganti isi `mask_text` (mis. memanggil
-AnalyzerEngine+AnonymizerEngine) TANPA mengubah pemanggil di studio_routes.py
-& web_app.py.
+Pemilihan mesin via env PII_ENGINE:
+  - "regex" (default): pola regex Indonesia (NIK/NPWP/HP/email). Tanpa dependensi.
+  - "presidio"/"auto": pakai Microsoft Presidio bila terpasang untuk deteksi
+    tambahan NAMA (PERSON) & LOKASI (LOCATION) via NER + custom recognizer
+    NIK/NPWP/HP. Bila Presidio/model tidak tersedia ATAU gagal, otomatis
+    fallback ke regex (masking tidak pernah di-bypass).
 
-Tidak ada dependensi eksternal (murni stdlib `re`).
+Fase B butuh (opsional):
+  pip install presidio-analyzer presidio-anonymizer
+  python -m spacy download xx_ent_wiki_sm
+Set PII_ENGINE=presidio dan (opsional) PII_SPACY_MODEL=xx_ent_wiki_sm.
 """
 import os
 import re
@@ -18,31 +23,21 @@ __all__ = ["mask_text", "mask", "masking_enabled", "scan"]
 
 
 def masking_enabled():
-    """True kecuali env PII_MASKING diset ke off/0/false/no."""
     v = (os.environ.get("PII_MASKING", "on") or "").strip().lower()
     return v not in ("off", "0", "false", "no")
 
 
-# --- Pola PII Indonesia -------------------------------------------------
-# Email
+def _engine():
+    return (os.environ.get("PII_ENGINE", "regex") or "regex").strip().lower()
+
+
+# --- Pola PII Indonesia (Fase A) ---------------------------------------
 _RE_EMAIL = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
-
-# NPWP lama berformat: 99.999.999.9-999.999 (15 digit dengan pemisah)
 _RE_NPWP_FMT = re.compile(r"\b\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3}\b")
-
-# NIK / NPWP-baru: tepat 16 digit polos (tanpa digit di kiri/kanan)
 _RE_NIK16 = re.compile(r"(?<!\d)\d{16}(?!\d)")
-
-# NPWP lama polos: tepat 15 digit
 _RE_NPWP15 = re.compile(r"(?<!\d)\d{15}(?!\d)")
-
-# Nomor HP Indonesia: diawali 08 / +62 / 62, total kira-kira 10-14 digit.
-# Boleh ada pemisah spasi/titik/strip antar-grup.
 _RE_HP = re.compile(r"(?<![\w+])(?:\+?62|0)8\d(?:[ .\-]?\d){7,11}(?!\w)")
 
-# Urutan penanda diterapkan: format berpola & ID panjang lebih dulu,
-# lalu email, lalu HP. (16/15 digit polos dicek sebelum HP agar tidak
-# terpotong sebagian oleh pola HP.)
 _PIPELINE = [
     (_RE_NPWP_FMT, "<NPWP>"),
     (_RE_EMAIL, "<EMAIL>"),
@@ -52,29 +47,95 @@ _PIPELINE = [
 ]
 
 
-def mask_text(text, enabled=None):
-    """Kembalikan teks dengan PII diganti penanda (<NIK>, <NPWP>, <HP>, <EMAIL>).
+def _mask_regex(s):
+    for rx, repl in _PIPELINE:
+        s = rx.sub(repl, s)
+    return s
 
-    Aman untuk input non-string (dikembalikan apa adanya).
-    """
+
+# --- Presidio (Fase B, lazy + cached) ----------------------------------
+_PRESIDIO = {"tried": False, "ok": False, "analyzer": None, "anonymizer": None, "lang": "en"}
+
+
+def _init_presidio():
+    if _PRESIDIO["tried"]:
+        return _PRESIDIO["ok"]
+    _PRESIDIO["tried"] = True
+    try:
+        from presidio_analyzer import AnalyzerEngine, PatternRecognizer, Pattern
+        from presidio_analyzer.nlp_engine import NlpEngineProvider
+        from presidio_anonymizer import AnonymizerEngine
+
+        model = (os.environ.get("PII_SPACY_MODEL", "xx_ent_wiki_sm") or "xx_ent_wiki_sm").strip()
+        lang = "xx" if model.startswith("xx") else (model.split("_")[0] or "en")
+        provider = NlpEngineProvider(nlp_configuration={
+            "nlp_engine_name": "spacy",
+            "models": [{"lang_code": lang, "model_name": model}],
+        })
+        nlp_engine = provider.create_engine()
+        analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=[lang])
+
+        def _pr(entity, patterns):
+            pats = [Pattern(name=(entity + "_p%d" % i), regex=rx, score=0.85)
+                    for i, rx in enumerate(patterns)]
+            return PatternRecognizer(supported_entity=entity, patterns=pats,
+                                     supported_language=lang)
+
+        analyzer.registry.add_recognizer(_pr("ID_NIK", [r"(?<!\d)\d{16}(?!\d)"]))
+        analyzer.registry.add_recognizer(_pr("ID_NPWP", [
+            r"\b\d{2}\.\d{3}\.\d{3}\.\d-\d{3}\.\d{3}\b", r"(?<!\d)\d{15}(?!\d)"]))
+        analyzer.registry.add_recognizer(_pr("ID_PHONE", [
+            r"(?<![\w+])(?:\+?62|0)8\d(?:[ .\-]?\d){7,11}(?!\w)"]))
+
+        _PRESIDIO.update({"analyzer": analyzer, "anonymizer": AnonymizerEngine(),
+                          "lang": lang, "ok": True})
+    except Exception:
+        _PRESIDIO["ok"] = False
+    return _PRESIDIO["ok"]
+
+
+_LABELS = {
+    "ID_NIK": "<NIK>", "ID_NPWP": "<NPWP>", "ID_PHONE": "<HP>",
+    "PHONE_NUMBER": "<HP>", "EMAIL_ADDRESS": "<EMAIL>",
+    "PERSON": "<NAMA>", "LOCATION": "<LOKASI>", "GPE": "<LOKASI>",
+    "IP_ADDRESS": "<IP>",
+}
+
+
+def _mask_presidio(s):
+    from presidio_anonymizer.entities import OperatorConfig
+    a = _PRESIDIO["analyzer"]
+    an = _PRESIDIO["anonymizer"]
+    lang = _PRESIDIO.get("lang", "en")
+    results = a.analyze(text=s, language=lang, entities=list(_LABELS.keys()))
+    operators = {ent: OperatorConfig("replace", {"new_value": lab})
+                 for ent, lab in _LABELS.items()}
+    operators["DEFAULT"] = OperatorConfig("replace", {"new_value": "<PII>"})
+    return an.anonymize(text=s, analyzer_results=results, operators=operators).text
+
+
+def mask_text(text, enabled=None):
     if text is None or not isinstance(text, str) or not text:
         return text
     if enabled is None:
         enabled = masking_enabled()
     if not enabled:
         return text
-    s = text
-    for rx, repl in _PIPELINE:
-        s = rx.sub(repl, s)
-    return s
+    if _engine() in ("presidio", "auto"):
+        if _init_presidio():
+            try:
+                # regex dulu (ID deterministik), lalu NER Presidio untuk nama/lokasi
+                return _mask_presidio(_mask_regex(text))
+            except Exception:
+                return _mask_regex(text)
+        return _mask_regex(text)
+    return _mask_regex(text)
 
 
-# Alias singkat
 mask = mask_text
 
 
 def scan(text):
-    """Diagnostik: hitung jumlah temuan per jenis PII (tanpa mengubah teks)."""
     if not text or not isinstance(text, str):
         return {}
     return {

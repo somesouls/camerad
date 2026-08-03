@@ -302,6 +302,8 @@ def overview(conn, start=None, end=None, lang=None, include_system=False, includ
         "SELECT COUNT(*) AS total, "
         "COUNT(DISTINCT session_id) AS sessions, "
         "SUM(is_fallback) AS fallback, "
+        "SUM(CASE WHEN intent_name='System_System_Fallback Intent' THEN 1 ELSE 0 END) AS fallback1, "
+        "SUM(CASE WHEN intent_name='System_System_Fallback Intent 2' THEN 1 ELSE 0 END) AS fallback2, "
         "SUM(is_system) AS system, "
         "COUNT(DISTINCT CASE WHEN " + clean_sql + " THEN intent_name END) AS intents "
         "FROM interactions" + where,
@@ -314,6 +316,10 @@ def overview(conn, start=None, end=None, lang=None, include_system=False, includ
         "sessions": row["sessions"] or 0,
         "fallback": fb,
         "fallback_rate": round((fb / total * 100.0), 2) if total else 0.0,
+        "fallback1": row["fallback1"] or 0,
+        "fallback2": row["fallback2"] or 0,
+        "fallback1_rate": round(((row["fallback1"] or 0) / total * 100.0), 2) if total else 0.0,
+        "fallback2_rate": round(((row["fallback2"] or 0) / total * 100.0), 2) if total else 0.0,
         "system": row["system"] or 0,
         "distinct_intents": row["intents"] or 0,
     }
@@ -336,11 +342,13 @@ def volume_by_day(conn, start=None, end=None, lang=None):
     where, params = _range_where(start, end)
     where = _lang_where(where, params, lang)
     rows = conn.execute(
-        "SELECT day, COUNT(*) AS total, SUM(is_fallback) AS fallback "
+        "SELECT day, COUNT(*) AS total, SUM(is_fallback) AS fallback, "
+        "SUM(CASE WHEN intent_name='System_System_Fallback Intent' THEN 1 ELSE 0 END) AS fallback1, "
+        "SUM(CASE WHEN intent_name='System_System_Fallback Intent 2' THEN 1 ELSE 0 END) AS fallback2 "
         "FROM interactions" + where + " GROUP BY day ORDER BY day ASC",
         params,
     ).fetchall()
-    return [{"day": r["day"], "total": r["total"], "fallback": r["fallback"] or 0} for r in rows]
+    return [{"day": r["day"], "total": r["total"], "fallback": r["fallback"] or 0, "fallback1": r["fallback1"] or 0, "fallback2": r["fallback2"] or 0} for r in rows]
 
 
 def _norm_phrase(p):
@@ -856,36 +864,55 @@ def candidate_detail(conn, phrase, start=None, end=None, lang=None, max_sessions
         occ += 1
         sess.setdefault(r["session_id"], []).append(r["ts"])
     session_ids = list(sess.keys())
+    # Pecahan topik = intent BERSIH yang terpanggil TEPAT sebelum turn fallback
+    # (per kejadian), bukan sekadar intent yang co-occur di sesi yang sama.
     co = {}
     sess_intents = {}
     if session_ids:
         qmarks = ",".join("?" * len(session_ids))
         crows = conn.execute(
-            "SELECT session_id, intent_name, is_fallback FROM interactions "
-            "WHERE session_id IN (" + qmarks + ")",
+            "SELECT session_id, ts, intent_name, is_fallback, user_phrase, insert_id "
+            "FROM interactions WHERE session_id IN (" + qmarks + ") "
+            "ORDER BY session_id, ts, insert_id",
             session_ids,
         ).fetchall()
+        by_sess = {}
         for cr in crows:
-            nm = cr["intent_name"] or ""
-            if cr["is_fallback"]:
-                continue
-            if nm.startswith("System_") or nm.startswith("Umum_"):
-                continue
-            co[nm] = co.get(nm, 0) + 1
-            sess_intents.setdefault(cr["session_id"], set()).add(nm)
+            by_sess.setdefault(cr["session_id"], []).append(cr)
+        for sid, seq in by_sess.items():
+            for i, row in enumerate(seq):
+                if not row["is_fallback"]:
+                    continue
+                if _norm_phrase(row["user_phrase"]) != target:
+                    continue
+                # telusuri mundur: intent bersih terdekat sebelum turn fallback ini
+                prev = ""
+                j = i - 1
+                while j >= 0:
+                    pn = seq[j]["intent_name"] or ""
+                    if (not seq[j]["is_fallback"]) and pn \
+                            and not pn.startswith("System_") \
+                            and not pn.startswith("Umum_"):
+                        prev = pn
+                        break
+                    j -= 1
+                if prev:
+                    co[prev] = co.get(prev, 0) + 1
+                    sess_intents.setdefault(sid, set()).add(prev)
     co_list = sorted(
         [{"intent": k, "count": v} for k, v in co.items()],
         key=lambda x: (-x["count"], x["intent"]),
     )[:20]
-    # status tindak lanjut per INTENT bersih (bukan per frasa)
+    # status tindak lanjut per INTENT (pecahan topik), bukan per frasa
     _ist = get_intent_statuses(conn, [c["intent"] for c in co_list])
     for c in co_list:
         _s = _ist.get(c["intent"]) or {}
         c["status"] = _s.get("status", "")
         c["note"] = _s.get("note", "")
         c["followup_at"] = _s.get("followup_at")
+    # tampilkan SEMUA sesi (data fallback relatif sedikit), bukan hanya N teratas
     sessions = []
-    for sid in session_ids[: int(max_sessions)]:
+    for sid in session_ids:
         sessions.append({"session_id": sid, "hits": len(sess[sid]),
                          "ts_first": min(sess[sid]),
                          "intents": sorted(sess_intents.get(sid, set()))})

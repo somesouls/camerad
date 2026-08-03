@@ -1,0 +1,237 @@
+{% extends "base.html" %}
+{% block title %}Analisis AWE Avaya · Camerad Studio{% endblock %}
+{% block head %}<style>
+.wrap{ max-width:1180px; margin:0 auto; padding:22px 18px 70px; }
+header.pg{ display:flex; align-items:flex-start; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+header.pg h1{ font-size:20px; margin:0; letter-spacing:-.01em; }
+header.pg .sub{ color:var(--muted); font-size:12.5px; margin-top:3px; max-width:760px; }
+.spacer{ flex:1; }
+.section{ margin-bottom:26px; }
+.section h2{ font-size:14px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+.section .cap{ color:var(--muted); font-size:12px; margin:0 0 12px; }
+.card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; }
+.field{ display:flex; flex-direction:column; gap:5px; margin-bottom:12px; }
+.field label{ font-size:12px; color:var(--muted); }
+input,select{ background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:8px 10px; font-size:13px; }
+.hint{ font-size:11px; color:var(--muted); margin-top:3px; }
+.btn{ display:inline-flex; align-items:center; gap:7px; background:var(--panel2); border:1px solid var(--line); color:var(--text); padding:8px 13px; border-radius:10px; cursor:pointer; font-size:13px; }
+.btn:hover{ border-color:var(--brand); }
+.btn.primary{ background:var(--brand); color:#0b1020; border-color:transparent; font-weight:600; }
+.btn.sm{ padding:5px 9px; font-size:12px; border-radius:8px; }
+.btn:disabled{ opacity:.5; cursor:not-allowed; }
+.radio-row{ display:flex; gap:16px; flex-wrap:wrap; margin-bottom:12px; }
+.radio-row label{ display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text); cursor:pointer; }
+table.tbl{ width:100%; border-collapse:collapse; font-size:12.5px; }
+table.tbl th{ text-align:left; color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.05em; padding:8px 10px; border-bottom:1px solid var(--line); }
+table.tbl td{ padding:9px 10px; border-bottom:1px solid var(--line); vertical-align:middle; }
+table.tbl tr:hover td{ background:var(--panel2); }
+.pill{ font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; border:1px solid var(--line); background:var(--panel2); border-radius:20px; padding:2px 9px; color:var(--muted); }
+.pill.pull{ color:var(--green); border-color:var(--green); }
+.status{ font-size:12.5px; margin-top:10px; padding:9px 12px; border-radius:10px; background:var(--panel2); border:1px solid var(--line); display:none; }
+.status.show{ display:block; }
+.status.err{ color:var(--red); border-color:var(--red); }
+.status.ok{ color:var(--green); border-color:var(--green); }
+.roadmap{ border:1px dashed var(--line); background:var(--panel2); }
+.roadmap .tag{ font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--amber); }
+.empty{ color:var(--muted); font-size:12.5px; padding:18px; text-align:center; }
+</style>{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <header class="pg">
+    <div>
+      <h1>💬 Analisis AWE Avaya</h1>
+      <div class="sub">Analisis percakapan Live-Chat (user ↔ bot + agent) dari Avaya WFO. Menu ini <b>terpisah</b> dari Analisis Dialogflow. Setiap hasil analisis <b>otomatis tersimpan</b> di database AWE — tidak perlu unggah &amp; analisa ulang.</div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn sm" id="diagBtn">🩺 Cek Server</button>
+  </header>
+
+  <!-- ===== Analisis Baru ===== -->
+  <div class="section">
+    <h2>Analisis Baru</h2>
+    <p class="cap">Unggah file JSON hasil tarikan AWE (boleh beberapa, otomatis digabung &amp; dedup berdasarkan <b>sid</b>), lalu jalankan analisis.</p>
+    <div class="card">
+      <div class="field">
+        <label>File JSON AWE Avaya (boleh beberapa)</label>
+        <input type="file" id="f_json" accept=".json,application/json" multiple>
+        <div class="hint">Hasil ekspor extension / tarikan langsung. Rentang tanggal lanjutan digabung &amp; dedup otomatis.</div>
+      </div>
+      <div class="field">
+        <label>Sumber Intent Dialogflow (untuk pemetaan coverage)</label>
+        <div class="radio-row">
+          <label><input type="radio" name="src" value="auto" checked> Tarik otomatis dari Dialogflow</label>
+          <label><input type="radio" name="src" value="manual"> Unggah manual (.xlsx)</label>
+        </div>
+      </div>
+      <div class="field" id="autoWrap">
+        <label>Access Token Google <span style="color:var(--muted);font-weight:400">(opsional)</span></label>
+        <input type="text" id="f_token" placeholder="Kosongkan bila server memakai service-account.json">
+      </div>
+      <div id="manualWrap" style="display:none">
+        <div class="field"><label>Training Phrase (.xlsx)</label><input type="file" id="f_train" accept=".xlsx"></div>
+        <div class="field"><label>Intent (.xlsx)</label><input type="file" id="f_content" accept=".xlsx"></div>
+      </div>
+      <button class="btn primary" id="runBtn">Jalankan Analisis</button>
+      <div class="status" id="stat"></div>
+    </div>
+  </div>
+
+  <!-- ===== Riwayat / Database AWE ===== -->
+  <div class="section">
+    <h2>Riwayat Analisis Tersimpan <span class="pill" id="runCount">—</span></h2>
+    <p class="cap">Database AWE (<code>avaya.db</code>, terpisah dari data Dialogflow). Klik “Buka Dashboard” untuk melihat lagi tanpa analisa ulang.</p>
+    <div class="card" style="padding:0;overflow:hidden">
+      <table class="tbl">
+        <thead><tr>
+          <th>Label / Rentang</th><th>Percakapan</th><th>Pelanggan</th><th>Sumber</th><th>Disimpan</th><th></th>
+        </tr></thead>
+        <tbody id="histBody"><tr><td colspan="6" class="empty">Memuat…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== Roadmap: Tarik Langsung tanpa Extension ===== -->
+  <div class="section">
+    <h2>Tarik Langsung tanpa Extension <span class="tag">ROADMAP</span></h2>
+    <p class="cap">Rencana: ganti extension browser dengan modal login di dalam aplikasi — masukkan sandi, pilih rentang tanggal, server menarik &amp; menyimpan otomatis.</p>
+    <div class="card roadmap">
+      <div class="field"><label>Username Avaya WFO</label><input type="text" placeholder="mis. analis.kring" disabled></div>
+      <div class="field"><label>Password</label><input type="password" placeholder="••••••••" disabled></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div class="field" style="flex:1;min-width:150px"><label>Dari tanggal</label><input type="date" disabled></div>
+        <div class="field" style="flex:1;min-width:150px"><label>Sampai tanggal</label><input type="date" disabled></div>
+      </div>
+      <button class="btn" disabled>Tarik &amp; Simpan (segera hadir)</button>
+      <div class="hint" style="margin-top:10px">Secara teknis <b>mungkin</b> dilakukan server-side (login → CSRF handshake → replay endpoint Ultra/Platform yang sama seperti extension). Perlu satu kali validasi di jaringan intranet karena token sesi <code>Impact360AuthToken</code> tidak dapat diuji dari sandbox ini. Lihat catatan di chat.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}<script>
+var RUN = 'awe' + Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+function el(id){ return document.getElementById(id); }
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function setStat(msg, kind){ var s=el('stat'); s.className='status show'+(kind?(' '+kind):''); s.textContent=msg; }
+
+// toggle sumber intent
+Array.prototype.forEach.call(document.getElementsByName('src'), function(r){
+  r.addEventListener('change', function(){
+    var manual = document.querySelector('input[name=src]:checked').value==='manual';
+    el('manualWrap').style.display = manual?'block':'none';
+    el('autoWrap').style.display = manual?'none':'block';
+  });
+});
+
+function apiGET(action, extra){
+  return fetch('/tools?action='+action+'&run='+encodeURIComponent(RUN)+(extra||''))
+    .then(function(r){ return r.json(); });
+}
+function apiPOST(action, fd){
+  return fetch('/tools?action='+action+'&run='+encodeURIComponent(RUN), {method:'POST', body:fd})
+    .then(function(r){ return r.json(); });
+}
+
+el('diagBtn').addEventListener('click', function(){
+  setStat('Menghubungi server AWE…');
+  apiGET('avayadiag').then(function(res){
+    if(res && res.ok){ setStat('Server AWE OK — build '+((res.diag&&res.diag.build)||'?'), 'ok'); }
+    else { setStat('Server AWE tidak merespons: '+((res&&res.error)||'?'), 'err'); }
+  }).catch(function(e){ setStat('Gagal: '+e, 'err'); });
+});
+
+el('runBtn').addEventListener('click', function(){
+  var files = el('f_json').files;
+  if(!files || !files.length){ setStat('Pilih minimal satu file JSON AWE Avaya.', 'err'); return; }
+  var manual = document.querySelector('input[name=src]:checked').value==='manual';
+  if(manual && (!el('f_train').files.length || !el('f_content').files.length)){
+    setStat('Mode manual: unggah Training Phrase (.xlsx) dan Intent (.xlsx).', 'err'); return;
+  }
+  el('runBtn').disabled = true;
+  setStat('1/4 — Menggabungkan file JSON…');
+  var fd = new FormData();
+  for(var i=0;i<files.length;i++){ fd.append('json_files[]', files[i]); }
+  apiPOST('step12', fd).then(function(r){
+    if(!r.ok) throw (r.error||'Gagal gabung JSON');
+    if(manual){ return startAnalyze(true); }
+    setStat('2/4 — Menarik intent aktif dari Dialogflow…');
+    var fd2 = new FormData();
+    if(el('f_token').value.trim()) fd2.append('token', el('f_token').value.trim());
+    return apiPOST('step13', fd2).then(function(r2){
+      if(!r2.ok) throw (r2.error||'Gagal tarik intent Dialogflow');
+      return startAnalyze(false);
+    });
+  }).catch(function(e){ setStat('Gagal: '+e, 'err'); el('runBtn').disabled=false; });
+});
+
+function startAnalyze(manual){
+  setStat('3/4 — Menjalankan analisis (bisa beberapa menit)…');
+  var fd = new FormData();
+  fd.append('mode', manual?'manual':'auto');
+  if(manual){ fd.append('training_file', el('f_train').files[0]); fd.append('content_file', el('f_content').files[0]); }
+  return apiPOST('step14start', fd).then(function(r){
+    if(!r.ok || !r.job_id) throw (r.error||'Server tidak memberi job_id');
+    return poll(r.job_id, 0);
+  });
+}
+
+function poll(job, tries){
+  return apiGET('step14progress', '&job='+encodeURIComponent(job)).then(function(res){
+    var p = res && res.progress ? res.progress : {};
+    if(p.error){ throw p.error; }
+    if(p.finished){ return fetchResult(job); }
+    var stg = p.stage || 'proses'; var dn = p.done||0, tt = p.total||0;
+    setStat('3/4 — '+stg+(tt?(' ('+dn+'/'+tt+')'):'')+'…');
+    return new Promise(function(res2){ setTimeout(res2, 4000); }).then(function(){ return poll(job, tries+1); });
+  });
+}
+
+function fetchResult(job){
+  return apiGET('step14fetch', '&job='+encodeURIComponent(job)).then(function(r){
+    if(r && r.pending){ return new Promise(function(res){ setTimeout(res, 3000); }).then(function(){ return fetchResult(job); }); }
+    if(!r.ok) throw (r.error||'Gagal ambil hasil');
+    var art = r.artifact || {}; var sm = art.summary || {};
+    setStat('4/4 — Selesai & tersimpan ke database AWE. '+(sm.total_percakapan||'')+' percakapan, rentang '+(sm.rentang_tanggal||'-')+'.', 'ok');
+    el('runBtn').disabled=false;
+    el('f_json').value='';
+    loadHistory();
+  });
+}
+
+function loadHistory(){
+  fetch('/api/awe/runs').then(function(r){ return r.json(); }).then(function(d){
+    var tb = el('histBody');
+    if(!d.ok || !d.runs || !d.runs.length){
+      tb.innerHTML = '<tr><td colspan="6" class="empty">Belum ada analisis tersimpan. Jalankan “Analisis Baru” di atas.</td></tr>';
+      el('runCount').textContent = '0';
+      return;
+    }
+    el('runCount').textContent = d.runs.length + (d.stats ? (' · '+d.stats.conversations+' percakapan') : '');
+    tb.innerHTML = d.runs.map(function(r){
+      var src = r.source==='pull' ? '<span class="pill pull">Tarik langsung</span>' : '<span class="pill">Unggah</span>';
+      return '<tr>'+
+        '<td><b>'+esc(r.label||'-')+'</b></td>'+
+        '<td>'+esc(r.total_conv||0)+'</td>'+
+        '<td>'+esc(r.total_cust||0)+'</td>'+
+        '<td>'+src+'</td>'+
+        '<td>'+esc(r.created_at||'')+'</td>'+
+        '<td style="white-space:nowrap;text-align:right">'+
+          '<a class="btn sm" href="/awe/dashboard?id='+encodeURIComponent(r.id)+'" target="_blank">Buka Dashboard</a> '+
+          '<button class="btn sm" data-del="'+esc(r.id)+'">Hapus</button>'+
+        '</td></tr>';
+    }).join('');
+    Array.prototype.forEach.call(tb.querySelectorAll('button[data-del]'), function(b){
+      b.addEventListener('click', function(){
+        if(!confirm('Hapus analisis ini dari database AWE?')) return;
+        fetch('/api/awe/delete', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({id:b.getAttribute('data-del')})})
+          .then(function(r){ return r.json(); }).then(function(){ loadHistory(); });
+      });
+    });
+  }).catch(function(){
+    el('histBody').innerHTML = '<tr><td colspan="6" class="empty">Gagal memuat riwayat.</td></tr>';
+  });
+}
+
+loadHistory();
+</script>{% endblock %}

@@ -51,7 +51,7 @@
 
 <section class="card">
   <div class="drop" id="dropZone">
-    <input type="file" id="fileInput" hidden accept=".pdf,.docx,.pptx,.xlsx,.xls,.csv,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.gif">
+    <input type="file" id="fileInput" hidden multiple accept=".pdf,.docx,.pptx,.xlsx,.xls,.csv,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp,.webp,.gif">
     <div class="big">Tarik &amp; letakkan dokumen di sini</div>
     <div style="color:var(--text-muted);font-size:13px;margin-bottom:12px;">atau</div>
     <button class="btn" id="pickBtn" type="button">Pilih File</button>
@@ -78,6 +78,7 @@
   <div class="result-head">
     <b id="resultTitle">Hasil</b>
     <span class="result-dl" id="resultDl"></span>
+    <button class="btn ghost" id="copyBtn" type="button" style="display:none;font-size:12.5px;padding:7px 13px;">Salin hasil</button>
   </div>
   <div id="resultBody"></div>
 </section>
@@ -143,15 +144,17 @@
   // --- upload ---
   var dz = $('dropZone'), fi = $('fileInput');
   $('pickBtn').onclick = function(){ fi.click(); };
-  fi.onchange = function(){ if (fi.files && fi.files[0]) upload(fi.files[0]); };
+  fi.onchange = function(){ if (fi.files && fi.files.length) upload(fi.files); };
   ['dragenter','dragover'].forEach(function(ev){ dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.add('hot'); }); });
   ['dragleave','drop'].forEach(function(ev){ dz.addEventListener(ev, function(e){ e.preventDefault(); dz.classList.remove('hot'); }); });
-  dz.addEventListener('drop', function(e){ if (e.dataTransfer.files && e.dataTransfer.files[0]) upload(e.dataTransfer.files[0]); });
+  dz.addEventListener('drop', function(e){ if (e.dataTransfer.files && e.dataTransfer.files.length) upload(e.dataTransfer.files); });
 
-  function upload(file){
+  function upload(files){
+    if(!files||!files.length) return;
+    var list=[].slice.call(files);
     var info = $('docInfo');
-    info.innerHTML = '<div class="studio-state"><span class="studio-spin"></span>Mengunggah &amp; membaca \u201c'+esc(file.name)+'\u201d…</div>';
-    var fd = new FormData(); fd.append('file', file);
+    info.innerHTML = '<div class="studio-state"><span class="studio-spin"></span>Mengunggah &amp; membaca \u201c'+esc(list.length===1?list[0].name:(list.length+' berkas'))+'\u201d…</div>';
+    var fd = new FormData(); list.forEach(function(f){ fd.append('file', f); });
     fetch('/api/studio/upload', { method:'POST', body: fd })
       .then(function(r){ return r.json(); })
       .then(function(r){
@@ -162,6 +165,7 @@
         bits.push('<div class="fi"><b>'+(r.n_chars||0).toLocaleString('id-ID')+'</b><span>karakter teks</span></div>');
         if (r.pages) bits.push('<div class="fi"><b>'+r.pages+'</b><span>halaman/slide</span></div>');
         if (r.tables && r.tables.length) bits.push('<div class="fi"><b>'+r.tables.length+'</b><span>tabel terdeteksi</span></div>');
+        if (r.files && r.files.length>1) bits.push('<div class="fi"><b>'+r.files.length+'</b><span>berkas digabung</span></div>');
         var html = bits.join('');
         if (r.note) html += '<div class="doc-note">\u2139 '+esc(r.note)+'</div>';
         if (r.preview) html += '<details class="raw" style="width:100%"><summary>Lihat cuplikan teks</summary><pre class="mmd-code">'+esc(r.preview)+(r.n_chars>r.preview.length?'\n…':'')+'</pre></details>';
@@ -198,10 +202,29 @@
     }catch(_e){}
   }
 
+  function studioResultText(r){
+    if(r.output==='mindmap'){ return (r.outline||'') + '\n\n```mermaid\n' + (r.mermaid||'') + '\n```'; }
+    if(r.output==='tabel'){
+      var d=document.createElement('div'); d.innerHTML=r.html||''; var out=[];
+      d.querySelectorAll('tr').forEach(function(tr){ var cells=[]; tr.querySelectorAll('th,td').forEach(function(c){ cells.push((c.innerText||'').trim()); }); out.push(cells.join('\t')); });
+      return out.join('\n');
+    }
+    return r.markdown||'';
+  }
+  function showCopy(show){ var b=$('copyBtn'); if(b) b.style.display = show? '' : 'none'; }
+  function fallbackCopy(t){ try{ var ta=document.createElement('textarea'); ta.value=t; ta.style.position='fixed'; ta.style.left='-9999px'; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); }catch(_e){} }
+  if($('copyBtn')){ $('copyBtn').onclick = function(){
+    var t=CUR.lastText||''; if(!t) return;
+    var b=$('copyBtn'); var o=b.textContent;
+    var done=function(){ b.textContent='Tersalin \u2713'; setTimeout(function(){ b.textContent=o; }, 1400); };
+    if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(done, function(){ fallbackCopy(t); done(); }); }
+    else { fallbackCopy(t); done(); }
+  }; }
+
   $('genBtn').onclick = function(){
     if (!CUR.docid) return;
     var rc = $('resultCard'), rb = $('resultBody'), rt = $('resultTitle'), rd = $('resultDl');
-    rc.style.display = ''; rd.innerHTML = ''; rt.textContent = LABEL[CUR.out]||'Hasil';
+    rc.style.display = ''; rd.innerHTML = ''; rt.textContent = LABEL[CUR.out]||'Hasil'; showCopy(false);
     rb.innerHTML = '<div class="studio-state"><span class="studio-spin"></span>Menghasilkan '+esc(LABEL[CUR.out])+' dari dokumen… (dokumen besar diproses bertahap)</div>';
     $('genBtn').disabled = true;
     fetch('/api/studio/generate', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ docid: CUR.docid, output: CUR.out, question: $('genQ').value.trim() }) })
@@ -223,6 +246,7 @@
           rb.innerHTML = '<div class="doc-md">'+mdLite(r.markdown||'')+'</div>';
         }
         try{ recordStudioHistory(r, CUR); }catch(_e){}
+        try{ CUR.lastText = studioResultText(r); showCopy(true); }catch(_e){}
       })
       .catch(function(e){ rb.innerHTML = '<div class="doc-note">\u26a0 '+esc(e.message)+'</div>'; })
       .then(function(){ $('genBtn').disabled = false; });
