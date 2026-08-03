@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 120 120" role="img" aria-label="CAMERAD mark">
+  <title>CAMERAD mark</title>
+  <path d="M92 24 H40 A16 16 0 0 0 24 40 V80 A16 16 0 0 0 40 96 H92" fill="none" stroke="#212C5F" stroke-width="11" stroke-linecap="round"></path>
+  <rect x="56" y="45" width="30" height="9" rx="4.5" fill="#FFCA1B"></rect>
+  <rect x="42" y="66" width="30" height="9" rx="4.5" fill="#212C5F"></rect>
+</svg>

@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Masuk — Camerad Studio</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<style>
+  :root {
+    /* Dark Theme (Default) */
+    --bg-base: #030712;
+    --bg-grad-1: #0f172a;
+    --bg-grad-2: #020617;
+    --card-bg: rgba(15, 23, 42, 0.65);
+    --card-border: rgba(51, 65, 85, 0.5);
+    --text-main: #f8fafc;
+    --text-muted: #94a3b8;
+    --input-bg: rgba(2, 6, 23, 0.7);
+    --input-border: #334155;
+    --accent: #3b82f6;
+    --accent-hover: #60a5fa;
+    --accent-glow: rgba(59, 130, 246, 0.25);
+    --err-bg: rgba(127, 29, 29, 0.3);
+    --err-text: #fca5a5;
+    --err-border: #991b1b;
+    --grid-color: rgba(255, 255, 255, 0.03);
+  }
+
+  [data-theme="light"] {
+    /* Light Theme */
+    --bg-base: #f8fafc;
+    --bg-grad-1: #e2e8f0;
+    --bg-grad-2: #f1f5f9;
+    --card-bg: rgba(255, 255, 255, 0.7);
+    --card-border: rgba(203, 213, 225, 0.8);
+    --text-main: #0f172a;
+    --text-muted: #475569;
+    --input-bg: rgba(255, 255, 255, 0.9);
+    --input-border: #cbd5e1;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-glow: rgba(37, 99, 235, 0.15);
+    --err-bg: #fee2e2;
+    --err-text: #991b1b;
+    --err-border: #f87171;
+    --grid-color: rgba(0, 0, 0, 0.04);
+  }
+
+  * { box-sizing: border-box; transition: background-color 0.3s, border-color 0.3s, color 0.3s; }
+  
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    background-color: var(--bg-base);
+    background: radial-gradient(circle at 15% 50%, var(--accent-glow), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.1), transparent 25%),
+                linear-gradient(135deg, var(--bg-grad-1), var(--bg-grad-2));
+    color: var(--text-main);
+    font-family: 'Inter', -apple-system, Segoe UI, Roboto, sans-serif;
+    overflow: hidden;
+  }
+
+  /* Futuristic Tech Grid Background */
+  .grid-bg {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-size: 40px 40px;
+    background-image: 
+      linear-gradient(to right, var(--grid-color) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--grid-color) 1px, transparent 1px);
+    z-index: -1;
+    pointer-events: none;
+  }
+
+  /* Theme Toggle Button */
+  .theme-btn {
+    position: absolute;
+    top: 24px;
+    right: 24px;
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    color: var(--text-main);
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    z-index: 10;
+  }
+  .theme-btn:hover {
+    border-color: var(--accent);
+    box-shadow: 0 0 15px var(--accent-glow);
+    transform: translateY(-2px);
+  }
+  .theme-btn svg { width: 20px; height: 20px; fill: currentColor; }
+
+  /* Card Glassmorphism */
+  .card {
+    width: 100%;
+    max-width: 400px;
+    background: var(--card-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--card-border);
+    border-radius: 20px;
+    padding: 36px 32px;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    position: relative;
+  }
+
+  /* Top Glowing Line */
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    border-radius: 20px 20px 0 0;
+  }
+
+  .header-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+
+  /* Blinking System Indicator */
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    background-color: #10b981;
+    border-radius: 50%;
+    box-shadow: 0 0 10px #10b981;
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+
+  .brand {
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.5px;
+  }
+
+  .sub {
+    margin: 0 0 28px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+
+  .field { margin-bottom: 20px; position: relative; }
+
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+  }
+
+  input {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--input-border);
+    background: var(--input-bg);
+    color: var(--text-main);
+    font-size: 15px;
+    outline: none;
+  }
+
+  input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 4px var(--accent-glow);
+  }
+
+  button[type="submit"] {
+    width: 100%;
+    margin-top: 10px;
+    padding: 14px;
+    border: none;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 4px 14px var(--accent-glow);
+    transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+  }
+
+  button[type="submit"]:hover {
+    background: var(--accent-hover);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px var(--accent-glow);
+  }
+
+  button[type="submit"]:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .err {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 10px;
+    background: var(--err-bg);
+    border: 1px solid var(--err-border);
+    color: var(--err-text);
+    font-size: 13px;
+    font-weight: 500;
+    display: none;
+    text-align: center;
+  }
+
+  .footer {
+    margin-top: 24px;
+    font-size: 13px;
+    text-align: center;
+    color: var(--text-muted);
+  }
+
+  /* SVG Icons for Theme Toggle */
+  .icon-moon { display: none; }
+  .icon-sun { display: block; }
+  [data-theme="light"] .icon-moon { display: block; }
+  [data-theme="light"] .icon-sun { display: none; }
+  .login-logo { width:60px; height:60px; border-radius:16px; background:#fff; display:flex; align-items:center; justify-content:center; padding:9px; margin:0 auto 6px; box-shadow:0 8px 24px rgba(0,0,0,.35); }
+  .login-logo img { width:100%; height:100%; object-fit:contain; display:block; }
+</style>
+</head>
+<body>
+  <!-- Tech Grid Background -->
+  <div class="grid-bg"></div>
+
+  <!-- Theme Toggle -->
+  <button class="theme-btn" id="theme-btn" aria-label="Toggle Dark/Light Mode">
+    <svg class="icon-sun" viewBox="0 0 24 24">
+      <path d="M12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3zm0-2V3M12 21v-4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </svg>
+    <svg class="icon-moon" viewBox="0 0 24 24">
+      <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <form class="card" id="f">
+    <div class="header-group">
+      <div class="login-logo"><img src="/static/logo-only.svg" alt="Camerad Studio"></div>
+      <h1 class="brand">Camerad Studio</h1>
+    </div>
+    <p class="sub">Computer Automation for Monitoring, Evaluating, Research &amp; Development</p>
+
+    <div class="field">
+      <label for="u">Nama Pengguna (NIP Pendek)</label>
+      <input id="u" name="username" type="text" autocomplete="username" placeholder="Masukkan username" autofocus required />
+    </div>
+
+    <div class="field">
+      <label for="p">Kata Sandi (123456 lalu ganti jika sudah masuk)</label>
+      <input id="p" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+    </div>
+
+    <button type="submit" id="btn">Otorisasi Masuk</button>
+    <div class="err" id="e" role="alert" aria-live="polite"></div>
+    
+    <div class="footer">Sistem khusus agen layanan Kring Pajak.</div>
+  </form>
+
+  <script>
+    // --- THEME TOGGLE LOGIC ---
+    const themeBtn = document.getElementById('theme-btn');
+    const root = document.documentElement;
+    
+    // Cek localStorage atau sistem preference pengguna
+    const savedTheme = localStorage.getItem('theme') || 
+      (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+    
+    if (savedTheme === 'light') root.setAttribute('data-theme', 'light');
+
+    themeBtn.addEventListener('click', () => {
+      const currentTheme = root.getAttribute('data-theme') || 'dark';
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      root.setAttribute('data-theme', newTheme);
+      localStorage.setItem('theme', newTheme);
+    });
+
+    // --- FORM SUBMIT LOGIC ---
+    const params = new URLSearchParams(location.search);
+    const next = params.get("next") || "/";
+    const f = document.getElementById("f");
+    const e = document.getElementById("e");
+    const btn = document.getElementById("btn");
+
+    f.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      e.style.display = "none";
+      btn.disabled = true;
+      btn.textContent = "Memverifikasi Kredensial…";
+
+      try {
+        const r = await fetch("/api/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            username: document.getElementById("u").value,
+            password: document.getElementById("p").value,
+          }),
+        });
+        const j = await r.json();
+
+        if (r.ok && j.ok) {
+          location.href = next;
+          return;
+        }
+
+        e.textContent = j.error || "Akses ditolak. Periksa kembali kredensial Anda.";
+        e.style.display = "block";
+      } catch (err) {
+        e.textContent = "Koneksi ke server terputus.";
+        e.style.display = "block";
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Otorisasi Masuk";
+      }
+    });
+  </script>
+</body>
+</html>

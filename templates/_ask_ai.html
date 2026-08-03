@@ -1,0 +1,116 @@
+{# Kartu Tanya AI reusable: di-include di dalam kontainer konten tiap halaman setelah judul, agar judul di atas dan lebar sejajar konten. #}
+<style>
+  .ask-card{margin:0 0 22px;padding:20px 22px;border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);}
+  .ask-card .ask-hd{display:flex;align-items:center;gap:12px;}
+  .ask-card .ask-hd .ic{width:36px;height:36px;flex:0 0 auto;display:grid;place-items:center;border-radius:10px;background:var(--accent);color:#fff;}
+  .ask-card .ask-hd .ic svg{width:19px;height:19px;}
+  .ask-card .ask-title{margin:0;font-size:16px;font-weight:700;color:var(--text-main);line-height:1.15;}
+  .ask-card .ask-scope{font-size:12px;color:var(--text-muted);margin-top:1px;}
+  .ask-card .ask-row{display:flex;gap:10px;margin-top:14px;}
+  .ask-card .ask-row input{flex:1;padding:11px 14px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base,transparent);color:var(--text-main);font-size:14px;}
+  .ask-card .ask-send{border:none;border-radius:10px;padding:0 20px;background:var(--accent);color:#fff;font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap;}
+  .ask-card .ask-send:disabled{opacity:.6;cursor:default;}
+  .ask-card .ask-ex{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+  .ask-card .ask-ex button{font-size:12px;padding:6px 12px;border:1px solid var(--panel-border);border-radius:999px;background:transparent;color:var(--text-muted);cursor:pointer;}
+  .ask-card .ask-ex button:hover{border-color:var(--accent);color:var(--accent);}
+  .ask-answer{margin-top:16px;border-radius:14px;background:var(--bg-base,rgba(127,127,127,.06));border:1px solid var(--panel-border);display:none;overflow:hidden;}
+  .ask-answer.show{display:block;}
+  .ask-answer .inner{padding:18px 20px;font-size:14px;color:var(--text-main);line-height:1.55;}
+  .ask-answer .inner p{margin:0 0 10px;} .ask-answer .inner p:last-child{margin:0;}
+  .ask-answer pre{background:rgba(0,0,0,.10);border:1px solid var(--panel-border);border-radius:10px;padding:12px;overflow-x:auto;font-size:13px;margin:8px 0 0;}
+  .ask-answer table{border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;}
+  .ask-answer th,.ask-answer td{border:1px solid var(--panel-border);padding:7px 11px;text-align:left;}
+  .ask-answer th{background:var(--c-blue);color:var(--c-blue-txt);}
+  .ask-sql{margin-top:12px;padding-top:12px;border-top:1px dashed var(--panel-border);font-size:12px;color:var(--text-muted);word-break:break-word;}
+  .ask-state{display:flex;align-items:center;gap:10px;color:var(--text-muted);}
+  .ask-spin{display:inline-block;width:16px;height:16px;border:2px solid var(--panel-border);border-top-color:var(--accent);border-radius:50%;animation:askspin .7s linear infinite;}
+  @keyframes askspin{to{transform:rotate(360deg);}}
+</style>
+<section class="ask-card" id="askCard" data-page="{{ active_page }}">
+  <div class="ask-hd">
+    <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 2v4M9 12h.01M15 12h.01"/></svg></div>
+    <div>
+      <h2 class="ask-title">Tanya AI</h2>
+      <div class="ask-scope" id="askScope">Menjawab dari data halaman ini &mdash; hanya dari database internal, bukan sumber luar.</div>
+    </div>
+  </div>
+  <div class="ask-row">
+    <input id="askQ" type="text" placeholder="Tulis pertanyaan tentang halaman ini…" autocomplete="off">
+    <button class="ask-send" id="askSend" type="button">Tanya AI</button>
+  </div>
+  <div class="ask-ex" id="askEx"></div>
+  <div class="ask-answer" id="askAnswer"><div class="inner"></div></div>
+</section>
+<script>
+(function(){
+  var card = document.getElementById('askCard');
+  if (!card) return;
+  var page = card.getAttribute('data-page') || '';
+  var SCOPE = {
+    glosarium: 'Menjawab dari Glosarium Istilah Pajak',
+    disambiguasi: 'Menjawab dari Pustaka Disambiguasi',
+    intentmap: 'Menjawab dari Peta Intent & Katalog',
+    data: 'Menjawab dari database interaksi (query SQL)',
+    deflection: 'Menjawab dari data interaksi (query SQL)',
+    lifecycle: 'Menjawab dari data interaksi (query SQL)',
+    tools: 'Menjawab dari data interaksi (query SQL)'
+  };
+  var EX = {
+    glosarium: ['Apa itu EFIN?', 'Jelaskan istilah Coretax'],
+    disambiguasi: ['Kapan pakai DJP Online vs Coretax?', 'Arti "lapor pajak" yang ambigu'],
+    intentmap: ['Intent untuk lupa EFIN?', 'Kebijakan jawaban reset password'],
+    data: ['Berapa total sesi bulan ini?', 'Top 5 intent minggu lalu'],
+    deflection: ['Berapa fallback rate 7 hari terakhir?'],
+    lifecycle: ['Berapa intent yang tak pernah dipanggil?'],
+    tools: ['Berapa total interaksi minggu lalu?']
+  };
+  var scopeEl = document.getElementById('askScope');
+  if (SCOPE[page]) scopeEl.textContent = SCOPE[page] + ' — hanya dari database internal.';
+  var q = document.getElementById('askQ');
+  var send = document.getElementById('askSend');
+  var ansWrap = document.getElementById('askAnswer');
+  var ans = ansWrap.querySelector('.inner');
+  function esc(s){ return (s||'').replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function mdLite(src){
+    var t = esc(src||'');
+    t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, function(m,l,c){ return '<pre>'+c+'</pre>'; });
+    t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>');
+    return '<p>'+t+'</p>';
+  }
+  function tbl(cols, rows){
+    if (!cols || !rows || !rows.length) return '';
+    return '<table><tr>' + cols.map(function(c){ return '<th>'+esc(String(c))+'</th>'; }).join('') + '</tr>' +
+      rows.slice(0,15).map(function(r){ return '<tr>' + r.map(function(v){ return '<td>'+esc(String(v==null?'':v))+'</td>'; }).join('') + '</tr>'; }).join('') + '</table>';
+  }
+  function show(html){ ans.innerHTML = html; ansWrap.classList.add('show'); }
+  var busy = false;
+  function askNow(){
+    var text = q.value.trim();
+    if (!text || busy) return;
+    busy = true; send.disabled = true;
+    show('<div class="ask-state"><span class="ask-spin"></span>Menganalisis data internal…</div>');
+    fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: text, page: page }) })
+      .then(function(r){ return r.json(); })
+      .then(function(r){
+        if (!r.ok) { show('⚠ ' + esc(r.error || 'Gagal memproses.') + (r.sql ? '<div class="ask-sql">SQL gagal: <code>'+esc(r.sql)+'</code></div>' : '')); return; }
+        var html = mdLite(r.answer);
+        if (r.mode === 'data') {
+          html += tbl(r.columns, r.rows);
+          if (r.sql) html += '<div class="ask-sql">Query SQL: <code>'+esc(r.sql)+'</code></div>';
+        }
+        show(html);
+      })
+      .catch(function(e){ show('⚠ ' + esc(e.message)); })
+      .then(function(){ busy = false; send.disabled = false; });
+  }
+  send.onclick = askNow;
+  q.addEventListener('keydown', function(e){ if (e.key === 'Enter') askNow(); });
+  var exWrap = document.getElementById('askEx');
+  (EX[page] || []).forEach(function(ex){
+    var b = document.createElement('button');
+    b.type = 'button'; b.textContent = ex;
+    b.onclick = function(){ q.value = ex; askNow(); };
+    exWrap.appendChild(b);
+  });
+})();
+</script>

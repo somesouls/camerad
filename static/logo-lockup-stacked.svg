@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="260" viewBox="0 0 420 260" role="img" aria-label="CAMERAD stacked lockup">
+  <title>CAMERAD — stacked lockup</title>
+  <g transform="translate(150 10)">
+    <path d="M92 24 H40 A16 16 0 0 0 24 40 V80 A16 16 0 0 0 40 96 H92" fill="none" stroke="#212C5F" stroke-width="11" stroke-linecap="round"></path>
+    <rect x="56" y="45" width="30" height="9" rx="4.5" fill="#FFCA1B"></rect>
+  <rect x="42" y="66" width="30" height="9" rx="4.5" fill="#212C5F"></rect>
+  </g>
+  <text x="210" y="180" text-anchor="middle" font-family="Montserrat" font-weight="800" font-size="42" letter-spacing="3.4" fill="#212C5F">CAMERAD</text>
+  <text x="210" y="212" text-anchor="middle" font-family="DM Sans" font-weight="400" font-size="14" fill="#3A3F5C">Computer Automation for Monitoring, Evaluating,</text>
+  <text x="210" y="232" text-anchor="middle" font-family="DM Sans" font-weight="400" font-size="14" fill="#3A3F5C">Research, and Development</text>
+</svg>

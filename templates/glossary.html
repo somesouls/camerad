@@ -1,0 +1,347 @@
+{% extends "base.html" %}
+{% block title %}Kelola Istilah · Glosarium Perpajakan{% endblock %}
+{% block head %}<style>
+.wrap{ max-width:1180px; margin:0 auto; padding:22px 18px 80px; }
+  header{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  header h1{ font-size:20px; margin:0; }
+  header .sub{ color:var(--muted); font-size:12px; }
+  .spacer{ flex:1; }
+  .navlink{ display:inline-flex; align-items:center; gap:6px; color:var(--muted); text-decoration:none; padding:7px 11px; border:1px solid var(--line); border-radius:10px; font-size:13px; }
+  .navlink:hover{ color:var(--text); border-color:#3a4150; }
+  .navlink svg{ width:15px; height:15px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; margin-bottom:16px; }
+  .card h2{ font-size:15px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+  .cap{ color:var(--muted); font-size:12px; margin-bottom:10px; }
+  .ic{ display:inline-flex; width:26px; height:26px; align-items:center; justify-content:center; border-radius:8px; background:var(--panel2); }
+  .ic svg{ width:15px; height:15px; }
+  .ic.blue{ color:var(--brand); } .ic.green{ color:var(--green); } .ic.amber{ color:var(--amber); }
+  details.guide{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:0 18px; margin-bottom:16px; }
+  details.guide summary{ cursor:pointer; padding:14px 0; font-weight:600; list-style:none; display:flex; align-items:center; gap:8px; }
+  details.guide summary::-webkit-details-marker{ display:none; }
+  details.guide summary .chev{ transition:.2s; color:var(--muted); }
+  details.guide[open] summary .chev{ transform:rotate(90deg); }
+  .guide-body{ padding-bottom:16px; font-size:13px; color:#cfd4de; }
+  .guide-body h3{ font-size:13px; margin:14px 0 6px; color:var(--text); }
+  .guide-body code{ background:var(--panel2); padding:1px 6px; border-radius:5px; font-size:12px; }
+  .guide-body table{ border-collapse:collapse; width:100%; margin:8px 0; }
+  .guide-body th,.guide-body td{ border:1px solid var(--line); padding:6px 9px; text-align:left; vertical-align:top; font-size:12.5px; }
+  .guide-body th{ background:var(--panel2); }
+  .rule{ border-left:3px solid var(--brand); background:var(--panel2); padding:8px 12px; border-radius:0 8px 8px 0; margin:8px 0; }
+  .good{ color:var(--green); } .bad{ color:var(--red); }
+  .toolbar{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:12px; }
+  input,select,textarea{ background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:8px 10px; font-size:13px; font-family:inherit; }
+  input:focus,select:focus,textarea:focus{ outline:none; border-color:var(--brand); }
+  .search{ flex:1; min-width:200px; }
+  .btn{ display:inline-flex; align-items:center; gap:7px; background:var(--panel2); border:1px solid var(--line); color:var(--text); padding:8px 13px; border-radius:10px; cursor:pointer; font-size:13px; }
+  .btn:hover{ border-color:#3a4150; }
+  .btn.primary{ background:var(--brand); color:#0b1020; border-color:transparent; font-weight:600; }
+  .btn.danger{ color:var(--red); }
+  .btn:disabled{ opacity:.55; cursor:not-allowed; }
+  .btn svg{ width:15px; height:15px; }
+  table.grid{ width:100%; border-collapse:collapse; }
+  table.grid th,table.grid td{ border-bottom:1px solid var(--line); padding:9px 10px; text-align:left; font-size:13px; vertical-align:top; }
+  table.grid th{ color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; }
+  table.grid tr:hover td{ background:var(--panel2); }
+  .tag{ display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); color:var(--muted); }
+  .tag.coretax{ color:var(--brand); border-color:rgba(110,168,254,.4); }
+  .badge{ font-size:11px; padding:2px 7px; border-radius:6px; font-weight:600; }
+  .badge.ok{ color:var(--green); background:rgba(87,211,140,.12); }
+  .badge.no{ color:var(--amber); background:rgba(240,180,41,.12); }
+  .muted{ color:var(--muted); font-size:12px; }
+  .aliases{ color:var(--muted); font-size:11.5px; margin-top:2px; }
+  .act{ display:flex; gap:6px; }
+  .iconbtn{ background:var(--panel2); border:1px solid var(--line); color:var(--muted); border-radius:8px; padding:5px 8px; cursor:pointer; }
+  .iconbtn:hover{ color:var(--text); border-color:#3a4150; }
+  .iconbtn.del:hover{ color:var(--red); border-color:rgba(242,99,122,.5); }
+  .iconbtn svg{ width:14px; height:14px; display:block; }
+  /* modal */
+  .backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:flex-start; justify-content:center; padding:30px 16px; overflow:auto; z-index:50; }
+  .backdrop.show{ display:flex; }
+  .modal{ background:var(--panel); border:1px solid var(--line); border-radius:16px; width:100%; max-width:720px; padding:20px 22px; }
+  .modal h3{ margin:0 0 4px; font-size:16px; }
+  .form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }
+  .fld{ display:flex; flex-direction:column; gap:4px; }
+  .fld.full{ grid-column:1 / -1; }
+  .fld label{ font-size:12px; color:var(--text); font-weight:600; }
+  .fld .hint{ font-size:11px; color:var(--muted); font-weight:400; }
+  .fld textarea{ min-height:64px; resize:vertical; }
+  .req{ color:var(--red); }
+  .chk{ display:inline-flex; align-items:center; gap:8px; font-size:13px; }
+  .chk input{ width:16px; height:16px; }
+  .modal-foot{ display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
+  .modal-err{ color:var(--red); font-size:12.5px; margin-top:10px; display:none; }
+  .modal-err.show{ display:block; }
+  .count{ color:var(--muted); font-size:12px; }
+</style>{% endblock %}
+{% block content %}
+<div class="wrap">
+  <header>
+    <span class="ic blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></span>
+    <div><h1>Kelola Istilah</h1><div class="sub">Glosarium istilah perpajakan — konteks untuk analisis fallback &amp; MKTA</div></div>
+  </header>
+
+  {% include "_ask_ai.html" %}
+
+  <details class="guide">
+    <summary><span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span> 📖 Petunjuk pengisian (baca dulu sebelum menambah/mengedit)</summary>
+    <div class="guide-body">
+      <p>Glosarium ini dipakai AI sebagai <b>konteks</b> saat menganalisis fallback &amp; MKTA. Kualitas isian di sini langsung memengaruhi akurasi analisis. Isi dengan hati-hati.</p>
+
+      <h3>Aturan istilah gabungan (penting)</h3>
+      <div class="rule">
+        Tulis <b>UTUH sebagai entri sendiri</b> bila gabungan itu punya <b>makna, definisi, atau masalah yang berbeda</b> dari kata dasarnya.
+        Contoh: <code>SPT Masa</code> dan <code>SPT Tahunan</code> dibuat entri terpisah (bukan hanya “SPT”), karena aturan &amp; keluhannya beda. Cantumkan kata dasarnya (<code>SPT</code>) di kolom <b>Istilah terkait</b>.
+      </div>
+      <p>Sebaliknya, kalau gabungan hanya kata dasar + imbuhan umum tanpa makna khusus, <b>cukup jadikan alias</b> dari entri induk (jangan bikin entri baru). Panduan singkat:</p>
+      <table>
+        <tr><th>Situasi</th><th>Tindakan</th></tr>
+        <tr><td>Punya definisi/aturan/masalah tersendiri (SPT Masa, SPT Tahunan, PPh Pasal 21)</td><td class="good">Buat entri UTUH sendiri</td></tr>
+        <tr><td>Hanya variasi penyebutan/singkatan (“lapor spt”, “spt online”)</td><td class="bad">Masukkan sebagai alias, bukan entri baru</td></tr>
+      </table>
+
+      <h3>Penjelasan tiap kolom</h3>
+      <table>
+        <tr><th>Kolom</th><th>Wajib?</th><th>Cara isi</th></tr>
+        <tr><td><b>Istilah</b></td><td>Ya</td><td>Bentuk baku, mis. <code>EFIN</code>, <code>SPT Tahunan</code>. Satu istilah per entri.</td></tr>
+        <tr><td><b>Nama panjang</b></td><td>Tidak</td><td>Kepanjangan singkatan. Kosongkan bila bukan akronim.</td></tr>
+        <tr><td><b>Aliases</b></td><td>Sangat disarankan</td><td>Singkatan, salah ketik umum, sebutan awam. <b>Satu per baris.</b> Ini yang bikin AI mengenali istilah di kalimat user.</td></tr>
+        <tr><td><b>Definisi</b></td><td>Ya</td><td>1–3 kalimat, faktual, dari sumber resmi. <span class="bad">Jangan mengarang.</span> Kalau belum yakin, biarkan <b>Terverifikasi = tidak</b>.</td></tr>
+        <tr><td><b>Kategori / Sistem / Status</b></td><td>Disarankan</td><td>Pilih dari dropdown. Sistem <code>coretax</code> untuk istilah aplikasi Coretax; Status <code>usang</code> untuk fitur lama yang sudah diganti.</td></tr>
+        <tr><td><b>Masalah umum</b></td><td>Disarankan</td><td>Keluhan nyata gaya user (“lupa efin”, “efin belum aktif”). Satu per baris. Sangat membantu pencarian.</td></tr>
+        <tr><td><b>Contoh pertanyaan</b></td><td>Opsional</td><td>Contoh pertanyaan asli. Satu per baris.</td></tr>
+        <tr><td><b>Istilah terkait</b></td><td>Opsional</td><td>Istilah lain yang berhubungan (termasuk kata dasar untuk istilah gabungan). Satu per baris.</td></tr>
+        <tr><td><b>Prioritas</b></td><td>Opsional</td><td>Angka 0–100. Makin tinggi makin diutamakan saat konteks dibatasi. Istilah sering muncul → nilai besar.</td></tr>
+        <tr><td><b>Terverifikasi</b></td><td>—</td><td>Centang hanya setelah definisi dicek benar. Istilah yang belum dicek tetap tersimpan tapi ditandai ⚠.</td></tr>
+      </table>
+
+      <div class="rule"><b>Anti-halusinasi:</b> lebih baik biarkan <b>Terverifikasi = tidak</b> daripada menulis definisi asal. Istilah Coretax baru (mis. <code>BPPU</code>, <code>Kode Otorisasi DJP</code>) sengaja diberi tanda ⚠ — mohon tim melengkapi definisi resminya.</div>
+    </div>
+  </details>
+
+  <div class="card">
+    <div class="toolbar">
+      <input class="search" id="q" placeholder="Cari istilah, alias, atau definisi…">
+      <select id="fKategori"><option value="">Semua kategori</option></select>
+      <select id="fSistem"><option value="">Semua sistem</option></select>
+      <select id="fStatus"><option value="">Semua status</option><option value="aktif">Aktif</option><option value="usang">Usang</option></select>
+      <select id="fLang"><option value="">Semua bahasa</option><option value="id">ID</option><option value="en">EN</option></select>
+      <button class="btn primary" id="addBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Tambah istilah</button>
+    </div>
+    <div class="count" id="count"></div>
+    <div style="overflow-x:auto">
+      <table class="grid">
+        <thead><tr><th>Istilah</th><th>Kategori</th><th>Sistem</th><th>Status</th><th>Verifikasi</th><th>Prioritas</th><th></th></tr></thead>
+        <tbody id="rows"><tr><td colspan="7" class="muted">Memuat…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pager" id="pager" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 0;"></div>
+  </div>
+</div>
+
+<!-- Modal tambah/edit -->
+<div class="backdrop" id="backdrop">
+  <div class="modal">
+    <h3 id="mTitle">Tambah istilah</h3>
+    <div class="cap" id="mSub">Isi sesuai petunjuk. Field bertanda <span class="req">*</span> wajib.</div>
+    <input type="hidden" id="fId">
+    <div class="form-grid">
+      <div class="fld"><label>Istilah <span class="req">*</span></label><input id="fTerm" placeholder="mis. SPT Tahunan"></div>
+      <div class="fld"><label>Nama panjang</label><input id="fNama" placeholder="kepanjangan bila akronim"></div>
+      <div class="fld full"><label>Aliases <span class="hint">(satu per baris — singkatan, typo umum, sebutan awam)</span></label><textarea id="fAliases" placeholder="spt tahunan&#10;lapor tahunan"></textarea></div>
+      <div class="fld full"><label>Definisi <span class="req">*</span> <span class="hint">(1–3 kalimat, dari sumber resmi — jangan mengarang)</span></label><textarea id="fDef"></textarea></div>
+      <div class="fld"><label>Kategori</label><select id="fKat"></select></div>
+      <div class="fld"><label>Sistem</label><select id="fSis"></select></div>
+      <div class="fld"><label>Status</label><select id="fStat"><option value="aktif">aktif</option><option value="usang">usang</option></select></div>
+      <div class="fld"><label>Bahasa</label><select id="fLangEdit"><option value="id">ID (Indonesia)</option><option value="en">EN (English)</option></select></div>
+      <div class="fld"><label>Prioritas <span class="hint">(0–100)</span></label><input id="fPrio" type="number" min="0" max="100" value="0"></div>
+      <div class="fld full"><label>Masalah umum <span class="hint">(satu per baris, gaya keluhan user)</span></label><textarea id="fMasalah" placeholder="lupa efin&#10;efin belum aktif"></textarea></div>
+      <div class="fld full"><label>Contoh pertanyaan <span class="hint">(satu per baris)</span></label><textarea id="fContoh"></textarea></div>
+      <div class="fld full"><label>Istilah terkait <span class="hint">(satu per baris — termasuk kata dasar untuk istilah gabungan)</span></label><textarea id="fTerkait"></textarea></div>
+      <div class="fld"><label>Sumber</label><input id="fSumber" placeholder="mis. DJP / panduan Coretax"></div>
+      <div class="fld" style="justify-content:flex-end"><label class="chk"><input type="checkbox" id="fVerif"> Terverifikasi (definisi sudah dicek benar)</label></div>
+    </div>
+    <div class="modal-err" id="mErr"></div>
+    <div class="modal-foot">
+      <button class="btn" id="cancelBtn">Batal</button>
+      <button class="btn primary" id="saveBtn">Simpan</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const el=id=>document.getElementById(id);
+let META={kategori:[],sistem:[],status:[]};
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function lines(arr){ return (arr||[]).join('\n'); }
+function toList(v){ return (v||'').split('\n').map(s=>s.trim()).filter(Boolean); }
+
+async function load(){
+  const p=new URLSearchParams();
+  if(el('q').value.trim()) p.set('q', el('q').value.trim());
+  if(el('fKategori').value) p.set('kategori', el('fKategori').value);
+  if(el('fSistem').value) p.set('sistem', el('fSistem').value);
+  if(el('fStatus').value) p.set('status', el('fStatus').value);
+  if(el('fLang').value) p.set('lang', el('fLang').value);
+  el('rows').innerHTML='<tr><td colspan="7" class="muted">Memuat…</td></tr>';
+  let d;
+  try{ d=await (await fetch('/api/glossary/list?'+p.toString())).json(); }
+  catch(e){ el('rows').innerHTML='<tr><td colspan="7" class="muted">Gagal memuat: '+esc(e.message)+'</td></tr>'; return; }
+  if(!d.ok){ el('rows').innerHTML='<tr><td colspan="7" class="muted">Error: '+esc(d.error||'')+'</td></tr>'; return; }
+  META={kategori:d.kategori||[], sistem:d.sistem||[], status:d.status||[]};
+  fillFilters();
+  const items=d.items||[];
+  el('count').textContent=items.length+' istilah ditampilkan · total '+d.total+' di database';
+  if(!items.length){ el('rows').innerHTML='<tr><td colspan="7" class="muted">Belum ada istilah yang cocok.</td></tr>'; return; }
+  el('rows').innerHTML=items.map(rowHtml).join('');
+  items.forEach(it=>{
+    el('edit_'+it.id).onclick=()=>openEdit(it);
+    el('del_'+it.id).onclick=()=>del(it);
+  });
+}
+
+function rowHtml(it){
+  const al=(it.aliases||[]).slice(0,4).join(', ')+((it.aliases||[]).length>4?'…':'');
+  const sysCls=it.sistem==='coretax'?'tag coretax':'tag';
+  const verif=it.terverifikasi? '<span class="badge ok">✓ terverifikasi</span>':'<span class="badge no">⚠ belum</span>';
+  return '<tr>'+
+    '<td><b>'+esc(it.term)+'</b>'+usedBadge(it)+langBadge(it)+(it.nama_panjang?' <span class="muted">— '+esc(it.nama_panjang)+'</span>':'')+
+      (al?'<div class="aliases">alias: '+esc(al)+'</div>':'')+'</td>'+
+    '<td>'+(it.kategori?'<span class="tag">'+esc(it.kategori)+'</span>':'<span class="muted">—</span>')+'</td>'+
+    '<td><span class="'+sysCls+'">'+esc(it.sistem||'umum')+'</span></td>'+
+    '<td>'+esc(it.status||'aktif')+'</td>'+
+    '<td>'+verif+'</td>'+
+    '<td>'+(it.prioritas||0)+'</td>'+
+    '<td><div class="act">'+
+      '<button class="iconbtn" id="edit_'+it.id+'" title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>'+
+      '<button class="iconbtn del" id="del_'+it.id+'" title="Hapus"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg></button>'+
+    '</div></td>'+
+  '</tr>';
+}
+
+function fillFilters(){
+  if(el('fKategori').options.length<=1){
+    META.kategori.forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=k; el('fKategori').appendChild(o); });
+  }
+  if(el('fSistem').options.length<=1){
+    META.sistem.forEach(s=>{ const o=document.createElement('option'); o.value=s; o.textContent=s; el('fSistem').appendChild(o); });
+  }
+  if(el('fKat').options.length===0){
+    META.kategori.forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=k; el('fKat').appendChild(o); });
+  }
+  if(el('fSis').options.length===0){
+    META.sistem.forEach(s=>{ const o=document.createElement('option'); o.value=s; o.textContent=s; el('fSis').appendChild(o); });
+  }
+}
+
+function openModal(){ el('mErr').classList.remove('show'); el('backdrop').classList.add('show'); }
+function closeModal(){ el('backdrop').classList.remove('show'); }
+
+function openAdd(){
+  el('mTitle').textContent='Tambah istilah';
+  el('fId').value=''; el('fTerm').value=''; el('fNama').value=''; el('fAliases').value='';
+  el('fDef').value=''; el('fKat').value=META.kategori[0]||''; el('fSis').value='umum'; el('fStat').value='aktif';
+  el('fPrio').value='0'; el('fMasalah').value=''; el('fContoh').value=''; el('fTerkait').value='';
+  el('fSumber').value=''; el('fVerif').checked=false; el('fLangEdit').value='id';
+  openModal(); el('fTerm').focus();
+}
+
+function openEdit(it){
+  el('mTitle').textContent='Edit istilah';
+  el('fId').value=it.id; el('fTerm').value=it.term||''; el('fNama').value=it.nama_panjang||'';
+  el('fAliases').value=lines(it.aliases); el('fDef').value=it.definisi||'';
+  el('fKat').value=it.kategori||''; el('fSis').value=it.sistem||'umum'; el('fStat').value=it.status||'aktif';
+  el('fPrio').value=it.prioritas||0; el('fMasalah').value=lines(it.masalah_umum);
+  el('fContoh').value=lines(it.contoh_pertanyaan); el('fTerkait').value=lines(it.istilah_terkait);
+  el('fSumber').value=it.sumber||''; el('fVerif').checked=!!it.terverifikasi; el('fLangEdit').value=it.lang||'id';
+  openModal();
+}
+
+async function save(){
+  const payload={
+    id: el('fId').value || undefined,
+    term: el('fTerm').value, nama_panjang: el('fNama').value,
+    aliases: toList(el('fAliases').value), definisi: el('fDef').value,
+    kategori: el('fKat').value, sistem: el('fSis').value, status: el('fStat').value,
+    prioritas: parseInt(el('fPrio').value||'0',10)||0,
+    masalah_umum: toList(el('fMasalah').value), contoh_pertanyaan: toList(el('fContoh').value),
+    istilah_terkait: toList(el('fTerkait').value), sumber: el('fSumber').value,
+    lang: el('fLangEdit').value,
+    terverifikasi: el('fVerif').checked
+  };
+  el('saveBtn').disabled=true;
+  try{
+    const r=await (await fetch('/api/glossary/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})).json();
+    if(r.ok){ closeModal(); load(); }
+    else { el('mErr').textContent=r.error||'Gagal menyimpan.'; el('mErr').classList.add('show'); }
+  }catch(e){ el('mErr').textContent='Gagal: '+e.message; el('mErr').classList.add('show'); }
+  el('saveBtn').disabled=false;
+}
+
+async function del(it){
+  if(!confirm('Hapus istilah “'+it.term+'”? Tindakan ini tidak bisa dibatalkan.')) return;
+  try{
+    const r=await (await fetch('/api/glossary/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:it.id})})).json();
+    if(r.ok){ load(); } else { alert('Gagal hapus: '+(r.error||'')); }
+  }catch(e){ alert('Gagal hapus: '+e.message); }
+}
+
+let t=null;
+el('q').oninput=()=>{ clearTimeout(t); t=setTimeout(load,250); };
+el('fKategori').onchange=load; el('fSistem').onchange=load; el('fStatus').onchange=load; el('fLang').onchange=load;
+el('addBtn').onclick=openAdd;
+el('cancelBtn').onclick=closeModal; el('saveBtn').onclick=save;
+el('backdrop').onclick=e=>{ if(e.target===el('backdrop')) closeModal(); };
+load();
+</script>
+<script>
+/* Statistik pemakaian per-baris + pagination daftar (Camerad Studio) */
+function langBadge(it){ var l=((it&&it.lang)||'id'); return ' <span title="Bahasa data" style="display:inline-block;background:rgba(80,140,255,.14);color:#7aa2ff;border:1px solid rgba(80,140,255,.45);border-radius:20px;padding:0 7px;font-size:10px;font-weight:700;white-space:nowrap;vertical-align:middle;">'+String(l).toUpperCase()+'</span>'; }
+function usedBadge(it){
+  var n=(it&&it.dipakai)||0;
+  if(!n) return '';
+  return ' <span title="Dipakai '+n+'x saat analisis/chat" style="display:inline-block;background:rgba(255,202,27,.16);color:#b58900;border:1px solid rgba(255,202,27,.45);border-radius:20px;padding:0 8px;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;">dipakai '+n+'\u00d7</span>';
+}
+function makePager(tbodyId, pagerId, size){
+  try{
+    var tb=document.getElementById(tbodyId), pg=document.getElementById(pagerId);
+    if(!tb || !pg) return;
+    size = size || 15;
+    var page=1;
+    function dataRows(){
+      return Array.prototype.filter.call(tb.children, function(tr){
+        return tr.querySelectorAll && tr.querySelectorAll('td').length>1;
+      });
+    }
+    function draw(total,pages,start,endShown){
+      if(!total){ pg.innerHTML=''; return; }
+      if(pages<=1){ pg.innerHTML='<span class="muted">'+total+' entri</span>'; return; }
+      pg.innerHTML='<button class="btn" type="button" data-pg="prev">\u2039 Sebelumnya</button>'
+        +'<span class="muted" style="margin:0 8px">Hal '+page+' / '+pages+' \u00b7 '+(start+1)+'\u2013'+endShown+' dari '+total+'</span>'
+        +'<button class="btn" type="button" data-pg="next">Berikutnya \u203a</button>';
+      var pv=pg.querySelector('[data-pg="prev"]'), nx=pg.querySelector('[data-pg="next"]');
+      if(page<=1 && pv) pv.disabled=true;
+      if(page>=pages && nx) nx.disabled=true;
+      if(pv) pv.onclick=function(){ if(page>1){ page--; apply(); } };
+      if(nx) nx.onclick=function(){ if(page<pages){ page++; apply(); } };
+    }
+    function apply(){
+      var rows=dataRows(), total=rows.length;
+      var pages=Math.max(1, Math.ceil(total/size));
+      if(page>pages) page=pages;
+      if(page<1) page=1;
+      var start=(page-1)*size, end=start+size;
+      Array.prototype.forEach.call(tb.children, function(tr){ tr.style.display=''; });
+      if(total){ rows.forEach(function(tr,i){ tr.style.display=(i>=start && i<end)?'':'none'; }); }
+      draw(total, pages, start, Math.min(end,total));
+    }
+    if(window.MutationObserver){
+      var obs=new MutationObserver(function(){ page=1; apply(); });
+      obs.observe(tb, {childList:true});
+    }
+    apply();
+  }catch(e){ /* pagination bersifat opsional; abaikan bila gagal */ }
+}
+makePager("rows","pager",15);
+</script>
+{% endblock %}

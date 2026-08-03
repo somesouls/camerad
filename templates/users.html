@@ -1,0 +1,167 @@
+{% extends "base.html" %}
+{% block title %}Kelola User — Pipeline Lokal DJP{% endblock %}
+{% block head %}<style>
+.wrap { max-width:980px; margin:0 auto; padding:24px 16px; }
+.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+h1 { font-size:20px; margin:0; }
+a.back { color:#93c5fd; text-decoration:none; font-size:13px; }
+table { width:100%; border-collapse:collapse; background:#1e293b; border:1px solid #334155; }
+th, td { padding:10px 12px; text-align:left; font-size:13px; border-bottom:1px solid #334155; }
+th { color:#94a3b8; font-weight:600; background:#172033; }
+tr:last-child td { border-bottom:none; }
+.badge { padding:2px 8px; border-radius:999px; font-size:11px; }
+.b-admin { background:#7c2d12; color:#fed7aa; }
+.b-analis { background:#1e3a8a; color:#bfdbfe; }
+.b-viewer { background:#334155; color:#cbd5e1; }
+.off { opacity:.5; }
+.btn { padding:6px 10px; border:1px solid #334155; border-radius:7px; background:#0f172a; color:#e2e8f0; font-size:12px; cursor:pointer; }
+.btn:hover { border-color:#3b82f6; }
+.btn.danger:hover { border-color:#ef4444; color:#fca5a5; }
+.card { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:18px; margin-top:20px; }
+.row { display:flex; gap:12px; flex-wrap:wrap; }
+.fld { flex:1; min-width:160px; }
+label { display:block; font-size:12px; color:#94a3b8; margin:0 0 6px; }
+input, select { width:100%; padding:9px 10px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; font-size:13px; }
+.primary { background:#3b82f6; color:#fff; border:none; padding:10px 16px; border-radius:8px; font-weight:600; cursor:pointer; margin-top:14px; }
+.msg { margin-top:12px; font-size:13px; display:none; padding:9px 12px; border-radius:8px; }
+.msg.ok { background:#064e3b; color:#a7f3d0; display:block; }
+.msg.no { background:#7f1d1d; color:#fecaca; display:block; }
+</style>{% endblock %}
+{% block content %}
+<div class="wrap">
+  <div class="top">
+    <h1>Kelola User</h1>
+    <div><a class="back" href="/">← Kembali</a> · <a class="back" href="/api/logout">Keluar</a></div>
+  </div>
+  <div class="card">
+    <h3 id="ftitle" style="margin:0 0 14px; font-size:15px;">Tambah User Baru</h3>
+    <input type="hidden" id="uid" />
+    <div class="row">
+      <div class="fld"><label>Username</label><input id="fu" /></div>
+      <div class="fld"><label>Nama</label><input id="fn" /></div>
+    </div>
+    <div class="row">
+      <div class="fld">
+        <label>Peran</label>
+        <select id="fr">
+          <option value="viewer">viewer — hanya lihat</option>
+          <option value="analis">analis — lihat, edit, setujui, ingest</option>
+          <option value="admin">admin — semua + kelola user</option>
+        </select>
+      </div>
+      <div class="fld"><label>Sandi (min. 6 karakter)</label><input id="fp" type="password" /></div>
+    </div>
+    <button class="primary" id="save">Simpan</button>
+    <button class="btn" id="reset" style="margin-top:14px;">Batal / Reset Form</button>
+    <div class="msg" id="msg"></div>
+  </div>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>Username</th><th>Nama</th><th>Peran</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody id="tb"></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const tb = document.getElementById("tb");
+const msg = document.getElementById("msg");
+const uid = document.getElementById("uid");
+const fu = document.getElementById("fu");
+const fn = document.getElementById("fn");
+const fr = document.getElementById("fr");
+const fp = document.getElementById("fp");
+const ftitle = document.getElementById("ftitle");
+
+function show(text, ok) {
+  msg.textContent = text;
+  msg.className = "msg " + (ok ? "ok" : "no");
+}
+
+function badge(role) {
+  if (role === "admin") return '<span class="badge b-admin">admin</span>';
+  if (role === "analis") return '<span class="badge b-analis">analis</span>';
+  return '<span class="badge b-viewer">viewer</span>';
+}
+
+async function load() {
+  const r = await fetch("/api/users");
+  const j = await r.json();
+  if (!j.ok) {
+    show(j.error || "Gagal memuat.", false);
+    return;
+  }
+  tb.innerHTML = "";
+  (j.users || []).forEach((u) => {
+    const tr = document.createElement("tr");
+    if (!u.aktif) tr.className = "off";
+    tr.innerHTML =
+      '<td>' + u.username + '</td>' +
+      '<td>' + (u.nama || '') + '</td>' +
+      '<td>' + badge(u.role) + '</td>' +
+      '<td>' + (u.aktif ? 'aktif' : 'nonaktif') + '</td>' +
+      '<td style="text-align:right; white-space:nowrap;">' +
+      '<button class="btn" data-edit="' + JSON.stringify(u).replace(/"/g, '&quot;') + '">Ubah</button> ' +
+      '<button class="btn" data-toggle="' + u.id + '" data-aktif="' + (u.aktif ? 0 : 1) + '">' + (u.aktif ? 'Nonaktifkan' : 'Aktifkan') + '</button> ' +
+      '<button class="btn danger" data-del="' + u.id + '" data-name="' + u.username + '">Hapus</button>' +
+      '</td>';
+    tb.appendChild(tr);
+  });
+}
+
+function resetForm() {
+  uid.value = "";
+  fu.value = "";
+  fu.disabled = false;
+  fn.value = "";
+  fr.value = "viewer";
+  fp.value = "";
+  ftitle.textContent = "Tambah User Baru";
+}
+
+document.getElementById("reset").addEventListener("click", resetForm);
+
+tb.addEventListener("click", async (ev) => {
+  const t = ev.target;
+  if (t.dataset.edit) {
+    const u = JSON.parse(t.dataset.edit.replace(/&quot;/g, '"'));
+    uid.value = u.id;
+    fu.value = u.username;
+    fu.disabled = true;
+    fn.value = u.nama || "";
+    fr.value = u.role;
+    fp.value = "";
+    ftitle.textContent = "Ubah User: " + u.username;
+    window.scrollTo(0, document.body.scrollHeight);
+  } else if (t.dataset.toggle) {
+    const r = await fetch("/api/users/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: +t.dataset.toggle, aktif: +t.dataset.aktif === 1 }) });
+    const j = await r.json();
+    show(j.ok ? "Status diperbarui." : (j.error || "Gagal."), j.ok);
+    load();
+  } else if (t.dataset.del) {
+    if (!confirm("Hapus user " + t.dataset.name + "?")) return;
+    const r = await fetch("/api/users/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: +t.dataset.del }) });
+    const j = await r.json();
+    show(j.ok ? "User dihapus." : (j.error || "Gagal."), j.ok);
+    load();
+  }
+});
+
+document.getElementById("save").addEventListener("click", async () => {
+  const id = uid.value;
+  const payload = { nama: fn.value, role: fr.value };
+  if (id) payload.id = +id;
+  else payload.username = fu.value;
+  if (fp.value) payload.password = fp.value;
+  const r = await fetch("/api/users/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const j = await r.json();
+  show(j.ok ? "Tersimpan." : (j.error || "Gagal menyimpan."), j.ok);
+  if (j.ok) { resetForm(); load(); }
+});
+
+load();
+</script>
+{% endblock %}

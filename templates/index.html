@@ -1,0 +1,221 @@
+{% extends "base.html" %}
+{% block title %}Camerad Studio - AI Assistant{% endblock %}
+{% block main %}
+<!-- Tambahkan class is-empty dinamis lewat JS -->
+      <div class="stream" id="stream">
+        <div class="stream-inner" id="streamInner"></div>
+      </div>
+      
+      <div class="composer">
+        <div class="composer-inner">
+          <div class="inputwrap">
+            <textarea id="input" rows="1" placeholder="Tanyakan atau instruksikan sesuatu pada asisten..."></textarea>
+            <button class="sendbtn" id="sendBtn" title="Kirim Pesan">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+            </button>
+          </div>
+          <div class="hint">Model AI dapat melakukan kesalahan. Pastikan verifikasi silang data kebijakan internal.</div>
+        </div>
+      </div>
+{% endblock %}
+{% block scripts %}
+<script>
+
+  // --- CHAT LOGIC ---
+  const LS_KEY='studio_chats', LS_ACTIVE='studio_active';
+  let sessions=loadSessions();
+  let activeId=localStorage.getItem(LS_ACTIVE)||null;
+  let sending=false;
+
+  const el=id=>document.getElementById(id);
+  function loadSessions(){ try{return JSON.parse(localStorage.getItem(LS_KEY))||[];}catch(e){return [];} }
+  function saveSessions(){ localStorage.setItem(LS_KEY, JSON.stringify(sessions)); }
+  function uid(){ return 'c_'+Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+  function active(){ return sessions.find(s=>s.id===activeId)||null; }
+
+  function getGreeting() {
+    const hour = new Date().getHours();
+    if (hour < 11) return 'Selamat Pagi';
+    if (hour < 15) return 'Selamat Siang';
+    if (hour < 18) return 'Selamat Sore';
+    return 'Selamat Malam';
+  }
+
+  function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  function mdLite(src){
+    const blocks=[];
+    let t=(src||'').replace(/```(\w*)\n?([\s\S]*?)```/g,(m,lang,code)=>{ blocks.push('<pre><code>'+esc(code.replace(/\n$/,''))+'</code></pre>'); return '\u0000'+(blocks.length-1)+'\u0000'; });
+    t=esc(t);
+    t=t.replace(/`([^`]+)`/g,(m,c)=>'<code>'+c+'</code>');
+    t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+    t=t.replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<em>$2</em>');
+    t=t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+    t=t.replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>');
+    t='<p>'+t+'</p>';
+    t=t.replace(/\u0000(\d+)\u0000/g,(m,i)=>blocks[+i]);
+    return t;
+  }
+
+  const botAvatar='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12 2.1 7.1"/><path d="M12 12l9.9 4.9"/></svg>';
+
+  function renderSidebar(){
+    const list=el('histList');
+    if(!sessions.length){ list.innerHTML='<div class="empty-hist">Belum ada chat tersimpan.</div>'; return; }
+    list.innerHTML='';
+    sessions.slice().sort((a,b)=>b.updated-a.updated).forEach(s=>{
+      const it=document.createElement('div');
+      it.className='chat-item'+(s.id===activeId?' active':'');
+      it.innerHTML='<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="t">'+esc(s.title||'Percakapan Baru')+'</span><button class="del" title="Hapus"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
+      it.onclick=()=>selectChat(s.id);
+      it.querySelector('.del').onclick=(e)=>{ e.stopPropagation(); delChat(s.id); };
+      list.appendChild(it);
+    });
+  }
+
+  function renderChat(){
+    const stream=el('stream');
+    const inner=el('streamInner'); 
+    const s=active();
+    
+    // STATE KOSONG (LANDING PAGE - NOTION STYLE)
+    if(!s || !s.messages.length){
+      stream.classList.add('is-empty'); // Center layout
+      
+      inner.innerHTML=`
+        <div class="hero-wrapper">
+          <h1 class="welcome-text">${getGreeting()}, Rekan.</h1>
+          <p class="welcome-sub">Apa yang ingin Anda kerjakan atau tanyakan hari ini?</p>
+          
+          <div class="tools-grid">
+            <a class="tool-card-compact" href="/dashboard">
+              <div class="ic-wrap c-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div>
+              <div class="text-wrap"><b>Dashboard Analitik</b><span>Pantauan performa.</span></div>
+            </a>
+            <a class="tool-card-compact" href="/data">
+              <div class="ic-wrap c-green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
+              <div class="text-wrap"><b>Kelola Data</b><span>Dataset & sinkronisasi.</span></div>
+            </a>
+            <a class="tool-card-compact" href="/glossary">
+              <div class="ic-wrap c-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
+              <div class="text-wrap"><b>Glosarium Pajak</b><span>Istilah khusus.</span></div>
+            </a>
+            <a class="tool-card-compact" href="/disambig">
+              <div class="ic-wrap c-red"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6M4 6v12"/></svg></div>
+              <div class="text-wrap"><b>Disambiguasi</b><span>Routing frasa.</span></div>
+            </a>
+            <a class="tool-card-compact" href="/intentmap">
+              <div class="ic-wrap c-purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></div>
+              <div class="text-wrap"><b>Peta Intent</b><span>Maksud dan aturan.</span></div>
+            </a>
+            <a class="tool-card-compact" href="/tools">
+              <div class="ic-wrap c-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+              <div class="text-wrap"><b>Analisis Dialogflow</b><span>Alur Avaya & fallback.</span></div>
+            </a>
+          </div>
+        </div>
+      `;
+      return;
+    }
+    
+    // STATE ADA CHAT
+    stream.classList.remove('is-empty');
+    inner.innerHTML='';
+    s.messages.forEach(m=>inner.appendChild(msgRow(m.role, m.content)));
+    scrollBottom();
+  }
+
+  function msgRow(role, content){
+    const row=document.createElement('div');
+    row.className='msg '+(role==='user'?'user':'bot');
+    const av=role==='user'?'<div class="avatar">S</div>':'<div class="avatar">'+botAvatar+'</div>';
+    const name=role==='user'?'Anda':'Asisten Camerad';
+    row.innerHTML=av+'<div class="bubble"><div class="role">'+name+'</div><div class="body">'+mdLite(content)+'</div></div>';
+    return row;
+  }
+
+  function addTyping(){
+    const inner=el('streamInner');
+    const row=document.createElement('div'); row.className='msg bot';
+    row.innerHTML='<div class="avatar">'+botAvatar+'</div><div class="bubble"><div class="role">Asisten Camerad</div><div class="body"><div class="typing"><i></i><i></i><i></i></div></div></div>';
+    inner.appendChild(row); scrollBottom(); return row;
+  }
+
+  function scrollBottom(){ const s=el('stream'); s.scrollTop=s.scrollHeight; }
+
+  function newChat(){ activeId=null; localStorage.removeItem(LS_ACTIVE); renderSidebar(); renderChat(); el('input').focus(); closeSide(); }
+  function selectChat(id){ activeId=id; localStorage.setItem(LS_ACTIVE,id); renderSidebar(); renderChat(); closeSide(); }
+  function delChat(id){ sessions=sessions.filter(s=>s.id!==id); if(activeId===id) activeId=null; saveSessions(); renderSidebar(); renderChat(); }
+  function ensureSession(firstText){
+    let s=active();
+    if(s) return s;
+    s={id:uid(), title:(firstText||'Percakapan Baru').slice(0,40), messages:[], updated:Date.now()};
+    sessions.unshift(s); activeId=s.id; localStorage.setItem(LS_ACTIVE,s.id); saveSessions();
+    return s;
+  }
+
+  function setSending(v){ sending=v; el('sendBtn').disabled=v; }
+  function autoGrow(t){ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,180)+'px'; }
+
+  async function send(){
+    if(sending) return;
+    const inp=el('input'); const text=inp.value.trim(); if(!text) return;
+    const s=ensureSession(text);
+    
+    s.messages.push({role:'user', content:text}); s.updated=Date.now();
+    if(s.messages.filter(m=>m.role==='user').length===1) s.title=text.slice(0,40);
+    
+    saveSessions(); inp.value=''; autoGrow(inp); renderSidebar(); renderChat();
+    
+    const typing = addTyping();
+    setSending(true);
+    
+    try{
+          const r = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: s.messages.map(m => ({ role: m.role, content: m.content }))
+            })
+          });
+          
+          const data = await r.json();
+          typing.remove();
+          
+          s.messages.push({
+            role: 'assistant', 
+            content: (data && data.ok) ? (data.reply || '(kosong)') : ('\u26A0 ' + ((data && data.error) || ('HTTP ' + r.status)))
+          });
+          
+          s.updated = Date.now(); 
+          saveSessions(); 
+          renderChat(); 
+          renderSidebar(); 
+          setSending(false); 
+          el('input').focus();
+          
+        }catch(e){ 
+          typing.remove();
+          s.messages.push({role:'assistant', content:'\u26A0 Gagal menghubungi server: ' + e.message}); 
+          s.updated = Date.now(); 
+          saveSessions(); 
+          renderChat(); 
+          renderSidebar(); 
+          setSending(false);
+        }
+  }
+
+  function openSide(){ el('side').classList.add('open'); el('backdrop').classList.add('show'); }
+  function closeSide(){ el('side').classList.remove('open'); el('backdrop').classList.remove('show'); }
+
+  el('newBtn').onclick=newChat;
+  el('sendBtn').onclick=send;
+  el('menuBtn').onclick=openSide;
+  el('backdrop').onclick=closeSide;
+  const inp=el('input');
+  inp.addEventListener('input',()=>autoGrow(inp));
+  inp.addEventListener('keydown',e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
+
+  renderSidebar(); renderChat(); inp.focus();
+
+</script>
+{% endblock %}

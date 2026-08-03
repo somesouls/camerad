@@ -1,0 +1,1193 @@
+{% extends "base.html" %}
+{% block title %}Dialogflow Pipeline{% endblock %}
+{% block head %}<style>
+.wrap{max-width:1080px; margin:0 auto; padding:32px 24px 80px}
+
+/* Header */
+.top{display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:8px}
+.brand{display:flex; align-items:center; gap:14px}
+.logo{width:44px; height:44px; border-radius:12px; background:var(--blue); display:flex; align-items:center; justify-content:center; color:#fff; flex:none}
+.logo svg{width:24px; height:24px}
+.brand h1{font-size:22px; margin:0; letter-spacing:-.01em}
+.brand p{margin:2px 0 0; color:var(--text2); font-size:14px}
+.runchip{display:flex; align-items:center; gap:10px}
+.chip{background:var(--soft2); border:1px solid var(--border); border-radius:999px; padding:6px 12px; font-size:12.5px; color:var(--text2); font-family:ui-monospace,Menlo,Consolas,monospace}
+.btn-ghost{background:transparent; border:1px solid var(--border); color:var(--text); padding:8px 14px; border-radius:8px; font-size:13.5px; cursor:pointer; transition:.15s}
+.btn-ghost:hover{background:var(--soft2)}
+
+.intro{background:var(--soft); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; margin:20px 0 28px; color:var(--text2); font-size:14px; display:flex; gap:12px; align-items:flex-start}
+.intro svg{width:20px;height:20px;flex:none;color:var(--blue);margin-top:1px}
+
+/* Stepper rail */
+.railwrap{overflow-x:auto; padding:12px 4px 8px; -webkit-overflow-scrolling:touch}
+.rail{display:flex; align-items:flex-start; min-width:max-content; padding:8px 0}
+.node{display:flex; flex-direction:column; align-items:center; width:132px; flex:none; cursor:pointer; text-align:center; background:none; border:none; font-family:inherit; padding:0}
+.dot{width:52px; height:52px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:600;
+  background:var(--soft2); color:var(--text2); border:2px solid var(--border); transition:.18s; position:relative}
+.dot svg{width:24px;height:24px}
+.node:hover .dot{transform:translateY(-2px); box-shadow:var(--shadow)}
+.node .lbl{margin-top:10px; font-size:13px; font-weight:600; color:var(--text); line-height:1.25}
+.node .sub{margin-top:2px; font-size:11.5px; color:var(--text2); line-height:1.2; padding:0 6px}
+.connector{flex:none; width:40px; height:2px; background:var(--border); margin-top:26px; border-radius:2px}
+
+.node.is-ready .dot{background:var(--blue-soft); color:var(--blue); border-color:var(--blue)}
+.node.is-active .dot{background:var(--blue); color:#fff; border-color:var(--blue); box-shadow:0 0 0 4px var(--blue-soft)}
+.node.is-done .dot{background:var(--green); color:#fff; border-color:var(--green)}
+.node.is-error .dot{background:var(--red); color:#fff; border-color:var(--red)}
+.node.is-soon .dot{opacity:.55; border-style:dashed}
+.connector.done{background:var(--green)}
+
+.legend{display:flex; gap:18px; flex-wrap:wrap; margin-top:18px; color:var(--text2); font-size:12.5px}
+.legend span{display:flex; align-items:center; gap:7px}
+.ld{width:12px; height:12px; border-radius:50%; display:inline-block}
+
+/* Modal */
+.overlay{position:fixed; inset:0; background:rgba(20,20,20,.55); backdrop-filter:blur(3px); display:none; align-items:flex-start; justify-content:center; padding:40px 16px; z-index:50; overflow-y:auto}
+.overlay.show{display:flex}
+.modal{background:var(--canvas); width:100%; max-width:560px; border-radius:16px; border:1px solid var(--border); box-shadow:var(--shadow); overflow:hidden; animation:pop .18s ease}
+.modal.wide{max-width:1120px}
+.s6bar{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; padding:16px 24px 12px; border-bottom:1px solid var(--border)}
+.s6bar .fg{display:flex; flex-direction:column; gap:5px}
+.s6bar label{font-size:11.5px; font-weight:600; color:var(--text2)}
+.s6bar select,.s6bar input{padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--soft); color:var(--text); font-size:13px; font-family:inherit}
+.s6bar .count{margin-left:auto; font-size:12.5px; color:var(--text2); align-self:center}
+.s6wrap{max-height:60vh; overflow:auto; padding:0 12px}
+.s6table{width:100%; border-collapse:collapse; font-size:13px}
+.s6table th{position:sticky; top:0; background:var(--soft2); text-align:left; padding:9px 10px; font-size:11.5px; color:var(--text2); border-bottom:1px solid var(--border); z-index:1}
+.s6table td{padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top}
+.s6table tr:hover td{background:var(--soft)}
+.s6q{max-width:280px; white-space:pre-wrap; word-break:break-word}
+.s6isi{max-width:300px; max-height:96px; overflow:auto; white-space:pre-wrap; word-break:break-word; color:var(--text2); font-size:12px}
+.s6intent{flex:1; min-width:150px; padding:6px 8px; border:1px solid var(--border); border-radius:7px; background:var(--canvas); color:var(--text); font-size:12.5px; font-family:inherit}
+.s6intent.edited{border-color:var(--blue); box-shadow:0 0 0 2px var(--blue-soft)}
+.s6combo{position:relative; display:flex; align-items:center; gap:4px; min-width:250px}
+.s6arrow{border:1px solid var(--border); background:var(--soft2); color:var(--text2); width:28px; height:32px; border-radius:7px; cursor:pointer; font-size:12px; flex:none; line-height:1}
+.s6arrow:hover{background:var(--blue-soft); color:var(--blue); border-color:var(--blue)}
+.s6menu{display:none; position:fixed; z-index:60; background:var(--canvas); border:1px solid var(--border); border-radius:10px; box-shadow:var(--shadow); max-height:280px; overflow:auto; min-width:260px}
+.s6menu.open{display:block}
+.s6opt{padding:8px 12px; cursor:pointer; border-bottom:1px solid var(--border)}
+.s6opt:last-child{border-bottom:none}
+.s6opt:hover{background:var(--blue-soft)}
+.s6opt-id{font-size:12.5px; color:var(--text); font-weight:600; word-break:break-word}
+.s6opt-meta{font-size:11px; color:var(--text2); margin-top:2px}
+.s6empty{color:var(--text2); cursor:default}
+.s6pill{display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600}
+.s6pill.t{background:var(--green-soft); color:var(--green)}
+.s6pill.m{background:var(--orange-soft); color:var(--orange)}
+.s6pill.n{background:var(--soft2); color:var(--text2)}
+@keyframes pop{from{opacity:0; transform:translateY(8px) scale(.98)} to{opacity:1; transform:none}}
+.mhead{display:flex; align-items:flex-start; gap:14px; padding:22px 24px 16px; border-bottom:1px solid var(--border)}
+.mbadge{width:40px; height:40px; border-radius:10px; background:var(--blue-soft); color:var(--blue); display:flex; align-items:center; justify-content:center; font-weight:700; flex:none}
+.mhead h2{margin:0; font-size:17px; letter-spacing:-.01em}
+.mhead p{margin:3px 0 0; color:var(--text2); font-size:13px}
+.mx{margin-left:auto; background:var(--soft2); border:1px solid var(--border); width:34px; height:34px; border-radius:8px; cursor:pointer; color:var(--text); font-size:18px; line-height:1; display:flex; align-items:center; justify-content:center; flex:none; transition:.15s}
+.mx:hover{background:var(--red-soft); color:var(--red); border-color:var(--red)}
+.mbody{padding:20px 24px 8px}
+.field{margin-bottom:16px}
+.field label{display:block; font-size:13px; font-weight:600; margin-bottom:6px}
+.field .hint{font-size:12px; color:var(--text2); margin-top:5px}
+input[type=text],input[type=date],input[type=file],select,textarea{
+  width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:8px; background:var(--soft);
+  color:var(--text); font-size:14px; font-family:inherit; transition:.15s}
+input:focus,select:focus,textarea:focus{outline:none; border-color:var(--blue); box-shadow:0 0 0 3px var(--blue-soft)}
+input[type=file]{padding:8px}
+.srcbox{display:flex; gap:8px; background:var(--soft2); border-radius:10px; padding:4px; margin-bottom:14px}
+.srcbox button{flex:1; border:none; background:transparent; padding:9px; border-radius:7px; font-size:13px; font-weight:600; color:var(--text2); cursor:pointer; font-family:inherit}
+.srcbox button.on{background:var(--canvas); color:var(--blue); box-shadow:var(--shadow)}
+.mfoot{padding:8px 24px 22px; display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.btn{background:var(--blue); color:#fff; border:none; padding:11px 20px; border-radius:9px; font-size:14px; font-weight:600; cursor:pointer; transition:.15s; font-family:inherit}
+.btn:hover{filter:brightness(1.05)}
+.btn:disabled{opacity:.6; cursor:not-allowed}
+.btn-sec{background:var(--soft2); color:var(--text); border:1px solid var(--border)}
+.btn-ok{background:var(--green)}
+
+.status{margin:4px 24px 0; padding:14px 16px; border-radius:10px; font-size:13.5px; display:none}
+.status.show{display:block}
+.status.run{background:var(--blue-soft); color:var(--blue)}
+.status.err{background:var(--red-soft); color:var(--red)}
+.status.ok{background:var(--green-soft); color:var(--green)}
+.status .sp{display:inline-block; width:15px; height:15px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:spin .7s linear infinite; vertical-align:-2px; margin-right:8px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.summary{margin:12px 24px 0; border:1px solid var(--border); border-radius:10px; overflow:hidden; font-size:13px; display:none}
+.summary.show{display:block}
+.summary .row{display:flex; justify-content:space-between; gap:12px; padding:8px 14px; border-bottom:1px solid var(--border)}
+.summary .row:last-child{border-bottom:none}
+.summary .row .k{color:var(--text2)}
+.summary .row .v{font-weight:600; text-align:right; word-break:break-word}
+.soon{padding:26px 24px 30px; text-align:center; color:var(--text2)}
+.soon svg{width:40px;height:40px;color:var(--text2);opacity:.6;margin-bottom:10px}
+</style>{% endblock %}
+{% block content %}
+<div class="wrap">
+  <div class="top">
+    <div class="brand">
+      <div class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg></div>
+      <div>
+        <h1>Dialogflow Pipeline</h1>
+        <p>Jalankan step 1 sampai 10 secara berurutan &mdash; pengganti n8n</p>
+      </div>
+    </div>
+    <div class="runchip">
+      <span class="chip" id="runLabel">run: &mdash;</span>
+      <button class="btn-ghost" id="resetBtn">Reset Run</button>
+    </div>
+  </div>
+
+  <div class="intro">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
+    <div>Klik lingkaran step untuk membuka formnya. Setiap step berdiri sendiri: kalau ada yang gagal, step lain yang sudah sukses tidak hilang. Setelah sebuah step selesai, step berikutnya bisa langsung memakai hasilnya tanpa upload ulang.</div>
+  </div>
+
+  {% include "_ask_ai.html" %}
+
+<div id="flows-container"></div>
+
+  <div class="legend">
+    <span><i class="ld" style="background:var(--blue)"></i> Siap dijalankan</span>
+    <span><i class="ld" style="background:var(--green)"></i> Selesai</span>
+    <span><i class="ld" style="background:var(--red)"></i> Error</span>
+    <span><i class="ld" style="background:var(--soft2);border:1px dashed var(--border)"></i> Belum tersedia</span>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="modal" id="modal"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const ENDPOINT = location.pathname;
+const STEPS = [
+  {n:1, title:'Tarik Data Dialogflow', sub:'Raw JSON dari Google Logging', type:'form1'},
+  {n:2, title:'Convert JSON \u2192 XLSX', sub:'Multi-sheet interaksi', type:'form2'},
+  {n:3, title:'Training & Intent', sub:'2 XLSX dalam ZIP', type:'form3'},
+  {n:4, title:'Analisis Rekomendasi', sub:'SBERT+BGE Top 5 via Ngrok', type:'form4'},
+  {n:5, title:'Qwen Judgement Top 5', sub:'Skor 0\u20135 via Ngrok', type:'form5'},
+  {n:6, title:'Cross-check Manual', sub:'Koreksi manusia (Analisis Fallback)', type:'step6'},
+  {n:7, title:'Analisis MKTA', sub:'Relevansi jawaban (Non Fallback)', type:'form7'},
+  {n:8, title:'Putusan LLM MKTA', sub:'Filter QA Conf \u2192 Qwen', type:'step8'},
+  {n:9, title:'Analisis Manual MKTA', sub:'Isi Intent Seharusnya', type:'step9'},
+  {n:10, title:'Laporan LM & Pembaruan', sub:'Excel + CSV LM + CSV Pembaruan', type:'step10'},
+  {n:11, title:'Pembaruan Intent Dialogflow', sub:'Suntik training phrase ke usersays JSON', type:'step11'},
+  {n:12, title:'Avaya - Upload JSON', sub:'Gabung transkrip AWE Avaya', type:'avaya12'},
+  {n:13, title:'Avaya - Tarik Intent Dialogflow', sub:'Sama seperti Step 3', type:'avaya13'},
+  {n:14, title:'Avaya - Analisis', sub:'Coverage, deflection, sentimen (JSON)', type:'avaya14'},
+  {n:15, title:'Avaya - Dashboard', sub:'Render HTML interaktif', type:'avaya15'},
+  {n:16, title:'Avaya - Ekspor Excel', sub:'Workbook multi-sheet', type:'avaya16'},
+];
+
+let RUN = localStorage.getItem('dfp_run');
+if(!RUN){ RUN = 'run_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,7); localStorage.setItem('dfp_run', RUN); }
+let STATE = {steps:{}};
+
+const checkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+
+function api(action, opts){
+  const u = ENDPOINT + '?action=' + action + '&run=' + encodeURIComponent(RUN);
+  return fetch(u, opts||{}).then(async r=>{
+    const text = await r.text();
+    try { return JSON.parse(text); }
+    catch(e){
+      const snip = text.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim().slice(0,200);
+      const looksHtml = text.trim().charAt(0)==='<';
+      const hint = (looksHtml || r.status>=500 || r.status===0)
+        ? 'Server balas halaman error (HTTP '+r.status+') \u2014 kemungkinan proses terlalu lama / gateway timeout (ngrok). Untuk Step 8 proses sudah per-chunk; klik lagi untuk melanjutkan progres.'
+        : 'Respons server tidak valid (HTTP '+r.status+').';
+      throw new Error(hint + (snip ? ' Cuplikan: '+snip : ''));
+    }
+  });
+}
+
+// Polling status step: dipakai bila request gagal karena gateway timeout (ngrok
+// 503) padahal proses SERVER kemungkinan masih jalan & tetap menyimpan hasil.
+function pollStepDone(n, onDone, onFail){
+  let tries=0; const max=360; // ~30 menit @5s
+  const iv=setInterval(()=>{
+    tries++;
+    api('state',{}).then(res=>{
+      if(res && res.steps){ STATE.steps=res.steps; if(res.ngrok_url) STATE.ngrok_url=res.ngrok_url; }
+      const st=STATE.steps[n];
+      if(st && st.status==='done'){ clearInterval(iv); onDone(st); }
+      else if(st && st.status==='error'){ clearInterval(iv); onFail('server melaporkan error'); }
+      else if(tries>=max){ clearInterval(iv); onFail('waktu tunggu habis'); }
+    }).catch(()=>{ if(tries>=max){ clearInterval(iv); onFail('waktu tunggu habis'); } });
+  }, 5000);
+}
+
+function stepStatus(n){
+  const s = STATE.steps[n];
+  if(s && s.status==='done') return 'done';
+  if(s && s.status==='error') return 'error';
+  const meta = STEPS.find(x=>x.n===n);
+  if(meta.type==='soon') return 'soon';
+  // ready jika step 1, atau step sebelumnya sudah done
+  if(n===1 || n===12 || n===13) return 'ready';
+  if(n===14){ const a=STATE.steps[12]; const b=STATE.steps[13]||STATE.steps[3]; return (a&&a.status==='done'&&b&&b.status==='done')?'ready':'pending'; }
+  if(n===15||n===16){ const a=STATE.steps[14]; return (a&&a.status==='done')?'ready':'pending'; }
+  const prev = STATE.steps[n-1];
+  return (prev && prev.status==='done') ? 'ready' : 'pending';
+}
+
+function renderRail(){
+  const container = document.getElementById('flows-container');
+  container.innerHTML = ''; // bersihkan isi sebelumnya
+  
+  // Ubah nama judul sesuai permintaan Anda
+  const flows = [
+    {title:'Analisis DialogFlow (Step 1-11)', diag:false, steps:STEPS.filter(s=>s.n<=11)},
+    {title:'Analisis AWE (Step 12-16)', diag:true, steps:STEPS.filter(s=>s.n>=12)},
+  ];
+  
+  flows.forEach((fl,fi)=>{
+    // 1. Buat Judul (Header) untuk masing-masing baris
+    const head = document.createElement('div');
+    head.style.cssText = 'margin:'+(fi===0?'0':'32px')+' 0 12px;padding-top:'+(fi===0?'0':'24px')+';font-size:13px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--text2);'+(fi===0?'':'border-top:1px dashed var(--border);');
+    head.innerHTML = '<span>'+esc(fl.title)+'</span>' + (fl.diag ? ' <button type="button" id="diagBtn" style="margin-left:12px;font-size:11px;font-weight:700;padding:4px 10px;border-radius:8px;border:1px solid var(--border);background:var(--soft2);color:var(--text2);cursor:pointer">\uD83E\uDE7A Cek Server</button>' : '');
+    container.appendChild(head);
+    
+    // 2. Buat wrapper SCROLL khusus untuk baris ini
+    const wrap = document.createElement('div');
+    wrap.className = 'railwrap';
+    // Hapus padding atas/bawah bawaan CSS agar jaraknya lebih pas dengan judul
+    wrap.style.paddingTop = '4px'; 
+    
+    // 3. Buat container urutan Step
+    const rail = document.createElement('div');
+    rail.className = 'rail';
+    
+    fl.steps.forEach((st,i)=>{
+      if(i>0){
+        const c = document.createElement('div');
+        c.className = 'connector' + (stepStatus(st.n)==='done' && stepStatus(fl.steps[i-1].n)==='done' ? ' done':'');
+        rail.appendChild(c);
+      }
+      const stat = stepStatus(st.n);
+      const node = document.createElement('button');
+      node.className = 'node' + (stat==='done'?' is-done':stat==='error'?' is-error':stat==='ready'?' is-ready':st.type==='soon'?' is-soon':'');
+      node.innerHTML =
+        '<span class="dot">' + (stat==='done'? checkSvg : st.n) + '</span>' +
+        '<span class="lbl">' + st.title + '</span>' +
+        '<span class="sub">' + st.sub + '</span>';
+      node.onclick = ()=>openModal(st.n);
+      rail.appendChild(node);
+    });
+    
+    // 4. Masukkan susunan step ke dalam wrapper scroll, lalu masukkan ke container utama
+    wrap.appendChild(rail);
+    container.appendChild(wrap);
+  });
+  
+  const db = document.getElementById('diagBtn'); if(db) db.onclick = checkServer;
+  document.getElementById('runLabel').textContent = 'run: ' + RUN;
+}
+
+// Diagnostik server: tampilkan build, template, dependensi. Membantu memastikan
+// runtime Colab memakai kode terbaru (bila build kosong/404 = belum di-restart).
+function checkServer(){
+  const modal = document.getElementById('modal');
+  modal.classList.remove('wide');
+  modal.innerHTML =
+    '<div class="mhead"><div class="mbadge">?</div>'+
+      '<div><h2>Diagnostik Server</h2><p>Cek koneksi, versi modul &amp; template Avaya</p></div>'+
+      '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>'+
+    '<div class="mbody" id="mbody"><div class="status show run"><span class="sp"></span>Menghubungi server...</div></div>'+
+    '<div class="mfoot"><button class="btn btn-sec" id="closeBtn2">Tutup</button></div>';
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('mxBtn').onclick = closeModal;
+  document.getElementById('closeBtn2').onclick = closeModal;
+  const extra = STATE.ngrok_url ? '&ngrok_url='+encodeURIComponent(STATE.ngrok_url) : '';
+  api('avayadiag'+extra, {}).then(res=>{
+    const d = (res && res.diag) ? res.diag : res;
+    let rows='';
+    for(const k in d){
+      if(k==='ok') continue;
+      let v = d[k]; if(typeof v==='object') v=JSON.stringify(v);
+      rows+='<div class="row"><span class="k">'+esc(k.replace(/_/g," "))+'</span><span class="v">'+esc(v)+'</span></div>';
+    }
+    document.getElementById('mbody').innerHTML='<div class="summary show">'+rows+'</div>';
+  }).catch(e=>{
+    document.getElementById('mbody').innerHTML='<div class="status show err">\u26A0 '+esc(e.message||e)+'</div>';
+  });
+}
+
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// Toggle sumber input generik. opts: [{mode,label,enabled}]. Default = opsi enabled pertama.
+function srcToggle(group, opts){
+  let html='<div class="srcbox" data-group="'+group+'">';
+  let firstEnabledDone=false;
+  opts.forEach(o=>{
+    const enabled = o.enabled!==false;
+    let on='';
+    if(enabled && !firstEnabledDone){ on=' on'; firstEnabledDone=true; }
+    const dis = enabled ? '' : ' disabled style="opacity:.45;cursor:not-allowed"';
+    html+='<button type="button" class="srcbtn'+on+'" data-group="'+group+'" data-mode="'+o.mode+'"'+dis+'>'+o.label+'</button>';
+  });
+  html+='</div>';
+  return html;
+}
+
+function formHtml(n){
+  if(n===1){
+    return ''+
+     '<div class="field"><label>Start Date</label><input type="date" id="f_start"></div>'+
+     '<div class="field"><label>End Date</label><input type="date" id="f_end"><div class="hint">Rentang maksimal 31 hari, dan harus sebelum hari ini (WIB).</div></div>'+
+     '<div class="field"><label>Bahasa</label><select id="f_lang"><option value="id">id</option><option value="en">en</option></select></div>'+
+     '<div class="field"><label>Access Token Google <span style="font-weight:400;color:var(--text2)">(opsional)</span></label><input type="text" id="f_token" placeholder="Kosongkan bila pakai service-account.json"><div class="hint">Isi bila server tidak memakai service-account.json.</div></div>';
+  }
+  if(n===2){
+    const d1 = STATE.steps[1] && STATE.steps[1].status==='done';
+    return srcToggle('s2',[{mode:'prev',label:'Hasil Step 1',enabled:d1},{mode:'upload',label:'Unggah File'}])+
+     '<div class="field srcfield" data-group="s2" data-mode="prev"><div class="hint">Memakai hasil <b>Step 1</b> (raw log) dari server. Tidak perlu unggah ulang.</div></div>'+
+     '<div class="field srcfield" data-group="s2" data-mode="upload"><label>File JSON</label><input type="file" id="f_json" accept=".json,application/json"><div class="hint">Hasil tarikan Step 1 (raw log Dialogflow).</div></div>';
+  }
+  if(n===3){
+    return '<div class="hint" style="margin-bottom:14px">Menarik seluruh intent aktif dari Dialogflow lalu membuat 2 file XLSX (Training Phrase &amp; Isi Intent) dalam satu ZIP. Tidak perlu input file.</div>'+
+     '<div class="field"><label>Access Token Google <span style="font-weight:400;color:var(--text2)">(opsional)</span></label><input type="text" id="f_token" placeholder="Kosongkan bila pakai service-account.json"></div>';
+  }
+  if(n===4){
+    const d2 = STATE.steps[2] && STATE.steps[2].status==='done';
+    const d3 = STATE.steps[3] && STATE.steps[3].status==='done';
+    const autoOk = d2 && d3;
+    return '<div class="field"><label>Server URL <span style="font-weight:400;color:var(--text2)">(opsional)</span></label><input type="text" id="f_ngrok" placeholder="Biarkan kosong (mode Colab)"><div class="hint">Mode Colab all-in-one: <b>kosongkan saja</b> \u2014 otomatis pakai localhost:8000. Isi hanya bila FastAPI di server terpisah.</div></div>'+
+     srcToggle('s4',[{mode:'auto',label:'Otomatis (Step 2 + 3)',enabled:autoOk},{mode:'manual',label:'Unggah 3 file'}])+
+     '<div class="field srcfield" data-group="s4" data-mode="auto"><div class="hint">Workbook utama diambil dari <b>Step 2</b> (sheet Fallback). Training Phrase &amp; Intent diekstrak otomatis dari ZIP <b>Step 3</b>.'+(autoOk?'':' <b style="color:var(--red)">Jalankan Step 2 &amp; 3 dulu, atau pilih Unggah 3 file.</b>')+'</div></div>'+
+     '<div class="field srcfield" data-group="s4" data-mode="manual"><label>Workbook utama (sheet "Fallback")</label><input type="file" id="f_main" accept=".xlsx"><div class="hint">Hasil Step 2.</div></div>'+
+     '<div class="field srcfield" data-group="s4" data-mode="manual"><label>Training Phrase (.xlsx)</label><input type="file" id="f_train" accept=".xlsx"></div>'+
+     '<div class="field srcfield" data-group="s4" data-mode="manual"><label>Intent (.xlsx)</label><input type="file" id="f_content" accept=".xlsx"></div>';
+  }
+  if(n===5){
+    const d4 = STATE.steps[4] && STATE.steps[4].status==='done';
+    return '<div class="field"><label>Server URL <span style="font-weight:400;color:var(--text2)">(opsional)</span></label><input type="text" id="f_ngrok" placeholder="Biarkan kosong (mode Colab)"><div class="hint">Mode Colab all-in-one: <b>kosongkan saja</b> \u2014 otomatis pakai localhost:8000.</div></div>'+
+     srcToggle('s5',[{mode:'prev',label:'Hasil Step 4',enabled:d4},{mode:'upload',label:'Unggah XLSX'}])+
+     '<div class="field srcfield" data-group="s5" data-mode="prev"><div class="hint">Memakai hasil <b>Step 4</b> (Top-5) dari server.</div></div>'+
+     '<div class="field srcfield" data-group="s5" data-mode="upload"><label>File XLSX Top 5</label><input type="file" id="f_xlsx" accept=".xlsx"></div>';
+  }
+  if(n===7){
+    const d6 = STATE.steps[6] && STATE.steps[6].status==='done';
+    const d5 = STATE.steps[5] && STATE.steps[5].status==='done';
+    const autoOk = d6 || d5 || (STATE.steps[2] && STATE.steps[2].status==='done');
+    return '<div class="field"><label>Server URL <span style="font-weight:400;color:var(--text2)">(opsional)</span></label><input type="text" id="f_ngrok" placeholder="Biarkan kosong (mode Colab)"><div class="hint">Menilai apakah <b>bot response</b> benar-benar menjawab <b>pertanyaan user</b> pada interaksi Non Fallback. Kosongkan untuk localhost:8000.</div></div>'+
+     srcToggle('s7',[{mode:'auto',label:'Otomatis (hasil Step 6)',enabled:autoOk},{mode:'manual',label:'Unggah XLSX'}])+
+     '<div class="field srcfield" data-group="s7" data-mode="auto"><div class="hint">Membaca sheet <b>Non Fallback</b> dari hasil <b>Step 6</b> (atau hasil terbaru yang tersedia), lalu menambah sheet <b>Analisis MKTA</b>.'+(autoOk?'':' <b style="color:var(--red)">Jalankan minimal Step 2 dulu.</b>')+'</div></div>'+
+     '<div class="field srcfield" data-group="s7" data-mode="manual"><label>Workbook (.xlsx, punya sheet "Non Fallback")</label><input type="file" id="f_xlsx" accept=".xlsx"></div>';
+  }
+  if(n===12){
+    return '<div class="field"><label>File JSON AWE Avaya <span style="font-weight:400;color:var(--text2)">(boleh beberapa)</span></label><input type="file" id="f_avjson" accept=".json,application/json" multiple><div class="hint">Pilih satu atau beberapa file sekaligus. Rentang tanggal lanjutan otomatis <b>digabung</b> &amp; dedup berdasarkan <b>sid</b>.</div></div>';
+  }
+  if(n===13){
+    return '<div class="field"><label>Access Token Google <span style="font-weight:400;color:var(--text2)">(opsional)</span></label><input type="text" id="f_token" placeholder="Kosongkan bila pakai service-account.json"><div class="hint">Menarik seluruh intent aktif dari Dialogflow <b>persis seperti Step 3</b> \u2014 menghasilkan Training Phrase + Intent dalam ZIP. Dipakai untuk memetakan apakah pertanyaan pelanggan sudah tercover chatbot.</div></div>';
+  }
+  if(n===14){
+    const d12 = STATE.steps[12] && STATE.steps[12].status==='done';
+    const d13 = STATE.steps[13] && STATE.steps[13].status==='done';
+    const d3  = STATE.steps[3]  && STATE.steps[3].status==='done';
+    const autoOk = d12 && (d13 || d3);
+    return '<div class="field"><label>Server URL <span style="font-weight:400;color:var(--text2)">(opsional)</span></label><input type="text" id="f_ngrok" placeholder="Biarkan kosong (mode Colab)"><div class="hint">Mode Colab all-in-one: <b>kosongkan saja</b> \u2014 otomatis pakai localhost:8000.</div></div>'+
+     srcToggle('s14',[{mode:'auto',label:'Otomatis (Step 12 + 13)',enabled:autoOk},{mode:'manual',label:'Unggah Training + Intent'}])+
+     '<div class="field srcfield" data-group="s14" data-mode="auto"><div class="hint">JSON gabungan dari <b>Step 12</b>; Training Phrase &amp; Intent dari <b>Step 13</b>'+(d13?'':(d3?' (memakai hasil Step 3)':''))+'.'+(autoOk?'':' <b style="color:var(--red)">Jalankan Step 12 &amp; 13 dulu, atau pilih Unggah manual.</b>')+'</div></div>'+
+     '<div class="field srcfield" data-group="s14" data-mode="manual"><label>Training Phrase (.xlsx)</label><input type="file" id="f_train" accept=".xlsx"></div>'+
+     '<div class="field srcfield" data-group="s14" data-mode="manual"><label>Intent (.xlsx)</label><input type="file" id="f_content" accept=".xlsx"></div>';
+  }
+  if(n===15){
+    return '<div class="hint">Membangun <b>dashboard HTML interaktif</b> dari hasil <b>Step 14</b>. Tidak perlu input. Bila gagal, pesan error asli dari server akan tampil di sini (bukan lagi "HTTP 500" kosong).</div>';
+  }
+  if(n===16){
+    return '<div class="hint">Membangun <b>workbook Excel</b> multi-sheet (Ringkasan, Percakapan, Agent, Pelanggan, Kandidat Intent) dari hasil <b>Step 14</b>. Tidak perlu input.</div>';
+  }
+  return '';
+}
+
+function openModal(n){
+  const st = STEPS.find(x=>x.n===n);
+  const modal = document.getElementById('modal');
+  modal.classList.remove('wide');
+  if(st.type==='step6'){ openModal6(st); return; }
+  if(st.type==='step8'){ openModal8(st); return; }
+  if(st.type==='step9'){ openModal9(st); return; }
+  if(st.type==='step10'){ openModal10(st); return; }
+  if(st.type==='step11'){ openModal11(st); return; }
+  const badge = st.type==='soon' ? '&#9679;' : n;
+  let inner =
+    '<div class="mhead"><div class="mbadge">'+badge+'</div>'+
+      '<div><h2>'+esc(st.title)+'</h2><p>'+esc(st.sub)+'</p></div>'+
+      '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>';
+
+  if(st.type==='soon'){
+    inner += '<div class="soon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><div><b>Step '+n+' belum tersedia</b></div><div style="margin-top:6px;font-size:13px">Kerangka UI &amp; mekanisme "lanjut" sudah siap. Tinggal tambahkan logika step ini di index.php.</div></div>'+
+      '<div class="mfoot"><button class="btn btn-sec" id="closeBtn2">Tutup</button></div>';
+  } else {
+    inner += '<div class="mbody" id="mbody">'+formHtml(n)+'</div>'+
+      '<div class="status" id="mstatus"></div>'+
+      '<div class="summary" id="msummary"></div>'+
+      '<div class="mfoot">'+
+        '<button class="btn" id="runBtn">Jalankan Step '+n+'</button>'+
+        '<button class="btn btn-sec" id="dlBtn" style="display:none">Unduh Hasil</button>'+
+        '<button class="btn btn-ok" id="nextBtn" style="display:none">Lanjut ke Step '+(n+1)+' \u2192</button>'+
+      '</div>';
+  }
+
+  modal.innerHTML = inner;
+  document.getElementById('overlay').classList.add('show');
+
+  // Tutup HANYA lewat tombol X (atau tombol Tutup pada step soon)
+  document.getElementById('mxBtn').onclick = closeModal;
+  const cb2 = document.getElementById('closeBtn2'); if(cb2) cb2.onclick = closeModal;
+
+  if(st.type!=='soon'){
+    bindSourceToggle();
+    prefillDates(n);
+    if(n===4 || n===5 || n===14){ const el=document.getElementById('f_ngrok'); if(el && STATE.ngrok_url) el.value=STATE.ngrok_url; }
+    document.getElementById('runBtn').onclick = ()=>runStep(n);
+    // Jika step sudah pernah selesai, tampilkan ringkasannya
+    const done = STATE.steps[n];
+    if(done && done.status==='done'){ showSummary(n, done); showDone(n); }
+  }
+}
+
+function prefillDates(n){
+  if(n!==1) return;
+  const d=new Date(); d.setDate(d.getDate()-1);
+  const y=new Date(); y.setDate(y.getDate()-7);
+  const fmt=x=>x.toISOString().slice(0,10);
+  document.getElementById('f_end').value=fmt(d);
+  document.getElementById('f_start').value=fmt(y);
+}
+
+function bindSourceToggle(){
+  document.querySelectorAll('.srcbox').forEach(box=>{
+    const group=box.dataset.group;
+    const apply=(mode)=>{
+      document.querySelectorAll('.srcfield[data-group="'+group+'"]').forEach(f=>{
+        f.style.display = (f.dataset.mode===mode) ? '' : 'none';
+      });
+    };
+    box.querySelectorAll('.srcbtn').forEach(b=>{
+      b.onclick=()=>{
+        if(b.disabled) return;
+        box.querySelectorAll('.srcbtn').forEach(x=>x.classList.remove('on'));
+        b.classList.add('on');
+        apply(b.dataset.mode);
+      };
+    });
+    const on=box.querySelector('.srcbtn.on');
+    apply(on?on.dataset.mode:'');
+  });
+}
+
+function closeModal(){ document.getElementById('overlay').classList.remove('show'); }
+
+function setStatus(kind, html){
+  const s=document.getElementById('mstatus');
+  s.className='status show '+kind;
+  s.innerHTML=html;
+}
+
+function showSummary(n, art){
+  const box=document.getElementById('msummary');
+  const sm=art.summary||{};
+  let rows='';
+  rows+='<div class="row"><span class="k">Nama file</span><span class="v">'+esc(art.name)+'</span></div>';
+  for(const k in sm){
+    let v=sm[k];
+    if(Array.isArray(v)){ if(!v.length) continue; v=v.join(' | '); }
+    if(v===null||v==='') continue;
+    rows+='<div class="row"><span class="k">'+esc(k.replace(/_/g," "))+'</span><span class="v">'+esc(v)+'</span></div>';
+  }
+  box.innerHTML=rows;
+  box.classList.add('show');
+}
+
+function showDone(n){
+  document.getElementById('dlBtn').style.display='';
+  document.getElementById('dlBtn').onclick=()=>{ window.location = ENDPOINT+'?action=download&run='+encodeURIComponent(RUN)+'&step='+n; };
+  const next=STEPS.find(x=>x.n===n+1);
+  const nb=document.getElementById('nextBtn');
+  if(next){ nb.style.display=''; nb.onclick=()=>openModal(n+1); }
+  const rb=document.getElementById('runBtn'); if(rb) rb.textContent='Jalankan Ulang Step '+n;
+  if(n===15){
+    const dl=document.getElementById('dlBtn');
+    if(dl){ dl.style.display=''; dl.textContent='Buka Dashboard'; dl.onclick=()=>window.open(ENDPOINT+'?action=download&run='+encodeURIComponent(RUN)+'&step=15&part=avayadash','_blank'); }
+  }
+}
+
+function currentMode(group){
+  const box=document.querySelector('.srcbox[data-group="'+group+'"]');
+  if(!box) return '';
+  const on=box.querySelector('.srcbtn.on');
+  return on?on.dataset.mode:'';
+}
+
+function runStep(n){
+  const fd=new FormData();
+  try{
+    if(n===1){
+      fd.append('start_date', val('f_start'));
+      fd.append('end_date', val('f_end'));
+      fd.append('bahasa', val('f_lang'));
+      if(val('f_token')) fd.append('access_token', val('f_token'));
+    } else if(n===2){
+      if(currentMode('s2')==='prev'){ fd.append('from_step','1'); }
+      else { const f=file('f_json'); if(!f) throw 'Pilih file JSON dulu.'; fd.append('json_file', f); }
+    } else if(n===3){
+      if(val('f_token')) fd.append('access_token', val('f_token'));
+    } else if(n===4){
+      if(val('f_ngrok')) STATE.ngrok_url = val('f_ngrok');
+      fd.append('ngrok_url', val('f_ngrok'));
+      const mode = currentMode('s4'); fd.append('mode', mode);
+      if(mode==='manual'){
+        const m=file('f_main'), t=file('f_train'), c=file('f_content');
+        if(!m||!t||!c) throw 'Unggah ketiga file: workbook utama, Training Phrase, dan Intent.';
+        fd.append('main_file', m); fd.append('training_file', t); fd.append('content_file', c);
+      }
+    } else if(n===5){
+      if(val('f_ngrok')) STATE.ngrok_url = val('f_ngrok');
+      fd.append('ngrok_url', val('f_ngrok'));
+      if(currentMode('s5')==='prev'){ fd.append('from_step','4'); }
+      else { const f=file('f_xlsx'); if(!f) throw 'Pilih file XLSX dulu.'; fd.append('xlsx_file', f); }
+    } else if(n===7){
+      if(val('f_ngrok')) STATE.ngrok_url = val('f_ngrok');
+      fd.append('ngrok_url', val('f_ngrok'));
+      const mode = currentMode('s7'); fd.append('mode', mode);
+      if(mode==='manual'){ const f=file('f_xlsx'); if(!f) throw 'Pilih file XLSX (punya sheet Non Fallback).'; fd.append('xlsx_file', f); }
+    } else if(n===12){
+      const el=document.getElementById('f_avjson'); const fs=(el&&el.files)?el.files:[];
+      if(!fs.length) throw 'Pilih minimal satu file JSON AWE Avaya.';
+      for(let i=0;i<fs.length;i++) fd.append('json_files[]', fs[i]);
+    } else if(n===13){
+      if(val('f_token')) fd.append('access_token', val('f_token'));
+    } else if(n===14){
+      if(val('f_ngrok')) STATE.ngrok_url = val('f_ngrok');
+      fd.append('ngrok_url', val('f_ngrok'));
+      const mode = currentMode('s14'); fd.append('mode', mode);
+      if(mode==='manual'){ const t=file('f_train'), c=file('f_content'); if(!t||!c) throw 'Unggah Training Phrase dan Intent.'; fd.append('training_file', t); fd.append('content_file', c); }
+    } else if(n===15 || n===16){
+      fd.append('ngrok_url', STATE.ngrok_url || '');
+    }
+  }catch(msg){ setStatus('err', esc(msg)); return; }
+
+  const rb=document.getElementById('runBtn'); rb.disabled=true;
+  document.getElementById('msummary').classList.remove('show');
+  setStatus('run','<span class="sp"></span>Memproses Step '+n+'... Jangan tutup jendela ini.');
+
+  if(n===14){ return runStep14Async(fd, rb); }
+
+  api('step'+n, {method:'POST', body:fd}).then(res=>{
+    rb.disabled=false;
+    if(res && res.ok){
+      STATE.steps[n]=res.artifact;
+      setStatus('ok','\u2714 Step '+n+' selesai.');
+      showSummary(n, res.artifact);
+      showDone(n);
+      renderRail();
+    } else {
+      const msg=(res&&res.error)?res.error:'Terjadi kesalahan.';
+      setStatus('err','\u26A0 '+esc(msg));
+      STATE.steps[n]={status:'error'};
+      renderRail();
+    }
+  }).catch(e=>{
+    // Kemungkinan gateway timeout (ngrok 503) walau proses server masih lanjut.
+    setStatus('run','<span class="sp"></span>Gateway timeout, tapi server mungkin masih memproses Step '+n+'. Menunggu hasil otomatis... (jangan tutup jendela)');
+    pollStepDone(n,
+      (st)=>{ rb.disabled=false; STATE.steps[n]=st; setStatus('ok','\u2714 Step '+n+' selesai (terdeteksi otomatis).'); showSummary(n, st); showDone(n); renderRail(); },
+      (why)=>{ rb.disabled=false; setStatus('err','\u26A0 '+esc(e.message||e)+' ('+esc(why)+'). Coba refresh halaman \u2014 bila step sudah hijau, hasil sudah tersimpan.'); }
+    );
+  });
+}
+
+// ===== STEP 14 async: jalankan pipeline di latar belakang + polling progres =====
+// Menyelesaikan masalah gateway timeout (ngrok/Colab memutus koneksi panjang):
+// request start/progress/fetch semuanya singkat, proses berat berjalan di thread
+// server. Progres (tahap + x/y percakapan + detik) tampil live di modal.
+function runStep14Async(fd, rb){
+  setStatus('run','<span class="sp"></span>Memulai analisis di server (mode latar belakang, aman dari timeout)...');
+  api('step14start', {method:'POST', body:fd}).then(res=>{
+    if(!res || !res.ok || !res.job_id){ throw new Error((res&&res.error)?res.error:'Gagal memulai job.'); }
+    STATE.avaya_job = res.job_id;
+    setStatus('run','<span class="sp"></span>Job dimulai (id '+esc(res.job_id)+'). Memantau progres...');
+    pollAvaya14(res.job_id, rb, 0);
+  }).catch(e=>{ rb.disabled=false; setStatus('err','\u26A0 '+esc(e.message||e)); });
+}
+
+function pollAvaya14(job, rb, tries){
+  const max=720; // ~60 menit @5s
+  const extra = STATE.ngrok_url ? '&ngrok_url='+encodeURIComponent(STATE.ngrok_url) : '';
+  api('step14progress&job='+encodeURIComponent(job)+extra, {}).then(res=>{
+    const p = (res && res.progress) ? res.progress : null;
+    if(p && p.found){
+      if(p.error){ rb.disabled=false; setStatus('err','\u26A0 Server melaporkan error:<br><pre style="white-space:pre-wrap;font-size:11px;max-height:220px;overflow:auto">'+esc(p.error)+'</pre>'); return; }
+      const tot=p.total||0, dn=p.done||0, pct=tot?Math.round(dn/tot*100):0;
+      const bar = tot? (' \u2014 '+dn+'/'+tot+' ('+pct+'%)') : '';
+      setStatus('run','<span class="sp"></span>['+Math.round(p.elapsed||0)+'s] '+esc(p.stage||'memproses')+bar+'<br><span style="font-size:11px;color:var(--text2)">Berjalan di latar belakang \u2014 aman dari gateway timeout.</span>');
+      if(p.finished){ fetchAvaya14(job, rb); return; }
+    } else {
+      setStatus('run','<span class="sp"></span>Menunggu job... (bila server baru di-restart, jalankan ulang Step 14)');
+    }
+    if(tries>=max){ rb.disabled=false; setStatus('err','\u26A0 Waktu tunggu habis (60 menit). Cek log Colab untuk detail.'); return; }
+    setTimeout(()=>pollAvaya14(job, rb, tries+1), 5000);
+  }).catch(e=>{
+    if(tries>=max){ rb.disabled=false; setStatus('err','\u26A0 '+esc(e.message||e)); return; }
+    setTimeout(()=>pollAvaya14(job, rb, tries+1), 5000);
+  });
+}
+
+function fetchAvaya14(job, rb){
+  const extra = STATE.ngrok_url ? '&ngrok_url='+encodeURIComponent(STATE.ngrok_url) : '';
+  setStatus('run','<span class="sp"></span>Analisis selesai. Mengambil &amp; menyimpan hasil...');
+  api('step14fetch&job='+encodeURIComponent(job)+extra, {}).then(res=>{
+    if(res && res.pending){ setTimeout(()=>fetchAvaya14(job, rb), 3000); return; }
+    rb.disabled=false;
+    if(res && res.ok && res.artifact){
+      STATE.steps[14]=res.artifact;
+      setStatus('ok','\u2714 Step 14 selesai.');
+      showSummary(14, res.artifact);
+      showDone(14);
+      renderRail();
+    } else {
+      setStatus('err','\u26A0 '+esc((res&&res.error)?res.error:'Gagal mengambil hasil.'));
+    }
+  }).catch(e=>{ rb.disabled=false; setStatus('err','\u26A0 '+esc(e.message||e)); });
+}
+
+/* ================= STEP 6: cross-check manual ================= */
+let STEP6 = {rows:[]};
+
+function openModal6(st){
+  const modal=document.getElementById('modal');
+  modal.classList.add('wide');
+  modal.innerHTML =
+    '<div class="mhead"><div class="mbadge">6</div>'+
+      '<div><h2>'+esc(st.title)+'</h2><p>'+esc(st.sub)+'</p></div>'+
+      '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>'+
+    '<div class="s6bar">'+
+      '<div class="fg"><label>Catatan LLM</label><select id="f6cat"><option value="">Semua</option></select></div>'+
+      '<div class="fg"><label>Confidence</label><select id="f6conf"><option value="">Semua</option><option>TINGGI</option><option>SEDANG</option><option>RENDAH</option></select></div>'+
+      '<div class="fg"><label>Skor_Deteksi min (%)</label><input type="number" id="f6skor" min="0" max="100" step="1" style="width:120px" placeholder="0"></div>'+
+      '<div class="fg"><label>Cari pertanyaan</label><input type="text" id="f6q" placeholder="kata kunci..."></div>'+
+      '<span class="count" id="s6count"></span>'+
+    '</div>'+
+    '<div class="status" id="mstatus"></div>'+
+    '<div class="s6wrap"><table class="s6table"><thead><tr>'+
+      '<th>Pertanyaan User</th><th>Catatan LLM</th><th>Intent Judgement LLM</th><th>Isi Intent</th><th>Skor</th><th>Conf</th>'+
+    '</tr></thead><tbody id="s6body"></tbody></table></div>'+
+    '<div class="mfoot">'+
+      '<button class="btn" id="s6save">Simpan Perubahan</button>'+
+      '<button class="btn btn-sec" id="dlBtn" style="display:none">Unduh Hasil</button>'+
+      '<button class="btn btn-ok" id="nextBtn" style="display:none">Lanjut ke Step 7 \u2192</button>'+
+    '</div>';
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('mxBtn').onclick=closeModal;
+  document.getElementById('s6save').onclick=saveStep6;
+  ['f6cat','f6conf','f6skor','f6q'].forEach(id=>{ const el=document.getElementById(id); el.oninput=renderStep6; el.onchange=renderStep6; });
+  const wrap=document.querySelector('.s6wrap'); if(wrap) wrap.onscroll=closeS6Menus;
+  if(!window.__s6docbound){ window.__s6docbound=true; document.addEventListener('mousedown', function(e){ if(!(e.target.closest && e.target.closest('.s6combo'))) closeS6Menus(); }); }
+  loadStep6();
+}
+
+function loadStep6(){
+  setStatus('run','<span class="sp"></span>Memuat data dari hasil Step 5...');
+  STEP6.rows=[];
+  api('step6load',{}).then(res=>{
+    if(!res || !res.ok){ setStatus('err','\u26A0 '+esc((res&&res.error)||'Gagal memuat.')); return; }
+    STEP6.rows = res.rows||[];
+    STEP6.rows.forEach(r=>{ r.edited=false; syncRowDerived(r); });
+    const cats=[...new Set(STEP6.rows.map(r=>r.catatan).filter(Boolean))];
+    const sel=document.getElementById('f6cat');
+    cats.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; sel.appendChild(o); });
+    document.getElementById('mstatus').className='status';
+    renderStep6();
+    const done=STATE.steps[6];
+    if(done && done.status==='done'){ showDone(6); }
+  }).catch(e=>setStatus('err','\u26A0 '+esc(e.message||e)));
+}
+
+function syncRowDerived(r){
+  const opt=(r.options||[]).find(o=>o.id===r.intent);
+  if(opt){ r.isi=opt.ans; r.skor=opt.skor; r.conf=opt.conf; }
+  else { r.isi=''; r.skor=''; r.conf=''; }
+}
+
+function parseSkor(s){ const v=parseFloat(String(s==null?'':s).replace('%','')); return isNaN(v)?-1:v; }
+
+function renderStep6(){
+  const body=document.getElementById('s6body'); if(!body) return;
+  const fcat=document.getElementById('f6cat').value;
+  const fconf=document.getElementById('f6conf').value;
+  const fskor=parseFloat(document.getElementById('f6skor').value);
+  const fq=document.getElementById('f6q').value.trim().toLowerCase();
+  const CAP=400;
+  let shown=0, matched=0;
+  const parts=[];
+  STEP6.rows.forEach((r,i)=>{
+    if(fcat && r.catatan!==fcat) return;
+    if(fconf && (r.conf||'')!==fconf) return;
+    if(!isNaN(fskor) && parseSkor(r.skor) < fskor) return;
+    if(fq && !(r.pertanyaan||'').toLowerCase().includes(fq)) return;
+    matched++;
+    if(shown>=CAP) return;
+    shown++;
+    const pill = r.catatan==='TINDAK LANJUT'?'t':(r.catatan==='PERTANYAAN TIDAK MANDIRI'?'n':'m');
+    parts.push(
+      '<tr>'+
+      '<td class="s6q">'+esc(r.pertanyaan||'')+'</td>'+
+      '<td><span class="s6pill '+pill+'">'+esc(r.catatan||'-')+'</span></td>'+
+      '<td><div class="s6combo"><input class="s6intent'+(r.edited?' edited':'')+'" data-i="'+i+'" value="'+esc(r.intent||'')+'" autocomplete="off"><button type="button" class="s6arrow" data-i="'+i+'" tabindex="-1">\u25be</button><div class="s6menu" id="menu'+i+'"></div></div></td>'+
+      '<td><div class="s6isi" id="isi'+i+'">'+esc(r.isi||'')+'</div></td>'+
+      '<td id="skor'+i+'">'+esc(r.skor||'')+'</td>'+
+      '<td id="conf'+i+'">'+esc(r.conf||'')+'</td>'+
+      '</tr>'
+    );
+  });
+  body.innerHTML=parts.join('');
+  body.querySelectorAll('.s6intent').forEach(inp=>{ const i=parseInt(inp.dataset.i,10); inp.oninput=()=>onIntentChange(i, inp.value); inp.onfocus=()=>openS6Menu(i); });
+  body.querySelectorAll('.s6arrow').forEach(btn=>{ const i=parseInt(btn.dataset.i,10); btn.onclick=(e)=>{ e.preventDefault(); const m=document.getElementById('menu'+i); if(m && m.classList.contains('open')) closeS6Menus(); else openS6Menu(i); }; });
+  document.getElementById('s6count').textContent = matched+' baris'+(matched>CAP?(' (tampil '+CAP+', persempit dgn filter)'):'');
+}
+
+function onIntentChange(i, value){
+  const r=STEP6.rows[i]; if(!r) return;
+  r.intent=value; r.edited=true;
+  syncRowDerived(r);
+  const isi=document.getElementById('isi'+i); if(isi) isi.textContent=r.isi||'';
+  const sk=document.getElementById('skor'+i); if(sk) sk.textContent=r.skor||'';
+  const cf=document.getElementById('conf'+i); if(cf) cf.textContent=r.conf||'';
+  const inp=document.querySelector('.s6intent[data-i="'+i+'"]'); if(inp) inp.classList.add('edited');
+}
+
+/* ================= STEP 8: filter QA Conf -> Qwen ================= */
+let STEP8 = {counts:[], total:0};
+
+function step8Mode(){
+  const on=document.querySelector('#s8toggle .srcbtn.on');
+  return on?on.dataset.mode:'auto';
+}
+
+function openModal8(st){
+  const modal=document.getElementById('modal');
+  modal.innerHTML =
+    '<div class="mhead"><div class="mbadge">8</div>'+
+      '<div><h2>'+esc(st.title)+'</h2><p>'+esc(st.sub)+'</p></div>'+
+      '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>'+
+    '<div class="mbody">'+
+      '<div class="field"><label>Server URL <span style="font-weight:400;color:var(--text2)">(opsional)</span></label><input type="text" id="f_ngrok" placeholder="Biarkan kosong (mode Colab)"><div class="hint">Menilai baris QA Conf rendah dengan Qwen (kolom PUTUSAN &amp; ALASAN). Diproses bertahap agar tak kena timeout. Kosongkan untuk localhost:8000.</div></div>'+
+      '<div class="srcbox" id="s8toggle">'+
+        '<button type="button" class="srcbtn on" data-mode="auto">Otomatis (hasil Step 7)</button>'+
+        '<button type="button" class="srcbtn" data-mode="manual">Unggah XLSX</button>'+
+      '</div>'+
+      '<div class="field" id="s8upwrap" style="display:none"><label>File XLSX (ber-sheet "QA Conf MKTA")</label><input type="file" id="f_x8" accept=".xlsx"><button class="btn btn-sec" id="s8muat" style="margin-top:8px">Muat data</button></div>'+
+      '<div class="field"><label>Ambang Skor Pemrosesan Bahasa (QA Conf) &mdash; proses baris di bawah nilai ini</label>'+
+        '<div id="s8list" style="margin-top:6px"><div class="hint">Memuat...</div></div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="status" id="mstatus"></div>'+
+    '<div class="mfoot">'+
+      '<button class="btn" id="s8run" disabled>Lempar ke Qwen</button>'+
+      '<button class="btn btn-sec" id="dlBtn" style="display:none">Unduh Hasil</button>'+
+      '<button class="btn btn-ok" id="nextBtn" style="display:none">Lanjut ke Step 9 \u2192</button>'+
+    '</div>';
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('mxBtn').onclick=closeModal;
+  if(STATE.ngrok_url){ const el=document.getElementById('f_ngrok'); if(el) el.value=STATE.ngrok_url; }
+  document.getElementById('s8run').onclick=runStep8;
+  document.getElementById('s8muat').onclick=()=>loadStep8();
+  document.querySelectorAll('#s8toggle .srcbtn').forEach(b=>{
+    b.onclick=()=>{
+      document.querySelectorAll('#s8toggle .srcbtn').forEach(x=>x.classList.remove('on'));
+      b.classList.add('on');
+      const manual=b.dataset.mode==='manual';
+      document.getElementById('s8upwrap').style.display=manual?'':'none';
+      document.getElementById('s8run').disabled=true;
+      if(manual){ document.getElementById('s8list').innerHTML='<div class="hint">Unggah file lalu klik <b>Muat data</b>.</div>'; document.getElementById('mstatus').className='status'; }
+      else { loadStep8(); }
+    };
+  });
+  loadStep8();
+}
+
+function loadStep8(){
+  const mode=step8Mode();
+  const fd=new FormData(); fd.append('mode', mode);
+  if(mode==='manual'){ const f=file('f_x8'); if(!f){ setStatus('err','\u26A0 Pilih file XLSX dulu.'); return; } fd.append('xlsx_file', f); }
+  setStatus('run','<span class="sp"></span>Menghitung jumlah baris per ambang...');
+  api('step8load',{method:'POST', body:fd}).then(res=>{
+    if(!res || !res.ok){ setStatus('err','\u26A0 '+esc((res&&res.error)||'Gagal memuat.')); return; }
+    STEP8.counts = res.counts||[]; STEP8.total = res.total||0;
+    document.getElementById('mstatus').className='status';
+    renderStep8();
+    const done=STATE.steps[8]; if(done && done.status==='done') showDone(8);
+  }).catch(e=>setStatus('err','\u26A0 '+esc(e.message||e)));
+}
+
+function renderStep8(){
+  const box=document.getElementById('s8list'); if(!box) return;
+  const fmt=t=>('< '+String(t).replace('.',','));
+  let html='<div style="font-size:12.5px;color:var(--text2);margin-bottom:8px">Total baris QA Conf MKTA: <b>'+STEP8.total+'</b></div>';
+  html+='<div style="display:flex;flex-direction:column;gap:2px">';
+  STEP8.counts.forEach((c,idx)=>{
+    const checked = (Math.abs(c.th-0.6)<1e-9) ? ' checked' : '';
+    html+='<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer">'+
+      '<input type="radio" name="s8th" value="'+c.th+'"'+checked+'>'+
+      '<span style="font-weight:600;min-width:70px">'+fmt(c.th)+'</span>'+
+      '<span style="color:var(--text2);font-size:12.5px">'+c.count+' baris</span>'+
+      '</label>';
+  });
+  html+='</div>';
+  box.innerHTML=html;
+  box.querySelectorAll('input[name=s8th]').forEach(r=>{ r.onchange=updateStep8Btn; });
+  updateStep8Btn();
+  document.getElementById('s8run').disabled=false;
+}
+
+function step8Selected(){
+  const r=document.querySelector('input[name=s8th]:checked');
+  if(!r) return null;
+  const th=parseFloat(r.value);
+  const c=STEP8.counts.find(x=>Math.abs(x.th-th)<1e-9);
+  return {th:th, count:c?c.count:0};
+}
+
+function updateStep8Btn(){
+  const s=step8Selected(); const btn=document.getElementById('s8run'); if(!btn) return;
+  btn.textContent = s ? ('Lempar '+s.count+' baris ke Qwen') : 'Lempar ke Qwen';
+}
+
+function runStep8(){
+  const s=step8Selected(); if(!s){ setStatus('err','\u26A0 Pilih ambang dulu.'); return; }
+  if(s.count===0){ setStatus('err','\u26A0 Tidak ada baris pada ambang ini.'); return; }
+  const btn=document.getElementById('s8run'); btn.disabled=true;
+  const ngrok=val('f_ngrok'); if(ngrok) STATE.ngrok_url=ngrok;
+  const mode=step8Mode();
+  const target=s.count; let processedTotal=0;
+  const doChunk=()=>{
+    const fd=new FormData();
+    fd.append('ngrok_url', ngrok);
+    fd.append('threshold', String(s.th));
+    fd.append('mode', mode);
+    setStatus('run','<span class="sp"></span>Memproses ke Qwen... '+processedTotal+'/'+target+' selesai. Jangan tutup jendela ini.');
+    api('step8',{method:'POST', body:fd}).then(res=>{
+      if(!res || !res.ok){ btn.disabled=false; setStatus('err','\u26A0 '+esc((res&&res.error)||'Gagal memproses.')); return; }
+      STATE.steps[8]=res.artifact;
+      processedTotal += (res.processed||0);
+      if(res.done){
+        btn.disabled=false;
+        setStatus('ok','\u2714 Putusan selesai. Diproses '+processedTotal+' baris. File siap diunduh.');
+        showDone(8); renderRail();
+      } else if((res.processed||0)>0){
+        doChunk();
+      } else {
+        btn.disabled=false;
+        setStatus('err','\u26A0 0 baris terproses pada chunk ini, tetapi sisa '+(res.remaining||0)+'. Progres tersimpan \u2014 klik lagi untuk mencoba melanjutkan, atau cek log server.');
+        showDone(8); renderRail();
+      }
+    }).catch(e=>{ btn.disabled=false; setStatus('err','\u26A0 '+esc(e.message||e)+' (progres tersimpan; klik lagi untuk lanjut)'); });
+  };
+  doChunk();
+}
+
+/* ================= STEP 9: analisis manual MKTA ================= */
+let STEP9 = {rows:[]};
+
+function openModal9(st){
+  const modal=document.getElementById('modal');
+  modal.classList.add('wide');
+  modal.innerHTML =
+    '<div class="mhead"><div class="mbadge">9</div>'+
+      '<div><h2>'+esc(st.title)+'</h2><p>'+esc(st.sub)+'</p></div>'+
+      '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>'+
+    '<div class="s6bar">'+
+      '<div class="fg"><label>Skor Bahasa &lt; (ambang sheet)</label><input type="number" id="f9qa" min="0" max="1" step="0.05" value="0.5" style="width:110px"></div>'+
+      '<div class="fg"><label>PUTUSAN</label><select id="f9put"><option value="">Semua</option></select></div>'+
+      '<div class="fg"><label>Kategori Mesin</label><select id="f9kat"><option value="">Semua</option></select></div>'+
+      '<div class="fg"><label>Skor Dialogflow \u2264</label><input type="number" id="f9df" min="0" max="1" step="0.05" placeholder="0" style="width:100px"></div>'+
+      '<div class="fg"><label>Skor NLI \u2264</label><input type="number" id="f9nli" min="0" max="1" step="0.05" placeholder="0" style="width:100px"></div>'+
+      '<div class="fg"><label>Cari pertanyaan</label><input type="text" id="f9q" placeholder="kata kunci..."></div>'+
+      '<span class="count" id="s9count"></span>'+
+    '</div>'+
+    '<div class="status" id="mstatus"></div>'+
+    '<div class="s6wrap"><table class="s6table"><thead><tr>'+
+      '<th>Prioritas</th><th>Pertanyaan User</th><th>Intent (Bot)</th><th>Kategori Mesin</th><th>Skor Bahasa</th><th>Skor DF</th><th>NLI</th><th>PUTUSAN &amp; Alasan</th><th>Kandidat / Terdekat</th><th>Intent Seharusnya</th>'+
+    '</tr></thead><tbody id="s9body"></tbody></table></div>'+
+    '<div class="mfoot">'+
+      '<button class="btn" id="s9save">Simpan ke sheet Analisis MKTA</button>'+
+      '<button class="btn btn-sec" id="dlBtn" style="display:none">Unduh Hasil</button>'+
+      '<button class="btn btn-ok" id="nextBtn" style="display:none">Lanjut ke Step 10 \u2192</button>'+
+    '</div>';
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('mxBtn').onclick=closeModal;
+  document.getElementById('s9save').onclick=saveStep9;
+  ['f9qa','f9put','f9kat','f9df','f9nli','f9q'].forEach(id=>{ const el=document.getElementById(id); el.oninput=renderStep9; el.onchange=renderStep9; });
+  loadStep9();
+}
+
+function loadStep9(){
+  setStatus('run','<span class="sp"></span>Memuat data dari hasil Step 8...');
+  STEP9.rows=[];
+  api('step9load',{}).then(res=>{
+    if(!res || !res.ok){ setStatus('err','\u26A0 '+esc((res&&res.error)||'Gagal memuat.')); return; }
+    STEP9.rows = res.rows||[];
+    STEP9.rows.forEach(r=>{ r.edited=false; });
+    const puts=[...new Set(STEP9.rows.map(r=>r.putusan).filter(Boolean))];
+    const sel=document.getElementById('f9put');
+    puts.forEach(p=>{ const o=document.createElement('option'); o.value=p; o.textContent=p; sel.appendChild(o); });
+    const kats=[...new Set(STEP9.rows.map(r=>r.kategori).filter(Boolean))];
+    const selk=document.getElementById('f9kat');
+    kats.forEach(k=>{ const o=document.createElement('option'); o.value=k; o.textContent=k; selk.appendChild(o); });
+    document.getElementById('mstatus').className='status';
+    renderStep9();
+    const done=STATE.steps[9]; if(done && done.status==='done') showDone(9);
+  }).catch(e=>setStatus('err','\u26A0 '+esc(e.message||e)));
+}
+
+function s9num(v){ const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?null:n; }
+function s9fmt(v){ const n=s9num(v); return n===null ? esc(String(v==null?'':v)) : n.toFixed(2); }
+
+function renderStep9(){
+  const body=document.getElementById('s9body'); if(!body) return;
+  const thr=parseFloat(document.getElementById('f9qa').value);
+  const fput=document.getElementById('f9put').value;
+  const fkat=document.getElementById('f9kat').value;
+  const fdf=parseFloat(document.getElementById('f9df').value);
+  const fnli=parseFloat(document.getElementById('f9nli').value);
+  const fq=document.getElementById('f9q').value.trim().toLowerCase();
+  const CAP=400; let shown=0, matched=0, underThr=0;
+  const parts=[];
+  const order = STEP9.rows.map((r,i)=>i);
+  order.sort((a,b)=>{ const pa=s9num(STEP9.rows[a].prioritas), pb=s9num(STEP9.rows[b].prioritas); return (pb===null?-1:pb)-(pa===null?-1:pa); });
+  order.forEach(i=>{
+    const r=STEP9.rows[i];
+    const qa=s9num(r.qa);
+    const inThr = !isNaN(thr) ? (qa!==null && qa<thr) : true;
+    if(inThr) underThr++;
+    if(!inThr) return;
+    if(fput && r.putusan!==fput) return;
+    if(fkat && r.kategori!==fkat) return;
+    if(!isNaN(fdf)){ const d=s9num(r.df); if(d===null || d>fdf) return; }
+    if(!isNaN(fnli)){ const n=s9num(r.nli); if(n===null || n>fnli) return; }
+    if(fq && !(r.pertanyaan||'').toLowerCase().includes(fq)) return;
+    matched++;
+    if(shown>=CAP) return; shown++;
+    const kand = (r.kandidat||r.terdekat||'');
+    const alasan = r.alasan ? '<div style="color:#9aa4b2;font-size:11px;margin-top:3px">'+esc(r.alasan)+'</div>' : '';
+    parts.push(
+      '<tr>'+
+      '<td>'+esc(r.prioritas||'')+'</td>'+
+      '<td class="s6q">'+esc(r.pertanyaan||'')+'</td>'+
+      '<td class="s6q">'+esc(r.intent||'')+'</td>'+
+      '<td>'+esc(r.kategori||'')+'</td>'+
+      '<td>'+s9fmt(r.qa)+'</td>'+
+      '<td>'+s9fmt(r.df)+'</td>'+
+      '<td>'+s9fmt(r.nli)+'</td>'+
+      '<td>'+esc(r.putusan||'')+alasan+'</td>'+
+      '<td class="s6q">'+esc(kand)+'</td>'+
+      '<td><input class="s6intent" data-i="'+i+'" value="'+esc(r.seharusnya||'')+'" placeholder="ketik intent..."></td>'+
+      '</tr>'
+    );
+  });
+  body.innerHTML=parts.join('');
+  body.querySelectorAll('.s6intent').forEach(inp=>{ const i=parseInt(inp.dataset.i,10); inp.oninput=()=>{ STEP9.rows[i].seharusnya=inp.value; STEP9.rows[i].edited=true; inp.classList.add('edited'); }; });
+  document.getElementById('s9count').textContent = matched+' tampil \u00b7 '+underThr+' akan disimpan (Skor<'+(isNaN(thr)?'-':thr)+')'+(matched>CAP?(' \u00b7 tampil '+CAP):'');
+}
+
+function saveStep9(){
+  const thr=parseFloat(document.getElementById('f9qa').value);
+  if(isNaN(thr)||thr<=0||thr>1){ setStatus('err','\u26A0 Isi ambang QA Conf yang valid (0-1).'); return; }
+  const edits={};
+  STEP9.rows.forEach(r=>{ if(r.edited) edits[String(r.row)] = r.seharusnya||''; });
+  const fd=new FormData(); fd.append('threshold', String(thr)); fd.append('edits', JSON.stringify(edits));
+  const btn=document.getElementById('s9save'); btn.disabled=true;
+  setStatus('run','<span class="sp"></span>Menyimpan sheet Analisis MKTA (QA Conf < '+thr+')...');
+  api('step9',{method:'POST', body:fd}).then(res=>{
+    btn.disabled=false;
+    if(res && res.ok){ STATE.steps[9]=res.artifact; setStatus('ok','\u2714 Tersimpan '+(res.baris||0)+' baris ke sheet Analisis MKTA. File siap diunduh.'); showDone(9); renderRail(); }
+    else { setStatus('err','\u26A0 '+esc((res&&res.error)||'Gagal menyimpan.')); }
+  }).catch(e=>{ btn.disabled=false; setStatus('err','\u26A0 '+esc(e.message||e)); });
+}
+
+/* ================= STEP 10: laporan LM + Pembaruan ================= */
+function openModal10(st){
+  const modal=document.getElementById('modal');
+  modal.innerHTML =
+    '<div class="mhead"><div class="mbadge">10</div>'+
+      '<div><h2>'+esc(st.title)+'</h2><p>'+esc(st.sub)+'</p></div>'+
+      '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>'+
+    '<div class="mbody">'+
+      '<div class="hint">Membuat <b>sheet LM</b> &amp; <b>sheet Pembaruan</b> dari hasil Step 9, lalu menghasilkan <b>3 file</b>: Excel Utama, CSV LM, dan CSV Pembaruan. Hanya baris <b>TINDAK LANJUT</b> (Fallback &amp; MKTA) yang masuk. TGL Penyusunan = tanggal rekaman tiap baris.</div>'+
+      '<div class="field"><label>Nama Penyusun</label><input type="text" id="f10nama" placeholder="mis. SAMSUL HIDAYATULLAH" value="'+esc((STATE.steps[10]&&STATE.steps[10].penyusun)||'')+'"><div class="hint">Dipakai di kolom NAMA PENYUSUN (sheet &amp; CSV Pembaruan).</div></div>'+
+    '</div>'+
+    '<div class="status" id="mstatus"></div>'+
+    '<div class="summary" id="msummary"></div>'+
+    '<div class="mfoot" id="s10foot">'+
+      '<button class="btn" id="s10run">Buat Laporan</button>'+
+    '</div>';
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('mxBtn').onclick=closeModal;
+  document.getElementById('s10run').onclick=runStep10;
+  const done=STATE.steps[10];
+  if(done && done.status==='done'){ showSummary(10, done); step10Downloads(); }
+}
+
+function step10Downloads(){
+  const foot=document.getElementById('s10foot'); if(!foot) return;
+  const base=ENDPOINT+'?action=download&run='+encodeURIComponent(RUN);
+  foot.innerHTML =
+    '<button class="btn" id="s10run">Buat Ulang</button>'+
+    '<button class="btn btn-sec" id="dlExcel">Unduh Excel Utama</button>'+
+    '<button class="btn btn-sec" id="dlLm">Unduh CSV LM</button>'+
+    '<button class="btn btn-sec" id="dlPemb">Unduh CSV Pembaruan</button>';
+  document.getElementById('s10run').onclick=runStep10;
+  document.getElementById('dlExcel').onclick=()=>{ window.location = base+'&step=10'; };
+  document.getElementById('dlLm').onclick=()=>{ window.location = base+'&part=lm'; };
+  document.getElementById('dlPemb').onclick=()=>{ window.location = base+'&part=pembaruan'; };
+}
+
+function runStep10(){
+  const btn=document.getElementById('s10run'); if(btn) btn.disabled=true;
+  document.getElementById('msummary').classList.remove('show');
+  const nama=(document.getElementById('f10nama')||{}).value||'';
+  const fd=new FormData(); fd.append('penyusun', nama);
+  setStatus('run','<span class="sp"></span>Menyusun laporan LM &amp; Pembaruan...');
+  api('step10',{method:'POST', body:fd}).then(res=>{
+    if(res && res.ok){
+      STATE.steps[10]=res.artifact;
+      setStatus('ok','\u2714 Laporan selesai. LM: '+(res.lm_rows||0)+' baris \u00b7 Pembaruan: '+(res.pembaruan_rows||0)+' baris.');
+      showSummary(10, res.artifact);
+      step10Downloads();
+      renderRail();
+    } else {
+      if(btn) btn.disabled=false;
+      setStatus('err','\u26A0 '+esc((res&&res.error)||'Gagal membuat laporan.'));
+    }
+  }).catch(e=>{ if(btn) btn.disabled=false; setStatus('err','\u26A0 '+esc(e.message||e)); });
+}
+
+/* ================= STEP 11: pembaruan intent (training phrase) ================= */
+function openModal11(st){
+  const modal=document.getElementById('modal');
+  const ng=(STATE.ngrok_url)||'';
+  modal.innerHTML =
+    '<div class="mhead"><div class="mbadge">11</div>'+
+      '<div><h2>'+esc(st.title)+'</h2><p>'+esc(st.sub)+'</p></div>'+
+      '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>'+
+    '<div class="mbody">'+
+      '<div class="hint">Menyuntikkan training phrase baru (dari <b>Analisis Fallback</b> + <b>Analisis MKTA</b>, baris TINDAK LANJUT) ke file <b>usersays_&lt;lang&gt;.json</b> di dalam ZIP export Dialogflow. Diproses backend Python. Output: <b>Excel + sheet "Status Pembaruan"</b> dan <b>ZIP usersays terbaru</b> (file lain digabung utuh).</div>'+
+      '<div class="field"><label>Bahasa target</label>'+
+        '<select id="f11lang"><option value="id">usersays_id (Indonesia)</option><option value="en">usersays_en (English)</option></select></div>'+
+      '<div class="field"><label>ZIP export Dialogflow</label><input type="file" id="f11zip" accept=".zip"><div class="hint">Berisi folder <code>intents/</code> dengan file <code>*_usersays_id/en.json</code>.</div></div>'+
+      '<div class="field"><label>Sumber daftar frasa</label>'+
+        '<div class="srcbox" data-group="s11">'+
+          '<button type="button" class="srcbtn on" data-mode="auto">Dari step sebelumnya</button>'+
+          '<button type="button" class="srcbtn" data-mode="manual">Upload workbook</button>'+
+        '</div></div>'+
+      '<div class="srcfield" data-group="s11" data-mode="auto"><div class="hint">Workbook diambil otomatis dari hasil Step 10 (atau Step 9): sheet Analisis Fallback &amp; Analisis MKTA.</div></div>'+
+      '<div class="srcfield" data-group="s11" data-mode="manual"><div class="field"><label>Workbook pipeline (.xlsx)</label><input type="file" id="f11wb" accept=".xlsx"><div class="hint">Harus punya sheet Analisis Fallback &amp; Analisis MKTA.</div></div></div>'+
+      '<div class="field"><label>Ngrok URL (opsional)</label><input type="text" id="f_ngrok" placeholder="kosongkan bila mode all-in-one Colab" value="'+esc(ng)+'"><div class="hint">Diabaikan bila backend dijalankan lokal di Colab (default).</div></div>'+
+    '</div>'+
+    '<div class="status" id="mstatus"></div>'+
+    '<div class="summary" id="msummary"></div>'+
+    '<div class="mfoot" id="s11foot">'+
+      '<button class="btn" id="s11run">Perbarui usersays</button>'+
+    '</div>';
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('mxBtn').onclick=closeModal;
+  bindSourceToggle();
+  const done=STATE.steps[11];
+  if(done && done.summary && done.summary.bahasa){ const sel=document.getElementById('f11lang'); if(sel) sel.value=done.summary.bahasa; }
+  document.getElementById('s11run').onclick=runStep11;
+  if(done && done.status==='done'){ showSummary(11, done); step11Downloads(); }
+}
+
+function step11Downloads(){
+  const foot=document.getElementById('s11foot'); if(!foot) return;
+  const base=ENDPOINT+'?action=download&run='+encodeURIComponent(RUN);
+  foot.innerHTML =
+    '<button class="btn" id="s11run">Perbarui Ulang</button>'+
+    '<button class="btn btn-sec" id="dlXls11">Unduh Excel (Status Pembaruan)</button>'+
+    '<button class="btn btn-sec" id="dlZip11">Unduh ZIP usersays</button>';
+  document.getElementById('s11run').onclick=runStep11;
+  document.getElementById('dlXls11').onclick=()=>{ window.location = base+'&step=11'; };
+  document.getElementById('dlZip11').onclick=()=>{ window.location = base+'&part=zip11'; };
+}
+
+function runStep11(){
+  const fd=new FormData();
+  try{
+    const lang=val('f11lang')||'id';
+    fd.append('lang', lang);
+    const mode=currentMode('s11')||'auto';
+    fd.append('mode', mode);
+    const ng=val('f_ngrok'); if(ng){ STATE.ngrok_url=ng; fd.append('ngrok_url', ng); }
+    const z=file('f11zip'); if(!z) throw 'Unggah ZIP export Dialogflow dulu.';
+    fd.append('df_zip', z);
+    if(mode==='manual'){ const w=file('f11wb'); if(!w) throw 'Opsi Upload workbook: pilih file workbook .xlsx (punya sheet Analisis).'; fd.append('workbook', w); }
+  }catch(msg){ setStatus('err', esc(msg)); return; }
+  const btn=document.getElementById('s11run'); if(btn) btn.disabled=true;
+  const sm=document.getElementById('msummary'); if(sm) sm.classList.remove('show');
+  setStatus('run','<span class="sp"></span>Mengirim ZIP + frasa ke backend & memperbarui usersays...');
+  api('step11',{method:'POST', body:fd}).then(res=>{
+    if(res && res.ok){
+      STATE.steps[11]=res.artifact;
+      const s=res.stats||{};
+      setStatus('ok','\u2714 Selesai. Ditambahkan: '+(s.ditambahkan||0)+' \u00b7 Duplikat: '+(s.duplikat||0)+' \u00b7 Tidak ketemu: '+(s.intent_tidak_ketemu||0)+' \u00b7 File diperbarui: '+(s.file_diperbarui||0)+'.');
+      showSummary(11, res.artifact);
+      step11Downloads();
+      renderRail();
+    } else {
+      if(btn) btn.disabled=false;
+      setStatus('err','\u26A0 '+esc((res&&res.error)||'Gagal memperbarui usersays.'));
+    }
+  }).catch(e=>{ if(btn) btn.disabled=false; setStatus('err','\u26A0 '+esc(e.message||e)); });
+}
+
+function closeS6Menus(){ document.querySelectorAll('.s6menu.open').forEach(m=>m.classList.remove('open')); }
+
+function openS6Menu(i){
+  closeS6Menus();
+  const r=STEP6.rows[i]; if(!r) return;
+  const menu=document.getElementById('menu'+i); if(!menu) return;
+  const opts=r.options||[];
+  if(!opts.length){
+    menu.innerHTML='<div class="s6opt s6empty">Tidak ada rekomendasi untuk baris ini</div>';
+  } else {
+    menu.innerHTML=opts.map((o,k)=>'<div class="s6opt" data-id="'+esc(o.id)+'"><div class="s6opt-id">'+(k+1)+'. '+esc(o.id)+'</div><div class="s6opt-meta">Skor '+esc(o.skor||'-')+' \u00b7 '+esc(o.conf||'-')+'</div></div>').join('');
+    menu.querySelectorAll('.s6opt').forEach(el=>{ el.onmousedown=(e)=>{ e.preventDefault(); const id=el.getAttribute('data-id'); const inp=document.querySelector('.s6intent[data-i="'+i+'"]'); if(inp){ inp.value=id; } onIntentChange(i, id); closeS6Menus(); }; });
+  }
+  const inp=document.querySelector('.s6intent[data-i="'+i+'"]');
+  if(inp){ const rect=inp.getBoundingClientRect(); menu.style.left=rect.left+'px'; menu.style.top=(rect.bottom+4)+'px'; menu.style.minWidth=Math.max(260, rect.width+40)+'px'; }
+  menu.classList.add('open');
+}
+
+function saveStep6(){
+  const edits=STEP6.rows.map(r=>({row:r.row, intent:r.intent||'', isi:r.isi||''}));
+  const fd=new FormData(); fd.append('edits', JSON.stringify(edits));
+  const btn=document.getElementById('s6save'); btn.disabled=true;
+  setStatus('run','<span class="sp"></span>Menyimpan '+edits.length+' baris & membuat XLSX final...');
+  api('step6',{method:'POST', body:fd}).then(res=>{
+    btn.disabled=false;
+    if(res && res.ok){ STATE.steps[6]=res.artifact; setStatus('ok','\u2714 Tersimpan. File final siap diunduh.'); showDone(6); renderRail(); }
+    else { setStatus('err','\u26A0 '+esc((res&&res.error)||'Gagal menyimpan.')); }
+  }).catch(e=>{ btn.disabled=false; setStatus('err','\u26A0 '+esc(e.message||e)); });
+}
+
+function val(id){ const el=document.getElementById(id); return el?el.value.trim():''; }
+function file(id){ const el=document.getElementById(id); return (el&&el.files&&el.files[0])?el.files[0]:null; }
+
+document.getElementById('resetBtn').onclick=()=>{
+  if(!confirm('Reset run ini? Semua hasil step di server akan dihapus.')) return;
+  api('reset',{}).then(()=>{
+    localStorage.removeItem('dfp_run');
+    RUN='run_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7);
+    localStorage.setItem('dfp_run',RUN);
+    STATE={steps:{}}; renderRail();
+  });
+};
+
+// Muat state awal
+api('state',{}).then(res=>{
+  if(res && res.steps) STATE.steps = res.steps;
+  if(res && res.ngrok_url) STATE.ngrok_url = res.ngrok_url;
+  renderRail();
+}).catch(()=>renderRail());
+renderRail();
+</script>
+{% endblock %}

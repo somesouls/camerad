@@ -1,0 +1,1451 @@
+# -*- coding: utf-8 -*-
+"""
+AWE Avaya Live-Chat Analytics Pipeline
+======================================
+Modul terpisah untuk memproses hasil tarikan AWE Avaya (JSON percakapan
+live chat Kring Pajak 1500200). Dirancang untuk berjalan di RUNTIME & APP
+yang SAMA dengan pipeline fallback Dialogflow (llm_fix_final_combined.py):
+memakai ulang model MPNet + BGE reranker + Qwen yang sudah dimuat, lalu
+menambahkan route FastAPI baru lewat register_avaya_routes(app, ...).
+
+Alur (analog step 2-6 fallback, tapi tujuannya BEDA):
+  1. Gabung beberapa file JSON (rentang tanggal lanjutan) -> dedup by sid.
+  2. Ekstrak pertanyaan inti pelanggan dari transkrip.
+  3. Pemetaan intent: apakah pertanyaan SUDAH tercover intent chatbot
+     (retrieval MPNet + rerank BGE terhadap Training Phrase + Intent) atau
+     BELUM. BUKAN memilih intent benar, melainkan menandai coverage.
+  4. Clustering pertanyaan yang BELUM tercover -> kandidat intent baru.
+  5. Deflection gap DIHITUNG ULANG di Python (mengabaikan field JSON
+     "deflectionGap"): gap = pertanyaan cocok intent yang SUDAH ADA di bot
+     TAPI pelanggan tetap ke agent (langsung ketik 1500200 / tidak pakai bot).
+  6. Sentimen 3 layer (Qwen kalau ada, fallback leksikon):
+       L1 = Positif/Negatif/Netral
+       L2 = Deteksi Frustrasi (flag audit) + Status Resolusi (Selesai/Belum)
+       L3 = Emosi (Senang, Marah/Frustrasi, Sedih, Takut/Cemas, Terkejut, Jijik/Bosan)
+
+Output: ZIP berisi
+  - hasil_avaya.xlsx  (beberapa sheet: Percakapan, Agent, Pelanggan, Cluster, Ringkasan)
+  - dashboard.html    (dashboard interaktif mandiri, data ter-embed)
+  - dashboard_data.json
+
+Dependency berat (torch/sentence-transformers/openpyxl) bersifat OPSIONAL:
+kalau tidak tersedia, modul otomatis memakai fallback (TF-IDF/leksikon/CSV)
+sehingga tetap jalan untuk uji lokal tanpa GPU.
+"""
+
+import io
+import os
+import re
+import json
+import math
+import zipfile
+import datetime as _dt
+from collections import Counter, defaultdict
+
+# ------------------------------------------------------------------
+# Dependency opsional
+# ------------------------------------------------------------------
+try:
+    import numpy as np
+except Exception:  # pragma: no cover
+    np = None
+
+_HERE = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
+TEMPLATE_PATH = os.path.join(_HERE, "avaya_dashboard_template.html")
+_EMBEDDED_TEMPLATE_B64 = "PCFkb2N0eXBlIGh0bWw+CjxodG1sIGxhbmc9ImlkIj4KPGhlYWQ+CjxtZXRhIGNoYXJzZXQ9InV0Zi04Ij4KPG1ldGEgbmFtZT0idmlld3BvcnQiIGNvbnRlbnQ9IndpZHRoPWRldmljZS13aWR0aCwgaW5pdGlhbC1zY2FsZT0xIj4KPHRpdGxlPkRhc2hib2FyZCBBbmFsaXNpcyBBV0UgQXZheWEg4oCUIEtyaW5nIFBhamFrIDE1MDAyMDA8L3RpdGxlPgo8c3R5bGU+Cjpyb290ewogIC0tdGV4dDojMkMyQzJCOyAtLXRleHQyOiM3RDdBNzU7IC0tY2FudmFzOiNGRkZGRkY7IC0tc29mdDojRjlGOEY3OyAtLXNvZnQyOiNGMEVGRUQ7CiAgLS1ib3JkZXI6I0U2RTVFMzsgLS1ibHVlOiMyNzgzREU7IC0tYmx1ZVNvZnQ6I0U1RjJGQzsgLS1ncmVlbjojNDZBMTcxOyAtLWdyZWVuU29mdDojRThGMUVDOwogIC0tb3JhbmdlOiNENTgwM0I7IC0tb3JhbmdlU29mdDojRkJFQkRFOyAtLXJlZDojRTU2NDU4OyAtLXJlZFNvZnQ6I0ZDRTlFNzsKICAtLWMxOiM1RTlGRTg7IC0tYzI6I0VBQzI2QjsgLS1jMzojNzJCQzhGOyAtLWM0OiNCRjhFREE7IC0tYzU6I0RFOTI1NTsgLS1jNjojREY4NEE4OyAtLWM3OiM0RkI5Qzk7IC0tYzg6I0U5NzM2NjsKfQpAbWVkaWEgKHByZWZlcnMtY29sb3Itc2NoZW1lOiBkYXJrKXsKOnJvb3R7CiAgLS10ZXh0OiNGRkZGRkY7IC0tdGV4dDI6cmdiYSgyNTUsMjU1LDI1NSwuNjUpOyAtLWNhbnZhczojMTkxOTE5OyAtLXNvZnQ6IzIwMjAyMDsgLS1zb2Z0MjojMzgzODM2OwogIC0tYm9yZGVyOnJnYmEoMjU1LDI1NSwyNTUsLjIwKTsgLS1ibHVlOiM1RTlGRTg7IC0tYmx1ZVNvZnQ6cmdiYSg5NCwxNTksMjMyLC4xMik7IC0tZ3JlZW46IzcyQkM4RjsgLS1ncmVlblNvZnQ6cmdiYSgxMTQsMTg4LDE0MywuMTIpOwogIC0tb3JhbmdlOiNERTkyNTU7IC0tb3JhbmdlU29mdDpyZ2JhKDIyMiwxNDYsODUsLjEyKTsgLS1yZWQ6I0U5NzM2NjsgLS1yZWRTb2Z0OnJnYmEoMjMzLDExNSwxMDIsLjEyKTsKfQp9Cip7Ym94LXNpemluZzpib3JkZXItYm94fQpodG1sLGJvZHl7bWFyZ2luOjA7YmFja2dyb3VuZDp2YXIoLS1jYW52YXMpO2NvbG9yOnZhcigtLXRleHQpO2ZvbnQtZmFtaWx5Oi1hcHBsZS1zeXN0ZW0sQmxpbmtNYWNTeXN0ZW1Gb250LCJTZWdvZSBVSSIsUm9ib3RvLEhlbHZldGljYSxBcmlhbCxzYW5zLXNlcmlmO2ZvbnQtc2l6ZToxNnB4O2xpbmUtaGVpZ2h0OjEuNX0KLndyYXB7bWF4LXdpZHRoOjExODBweDttYXJnaW46MCBhdXRvO3BhZGRpbmc6MzJweCAyNHB4IDgwcHh9CmhlYWRlci5oZWFke21hcmdpbi1ib3R0b206OHB4fQouZXllYnJvd3tjb2xvcjp2YXIoLS1ibHVlKTtmb250LXdlaWdodDo3MDA7Zm9udC1zaXplOjEzcHg7bGV0dGVyLXNwYWNpbmc6LjA0ZW07dGV4dC10cmFuc2Zvcm06dXBwZXJjYXNlO21hcmdpbjowIDAgNnB4fQpoMXtmb250LXNpemU6MzBweDtsaW5lLWhlaWdodDoxLjI7bWFyZ2luOjAgMCA2cHg7Zm9udC13ZWlnaHQ6NzUwfQouc3Vie2NvbG9yOnZhcigtLXRleHQyKTtmb250LXNpemU6MTVweDttYXJnaW46MH0KLm1ldGEtcm93e2Rpc3BsYXk6ZmxleDtmbGV4LXdyYXA6d3JhcDtnYXA6OHB4O21hcmdpbi10b3A6MTZweH0KLnBpbGx7YmFja2dyb3VuZDp2YXIoLS1zb2Z0Mik7Ym9yZGVyOjFweCBzb2xpZCB2YXIoLS1ib3JkZXIpO2JvcmRlci1yYWRpdXM6OTk5cHg7cGFkZGluZzo1cHggMTJweDtmb250LXNpemU6MTNweDtjb2xvcjp2YXIoLS10ZXh0Mil9Ci5waWxsIGJ7Y29sb3I6dmFyKC0tdGV4dCk7Zm9udC13ZWlnaHQ6NjUwfQpzZWN0aW9ue21hcmdpbi10b3A6NDBweH0KaDJ7Zm9udC1zaXplOjIwcHg7Zm9udC13ZWlnaHQ6NzAwO21hcmdpbjowIDAgNHB4O2Rpc3BsYXk6ZmxleDthbGlnbi1pdGVtczpjZW50ZXI7Z2FwOjEwcHh9CmgyIC5kb3R7d2lkdGg6MTBweDtoZWlnaHQ6MTBweDtib3JkZXItcmFkaXVzOjNweDtiYWNrZ3JvdW5kOnZhcigtLWJsdWUpfQouc2VjLXN1Yntjb2xvcjp2YXIoLS10ZXh0Mik7Zm9udC1zaXplOjE0cHg7bWFyZ2luOjAgMCAxOHB4fQouZ3JpZHtkaXNwbGF5OmdyaWQ7Z2FwOjE2cHh9Ci5rcGktZ3JpZHtncmlkLXRlbXBsYXRlLWNvbHVtbnM6cmVwZWF0KDQsMWZyKX0KLmNvbHMtMntncmlkLXRlbXBsYXRlLWNvbHVtbnM6MWZyIDFmcn0KLmNvbHMtM3tncmlkLXRlbXBsYXRlLWNvbHVtbnM6cmVwZWF0KDMsMWZyKX0KLmNhcmR7YmFja2dyb3VuZDp2YXIoLS1zb2Z0KTtib3JkZXI6MXB4IHNvbGlkIHZhcigtLWJvcmRlcik7Ym9yZGVyLXJhZGl1czoxMnB4O3BhZGRpbmc6MjBweH0KLmtwaSAubGJse2NvbG9yOnZhcigtLXRleHQyKTtmb250LXNpemU6MTNweDtmb250LXdlaWdodDo2MDA7bWFyZ2luOjAgMCA4cHh9Ci5rcGkgLnZhbHtmb250LXNpemU6MzBweDtmb250LXdlaWdodDo3NjA7bGluZS1oZWlnaHQ6MTtsZXR0ZXItc3BhY2luZzotLjAxZW19Ci5rcGkgLmZvb3R7Y29sb3I6dmFyKC0tdGV4dDIpO2ZvbnQtc2l6ZToxMi41cHg7bWFyZ2luLXRvcDo4cHh9Ci5rcGkudG9uZS1ibHVlIC52YWx7Y29sb3I6dmFyKC0tYmx1ZSl9IC5rcGkudG9uZS1ncmVlbiAudmFse2NvbG9yOnZhcigtLWdyZWVuKX0KLmtwaS50b25lLW9yYW5nZSAudmFse2NvbG9yOnZhcigtLW9yYW5nZSl9IC5rcGkudG9uZS1yZWQgLnZhbHtjb2xvcjp2YXIoLS1yZWQpfQouY2hhcnQtdGl0bGV7Zm9udC1zaXplOjE0cHg7Zm9udC13ZWlnaHQ6NjUwO21hcmdpbjowIDAgMTRweH0KLmxlZ2VuZHtkaXNwbGF5OmZsZXg7ZmxleC13cmFwOndyYXA7Z2FwOjEycHg7bWFyZ2luLXRvcDoxNHB4O2ZvbnQtc2l6ZToxM3B4O2NvbG9yOnZhcigtLXRleHQyKX0KLmxlZ2VuZCAubGl7ZGlzcGxheTpmbGV4O2FsaWduLWl0ZW1zOmNlbnRlcjtnYXA6NnB4fQoubGVnZW5kIC5zd3t3aWR0aDoxMXB4O2hlaWdodDoxMXB4O2JvcmRlci1yYWRpdXM6M3B4fQouaGJhcntkaXNwbGF5OmZsZXg7ZmxleC1kaXJlY3Rpb246Y29sdW1uO2dhcDoxMXB4fQouaGJhciAucm93e2Rpc3BsYXk6Z3JpZDtncmlkLXRlbXBsYXRlLWNvbHVtbnM6MTUwcHggMWZyIDQ2cHg7YWxpZ24taXRlbXM6Y2VudGVyO2dhcDoxMHB4O2ZvbnQtc2l6ZToxM3B4fQouaGJhciAubmFtZXtjb2xvcjp2YXIoLS10ZXh0KTt3aGl0ZS1zcGFjZTpub3dyYXA7b3ZlcmZsb3c6aGlkZGVuO3RleHQtb3ZlcmZsb3c6ZWxsaXBzaXN9Ci5oYmFyIC50cmFja3tiYWNrZ3JvdW5kOnZhcigtLXNvZnQyKTtib3JkZXItcmFkaXVzOjZweDtoZWlnaHQ6MTZweDtvdmVyZmxvdzpoaWRkZW59Ci5oYmFyIC5maWxse2hlaWdodDoxMDAlO2JvcmRlci1yYWRpdXM6NnB4fQouaGJhciAubnVte3RleHQtYWxpZ246cmlnaHQ7Y29sb3I6dmFyKC0tdGV4dDIpO2ZvbnQtdmFyaWFudC1udW1lcmljOnRhYnVsYXItbnVtc30KLmRvbnV0d3JhcHtkaXNwbGF5OmZsZXg7YWxpZ24taXRlbXM6Y2VudGVyO2dhcDoyMnB4O2ZsZXgtd3JhcDp3cmFwfQp0YWJsZXt3aWR0aDoxMDAlO2JvcmRlci1jb2xsYXBzZTpjb2xsYXBzZTtmb250LXNpemU6MTMuNXB4fQoudGFibGVjYXJke292ZXJmbG93LXg6YXV0b30KdGgsdGR7dGV4dC1hbGlnbjpsZWZ0O3BhZGRpbmc6OXB4IDEycHg7Ym9yZGVyLWJvdHRvbToxcHggc29saWQgdmFyKC0tYm9yZGVyKTt3aGl0ZS1zcGFjZTpub3dyYXB9CnRoe2NvbG9yOnZhcigtLXRleHQyKTtmb250LXNpemU6MTJweDtmb250LXdlaWdodDo2NTA7dGV4dC10cmFuc2Zvcm06dXBwZXJjYXNlO2xldHRlci1zcGFjaW5nOi4wM2VtO2N1cnNvcjpwb2ludGVyO3VzZXItc2VsZWN0Om5vbmU7cG9zaXRpb246c3RpY2t5O3RvcDowO2JhY2tncm91bmQ6dmFyKC0tc29mdCl9CnRoLnNvcnRhYmxlOjphZnRlcntjb250ZW50OiJcMjE5NSI7b3BhY2l0eTouMzU7bWFyZ2luLWxlZnQ6NXB4O2ZvbnQtc2l6ZToxMXB4fQp0aC5hc2M6OmFmdGVye2NvbnRlbnQ6IlwyMTkxIjtvcGFjaXR5Oi45fQp0aC5kZXNjOjphZnRlcntjb250ZW50OiJcMjE5MyI7b3BhY2l0eTouOX0KdGJvZHkgdHI6aG92ZXJ7YmFja2dyb3VuZDp2YXIoLS1zb2Z0Mil9CnRkLm51bXt0ZXh0LWFsaWduOnJpZ2h0O2ZvbnQtdmFyaWFudC1udW1lcmljOnRhYnVsYXItbnVtc30KLnRhZ3tkaXNwbGF5OmlubGluZS1ibG9jaztwYWRkaW5nOjJweCA5cHg7Ym9yZGVyLXJhZGl1czo5OTlweDtmb250LXNpemU6MTJweDtmb250LXdlaWdodDo2MDA7Ym9yZGVyOjFweCBzb2xpZCB0cmFuc3BhcmVudH0KLnRhZy5wb3N7YmFja2dyb3VuZDp2YXIoLS1ncmVlblNvZnQpO2NvbG9yOnZhcigtLWdyZWVuKTtib3JkZXItY29sb3I6dmFyKC0tZ3JlZW4pfQoudGFnLm5lZ3tiYWNrZ3JvdW5kOnZhcigtLXJlZFNvZnQpO2NvbG9yOnZhcigtLXJlZCk7Ym9yZGVyLWNvbG9yOnZhcigtLXJlZCl9Ci50YWcubmV0e2JhY2tncm91bmQ6dmFyKC0tc29mdDIpO2NvbG9yOnZhcigtLXRleHQyKTtib3JkZXItY29sb3I6dmFyKC0tYm9yZGVyKX0KLnRhZy53YXJue2JhY2tncm91bmQ6dmFyKC0tb3JhbmdlU29mdCk7Y29sb3I6dmFyKC0tb3JhbmdlKTtib3JkZXItY29sb3I6dmFyKC0tb3JhbmdlKX0KLnRhZy5pbmZve2JhY2tncm91bmQ6dmFyKC0tYmx1ZVNvZnQpO2NvbG9yOnZhcigtLWJsdWUpO2JvcmRlci1jb2xvcjp2YXIoLS1ibHVlKX0KLmZsYWd7Y29sb3I6dmFyKC0tcmVkKTtmb250LXdlaWdodDo3MDB9Ci5tdXRlZHtjb2xvcjp2YXIoLS10ZXh0Mil9Ci5ub3Rle2ZvbnQtc2l6ZToxMi41cHg7Y29sb3I6dmFyKC0tdGV4dDIpO21hcmdpbi10b3A6MTBweH0KLnR3by1saW5le3doaXRlLXNwYWNlOm5vcm1hbDttYXgtd2lkdGg6MzIwcHg7bGluZS1oZWlnaHQ6MS4zNX0KQG1lZGlhKG1heC13aWR0aDo5MDBweCl7LmtwaS1ncmlke2dyaWQtdGVtcGxhdGUtY29sdW1uczoxZnIgMWZyfS5jb2xzLTIsLmNvbHMtM3tncmlkLXRlbXBsYXRlLWNvbHVtbnM6MWZyfS5oYmFyIC5yb3d7Z3JpZC10ZW1wbGF0ZS1jb2x1bW5zOjExMHB4IDFmciA0MHB4fX0KPC9zdHlsZT4KPC9oZWFkPgo8Ym9keT4KPGRpdiBjbGFzcz0id3JhcCI+CiAgPGhlYWRlciBjbGFzcz0iaGVhZCI+CiAgICA8cCBjbGFzcz0iZXllYnJvdyI+QVdFIEF2YXlhICZtaWRkb3Q7IExpdmUgQ2hhdCBBbmFseXRpY3M8L3A+CiAgICA8aDE+RGFzaGJvYXJkIEFuYWxpc2lzIFBlcmNha2FwYW4gS3JpbmcgUGFqYWsgMTUwMDIwMDwvaDE+CiAgICA8cCBjbGFzcz0ic3ViIj5QZW1ldGFhbiBpbnRlbnQgY2hhdGJvdCwgZGVmbGVjdGlvbiBnYXAsIGVmZWt0aXZpdGFzIGFnZW50LCBkYW4gc2VudGltZW4gcGVsYW5nZ2FuLjwvcD4KICAgIDxkaXYgY2xhc3M9Im1ldGEtcm93IiBpZD0ibWV0YVJvdyI+PC9kaXY+CiAgPC9oZWFkZXI+CgogIDxzZWN0aW9uPgogICAgPGRpdiBjbGFzcz0iZ3JpZCBrcGktZ3JpZCIgaWQ9ImtwaUdyaWQiPjwvZGl2PgogIDwvc2VjdGlvbj4KCiAgPHNlY3Rpb24+CiAgICA8aDI+PHNwYW4gY2xhc3M9ImRvdCI+PC9zcGFuPlBlbWV0YWFuIEludGVudCAmYW1wOyBEZWZsZWN0aW9uIEdhcDwvaDI+CiAgICA8cCBjbGFzcz0ic2VjLXN1YiI+QXBha2FoIHBlcnRhbnlhYW4gcGVsYW5nZ2FuIHN1ZGFoIHRlcmNvdmVyIGludGVudCBjaGF0Ym90LCBkYW4gYmVyYXBhIHlhbmcgbWVsZXdhdGkgYm90IHBhZGFoYWwgaW50ZW50LW55YSBzdWRhaCBhZGEgKGRpaGl0dW5nIHVsYW5nLCBidWthbiBkYXJpIGZpZWxkIEpTT04pLjwvcD4KICAgIDxkaXYgY2xhc3M9ImdyaWQgY29scy0yIj4KICAgICAgPGRpdiBjbGFzcz0iY2FyZCI+CiAgICAgICAgPHAgY2xhc3M9ImNoYXJ0LXRpdGxlIj5DYWt1cGFuIGludGVudCBjaGF0Ym90PC9wPgogICAgICAgIDxkaXYgaWQ9ImNvdmVyYWdlRG9udXQiIGNsYXNzPSJkb251dHdyYXAiPjwvZGl2PgogICAgICA8L2Rpdj4KICAgICAgPGRpdiBjbGFzcz0iY2FyZCI+CiAgICAgICAgPHAgY2xhc3M9ImNoYXJ0LXRpdGxlIj5KYWx1ciBwZWxhbmdnYW4gbWVudWp1IGFnZW50PC9wPgogICAgICAgIDxkaXYgaWQ9InBhdGhEb251dCIgY2xhc3M9ImRvbnV0d3JhcCI+PC9kaXY+CiAgICAgIDwvZGl2PgogICAgPC9kaXY+CiAgICA8ZGl2IGNsYXNzPSJjYXJkIiBzdHlsZT0ibWFyZ2luLXRvcDoxNnB4Ij4KICAgICAgPHAgY2xhc3M9ImNoYXJ0LXRpdGxlIj5LYXRlZ29yaSBpbnRlbnQgeWFuZyBTVURBSCBBREEgZGkgY2hhdGJvdCB0YXBpIHBlbGFuZ2dhbiBsYW5nc3VuZyBrZSBhZ2VudCAoZGVmbGVjdGlvbiBnYXAgcGVyIHRvcGlrKTwvcD4KICAgICAgPGRpdiBpZD0iZ2FwQnlUb3BpYyIgY2xhc3M9ImhiYXIiPjwvZGl2PgogICAgPC9kaXY+CiAgPC9zZWN0aW9uPgoKICA8c2VjdGlvbj4KICAgIDxoMj48c3BhbiBjbGFzcz0iZG90IiBzdHlsZT0iYmFja2dyb3VuZDp2YXIoLS1jNikiPjwvc3Bhbj5TZWdtZW50YXNpICZhbXA7IFRha3Nvbm9taSBLZWJ1dHVoYW48L2gyPgogICAgPHAgY2xhc3M9InNlYy1zdWIiPlBlcmlsYWt1IChsYW5nc3VuZyBhZ2VudCB2cyBjb2JhIGJvdCBkdWx1KSAmYW1wOyBrbGFzaWZpa2FzaSBrZWJ1dHVoYW4gQS9CL0MvRC4gU3RhdHVzIDxiPnJldHVybmluZzwvYj4gPSBpZGVudGl0YXMgbXVuY3VsICZnZTsyJnRpbWVzOyBwYWRhIGRhdGEgeWFuZyBkaS1sb2FkIChlc3RpbWFzaSBiZXJqZW5kZWxhKS48L3A+CiAgICA8ZGl2IGNsYXNzPSJncmlkIGNvbHMtMyI+CiAgICAgIDxkaXYgY2xhc3M9ImNhcmQiPjxwIGNsYXNzPSJjaGFydC10aXRsZSI+UGVyaWxha3UgbWVudWp1IGFnZW50PC9wPjxkaXYgaWQ9ImJlaERvbnV0IiBjbGFzcz0iZG9udXR3cmFwIj48L2Rpdj48L2Rpdj4KICAgICAgPGRpdiBjbGFzcz0iY2FyZCI+PHAgY2xhc3M9ImNoYXJ0LXRpdGxlIj5GcmVrdWVuc2kga2VtdW5jdWxhbiAoYmVyamVuZGVsYSk8L3A+PGRpdiBpZD0iZnJlcURvbnV0IiBjbGFzcz0iZG9udXR3cmFwIj48L2Rpdj48L2Rpdj4KICAgICAgPGRpdiBjbGFzcz0iY2FyZCI+PHAgY2xhc3M9ImNoYXJ0LXRpdGxlIj5UYWtzb25vbWkga2VidXR1aGFuIChBL0IvQy9EKTwvcD48ZGl2IGlkPSJ0YXhvQmFyIiBjbGFzcz0iaGJhciI+PC9kaXY+PC9kaXY+CiAgICA8L2Rpdj4KICAgIDxkaXYgY2xhc3M9ImNhcmQiIHN0eWxlPSJtYXJnaW4tdG9wOjE2cHgiPgogICAgICA8cCBjbGFzcz0iY2hhcnQtdGl0bGUiPkZva3VzIGtvaG9ydDogcGVsYW5nZ2FuIHlhbmcgTEFOR1NVTkcga2UgYWdlbnQgKDE1MDAyMDApICZtZGFzaDsgcmluY2lhbiBwZXIga2VsYXMga2VidXR1aGFuPC9wPgogICAgICA8ZGl2IGlkPSJkaXJlY3RDb2hvcnQiPjwvZGl2PgogICAgICA8ZGl2IGlkPSJkaXJlY3RDYXNlQmFyIiBjbGFzcz0iaGJhciIgc3R5bGU9Im1hcmdpbi10b3A6MTRweCI+PC9kaXY+CiAgICA8L2Rpdj4KICAgIDxkaXYgY2xhc3M9ImdyaWQgY29scy0yIiBzdHlsZT0ibWFyZ2luLXRvcDoxNnB4Ij4KICAgICAgPGRpdiBjbGFzcz0iY2FyZCB0YWJsZWNhcmQiPjxwIGNsYXNzPSJjaGFydC10aXRsZSI+UGVsdWFuZyBwZXJiYWlrYW4ga29udGVuIGJvdCAmbWRhc2g7IEtlbGFzIEIgKGFkYSB0YXBpIHRhayB0dW50YXMpPC9wPjx0YWJsZSBpZD0ib3BwQlRhYmxlIj48L3RhYmxlPjwvZGl2PgogICAgICA8ZGl2IGNsYXNzPSJjYXJkIHRhYmxlY2FyZCI+PHAgY2xhc3M9ImNoYXJ0LXRpdGxlIj5LYW5kaWRhdCBvdG9tYXNpIC8gc2VsZi1zZXJ2aWNlICZtZGFzaDsgS2VsYXMgQyAobGF5YW5hbiB3YWppYiBhZ2VudCk8L3A+PHRhYmxlIGlkPSJvcHBDVGFibGUiPjwvdGFibGU+PC9kaXY+CiAgICA8L2Rpdj4KICAgIDxkaXYgY2xhc3M9ImNhcmQgdGFibGVjYXJkIiBzdHlsZT0ibWFyZ2luLXRvcDoxNnB4Ij4KICAgICAgPHAgY2xhc3M9ImNoYXJ0LXRpdGxlIj5QZXJsdSByZXZpZXcgYW5hbGlzICZtZGFzaDsgS2VsYXMgRCAobWlzLW1hcCAvIHNrb3IgcmFndSk8L3A+CiAgICAgIDx0YWJsZSBpZD0ibWlzbWFwVGFibGUiPjwvdGFibGU+CiAgICA8L2Rpdj4KICA8L3NlY3Rpb24+CgogIDxzZWN0aW9uPgogICAgPGgyPjxzcGFuIGNsYXNzPSJkb3QiIHN0eWxlPSJiYWNrZ3JvdW5kOnZhcigtLWM0KSI+PC9zcGFuPkNsdXN0ZXJpbmcgSW50ZW50IEJlbHVtIFRlcmNvdmVyPC9oMj4KICAgIDxwIGNsYXNzPSJzZWMtc3ViIj5LZWxvbXBvayBwZXJ0YW55YWFuIHlhbmcgYmVsdW0gYWRhIHBhZGFuYW5ueWEgZGkgY2hhdGJvdCAmbWRhc2g7IGthbmRpZGF0IGludGVudCBiYXJ1IHVudHVrIGRpdGFtYmFoa2FuLjwvcD4KICAgIDxkaXYgY2xhc3M9ImNhcmQgdGFibGVjYXJkIj4KICAgICAgPHRhYmxlIGlkPSJjbHVzdGVyVGFibGUiPjwvdGFibGU+CiAgICA8L2Rpdj4KICA8L3NlY3Rpb24+CgogIDxzZWN0aW9uPgogICAgPGgyPjxzcGFuIGNsYXNzPSJkb3QiIHN0eWxlPSJiYWNrZ3JvdW5kOnZhcigtLWMzKSI+PC9zcGFuPkFuYWxpc2lzIFNlbnRpbWVuICZhbXA7IEVtb3NpPC9oMj4KICAgIDxwIGNsYXNzPSJzZWMtc3ViIj5MYXllciAxIChwb2xhcml0YXMpICZhbXA7IExheWVyIDMgKGVtb3NpIGRldGFpbCkgJm1kYXNoOyBkaWFuYWxpc2lzIGRlbmdhbiBOTFAgZW1iZWRkaW5nIChTQkVSVCksIHRhbnBhIExMTS48L3A+CiAgICA8ZGl2IGNsYXNzPSJncmlkIGNvbHMtMiI+CiAgICAgIDxkaXYgY2xhc3M9ImNhcmQiPjxwIGNsYXNzPSJjaGFydC10aXRsZSI+TGF5ZXIgMSAmbWRhc2g7IFBvbGFyaXRhczwvcD48ZGl2IGlkPSJzZW50RG9udXQiIGNsYXNzPSJkb251dHdyYXAiPjwvZGl2PjwvZGl2PgogICAgICA8ZGl2IGNsYXNzPSJjYXJkIj48cCBjbGFzcz0iY2hhcnQtdGl0bGUiPkxheWVyIDMgJm1kYXNoOyBEaXN0cmlidXNpIGVtb3NpPC9wPjxkaXYgaWQ9ImVtb0JhciIgY2xhc3M9ImhiYXIiPjwvZGl2PjwvZGl2PgogICAgPC9kaXY+CiAgICA8ZGl2IGNsYXNzPSJncmlkIGNvbHMtMiIgc3R5bGU9Im1hcmdpbi10b3A6MTZweCI+CiAgICAgIDxkaXYgY2xhc3M9ImNhcmQiPjxwIGNsYXNzPSJjaGFydC10aXRsZSI+SnVtbGFoIGludGVyYWtzaSBwZXNhbiBwZXIgc2VudGltZW48L3A+PGRpdiBpZD0iaW50ZXJCYXIiIGNsYXNzPSJoYmFyIj48L2Rpdj48L2Rpdj4KICAgIDwvZGl2PgogIDwvc2VjdGlvbj4KCiAgPHNlY3Rpb24+CiAgICA8aDI+PHNwYW4gY2xhc3M9ImRvdCIgc3R5bGU9ImJhY2tncm91bmQ6dmFyKC0tYzUpIj48L3NwYW4+RWZla3Rpdml0YXMgQWdlbnQ8L2gyPgogICAgPHAgY2xhc3M9InNlYy1zdWIiPkRpdXJ1dGthbiBkYXJpIGFnZW50IHBhbGluZyBlZmVrdGlmLiBLbGlrIGhlYWRlciBrb2xvbSB1bnR1ayBtZW5ndXJ1dGthbiB1bGFuZy48L3A+CiAgICA8ZGl2IGNsYXNzPSJjYXJkIHRhYmxlY2FyZCI+PHRhYmxlIGlkPSJhZ2VudFRhYmxlIj48L3RhYmxlPjwvZGl2PgogIDwvc2VjdGlvbj4KCiAgPHNlY3Rpb24+CiAgICA8aDI+PHNwYW4gY2xhc3M9ImRvdCIgc3R5bGU9ImJhY2tncm91bmQ6dmFyKC0tYzcpIj48L3NwYW4+UGVsYW5nZ2FuIEZyZWt1ZW5zaSBUaW5nZ2k8L2gyPgogICAgPHAgY2xhc3M9InNlYy1zdWIiPldQIGJlci1OUFdQIGRpdXJ1dGthbiBieSBOSUs7IG5vbi1OUFdQIGRpdXJ1dGthbiBieSBuYW1hLiBLbGlrIGhlYWRlciB1bnR1ayBzb3J0aXIuPC9wPgogICAgPGRpdiBjbGFzcz0iZ3JpZCBjb2xzLTIiPgogICAgICA8ZGl2IGNsYXNzPSJjYXJkIHRhYmxlY2FyZCI+PHAgY2xhc3M9ImNoYXJ0LXRpdGxlIj5XUCBiZXItTlBXUCAoc29ydGlyIGJ5IE5JSyk8L3A+PHRhYmxlIGlkPSJucHdwVGFibGUiPjwvdGFibGU+PC9kaXY+CiAgICAgIDxkaXYgY2xhc3M9ImNhcmQgdGFibGVjYXJkIj48cCBjbGFzcz0iY2hhcnQtdGl0bGUiPk5vbi1OUFdQIChzb3J0aXIgYnkgTmFtYSk8L3A+PHRhYmxlIGlkPSJub25OcHdwVGFibGUiPjwvdGFibGU+PC9kaXY+CiAgICA8L2Rpdj4KICA8L3NlY3Rpb24+CgogIDxzZWN0aW9uPgogICAgPGgyPjxzcGFuIGNsYXNzPSJkb3QiIHN0eWxlPSJiYWNrZ3JvdW5kOnZhcigtLWM4KSI+PC9zcGFuPkRldGFpbCBQZXJjYWthcGFuPC9oMj4KICAgIDxwIGNsYXNzPSJzZWMtc3ViIj5CYXJpcyBiZXItZmxhZyBtZXJhaCA9IHNlbnRpbWVuIG5lZ2F0aWYsIHVudHVrIHBlcmhhdGlhbiB0aW0gUUEuPC9wPgogICAgPGRpdiBjbGFzcz0iY2FyZCB0YWJsZWNhcmQiPjx0YWJsZSBpZD0iY29udlRhYmxlIj48L3RhYmxlPjwvZGl2PgogIDwvc2VjdGlvbj4KCiAgPHAgY2xhc3M9Im5vdGUiIGlkPSJlbmdpbmVOb3RlIj48L3A+CjwvZGl2PgoKPHNjcmlwdD4KdmFyIERBVEEgPSBfX0RBU0hCT0FSRF9EQVRBX0pTT05fXzsKdmFyIFBBTEVUVEU9WycjNUU5RkU4JywnI0VBQzI2QicsJyM3MkJDOEYnLCcjQkY4RURBJywnI0RFOTI1NScsJyNERjg0QTgnLCcjNEZCOUM5JywnI0U5NzM2NiddOwpmdW5jdGlvbiBjc3Modil7cmV0dXJuIGdldENvbXB1dGVkU3R5bGUoZG9jdW1lbnQuZG9jdW1lbnRFbGVtZW50KS5nZXRQcm9wZXJ0eVZhbHVlKHYpLnRyaW0oKTt9CmZ1bmN0aW9uIGVzYyhzKXtyZXR1cm4gU3RyaW5nKHM9PW51bGw/Jyc6cykucmVwbGFjZSgvWyY8PiJdL2csZnVuY3Rpb24oYyl7cmV0dXJuIHsnJic6JyZhbXA7JywnPCc6JyZsdDsnLCc+JzonJmd0OycsJyInOicmcXVvdDsnfVtjXTt9KTt9CmZ1bmN0aW9uIHBjdChuKXtyZXR1cm4gKE1hdGgucm91bmQobioxMCkvMTApKyclJzt9CgpmdW5jdGlvbiBkb251dChlbCwgaXRlbXMsIGNlbnRlckxhYmVsKXsKICB2YXIgdG90YWw9aXRlbXMucmVkdWNlKGZ1bmN0aW9uKHMsaSl7cmV0dXJuIHMraS52YWx1ZTt9LDApfHwxOwogIHZhciByPTU0LGN4PTY0LGN5PTY0LGNpcmM9MipNYXRoLlBJKnIsIG9mZj0wOwogIHZhciBzZWdzPScnOwogIGl0ZW1zLmZvckVhY2goZnVuY3Rpb24oaXQsaWR4KXsKICAgIHZhciBmcmFjPWl0LnZhbHVlL3RvdGFsLCBsZW49ZnJhYypjaXJjOwogICAgc2Vncys9JzxjaXJjbGUgY3g9IicrY3grJyIgY3k9IicrY3krJyIgcj0iJytyKyciIGZpbGw9Im5vbmUiIHN0cm9rZT0iJytpdC5jb2xvcisnIiBzdHJva2Utd2lkdGg9IjE4IiBzdHJva2UtZGFzaGFycmF5PSInK2xlbisnICcrKGNpcmMtbGVuKSsnIiBzdHJva2UtZGFzaG9mZnNldD0iJysoLW9mZikrJyIgdHJhbnNmb3JtPSJyb3RhdGUoLTkwICcrY3grJyAnK2N5KycpIj48L2NpcmNsZT4nOwogICAgb2ZmKz1sZW47CiAgfSk7CiAgdmFyIHN2Zz0nPHN2ZyB3aWR0aD0iMTI4IiBoZWlnaHQ9IjEyOCIgdmlld0JveD0iMCAwIDEyOCAxMjgiPicrc2VncysnPHRleHQgeD0iNjQiIHk9IjYwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LXNpemU9IjIyIiBmb250LXdlaWdodD0iNzUwIiBmaWxsPSInK2NzcygnLS10ZXh0JykrJyI+Jytlc2MoY2VudGVyTGFiZWwudG9wKSsnPC90ZXh0Pjx0ZXh0IHg9IjY0IiB5PSI3OCIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZm9udC1zaXplPSIxMSIgZmlsbD0iJytjc3MoJy0tdGV4dDInKSsnIj4nK2VzYyhjZW50ZXJMYWJlbC5ib3QpKyc8L3RleHQ+PC9zdmc+JzsKICB2YXIgbGVnPSc8ZGl2IGNsYXNzPSJsZWdlbmQiIHN0eWxlPSJmbGV4LWRpcmVjdGlvbjpjb2x1bW47Z2FwOjhweCI+JzsKICBpdGVtcy5mb3JFYWNoKGZ1bmN0aW9uKGl0KXt2YXIgcD10b3RhbD9NYXRoLnJvdW5kKGl0LnZhbHVlL3RvdGFsKjEwMCk6MDtsZWcrPSc8ZGl2IGNsYXNzPSJsaSI+PHNwYW4gY2xhc3M9InN3IiBzdHlsZT0iYmFja2dyb3VuZDonK2l0LmNvbG9yKyciPjwvc3Bhbj4nK2VzYyhpdC5sYWJlbCkrJyAmbWlkZG90OyA8YiBzdHlsZT0iY29sb3I6Jytjc3MoJy0tdGV4dCcpKyciPicraXQudmFsdWUrJzwvYj4gKCcrcCsnJSk8L2Rpdj4nO30pOwogIGxlZys9JzwvZGl2Pic7CiAgZWwuaW5uZXJIVE1MPXN2ZytsZWc7Cn0KCmZ1bmN0aW9uIGhiYXIoZWwsIGl0ZW1zKXsKICB2YXIgbWF4PWl0ZW1zLnJlZHVjZShmdW5jdGlvbihtLGkpe3JldHVybiBNYXRoLm1heChtLGkudmFsdWUpO30sMCl8fDE7CiAgdmFyIGg9Jyc7CiAgaXRlbXMuZm9yRWFjaChmdW5jdGlvbihpdCxpZHgpewogICAgdmFyIGM9aXQuY29sb3J8fFBBTEVUVEVbaWR4JVBBTEVUVEUubGVuZ3RoXTsKICAgIGgrPSc8ZGl2IGNsYXNzPSJyb3ciPjxzcGFuIGNsYXNzPSJuYW1lIiB0aXRsZT0iJytlc2MoaXQubGFiZWwpKyciPicrZXNjKGl0LmxhYmVsKSsnPC9zcGFuPjxzcGFuIGNsYXNzPSJ0cmFjayI+PHNwYW4gY2xhc3M9ImZpbGwiIHN0eWxlPSJ3aWR0aDonKyhpdC52YWx1ZS9tYXgqMTAwKSsnJTtiYWNrZ3JvdW5kOicrYysnIj48L3NwYW4+PC9zcGFuPjxzcGFuIGNsYXNzPSJudW0iPicraXQudmFsdWUrJzwvc3Bhbj48L2Rpdj4nOwogIH0pOwogIGVsLmlubmVySFRNTD1ofHwnPHNwYW4gY2xhc3M9Im11dGVkIj5UaWRhayBhZGEgZGF0YS48L3NwYW4+JzsKfQoKZnVuY3Rpb24gc2VudFRhZyhzKXt2YXIgbT17J1Bvc2l0aWYnOidwb3MnLCdOZWdhdGlmJzonbmVnJywnTmV0cmFsJzonbmV0J307cmV0dXJuICc8c3BhbiBjbGFzcz0idGFnICcrKG1bc118fCduZXQnKSsnIj4nK2VzYyhzKSsnPC9zcGFuPic7fQpmdW5jdGlvbiByZXNUYWcocyl7cmV0dXJuICc8c3BhbiBjbGFzcz0idGFnICcrKC9CZWx1bS9pLnRlc3Qocyk/J3dhcm4nOidwb3MnKSsnIj4nK2VzYyhzKSsnPC9zcGFuPic7fQpmdW5jdGlvbiBiZWhUYWcodil7cmV0dXJuIHY9PT0nZGlyZWN0Jz8nPHNwYW4gY2xhc3M9InRhZyB3YXJuIj5MYW5nc3VuZyBhZ2VudDwvc3Bhbj4nOic8c3BhbiBjbGFzcz0idGFnIGluZm8iPkNvYmEgYm90IGR1bHU8L3NwYW4+Jzt9CmZ1bmN0aW9uIGJhbmRUYWcodil7dmFyIG09e2NvdmVyZWQ6Wydwb3MnLCdTdWRhaCBhZGEnXSxncmF5Olsnd2FybicsJ1JhZ3UnXSx1bmNvdmVyZWQ6WyduZWcnLCdCZWx1bSBhZGEnXX07dmFyIHg9bVt2XXx8WyduZXQnLHZdO3JldHVybiAnPHNwYW4gY2xhc3M9InRhZyAnK3hbMF0rJyI+Jytlc2MoeFsxXSkrJzwvc3Bhbj4nO30KZnVuY3Rpb24gY2FzZVRhZyh2KXt2YXIgYz0nbmV0JztpZigvQSAtLy50ZXN0KHYpKWM9J25lZyc7ZWxzZSBpZigvQiAtLy50ZXN0KHYpKWM9J3dhcm4nO2Vsc2UgaWYoL0MgLS8udGVzdCh2KSljPSdpbmZvJztlbHNlIGlmKC9EIC0vLnRlc3QodikpYz0nd2Fybic7ZWxzZSBpZigvVGVybGF5YW5pLy50ZXN0KHYpKWM9J3Bvcyc7cmV0dXJuICc8c3BhbiBjbGFzcz0idGFnICcrYysnIj4nK2VzYyh2KSsnPC9zcGFuPic7fQoKZnVuY3Rpb24gbWFrZVRhYmxlKGVsLCBjb2xzLCByb3dzLCBvcHRzKXsKICBvcHRzPW9wdHN8fHt9OwogIHZhciBzdGF0ZT17a2V5Om9wdHMuc29ydEtleXx8bnVsbCwgZGlyOm9wdHMuc29ydERpcnx8J2Rlc2MnfTsKICBmdW5jdGlvbiByZW5kZXIoKXsKICAgIHZhciBkYXRhPXJvd3Muc2xpY2UoKTsKICAgIGlmKHN0YXRlLmtleSE9bnVsbCl7CiAgICAgIGRhdGEuc29ydChmdW5jdGlvbihhLGIpewogICAgICAgIHZhciB4PWFbc3RhdGUua2V5XSwgeT1iW3N0YXRlLmtleV07CiAgICAgICAgaWYodHlwZW9mIHg9PT0nbnVtYmVyJyYmdHlwZW9mIHk9PT0nbnVtYmVyJyl7cmV0dXJuIHN0YXRlLmRpcj09PSdhc2MnP3gteTp5LXg7fQogICAgICAgIHg9U3RyaW5nKHg9PW51bGw/Jyc6eCkudG9Mb3dlckNhc2UoKTt5PVN0cmluZyh5PT1udWxsPycnOnkpLnRvTG93ZXJDYXNlKCk7CiAgICAgICAgcmV0dXJuIHN0YXRlLmRpcj09PSdhc2MnPyh4PHk/LTE6eD55PzE6MCk6KHg+eT8tMTp4PHk/MTowKTsKICAgICAgfSk7CiAgICB9CiAgICB2YXIgdGhlYWQ9Jzx0aGVhZD48dHI+JzsKICAgIGNvbHMuZm9yRWFjaChmdW5jdGlvbihjKXsKICAgICAgdmFyIGNscz0nc29ydGFibGUnKyhzdGF0ZS5rZXk9PT1jLmtleT8oJyAnK3N0YXRlLmRpcik6JycpOwogICAgICB0aGVhZCs9Jzx0aCBjbGFzcz0iJytjbHMrJyIgZGF0YS1rPSInK2Mua2V5KyciPicrZXNjKGMubGFiZWwpKyc8L3RoPic7CiAgICB9KTsKICAgIHRoZWFkKz0nPC90cj48L3RoZWFkPic7CiAgICB2YXIgdGI9Jzx0Ym9keT4nOwogICAgZGF0YS5mb3JFYWNoKGZ1bmN0aW9uKHIpewogICAgICB0Yis9Jzx0cicrKHIuX19mbGFnPycgc3R5bGU9ImJhY2tncm91bmQ6Jytjc3MoJy0tcmVkU29mdCcpKyciJzonJykrJz4nOwogICAgICBjb2xzLmZvckVhY2goZnVuY3Rpb24oYyl7CiAgICAgICAgdmFyIHY9Yy5yZW5kZXI/Yy5yZW5kZXIocltjLmtleV0scik6ZXNjKHJbYy5rZXldKTsKICAgICAgICB0Yis9Jzx0ZCBjbGFzcz0iJysoYy5udW0/J251bSc6JycpKyhjLndyYXA/JyB0d28tbGluZSc6JycpKyciPicrdisnPC90ZD4nOwogICAgICB9KTsKICAgICAgdGIrPSc8L3RyPic7CiAgICB9KTsKICAgIHRiKz0nPC90Ym9keT4nOwogICAgZWwuaW5uZXJIVE1MPXRoZWFkK3RiOwogICAgZWwucXVlcnlTZWxlY3RvckFsbCgndGgnKS5mb3JFYWNoKGZ1bmN0aW9uKHRoKXsKICAgICAgdGgub25jbGljaz1mdW5jdGlvbigpewogICAgICAgIHZhciBrPXRoLmdldEF0dHJpYnV0ZSgnZGF0YS1rJyk7CiAgICAgICAgaWYoc3RhdGUua2V5PT09ayl7c3RhdGUuZGlyPXN0YXRlLmRpcj09PSdhc2MnPydkZXNjJzonYXNjJzt9ZWxzZXtzdGF0ZS5rZXk9aztzdGF0ZS5kaXI9J2Rlc2MnO30KICAgICAgICByZW5kZXIoKTsKICAgICAgfTsKICAgIH0pOwogIH0KICByZW5kZXIoKTsKfQoKKGZ1bmN0aW9uKCl7CiAgdmFyIG09REFUQS5tZXRhOwogIGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdtZXRhUm93JykuaW5uZXJIVE1MPQogICAgJzxzcGFuIGNsYXNzPSJwaWxsIj5SZW50YW5nOiA8Yj4nK2VzYyhtLmRhdGVfbWluKSsnICZuZGFzaDsgJytlc2MobS5kYXRlX21heCkrJzwvYj48L3NwYW4+JysKICAgICc8c3BhbiBjbGFzcz0icGlsbCI+VG90YWwgcGVyY2FrYXBhbjogPGI+JyttLnRvdGFsX2NvbnYrJzwvYj48L3NwYW4+JysKICAgICc8c3BhbiBjbGFzcz0icGlsbCI+Q3VzdG9tZXIgdW5pazogPGI+JyttLnRvdGFsX2N1c3RvbWVycysnPC9iPjwvc3Bhbj4nKwogICAgJzxzcGFuIGNsYXNzPSJwaWxsIj5GaWxlIGRpZ2FidW5nOiA8Yj4nK20uZmlsZXMrJzwvYj48L3NwYW4+JysKICAgICc8c3BhbiBjbGFzcz0icGlsbCI+RGlidWF0OiA8Yj4nK2VzYyhtLmdlbmVyYXRlZCkrJzwvYj48L3NwYW4+JzsKCiAgdmFyIGtnPWRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdrcGlHcmlkJyk7CiAga2cuaW5uZXJIVE1MPURBVEEua3Bpcy5tYXAoZnVuY3Rpb24oayl7CiAgICByZXR1cm4gJzxkaXYgY2xhc3M9ImNhcmQga3BpIHRvbmUtJysoay50b25lfHwnYmx1ZScpKyciPjxwIGNsYXNzPSJsYmwiPicrZXNjKGsubGFiZWwpKyc8L3A+PGRpdiBjbGFzcz0idmFsIj4nK2VzYyhrLnZhbHVlKSsnPC9kaXY+PHAgY2xhc3M9ImZvb3QiPicrZXNjKGsuc3VifHwnJykrJzwvcD48L2Rpdj4nOwogIH0pLmpvaW4oJycpOwoKICB2YXIgY292PURBVEEuaW50ZW50X2NvdmVyYWdlOwogIGRvbnV0KGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdjb3ZlcmFnZURvbnV0JyksWwogICAge2xhYmVsOidTdWRhaCBhZGEgKHlha2luKScsdmFsdWU6Y292LmNvdmVyZWQsY29sb3I6Y3NzKCctLWdyZWVuJyl9LAogICAge2xhYmVsOidSYWd1IC8gYWJ1LWFidScsdmFsdWU6Y292LmdyYXl8fDAsY29sb3I6Y3NzKCctLWMyJyl9LAogICAge2xhYmVsOidCZWx1bSBhZGEgKGthbmRpZGF0IGJhcnUpJyx2YWx1ZTpjb3YudW5jb3ZlcmVkLGNvbG9yOmNzcygnLS1vcmFuZ2UnKX0KICBdLHt0b3A6cGN0KGNvdi50b3RhbD9jb3YuY292ZXJlZC9jb3YudG90YWwqMTAwOjApLGJvdDoneWFraW4gdGVyY292ZXInfSk7CgogIHZhciBkPURBVEEuZGVmbGVjdGlvbjsKICBkb251dChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgncGF0aERvbnV0JyksWwogICAge2xhYmVsOidMYW5nc3VuZyBrZXRpayAxNTAwMjAwJyx2YWx1ZTpkLmRpcmVjdF8xNTAwMjAwLGNvbG9yOmNzcygnLS1jMScpfSwKICAgIHtsYWJlbDonQ29iYSBib3QgZHVsdSBsYWx1IGtlIGFnZW50Jyx2YWx1ZTpkLnZpYV9ib3RfZmlyc3QsY29sb3I6Y3NzKCctLWM0Jyl9CiAgXSx7dG9wOnBjdChkLmdhcF9wY3QpLGJvdDonZGVmbGVjdGlvbiBnYXAnfSk7CgogIGhiYXIoZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2dhcEJ5VG9waWMnKSxEQVRBLmRlZmxlY3Rpb25fYnlfdG9waWMubWFwKGZ1bmN0aW9uKHgpe3JldHVybntsYWJlbDp4LmxhYmVsLHZhbHVlOngudmFsdWUsY29sb3I6Y3NzKCctLW9yYW5nZScpfTt9KSk7CgogIHZhciBzZWc9REFUQS5zZWdtZW50c3x8e2JlaGF2aW9yOnt9LGZyZXF1ZW5jeTp7fSxkaXJlY3Q6e2J5X2Nhc2U6W119fTsKICBkb251dChkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnYmVoRG9udXQnKSxbCiAgICB7bGFiZWw6J0xhbmdzdW5nIGtldGlrIDE1MDAyMDAnLHZhbHVlOihzZWcuYmVoYXZpb3IuZGlyZWN0fHwwKSxjb2xvcjpjc3MoJy0tb3JhbmdlJyl9LAogICAge2xhYmVsOidDb2JhIGJvdCBkdWx1Jyx2YWx1ZTooc2VnLmJlaGF2aW9yLnRyaWVkX2JvdHx8MCksY29sb3I6Y3NzKCctLWM0Jyl9CiAgXSx7dG9wOihzZWcuYmVoYXZpb3IuZGlyZWN0fHwwKSxib3Q6J2xhbmdzdW5nIGFnZW50J30pOwogIGRvbnV0KGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdmcmVxRG9udXQnKSxbCiAgICB7bGFiZWw6J1JldHVybmluZyAoPj0yeCknLHZhbHVlOihzZWcuZnJlcXVlbmN5LnJldHVybmluZ3x8MCksY29sb3I6Y3NzKCctLWM3Jyl9LAogICAge2xhYmVsOidTZWthbGkgbXVuY3VsJyx2YWx1ZTooc2VnLmZyZXF1ZW5jeS5zaW5nbGV8fDApLGNvbG9yOmNzcygnLS10ZXh0MicpfQogIF0se3RvcDooc2VnLmZyZXF1ZW5jeS5yZXR1cm5pbmd8fDApLGJvdDoncmV0dXJuaW5nJ30pOwogIHZhciBUQVhPX0NPTD17QV9iZWx1bV9hZGE6Y3NzKCctLXJlZCcpLEJfdGFrX3R1bnRhczpjc3MoJy0tb3JhbmdlJyksQ19sYXlhbmFuOmNzcygnLS1ibHVlJyksRF9taXNtYXA6Y3NzKCctLWMyJyksdGVybGF5YW5pX2JvdDpjc3MoJy0tZ3JlZW4nKX07CiAgaGJhcihkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgndGF4b0JhcicpLChEQVRBLnRheG9ub215fHxbXSkubWFwKGZ1bmN0aW9uKHQpe3JldHVybntsYWJlbDp0LmxhYmVsLHZhbHVlOnQudmFsdWUsY29sb3I6VEFYT19DT0xbdC5rZXldfHxjc3MoJy0tYmx1ZScpfTt9KSk7CgogIHZhciBkYz1zZWcuZGlyZWN0fHx7dG90YWw6MCxyZXR1cm5pbmc6MCxzaW5nbGU6MCxieV9jYXNlOltdfTsKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZGlyZWN0Q29ob3J0JykuaW5uZXJIVE1MPQogICAgJzxkaXYgc3R5bGU9ImRpc3BsYXk6ZmxleDtmbGV4LXdyYXA6d3JhcDtnYXA6MjZweDthbGlnbi1pdGVtczpiYXNlbGluZSI+JysKICAgICc8ZGl2PjxzcGFuIHN0eWxlPSJmb250LXNpemU6NDBweDtmb250LXdlaWdodDo3NzA7Y29sb3I6Jytjc3MoJy0tb3JhbmdlJykrJyI+JysoZGMudG90YWx8fDApKyc8L3NwYW4+IDxzcGFuIGNsYXNzPSJtdXRlZCI+Y2hhdCBsYW5nc3VuZyBrZSBhZ2VudDwvc3Bhbj48L2Rpdj4nKwogICAgJzxkaXY+PHNwYW4gc3R5bGU9ImZvbnQtc2l6ZToyNnB4O2ZvbnQtd2VpZ2h0OjczMDtjb2xvcjonK2NzcygnLS1jNycpKyciPicrKGRjLnJldHVybmluZ3x8MCkrJzwvc3Bhbj4gPHNwYW4gY2xhc3M9Im11dGVkIj5yZXR1cm5pbmcgKD49MngpPC9zcGFuPjwvZGl2PicrCiAgICAnPGRpdj48c3BhbiBzdHlsZT0iZm9udC1zaXplOjI2cHg7Zm9udC13ZWlnaHQ6NzMwIj4nKyhkYy5zaW5nbGV8fDApKyc8L3NwYW4+IDxzcGFuIGNsYXNzPSJtdXRlZCI+c2VrYWxpIG11bmN1bDwvc3Bhbj48L2Rpdj48L2Rpdj4nKwogICAgJzxwIGNsYXNzPSJtdXRlZCIgc3R5bGU9Im1hcmdpbjo4cHggMCAwO2ZvbnQtc2l6ZToxMi41cHgiPktvaG9ydCBpbmkgcGFsaW5nIHJlbGV2YW4gdW50dWsgbWVuaWxhaSBhcGFrYWggYm90IGt1cmFuZyBtZW1lbnVoaSBrZWJ1dHVoYW4gKHRlcnV0YW1hIHlhbmcgYnVrYW4gcGVuZ2d1bmEgaGFyaWFuKS48L3A+JzsKICBoYmFyKGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdkaXJlY3RDYXNlQmFyJyksKGRjLmJ5X2Nhc2V8fFtdKS5tYXAoZnVuY3Rpb24odCl7cmV0dXJue2xhYmVsOnQubGFiZWwsdmFsdWU6dC52YWx1ZSxjb2xvcjpUQVhPX0NPTFt0LmtleV18fGNzcygnLS1ibHVlJyl9O30pKTsKCiAgdmFyIG9wcD1EQVRBLm9wcG9ydHVuaXRpZXN8fHtpbnRlbnRfQjpbXSxpbnRlbnRfQzpbXSxtaXNtYXA6W119OwogIG1ha2VUYWJsZShkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnb3BwQlRhYmxlJyksWwogICAge2tleTonbGFiZWwnLGxhYmVsOidJbnRlbnQnLHdyYXA6dHJ1ZX0se2tleTondmFsdWUnLGxhYmVsOidKbWwgY2hhdCcsbnVtOnRydWV9CiAgXSxvcHAuaW50ZW50X0J8fFtdLHtzb3J0S2V5Oid2YWx1ZScsc29ydERpcjonZGVzYyd9KTsKICBtYWtlVGFibGUoZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ29wcENUYWJsZScpLFsKICAgIHtrZXk6J2xhYmVsJyxsYWJlbDonSW50ZW50Jyx3cmFwOnRydWV9LHtrZXk6J3ZhbHVlJyxsYWJlbDonSm1sIGNoYXQnLG51bTp0cnVlfQogIF0sb3BwLmludGVudF9DfHxbXSx7c29ydEtleTondmFsdWUnLHNvcnREaXI6J2Rlc2MnfSk7CiAgbWFrZVRhYmxlKGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdtaXNtYXBUYWJsZScpLFsKICAgIHtrZXk6J3NpZCcsbGFiZWw6J1NJRCd9LAogICAge2tleToncXVlcnknLGxhYmVsOidQZXJ0YW55YWFuJyx3cmFwOnRydWUscmVuZGVyOmZ1bmN0aW9uKHYpe3JldHVybiAnPHNwYW4gY2xhc3M9Im11dGVkIj4nK2VzYyh2KSsnPC9zcGFuPic7fX0sCiAgICB7a2V5OidpbnRlbnQnLGxhYmVsOidJbnRlbnQgdGVycGV0YWthbicsd3JhcDp0cnVlfSwKICAgIHtrZXk6J3Njb3JlJyxsYWJlbDonU2tvcicsbnVtOnRydWUscmVuZGVyOmZ1bmN0aW9uKHYpe3JldHVybiAoTWF0aC5yb3VuZCh2KjEwMCkvMTAwKS50b0ZpeGVkKDIpO319CiAgXSxvcHAubWlzbWFwfHxbXSx7c29ydEtleTonc2NvcmUnLHNvcnREaXI6J2Rlc2MnfSk7CgogIG1ha2VUYWJsZShkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnY2x1c3RlclRhYmxlJyksWwogICAge2tleTonbGFiZWwnLGxhYmVsOidLYW5kaWRhdCBJbnRlbnQgKGNsdXN0ZXIpJyx3cmFwOnRydWV9LAogICAge2tleTonc2l6ZScsbGFiZWw6J0ptbCBjaGF0JyxudW06dHJ1ZX0sCiAgICB7a2V5OidzYW1wbGUnLGxhYmVsOidDb250b2ggcGVydGFueWFhbicsd3JhcDp0cnVlLHJlbmRlcjpmdW5jdGlvbih2KXtyZXR1cm4gJzxzcGFuIGNsYXNzPSJtdXRlZCI+Jytlc2ModikrJzwvc3Bhbj4nO319LAogICAge2tleTonbmVhcmVzdF9leGlzdGluZycsbGFiZWw6J0ludGVudCB0ZXJkZWthdCcsd3JhcDp0cnVlfSwKICAgIHtrZXk6J25lYXJlc3Rfc2NvcmUnLGxhYmVsOidTa29yJyxudW06dHJ1ZSxyZW5kZXI6ZnVuY3Rpb24odil7cmV0dXJuIChNYXRoLnJvdW5kKHYqMTAwKS8xMDApLnRvRml4ZWQoMik7fX0KICBdLERBVEEuY2x1c3RlcnMse3NvcnRLZXk6J3NpemUnLHNvcnREaXI6J2Rlc2MnfSk7CgogIHZhciBzPURBVEEuc2VudGltZW50X2wxOwogIGRvbnV0KGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdzZW50RG9udXQnKSxbCiAgICB7bGFiZWw6J1Bvc2l0aWYnLHZhbHVlOnMucG9zaXRpZixjb2xvcjpjc3MoJy0tZ3JlZW4nKX0sCiAgICB7bGFiZWw6J05ldHJhbCcsdmFsdWU6cy5uZXRyYWwsY29sb3I6Y3NzKCctLWMyJyl9LAogICAge2xhYmVsOidOZWdhdGlmJyx2YWx1ZTpzLm5lZ2F0aWYsY29sb3I6Y3NzKCctLXJlZCcpfQogIF0se3RvcDoocy5wb3NpdGlmK3MubmV0cmFsK3MubmVnYXRpZiksYm90OidwZXJjYWthcGFuJ30pOwoKICBoYmFyKGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdlbW9CYXInKSxEQVRBLmVtb3Rpb25zLm1hcChmdW5jdGlvbih4LGkpe3JldHVybntsYWJlbDp4LmxhYmVsLHZhbHVlOngudmFsdWUsY29sb3I6UEFMRVRURVtpJVBBTEVUVEUubGVuZ3RoXX07fSkpOwogIGhiYXIoZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2ludGVyQmFyJyksREFUQS5pbnRlcmFjdGlvbnNfcGVyX3NlbnRpbWVudC5tYXAoZnVuY3Rpb24oeCl7CiAgICB2YXIgY29sPXsnUG9zaXRpZic6Y3NzKCctLWdyZWVuJyksJ05ldHJhbCc6Y3NzKCctLWMyJyksJ05lZ2F0aWYnOmNzcygnLS1yZWQnKX1beC5sYWJlbF18fGNzcygnLS1ibHVlJyk7CiAgICByZXR1cm57bGFiZWw6eC5sYWJlbCx2YWx1ZTp4LnZhbHVlLGNvbG9yOmNvbH07CiAgfSkpOwoKICBtYWtlVGFibGUoZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ2FnZW50VGFibGUnKSxbCiAgICB7a2V5OidyYW5rJyxsYWJlbDonIycsbnVtOnRydWV9LAogICAge2tleTonbmFtZScsbGFiZWw6J0FnZW50J30sCiAgICB7a2V5Oidjb3VudCcsbGFiZWw6J0ptbCBjaGF0JyxudW06dHJ1ZX0sCiAgICB7a2V5OidhdmdfZHVyYXNpJyxsYWJlbDonQXZnIGR1cmFzaScsbnVtOnRydWUscmVuZGVyOmZ1bmN0aW9uKHYpe3JldHVybiB2KydzJzt9fSwKICAgIHtrZXk6J3Bvc19yYXRlJyxsYWJlbDonJSBQb3NpdGlmJyxudW06dHJ1ZSxyZW5kZXI6ZnVuY3Rpb24odil7cmV0dXJuIHBjdCh2KTt9fSwKICAgIHtrZXk6J25lZ19yYXRlJyxsYWJlbDonJSBOZWdhdGlmJyxudW06dHJ1ZSxyZW5kZXI6ZnVuY3Rpb24odil7cmV0dXJuIHBjdCh2KTt9fSwKICAgIHtrZXk6J3Njb3JlJyxsYWJlbDonU2tvciBlZmVrdGl2aXRhcycsbnVtOnRydWUscmVuZGVyOmZ1bmN0aW9uKHYpe3JldHVybiAoTWF0aC5yb3VuZCh2KjEwMCkvMTAwKS50b0ZpeGVkKDIpO319CiAgXSxEQVRBLmFnZW50cyx7c29ydEtleTonc2NvcmUnLHNvcnREaXI6J2Rlc2MnfSk7CgogIG1ha2VUYWJsZShkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnbnB3cFRhYmxlJyksWwogICAge2tleTonbmlrJyxsYWJlbDonTklLL05QV1AnfSwKICAgIHtrZXk6J25hbWUnLGxhYmVsOidOYW1hJ30sCiAgICB7a2V5Oidjb3VudCcsbGFiZWw6J0ZyZWt1ZW5zaScsbnVtOnRydWV9LAogICAge2tleTondG9waWNzJyxsYWJlbDonVG9waWsnLHdyYXA6dHJ1ZSxyZW5kZXI6ZnVuY3Rpb24odil7cmV0dXJuICc8c3BhbiBjbGFzcz0ibXV0ZWQiPicrZXNjKHYpKyc8L3NwYW4+Jzt9fQogIF0sREFUQS5jdXN0b21lcnNfbnB3cCx7c29ydEtleTonbmlrJyxzb3J0RGlyOidhc2MnfSk7CgogIG1ha2VUYWJsZShkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnbm9uTnB3cFRhYmxlJyksWwogICAge2tleTonbmFtZScsbGFiZWw6J05hbWEnfSwKICAgIHtrZXk6J2NvdW50JyxsYWJlbDonRnJla3VlbnNpJyxudW06dHJ1ZX0sCiAgICB7a2V5Oid0b3BpY3MnLGxhYmVsOidUb3Bpaycsd3JhcDp0cnVlLHJlbmRlcjpmdW5jdGlvbih2KXtyZXR1cm4gJzxzcGFuIGNsYXNzPSJtdXRlZCI+Jytlc2ModikrJzwvc3Bhbj4nO319CiAgXSxEQVRBLmN1c3RvbWVyc19ub25ucHdwLHtzb3J0S2V5OiduYW1lJyxzb3J0RGlyOidhc2MnfSk7CgogIG1ha2VUYWJsZShkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnY29udlRhYmxlJyksWwogICAge2tleTondGFuZ2dhbCcsbGFiZWw6J1RhbmdnYWwnfSwKICAgIHtrZXk6J3NpZCcsbGFiZWw6J1NJRCd9LAogICAge2tleTonY3VzdG9tZXInLGxhYmVsOidDdXN0b21lcid9LAogICAge2tleTonYmVoYXZpb3InLGxhYmVsOidQZXJpbGFrdScscmVuZGVyOmJlaFRhZ30sCiAgICB7a2V5OidyZXR1cm5pbmcnLGxhYmVsOidSZXR1cm5pbmcnLHJlbmRlcjpmdW5jdGlvbih2KXtyZXR1cm4gdj8nPHNwYW4gY2xhc3M9InRhZyBpbmZvIj5ZYTwvc3Bhbj4nOic8c3BhbiBjbGFzcz0ibXV0ZWQiPi08L3NwYW4+Jzt9fSwKICAgIHtrZXk6J2R1cmFzaScsbGFiZWw6J0R1cmFzaScsbnVtOnRydWUscmVuZGVyOmZ1bmN0aW9uKHYpe3JldHVybiB2KydzJzt9fSwKICAgIHtrZXk6J21hcHBlZF9pbnRlbnQnLGxhYmVsOidJbnRlbnQgdGVycGV0YWthbicsd3JhcDp0cnVlfSwKICAgIHtrZXk6J2NvdmVyYWdlX2JhbmQnLGxhYmVsOidDYWt1cGFuJyxyZW5kZXI6YmFuZFRhZ30sCiAgICB7a2V5OidjYXNlX2xhYmVsJyxsYWJlbDonS2VsYXMga2VidXR1aGFuJyxyZW5kZXI6Y2FzZVRhZ30sCiAgICB7a2V5OidzZW50aW1lbnQnLGxhYmVsOidTZW50aW1lbicscmVuZGVyOnNlbnRUYWd9LAogICAge2tleTonZW1vdGlvbicsbGFiZWw6J0Vtb3NpJ30KICBdLERBVEEuY29udmVyc2F0aW9ucy5tYXAoZnVuY3Rpb24ocil7ci5fX2ZsYWc9KHIuc2VudGltZW50PT09J05lZ2F0aWYnKTtyZXR1cm4gcjt9KSx7c29ydEtleTondGFuZ2dhbCcsc29ydERpcjonYXNjJ30pOwoKICBkb2N1bWVudC5nZXRFbGVtZW50QnlJZCgnZW5naW5lTm90ZScpLnRleHRDb250ZW50PSdNZXNpbiBhbmFsaXNpczogJytEQVRBLm1ldGEuZW5naW5lKycuIERlZmxlY3Rpb24gZ2FwICYgdGFrc29ub21pIGRpaGl0dW5nIHVsYW5nIGRpIHNlcnZlci4gJysoREFUQS5tZXRhLmZyZXFfbm90ZXx8JycpOwp9KSgpOwo8L3NjcmlwdD4KPC9ib2R5Pgo8L2h0bWw+Cg=="
+
+# Model id sama persis dengan pipeline fallback (reuse cache HuggingFace).
+MPNET_MODEL_ID = "paraphrase-multilingual-mpnet-base-v2"
+AVAYA_BUILD = "avaya-v3-2026-07-17-taxo"
+import threading as _threading
+import uuid as _uuid
+import time as _time_mod
+_AVAYA_JOBS = {}
+_AVAYA_JOBS_LOCK = _threading.Lock()
+def _avaya_log(msg):
+    try:
+        print("[AVAYA] " + str(msg), flush=True)
+    except Exception:
+        pass
+RERANKER_MODEL_ID = "BAAI/bge-reranker-v2-m3"
+
+# Ambang skor pemetaan intent (0-1). >= dianggap SUDAH tercover chatbot.
+COVERAGE_THRESHOLD = float(os.environ.get("AVAYA_COVERAGE_THRESHOLD", "0.55"))
+# Ambang kemiripan untuk menggabungkan dua pertanyaan ke satu cluster.
+CLUSTER_THRESHOLD = float(os.environ.get("AVAYA_CLUSTER_THRESHOLD", "0.62"))
+
+# --- Ambang GANDA coverage (zona abu-abu), dipisah per skala skor ---
+# BGE reranker -> skor sigmoid (terpolarisasi); cosine -> skala berbeda.
+COV_LOW_BGE  = float(os.environ.get("AVAYA_COV_LOW_BGE",  "0.35"))
+COV_HIGH_BGE = float(os.environ.get("AVAYA_COV_HIGH_BGE", "0.60"))
+COV_LOW_COS  = float(os.environ.get("AVAYA_COV_LOW_COS",  "0.45"))
+COV_HIGH_COS = float(os.environ.get("AVAYA_COV_HIGH_COS", "0.62"))
+
+# Label kelas taksonomi kebutuhan pelanggan.
+CASE_LABELS = {
+    "terlayani_bot": "Terlayani bot",
+    "A_belum_ada":  "A - Belum ada intent",
+    "B_tak_tuntas": "B - Ada tapi tak tuntas",
+    "C_layanan":    "C - Layanan (wajib agent)",
+    "D_mismap":     "D - Mis-map / ragu",
+}
+
+# Kata kunci intent PERMOHONAN LAYANAN (eksekusi wajib agent) -> Kelas C.
+_SERVICE_INTENT_KW = [
+    "permohonan", "pengajuan", "ajukan", "ubah data", "perubahan data", "ganti data",
+    "ubah email", "ganti email", "ubah nomor", "ganti nomor", "ubah no", "nomor telepon",
+    "no telp", "no. telp", "aktivasi akun", "aktivasi", "reset", "lupa efin", "efin",
+    "tiket", "melati", "pemindahan", "pindah", "pendaftaran", "daftar npwp", "pembuatan",
+    "buat akun", "penghapusan", "pencabutan", "cabut", "pembatalan", "penerbitan", "terbitkan",
+]
+# Frasa balasan AGENT yang menandakan eksekusi layanan diproses -> perkuat Kelas C.
+_AGENT_EXEC_RE = re.compile(
+    r"(sudah|telah|akan)\s+(saya\s+)?(ubah|ganti|perbarui|update|proses|ajukan|buatkan|"
+    r"buat|daftarkan|aktivasi|aktifkan|reset|terbitkan|kirimkan)"
+    r"|saya\s+(ubah|ganti|perbarui|update|proses|ajukan|buatkan|buat|daftarkan|aktifkan|reset|terbitkan)"
+    r"|(no\.?\s*|nomor\s+)tiket|tiket.{0,20}(dibuat|kami buat|sudah)"
+    r"|sudah\s+(diproses|diajukan|dibuatkan|diterbitkan|diaktifkan|diubah|diganti)"
+    r"|berhasil\s+(diubah|diganti|diproses|dibuat)",
+    re.IGNORECASE,
+)
+
+# Sinonim tipe intent manual (kolom opsional di file intent) -> normalisasi.
+def _norm_intent_type(v):
+    t = _lower(v)
+    if not t:
+        return None
+    if any(w in t for w in ["layan", "service", "permohon", "aksi", "action", "eksekus", "transaksi"]):
+        return "layanan"
+    if any(w in t for w in ["info", "faq", "pengetahuan", "knowledge", "edukasi"]):
+        return "informasi"
+    return None
+
+
+def _classify_intent_type(iid, title, content):
+    hay = _lower((iid or "") + " " + (title or "") + " " + (content or ""))
+    for kw in _SERVICE_INTENT_KW:
+        if kw in hay:
+            return "layanan"
+    return "informasi"
+
+
+SENTINEL_1500200 = "1500200"
+
+
+# ==================================================================
+# UTIL
+# ==================================================================
+def _norm(s):
+    return re.sub(r"\s+", " ", str(s or "").strip())
+
+
+def _norm_id(s):
+    """Normalisasi NIK/NPWP: ambil digit saja."""
+    return re.sub(r"\D", "", str(s or ""))
+
+
+def _lower(s):
+    return _norm(s).lower()
+
+
+def _is_1500200(text):
+    return _norm_id(text) == SENTINEL_1500200
+
+
+# Frasa sapaan / basa-basi yang bukan pertanyaan inti.
+_GREETING_RE = re.compile(
+    r"^(halo+|hai+|hi+|pagi|siang|sore|malam|selamat\s+(pagi|siang|sore|malam)|"
+    r"assalamu?\'?alaikum|permisi|maaf|terima\s*kasih|makasih|thanks?|ok+e?|oke+|"
+    r"baik|iya|ya|siap|saya\s+\w+|nama\s+saya|dengan\s+\w+|dgn\s+\w+|mau\s+tanya|"
+    r"saya\s+mau\s+tanya|numpang\s+tanya|waduh|noted|sip)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_boilerplate(text):
+    t = _lower(text)
+    if not t:
+        return True
+    if _is_1500200(text):
+        return True
+    if len(t) <= 3:
+        return True
+    if _GREETING_RE.match(t) and len(t.split()) <= 4:
+        return True
+    return False
+
+
+def _parse_dt(value):
+    if not value:
+        return None
+    s = str(value).strip().replace("Z", "+00:00")
+    try:
+        return _dt.datetime.fromisoformat(s)
+    except Exception:
+        for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+            try:
+                return _dt.datetime.strptime(str(value).replace("Z", ""), fmt.replace("%z", ""))
+            except Exception:
+                continue
+    return None
+
+
+# ==================================================================
+# 1) LOAD & MERGE JSON
+# ==================================================================
+def load_json_payload(raw):
+    """raw: bytes/str/list/dict. Kembalikan list percakapan."""
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode("utf-8", errors="replace")
+    if isinstance(raw, str):
+        raw = json.loads(raw)
+    if isinstance(raw, dict):
+        # Bisa {"data":[...]} atau satu percakapan tunggal.
+        for key in ("data", "percakapan", "conversations", "rows", "items"):
+            if isinstance(raw.get(key), list):
+                return raw[key]
+        return [raw]
+    if isinstance(raw, list):
+        return raw
+    return []
+
+
+def merge_conversations(payloads):
+    """Gabung beberapa payload JSON, dedup by sid (yang terakhir menang)."""
+    merged = {}
+    order = []
+    for payload in payloads:
+        for conv in load_json_payload(payload):
+            if not isinstance(conv, dict):
+                continue
+            sid = str(conv.get("sid") or conv.get("id") or "").strip()
+            if not sid:
+                sid = "auto_%d" % (len(order) + 1)
+            if sid not in merged:
+                order.append(sid)
+            merged[sid] = conv
+    return [merged[s] for s in order]
+
+
+# ==================================================================
+# 2) EKSTRAK PERTANYAAN & JALUR PELANGGAN
+# ==================================================================
+def _transcript(conv):
+    tr = conv.get("transkrip") or conv.get("transcript") or []
+    return tr if isinstance(tr, list) else []
+
+
+def extract_customer_query(conv):
+    """Gabung ucapan pelanggan yang bukan boilerplate menjadi pertanyaan inti."""
+    parts = []
+    for m in _transcript(conv):
+        if _lower(m.get("role")) != "customer":
+            continue
+        text = _norm(m.get("text"))
+        if _is_boilerplate(text):
+            continue
+        parts.append(text)
+    query = " ".join(parts).strip()
+    if not query:
+        # fallback: pakai topik supaya tetap bisa dipetakan.
+        query = _norm(conv.get("topik"))
+    return query
+
+
+def analyze_path(conv):
+    """Tentukan jalur pelanggan menuju agent (dihitung dari transkrip).
+    Return dict: reached_agent, typed_1500200_first, used_bot_first.
+    """
+    tr = _transcript(conv)
+    reached_agent = any(_lower(m.get("role")) == "agent" for m in tr) or bool(conv.get("sampaiAgent"))
+    first_agent_idx = next((i for i, m in enumerate(tr) if _lower(m.get("role")) == "agent"), len(tr))
+
+    typed_1500200_first = False
+    used_bot_first = False
+    for m in tr[:first_agent_idx]:
+        if _lower(m.get("role")) != "customer":
+            continue
+        text = _norm(m.get("text"))
+        if _is_1500200(text):
+            typed_1500200_first = True
+        elif not _is_boilerplate(text):
+            # Pelanggan menyampaikan pertanyaan substantif SEBELUM agent masuk
+            # (artinya sempat berinteraksi dengan bot dulu).
+            used_bot_first = True
+    # Bila JSON memberi sinyal langsungKeAgent dan tak ada tanda bot-first.
+    if conv.get("langsungKeAgent") and not used_bot_first:
+        typed_1500200_first = True
+    return {
+        "reached_agent": reached_agent,
+        "typed_1500200_first": typed_1500200_first,
+        "used_bot_first": used_bot_first,
+    }
+
+
+# ==================================================================
+# 3) EMBEDDING BACKEND (MPNet -> fallback TF-IDF)
+# ==================================================================
+class EmbeddingBackend:
+    """Bungkus MPNet bila tersedia; jika tidak, pakai TF-IDF cosine."""
+
+    _TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+    def __init__(self, prefer_transformer=True):
+        self.mode = "none"
+        self._model = None
+        self._vocab = None   # {token: index}
+        self._idf = None     # numpy array sejajar vocab
+        if prefer_transformer:
+            try:
+                from sentence_transformers import SentenceTransformer
+                self._model = SentenceTransformer(MPNET_MODEL_ID)
+                self.mode = "mpnet"
+            except Exception as exc:  # pragma: no cover
+                print("[AVAYA] MPNet tidak tersedia (%s). Fallback bag-of-words." % exc)
+        if self.mode == "none":
+            self.mode = "bow"
+
+    def _tokens(self, text):
+        toks = self._TOKEN_RE.findall(_lower(text))
+        bigrams = [toks[i] + "_" + toks[i + 1] for i in range(len(toks) - 1)]
+        return toks + bigrams
+
+    def encode(self, texts):
+        texts = [t if t else " " for t in texts]
+        if self.mode == "mpnet":
+            return self._model.encode(texts, normalize_embeddings=True, convert_to_numpy=True)
+        # bag-of-words + IDF fallback (pure numpy, tanpa sklearn)
+        import numpy as _np
+        if self._vocab is None:
+            self.fit_corpus(texts)
+        dim = len(self._vocab)
+        arr = _np.zeros((len(texts), dim), dtype="float32")
+        for r, t in enumerate(texts):
+            for tok in self._tokens(t):
+                j = self._vocab.get(tok)
+                if j is not None:
+                    arr[r, j] += 1.0
+        if self._idf is not None:
+            arr *= self._idf
+        norms = _np.linalg.norm(arr, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return arr / norms
+
+    def fit_corpus(self, corpus):
+        """Bangun vocabulary + IDF dari gabungan corpus (bow mode saja)."""
+        if self.mode != "bow":
+            return
+        import numpy as _np
+        corpus = [c if c else " " for c in corpus]
+        df = Counter()
+        vocab = {}
+        for t in corpus:
+            seen = set(self._tokens(t))
+            for tok in seen:
+                if tok not in vocab:
+                    vocab[tok] = len(vocab)
+                df[tok] += 1
+        n = max(1, len(corpus))
+        idf = _np.ones(len(vocab), dtype="float32")
+        for tok, j in vocab.items():
+            idf[j] = math.log((1.0 + n) / (1.0 + df[tok])) + 1.0
+        self._vocab, self._idf = vocab, idf
+
+
+def _cos(a, b):
+    import numpy as _np
+    return float(_np.dot(a, b))
+
+
+# ==================================================================
+# 4) KATALOG INTENT CHATBOT (Training Phrase + Intent)
+# ==================================================================
+def _read_table(path_or_bytes, sheet=None):
+    """Baca xlsx/csv jadi list-of-dict. Butuh openpyxl untuk xlsx."""
+    data = path_or_bytes
+    if isinstance(data, str) and data.lower().endswith(".csv"):
+        import csv
+        with open(data, encoding="utf-8-sig") as fh:
+            return list(csv.DictReader(fh))
+    # xlsx via openpyxl
+    from openpyxl import load_workbook
+    if isinstance(data, (bytes, bytearray)):
+        data = io.BytesIO(data)
+    wb = load_workbook(data, read_only=True, data_only=True)
+    ws = wb[sheet] if sheet and sheet in wb.sheetnames else wb[wb.sheetnames[0]]
+    rows = list(ws.iter_rows(values_only=True))
+    if not rows:
+        return []
+    header = [str(h).strip() if h is not None else "" for h in rows[0]]
+    out = []
+    for r in rows[1:]:
+        out.append({header[i]: r[i] for i in range(len(header))})
+    return out
+
+
+def _pick_col(headers, candidates):
+    low = {h.lower(): h for h in headers}
+    for cand in candidates:
+        if cand.lower() in low:
+            return low[cand.lower()]
+    for h in headers:
+        for cand in candidates:
+            if cand.lower() in h.lower():
+                return h
+    return None
+
+
+class IntentCatalog:
+    """Katalog intent chatbot dari file Training Phrase + Intent (sama seperti
+    yang dipakai pipeline fallback)."""
+
+    ID_CANDIDATES = ["ID", "Intent ID", "Intent", "intent_id", "Nama Intent"]
+    PHRASE_CANDIDATES = ["Training Phrase", "Training Phrases", "Phrase", "Frasa", "UserSays", "Text"]
+    CONTENT_CANDIDATES = ["Isi Intent", "Isi", "Content", "Jawaban", "Response", "Isi Jawaban"]
+    TYPE_CANDIDATES = ["Tipe", "Type", "Kategori", "Category", "Jenis"]
+
+    def __init__(self):
+        self.intent_ids = []
+        self.intent_title = {}
+        self.intent_phrases = defaultdict(list)
+        self.intent_content = {}
+        self.intent_type = {}
+        self._doc_ids = []
+        self._doc_texts = []
+        self._emb = None
+
+    def load(self, training_src, intent_src):
+        train_rows = _read_table(training_src)
+        intent_rows = _read_table(intent_src)
+        if train_rows:
+            h = list(train_rows[0].keys())
+            cid = _pick_col(h, self.ID_CANDIDATES)
+            cph = _pick_col(h, self.PHRASE_CANDIDATES)
+            for r in train_rows:
+                iid = _norm(r.get(cid))
+                ph = _norm(r.get(cph))
+                if iid and ph:
+                    self.intent_phrases[iid].append(ph)
+        if intent_rows:
+            h = list(intent_rows[0].keys())
+            cid = _pick_col(h, self.ID_CANDIDATES)
+            cco = _pick_col(h, self.CONTENT_CANDIDATES)
+            cty = _pick_col(h, self.TYPE_CANDIDATES)
+            for r in intent_rows:
+                iid = _norm(r.get(cid))
+                if not iid:
+                    continue
+                self.intent_content[iid] = _norm(r.get(cco))
+                self.intent_title[iid] = iid
+                if cty:
+                    mt = _norm_intent_type(r.get(cty))
+                    if mt:
+                        self.intent_type[iid] = mt
+        for iid in set(list(self.intent_phrases.keys()) + list(self.intent_content.keys())):
+            self.intent_ids.append(iid)
+            self.intent_title.setdefault(iid, iid)
+        return self
+
+    def resolve_types(self):
+        """Isi intent_type utk semua intent: override manual menang, selain itu aturan kata kunci."""
+        for iid in self.intent_ids:
+            if self.intent_type.get(iid) in ("layanan", "informasi"):
+                continue
+            self.intent_type[iid] = _classify_intent_type(
+                iid, self.intent_title.get(iid, ""), self.intent_content.get(iid, ""))
+        return self
+
+    def build_docs(self):
+        """Satu dokumen retrieval per training phrase (dan isi intent)."""
+        self._doc_ids, self._doc_texts = [], []
+        for iid in self.intent_ids:
+            phrases = self.intent_phrases.get(iid, [])
+            for ph in phrases:
+                self._doc_ids.append(iid)
+                self._doc_texts.append(ph)
+            content = self.intent_content.get(iid, "")
+            if content:
+                self._doc_ids.append(iid)
+                self._doc_texts.append(content[:400])
+            if not phrases and not content:
+                self._doc_ids.append(iid)
+                self._doc_texts.append(iid)
+        return self._doc_texts
+
+    def embed(self, backend):
+        if not self._doc_texts:
+            self.build_docs()
+        self._emb = backend.encode(self._doc_texts)
+        return self
+
+    def match(self, query_emb, reranker=None, query_text=None):
+        """Return (intent_id, title, score) terbaik untuk satu query embedding."""
+        if self._emb is None or len(self._doc_ids) == 0:
+            return ("", "", 0.0)
+        import numpy as _np
+        sims = self._emb @ query_emb
+        # ambil best per intent
+        best_by_intent = {}
+        for idx, iid in enumerate(self._doc_ids):
+            s = float(sims[idx])
+            if iid not in best_by_intent or s > best_by_intent[iid][0]:
+                best_by_intent[iid] = (s, idx)
+        ranked = sorted(best_by_intent.items(), key=lambda kv: kv[1][0], reverse=True)
+        top = ranked[: min(8, len(ranked))]
+        if reranker is not None and query_text:
+            pairs = [(query_text, self._doc_texts[info[1]]) for _, info in top]
+            rr = reranker(pairs)
+            best_i = int(_np.argmax(rr))
+            iid = top[best_i][0]
+            score = float(rr[best_i])
+            return (iid, self.intent_title.get(iid, iid), score)
+        iid, (score, _) = top[0]
+        return (iid, self.intent_title.get(iid, iid), float(score))
+
+
+def make_reranker():
+    """Kembalikan fungsi rerank(pairs)->list[float] (BGE) atau None bila tak ada."""
+    try:
+        import torch
+        from transformers import AutoTokenizer, AutoModelForSequenceClassification
+        tok = AutoTokenizer.from_pretrained(RERANKER_MODEL_ID)
+        mdl = AutoModelForSequenceClassification.from_pretrained(RERANKER_MODEL_ID)
+        mdl.eval()
+        if torch.cuda.is_available():
+            mdl = mdl.cuda()
+
+        def _rerank(pairs):
+            with torch.no_grad():
+                enc = tok([p[0] for p in pairs], [p[1] for p in pairs],
+                          padding=True, truncation=True, max_length=512, return_tensors="pt")
+                if torch.cuda.is_available():
+                    enc = {k: v.cuda() for k, v in enc.items()}
+                logits = mdl(**enc).logits.view(-1).float()
+                return torch.sigmoid(logits).cpu().tolist()
+        return _rerank
+    except Exception as exc:  # pragma: no cover
+        print("[AVAYA] BGE reranker tidak tersedia (%s). Lanjut tanpa rerank." % exc)
+        return None
+
+
+# ==================================================================
+# 5) CLUSTERING PERTANYAAN BELUM TERCOVER
+# ==================================================================
+def cluster_questions(items, embs, threshold=CLUSTER_THRESHOLD):
+    """Greedy single-link clustering berbasis cosine. items sejajar embs.
+    Return list cluster: {members:[idx], centroid_text}."""
+    import numpy as _np
+    n = len(items)
+    clusters = []
+    assigned = [-1] * n
+    for i in range(n):
+        placed = False
+        for c in clusters:
+            rep = c["rep_emb"]
+            if float(_np.dot(embs[i], rep)) >= threshold:
+                c["members"].append(i)
+                placed = True
+                break
+        if not placed:
+            clusters.append({"members": [i], "rep_emb": embs[i]})
+    for c in clusters:
+        # perwakilan = pertanyaan terpanjang (paling informatif)
+        rep_idx = max(c["members"], key=lambda k: len(items[k]["query"]))
+        c["rep_idx"] = rep_idx
+    return clusters
+
+
+# ==================================================================
+# 6) SENTIMEN 2 LAYER NLP (Layer 1 polaritas + Layer 3 emosi; embedding/leksikon, tanpa LLM)
+# ==================================================================
+EMOTIONS = ["Senang/Bahagia", "Marah/Frustrasi", "Sedih/Kecewa",
+            "Takut/Cemas", "Terkejut", "Jijik/Bosan"]
+
+_LEX_NEG = ["kesal", "marah", "kecewa", "lama", "lambat", "ribet", "susah", "sulit",
+            "bingung", "error", "gagal", "tidak bisa", "gak bisa", "ga bisa", "kok",
+            "parah", "komplain", "protes", "buruk", "jelek", "waduh", "masa", "kenapa",
+            "belum", "tolong dong", "gimana sih", "payah"]
+_LEX_POS = ["terima kasih", "makasih", "mantap", "bagus", "jelas", "paham", "baik",
+            "oke", "sip", "membantu", "solutif", "cepat", "ramah", "puas"]
+_LEX_ANGER = ["marah", "kesal", "emosi", "parah", "payah", "komplain", "protes",
+              "gimana sih", "kok bisa", "buruk sekali"]
+_LEX_SAD = ["kecewa", "sedih", "menyerah", "pasrah", "capek"]
+_LEX_FEAR = ["takut", "cemas", "khawatir", "was-was", "denda", "telat", "terlambat", "sanksi"]
+_LEX_SURP = ["kaget", "lho", "loh", "kok", "masa", "ternyata", "waduh"]
+_LEX_DISG = ["bosan", "males", "malas", "muter-muter", "bertele"]
+_LEX_JOY = ["terima kasih", "makasih", "mantap", "senang", "puas", "bagus", "membantu"]
+_RESOLVED_HINT = ["terima kasih", "makasih", "jelas", "paham", "oke", "sip", "baik",
+                  "cukup jelas", "sudah cukup"]
+_UNRESOLVED_HINT = ["masih bingung", "belum jelas", "tetap tidak", "masih tidak bisa",
+                    "gimana lagi", "tidak membantu", "belum bisa", "masih error"]
+
+
+def _count_hits(text, lex):
+    t = " " + _lower(text) + " "
+    return sum(1 for w in lex if w in t)
+
+
+def sentiment_lexicon(customer_text, full_text):
+    neg = _count_hits(customer_text, _LEX_NEG)
+    pos = _count_hits(customer_text, _LEX_POS)
+    if neg > pos:
+        l1 = "Negatif"
+    elif pos > neg:
+        l1 = "Positif"
+    else:
+        l1 = "Netral"
+    scores = {
+        "Senang/Bahagia": _count_hits(customer_text, _LEX_JOY),
+        "Marah/Frustrasi": _count_hits(customer_text, _LEX_ANGER),
+        "Sedih/Kecewa": _count_hits(customer_text, _LEX_SAD),
+        "Takut/Cemas": _count_hits(customer_text, _LEX_FEAR),
+        "Terkejut": _count_hits(customer_text, _LEX_SURP),
+        "Jijik/Bosan": _count_hits(customer_text, _LEX_DISG),
+    }
+    emotion = max(scores.items(), key=lambda kv: kv[1])
+    emotion_label = emotion[0] if emotion[1] > 0 else ("Senang/Bahagia" if l1 == "Positif" else "Netral/Datar")
+    frustration = scores["Marah/Frustrasi"] > 0 or (l1 == "Negatif" and neg >= 2)
+    # Resolusi: lihat pesan pelanggan terakhir.
+    last = customer_text.strip().split(".")[-1] if customer_text else ""
+    resolved = _count_hits(full_text, _RESOLVED_HINT) > 0 and _count_hits(full_text, _UNRESOLVED_HINT) == 0
+    resolution = "Terselesaikan" if resolved else "Belum Terselesaikan"
+    return {
+        "layer1": l1,
+        "emotion": emotion_label,
+        "frustration": bool(frustration),
+        "resolution": resolution,
+    }
+
+
+# Kalimat prototipe (jangkar) untuk klasifikasi sentimen berbasis embedding NLP.
+_SENT_ANCHORS = {
+    "Positif": ["terima kasih sudah sangat membantu", "pelayanannya bagus dan cepat",
+                "penjelasannya jelas, saya puas dan paham", "mantap, semua beres sekarang"],
+    "Negatif": ["saya kesal karena berbelit-belit dan lama", "ini bikin marah, tidak ada solusi",
+                "kecewa, layanannya buruk dan error terus", "ribet sekali, saya mau komplain"],
+    "Netral": ["saya mau tanya cara aktivasi akun", "bagaimana prosedur pelaporan pajak",
+               "minta info status permohonan", "tolong bantu proses ini"],
+}
+_EMO_ANCHORS = {
+    "Senang/Bahagia": ["terima kasih banyak, saya senang dan puas", "bagus sekali, mantap, membantu"],
+    "Marah/Frustrasi": ["saya marah dan kesal, ini parah sekali", "komplain, layanannya payah dan bertele-tele"],
+    "Sedih/Kecewa": ["saya kecewa dan sedih, pasrah", "capek, rasanya mau menyerah"],
+    "Takut/Cemas": ["saya takut kena denda dan sanksi", "cemas dan khawatir karena terlambat lapor"],
+    "Terkejut": ["lho kok bisa begitu, saya kaget", "waduh ternyata, masa sih"],
+    "Jijik/Bosan": ["bosan, muter-muter terus tidak jelas", "males, terlalu bertele-tele"],
+}
+
+
+def build_sentiment_engine(backend=None):
+    """Sentimen berbasis NLP (TANPA LLM).
+    - Bila embedding transformer (MPNet/SBERT) tersedia -> klasifikasi via kemiripan
+      ke kalimat prototipe (zero-shot), di-batch untuk semua percakapan sekaligus.
+    - Bila tidak -> fallback leksikon rule-based.
+    Mengembalikan fn(cust_texts, full_texts) -> list[{layer1, emotion}].
+    """
+    if backend is not None and getattr(backend, "mode", "bow") == "mpnet":
+        import numpy as _np
+        l1_labels = list(_SENT_ANCHORS.keys())
+        emo_labels = list(_EMO_ANCHORS.keys())
+
+        def _proto(anchor_map, labels):
+            mat = _np.stack([
+                _np.asarray(backend.encode(anchor_map[k]), dtype="float32").mean(axis=0)
+                for k in labels
+            ])
+            nrm = _np.linalg.norm(mat, axis=1, keepdims=True)
+            nrm[nrm == 0] = 1.0
+            return mat / nrm
+
+        l1_proto = _proto(_SENT_ANCHORS, l1_labels)
+        emo_proto = _proto(_EMO_ANCHORS, emo_labels)
+
+        def _batch(cust_texts, full_texts):
+            texts = [(c or f or " ") for c, f in zip(cust_texts, full_texts)]
+            emb = _np.asarray(backend.encode(texts), dtype="float32")
+            nn = _np.linalg.norm(emb, axis=1, keepdims=True)
+            nn[nn == 0] = 1.0
+            emb = emb / nn
+            l1_sim = emb @ l1_proto.T
+            emo_sim = emb @ emo_proto.T
+            out = []
+            for i in range(len(texts)):
+                out.append({
+                    "layer1": l1_labels[int(l1_sim[i].argmax())],
+                    "emotion": emo_labels[int(emo_sim[i].argmax())],
+                })
+            return out
+
+        return _batch, "SBERT embedding NLP (prototipe zero-shot)"
+
+    def _batch_lex(cust_texts, full_texts):
+        res = []
+        for c, f in zip(cust_texts, full_texts):
+            s = sentiment_lexicon(c, f)
+            res.append({"layer1": s["layer1"], "emotion": s["emotion"]})
+        return res
+
+    return _batch_lex, "leksikon NLP (rule-based)"
+
+
+def conversation_texts(conv):
+    """(customer_only_text, full_dialog_text)"""
+    cust, full = [], []
+    for m in _transcript(conv):
+        role = _lower(m.get("role"))
+        text = _norm(m.get("text"))
+        if not text or _is_1500200(text):
+            continue
+        if role == "customer":
+            cust.append(text)
+        if role in ("customer", "agent"):
+            full.append("%s: %s" % (role, text))
+    return " ".join(cust), "\n".join(full)
+
+
+def agent_text(conv):
+    """Gabungan teks balasan agent (sinyal klasifikasi, BUKAN pencocokan intent)."""
+    return " ".join(_norm(m.get("text")) for m in _transcript(conv)
+                    if _lower(m.get("role")) == "agent")
+
+
+def _cust_turns_after_agent(conv):
+    tr = _transcript(conv)
+    first = next((i for i, m in enumerate(tr) if _lower(m.get("role")) == "agent"), len(tr))
+    return sum(1 for m in tr[first:]
+               if _lower(m.get("role")) == "customer" and not _is_boilerplate(_norm(m.get("text"))))
+
+
+def coverage_band(score, iid, score_mode):
+    low, high = (COV_LOW_BGE, COV_HIGH_BGE) if score_mode == "bge" else (COV_LOW_COS, COV_HIGH_COS)
+    if not iid or score < low:
+        return "uncovered"
+    if score < high:
+        return "gray"
+    return "covered"
+
+
+def classify_case(band, reached_agent, intent_type, has_exec):
+    """Taksonomi A/B/C/D + terlayani_bot (lihat CASE_LABELS)."""
+    if not reached_agent:
+        return "terlayani_bot"
+    if band == "uncovered":
+        return "A_belum_ada"
+    if intent_type == "layanan" or has_exec:
+        return "C_layanan"
+    if band == "gray":
+        return "D_mismap"
+    return "B_tak_tuntas"
+
+
+# ==================================================================
+# ORKESTRASI UTAMA
+# ==================================================================
+def run_pipeline(json_payloads, training_src, intent_src, qwen_ctx=None,
+                 prefer_transformer=True, progress=None):
+    _p_state = {"stage": None, "t": 0.0}
+    def _p(stage, done=None, total=None):
+        try:
+            if progress: progress(stage, done, total)
+        except Exception:
+            pass
+        try:
+            now = _time_mod.time()
+            if stage != _p_state["stage"] or now - _p_state["t"] > 3:
+                extra = "" if total is None else " (%s/%s)" % (done, total)
+                print("[AVAYA] " + str(stage) + extra, flush=True)
+                _p_state["stage"] = stage; _p_state["t"] = now
+        except Exception:
+            pass
+    _p("Membaca & menggabungkan file JSON")
+    convs = merge_conversations(json_payloads)
+    if not convs:
+        raise ValueError("Tidak ada percakapan pada JSON yang diberikan.")
+    _p("Memuat katalog intent & model embedding", 0, len(convs))
+
+    # --- pemetaan intent ---
+    catalog = IntentCatalog().load(training_src, intent_src)
+    backend = EmbeddingBackend(prefer_transformer=prefer_transformer)
+    queries = [extract_customer_query(c) for c in convs]
+    if backend.mode == "tfidf":
+        backend.fit_corpus(catalog.build_docs() + queries + list(catalog.intent_title.values()))
+    catalog.embed(backend)
+    catalog.resolve_types()
+    reranker = make_reranker() if prefer_transformer else None
+    score_mode = "bge" if reranker is not None else "cos"
+    q_emb = backend.encode(queries)
+    _p("Embedding pertanyaan pelanggan selesai")
+
+    sent_fn, engine_name = build_sentiment_engine(backend)
+    _p("Mesin sentimen: " + str(engine_name), 0, len(convs))
+
+    # Sentimen NLP di-batch untuk SEMUA percakapan sekaligus (jauh lebih cepat, tanpa LLM).
+    cust_texts, full_texts = [], []
+    for _conv in convs:
+        _c, _f = conversation_texts(_conv)
+        cust_texts.append(_c)
+        full_texts.append(_f)
+    sentiments = sent_fn(cust_texts, full_texts)
+    _p("Sentimen NLP selesai (batch)", len(convs), len(convs))
+
+    records = []
+    uncovered_items, uncovered_idx = [], []
+    for i, conv in enumerate(convs):
+        iid, title, score = catalog.match(q_emb[i], reranker=reranker, query_text=queries[i])
+        band = coverage_band(score, iid, score_mode)
+        covered = band == "covered"
+        path = analyze_path(conv)
+        reached = path["reached_agent"]
+        behavior = "direct" if (path["typed_1500200_first"] and not path["used_bot_first"]) else "tried_bot"
+        intent_type = catalog.intent_type.get(iid, "informasi") if iid else "-"
+        has_exec = bool(_AGENT_EXEC_RE.search(agent_text(conv)))
+        case = classify_case(band, reached, intent_type, has_exec)
+        # DEFLECTION GAP (dihitung ulang): ADA padanan intent (covered/ragu) TAPI ke agent.
+        deflection_gap = bool(reached and band != "uncovered")
+        turns_after = _cust_turns_after_agent(conv)
+        sent = sentiments[i]
+        b_sev = "tinggi" if (sent["layer1"] == "Negatif" or turns_after >= 3) else "sedang"
+        pesan = conv.get("pesan") or {}
+        interactions = int(pesan.get("customer", 0) or 0) + int(pesan.get("agent", 0) or 0) + int(pesan.get("bot", 0) or 0)
+        rec = {
+            "sid": str(conv.get("sid", "")),
+            "tanggal": _norm(conv.get("tanggal")),
+            "agent": _norm(conv.get("agent")),
+            "customer": _norm(conv.get("customer")),
+            "nik": _norm_id(conv.get("nik")),
+            "nonNpwp": bool(conv.get("nonNpwp")),
+            "durasi": int(conv.get("durasi", 0) or 0),
+            "topik": _norm(conv.get("topik")) or "Lainnya",
+            "query": queries[i],
+            "mapped_intent": title or "(tidak ada padanan)",
+            "mapped_score": round(float(score), 4),
+            "score_mode": score_mode,
+            "coverage_band": band,
+            "covered": covered,
+            "intent_type": intent_type,
+            "agent_exec": has_exec,
+            "typed_1500200_first": path["typed_1500200_first"],
+            "used_bot_first": path["used_bot_first"],
+            "reached_agent": reached,
+            "behavior": behavior,
+            "deflection_gap": deflection_gap,
+            "case": case,
+            "case_label": CASE_LABELS.get(case, case),
+            "b_severity": b_sev if case == "B_tak_tuntas" else "",
+            "turns_after_agent": turns_after,
+            "interactions": interactions,
+            "sentiment": sent["layer1"],
+            "emotion": sent["emotion"],
+        }
+        records.append(rec)
+        _p("Analisis percakapan (pemetaan intent)", i + 1, len(convs))
+        if band == "uncovered":
+            uncovered_items.append({"query": queries[i], "idx": i})
+            uncovered_idx.append(i)
+
+    # --- clustering uncovered ---
+    clusters_out = []
+    _p("Klasterisasi pertanyaan yang belum tercover", 0, len(uncovered_items))
+    if uncovered_items:
+        unc_emb = backend.encode([it["query"] for it in uncovered_items])
+        clusters = cluster_questions(uncovered_items, unc_emb)
+        for c in clusters:
+            rep = uncovered_items[c["rep_idx"]]
+            rep_i = rep["idx"]
+            # intent terdekat (meski di bawah ambang) untuk konteks
+            iid, title, score = catalog.match(q_emb[rep_i], reranker=None, query_text=rep["query"])
+            label = rep["query"][:60] + ("..." if len(rep["query"]) > 60 else "")
+            clusters_out.append({
+                "label": label or "(kosong)",
+                "size": len(c["members"]),
+                "sample": rep["query"][:140],
+                "nearest_existing": title or "-",
+                "nearest_score": round(float(score), 4),
+            })
+        clusters_out.sort(key=lambda x: x["size"], reverse=True)
+
+    _p("Menyusun dashboard & agregasi")
+    dashboard = build_dashboard_data(records, clusters_out, engine_name, n_files=len(json_payloads))
+    _p("Selesai", len(convs), len(convs))
+    return {"records": records, "clusters": clusters_out, "dashboard": dashboard}
+
+
+def build_dashboard_data(records, clusters, engine_name, n_files=1):
+    total = len(records)
+    dates = [r["tanggal"] for r in records if r["tanggal"]]
+    covered = sum(1 for r in records if r["coverage_band"] == "covered")
+    gray = sum(1 for r in records if r["coverage_band"] == "gray")
+    uncovered = sum(1 for r in records if r["coverage_band"] == "uncovered")
+    gap = sum(1 for r in records if r["deflection_gap"])
+    direct = sum(1 for r in records if r["behavior"] == "direct")
+    via_bot = sum(1 for r in records if r["used_bot_first"])
+
+    # --- anotasi frekuensi (returning vs single) berbasis identitas, BERJENDELA ---
+    def _idkey(r):
+        if r["nonNpwp"] or not r["nik"]:
+            return ("name", (r["customer"] or "(tanpa nama)").lower())
+        return ("nik", r["nik"])
+    _idcount = Counter(_idkey(r) for r in records)
+    for r in records:
+        r["returning"] = bool(_idcount[_idkey(r)] >= 2)
+
+    # --- taksonomi kebutuhan A/B/C/D ---
+    _case = Counter(r["case"] for r in records)
+    taxonomy = [{"key": k, "label": CASE_LABELS[k], "value": _case.get(k, 0)}
+                for k in ("terlayani_bot", "A_belum_ada", "B_tak_tuntas", "C_layanan", "D_mismap")]
+
+    # --- segmentasi perilaku + frekuensi ---
+    _beh = Counter(r["behavior"] for r in records)
+    _freq = Counter("returning" if r["returning"] else "single" for r in records)
+    direct_recs = [r for r in records if r["behavior"] == "direct"]
+    direct_returning = sum(1 for r in direct_recs if r["returning"])
+    _direct_case = Counter(r["case"] for r in direct_recs)
+    segments = {
+        "behavior": {"direct": _beh.get("direct", 0), "tried_bot": _beh.get("tried_bot", 0)},
+        "frequency": {"returning": _freq.get("returning", 0), "single": _freq.get("single", 0)},
+        "direct": {
+            "total": len(direct_recs),
+            "returning": direct_returning,
+            "single": len(direct_recs) - direct_returning,
+            "by_case": [{"key": k, "label": CASE_LABELS[k], "value": _direct_case.get(k, 0)}
+                        for k in ("A_belum_ada", "B_tak_tuntas", "C_layanan", "D_mismap")],
+        },
+    }
+
+    # --- daftar peluang ter-ranking ---
+    def _top_intents(case_key, n=10):
+        c = Counter(r["mapped_intent"] for r in records if r["case"] == case_key)
+        return [{"label": k, "value": v} for k, v in c.most_common(n)]
+    opportunities = {
+        "intent_B": _top_intents("B_tak_tuntas"),
+        "intent_C": _top_intents("C_layanan"),
+        "mismap": [{"sid": r["sid"], "query": r["query"][:120] or "(kosong)",
+                    "intent": r["mapped_intent"], "score": r["mapped_score"]}
+                   for r in records if r["case"] == "D_mismap"][:25],
+    }
+
+    # deflection gap per topik (hanya yang covered & gap)
+    gap_topic = Counter(r["topik"] for r in records if r["deflection_gap"])
+    deflection_by_topic = [{"label": k, "value": v} for k, v in gap_topic.most_common(10)]
+
+    # sentimen
+    l1 = Counter(r["sentiment"] for r in records)
+    emo = Counter(r["emotion"] for r in records)
+    inter_by_sent = defaultdict(int)
+    for r in records:
+        inter_by_sent[r["sentiment"]] += r["interactions"]
+
+    # agent effectiveness
+    by_agent = defaultdict(list)
+    for r in records:
+        if r["agent"]:
+            by_agent[r["agent"]].append(r)
+    agents = []
+    for name, rs in by_agent.items():
+        cnt = len(rs)
+        avg_dur = sum(x["durasi"] for x in rs) / cnt if cnt else 0
+        pos = sum(1 for x in rs if x["sentiment"] == "Positif") / cnt * 100 if cnt else 0
+        neg = sum(1 for x in rs if x["sentiment"] == "Negatif") / cnt * 100 if cnt else 0
+        agents.append({"name": name, "count": cnt, "avg_durasi": int(avg_dur),
+                       "pos_rate": round(pos, 1), "neg_rate": round(neg, 1)})
+    # skor efektivitas: sentimen positif tinggi + negatif rendah + durasi efisien
+    if agents:
+        max_dur = max(a["avg_durasi"] for a in agents) or 1
+        for a in agents:
+            dur_eff = 1 - (a["avg_durasi"] / max_dur)  # makin cepat makin tinggi
+            a["score"] = round(0.45 * (a["pos_rate"] / 100) + 0.30 * (1 - a["neg_rate"] / 100) +
+                               0.25 * dur_eff, 4)
+        agents.sort(key=lambda a: a["score"], reverse=True)
+        for i, a in enumerate(agents, 1):
+            a["rank"] = i
+
+    # pelanggan frekuensi tinggi
+    npwp_map = defaultdict(lambda: {"count": 0, "name": "", "topics": Counter()})
+    nonnpwp_map = defaultdict(lambda: {"count": 0, "topics": Counter()})
+    for r in records:
+        if r["nonNpwp"] or not r["nik"]:
+            key = r["customer"] or "(tanpa nama)"
+            nonnpwp_map[key]["count"] += 1
+            nonnpwp_map[key]["topics"][r["topik"]] += 1
+        else:
+            e = npwp_map[r["nik"]]
+            e["count"] += 1
+            e["name"] = r["customer"]
+            e["topics"][r["topik"]] += 1
+    customers_npwp = [{"nik": k, "name": v["name"], "count": v["count"],
+                       "topics": ", ".join(t for t, _ in v["topics"].most_common(3))}
+                      for k, v in npwp_map.items()]
+    customers_npwp.sort(key=lambda x: x["nik"])
+    customers_nonnpwp = [{"name": k, "count": v["count"],
+                          "topics": ", ".join(t for t, _ in v["topics"].most_common(3))}
+                         for k, v in nonnpwp_map.items()]
+    customers_nonnpwp.sort(key=lambda x: x["name"].lower())
+
+    total_customers = len(npwp_map) + len(nonnpwp_map)
+    avg_dur_all = int(sum(r["durasi"] for r in records) / total) if total else 0
+    gap_pct = round(gap / total * 100, 1) if total else 0
+
+    def _fmt_dur(s):
+        return "%d:%02d" % (s // 60, s % 60)
+
+    real_gap = _case.get("A_belum_ada", 0) + _case.get("B_tak_tuntas", 0)
+    kpis = [
+        {"label": "Total percakapan", "value": total, "sub": "%d customer unik" % total_customers, "tone": "blue"},
+        {"label": "Deflection gap", "value": "%s%%" % gap_pct,
+         "sub": "%d chat: ADA padanan intent tapi ke agent" % gap, "tone": "orange"},
+        {"label": "Rata-rata durasi agent", "value": _fmt_dur(avg_dur_all), "sub": "menit:detik per chat", "tone": "blue"},
+        {"label": "Langsung ketik 1500200", "value": "%d" % direct,
+         "sub": "%d di antaranya returning (>=2x)" % direct_returning, "tone": "orange"},
+        {"label": "Gap bot nyata (A+B)", "value": real_gap,
+         "sub": "A belum ada: %d - B tak tuntas: %d" % (_case.get("A_belum_ada", 0), _case.get("B_tak_tuntas", 0)),
+         "tone": "red"},
+        {"label": "Layanan wajib agent (C)", "value": _case.get("C_layanan", 0),
+         "sub": "kandidat otomasi / self-service", "tone": "blue"},
+        {"label": "Intent belum tercover", "value": uncovered,
+         "sub": "%d kandidat cluster baru" % len(clusters), "tone": "orange"},
+        {"label": "Sentimen negatif", "value": l1.get("Negatif", 0),
+         "sub": "dari %d percakapan" % total, "tone": "red"},
+    ]
+
+    sent_order = ["Positif", "Netral", "Negatif"]
+    return {
+        "meta": {
+            "generated": _dt.datetime.now().strftime("%Y-%m-%d %H:%M"),
+            "date_min": min(dates) if dates else "-",
+            "date_max": max(dates) if dates else "-",
+            "total_conv": total,
+            "total_customers": total_customers,
+            "files": n_files,
+            "engine": engine_name,
+            "freq_note": "Status returning/daily bersifat ESTIMASI BERJENDELA (hanya dari data yang di-load); makin banyak hari digabung makin akurat.",
+        },
+        "kpis": kpis,
+        "intent_coverage": {"covered": covered, "gray": gray, "uncovered": uncovered, "total": total},
+        "deflection": {"gap": gap, "no_gap": total - gap, "gap_pct": gap_pct,
+                       "direct_1500200": direct, "via_bot_first": via_bot},
+        "deflection_by_topic": deflection_by_topic,
+        "taxonomy": taxonomy,
+        "segments": segments,
+        "opportunities": opportunities,
+        "clusters": clusters,
+        "sentiment_l1": {"positif": l1.get("Positif", 0), "netral": l1.get("Netral", 0),
+                         "negatif": l1.get("Negatif", 0)},
+        "emotions": [{"label": k, "value": v} for k, v in emo.most_common()],
+        "interactions_per_sentiment": [{"label": s, "value": inter_by_sent.get(s, 0)} for s in sent_order],
+        "agents": agents,
+        "customers_npwp": customers_npwp,
+        "customers_nonnpwp": customers_nonnpwp,
+        "conversations": [{k: r[k] for k in (
+            "sid", "tanggal", "agent", "customer", "nik", "nonNpwp", "durasi", "topik",
+            "mapped_intent", "mapped_score", "coverage_band", "covered", "intent_type",
+            "behavior", "returning", "deflection_gap", "case", "case_label",
+            "sentiment", "emotion")} for r in records],
+    }
+
+
+# ==================================================================
+# RENDER DASHBOARD + EXCEL + ZIP
+# ==================================================================
+def _load_template_text(template_path=TEMPLATE_PATH):
+    """Cari template di beberapa lokasi; fallback ke salinan bawaan (embedded).
+    Ini mencegah HTTP 500 saat avaya_dashboard_template.html tidak ikut ter-upload."""
+    import base64 as _b64
+    cands = [template_path,
+             os.path.join(_HERE, "avaya_dashboard_template.html"),
+             os.path.join(os.getcwd(), "avaya_dashboard_template.html")]
+    for p in cands:
+        try:
+            if p and os.path.isfile(p):
+                with open(p, encoding="utf-8") as fh:
+                    return fh.read()
+        except Exception:
+            pass
+    return _b64.b64decode(_EMBEDDED_TEMPLATE_B64).decode("utf-8")
+
+def render_dashboard_html(dashboard_data, template_path=TEMPLATE_PATH):
+    tpl = _load_template_text(template_path)
+    payload = json.dumps(dashboard_data, ensure_ascii=False)
+    return tpl.replace("__DASHBOARD_DATA_JSON__", payload)
+
+
+def build_excel_bytes(result):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    wb = Workbook()
+    d = result["dashboard"]
+
+    # Ringkasan
+    ws = wb.active
+    ws.title = "Ringkasan"
+    ws.append(["Metrik", "Nilai"])
+    m = d["meta"]
+    rows = [
+        ("Rentang tanggal", "%s s/d %s" % (m["date_min"], m["date_max"])),
+        ("Total percakapan", m["total_conv"]),
+        ("Customer unik", m["total_customers"]),
+        ("File digabung", m["files"]),
+        ("Intent sudah tercover (yakin)", d["intent_coverage"]["covered"]),
+        ("Intent ragu / abu-abu", d["intent_coverage"].get("gray", 0)),
+        ("Intent belum tercover", d["intent_coverage"]["uncovered"]),
+        ("Deflection gap (chat)", d["deflection"]["gap"]),
+        ("Deflection gap (%)", d["deflection"]["gap_pct"]),
+        ("Langsung ketik 1500200", d["deflection"]["direct_1500200"]),
+        ("  - returning (>=2x)", d["segments"]["direct"]["returning"]),
+        ("Coba bot dulu", d["deflection"]["via_bot_first"]),
+        ("[Taksonomi] Terlayani bot", next((t["value"] for t in d["taxonomy"] if t["key"] == "terlayani_bot"), 0)),
+        ("[Taksonomi] A - Belum ada intent", next((t["value"] for t in d["taxonomy"] if t["key"] == "A_belum_ada"), 0)),
+        ("[Taksonomi] B - Ada tapi tak tuntas", next((t["value"] for t in d["taxonomy"] if t["key"] == "B_tak_tuntas"), 0)),
+        ("[Taksonomi] C - Layanan wajib agent", next((t["value"] for t in d["taxonomy"] if t["key"] == "C_layanan"), 0)),
+        ("[Taksonomi] D - Mis-map / ragu", next((t["value"] for t in d["taxonomy"] if t["key"] == "D_mismap"), 0)),
+        ("Sentimen Positif", d["sentiment_l1"]["positif"]),
+        ("Sentimen Netral", d["sentiment_l1"]["netral"]),
+        ("Sentimen Negatif", d["sentiment_l1"]["negatif"]),
+        ("Mesin analisis", m["engine"]),
+    ]
+    for r in rows:
+        ws.append(list(r))
+
+    # Percakapan
+    ws2 = wb.create_sheet("Percakapan")
+    cols = ["sid", "tanggal", "agent", "customer", "nik", "nonNpwp", "durasi", "topik",
+            "behavior", "returning", "mapped_intent", "mapped_score", "score_mode",
+            "coverage_band", "intent_type", "deflection_gap", "case_label", "b_severity",
+            "sentiment", "emotion"]
+    ws2.append(cols)
+    red = PatternFill("solid", fgColor="FCE9E7")
+    amber = PatternFill("solid", fgColor="FBEBDE")
+    for r in result["records"]:
+        ws2.append([r.get(c) for c in cols])
+        if r.get("sentiment") == "Negatif":
+            for cell in ws2[ws2.max_row]:
+                cell.fill = red
+        elif r.get("case") in ("A_belum_ada", "B_tak_tuntas"):
+            for cell in ws2[ws2.max_row]:
+                cell.fill = amber
+
+    # Agent
+    ws3 = wb.create_sheet("Agent")
+    ws3.append(["rank", "name", "count", "avg_durasi(s)", "pos_rate(%)", "neg_rate(%)", "score"])
+    for a in d["agents"]:
+        ws3.append([a["rank"], a["name"], a["count"], a["avg_durasi"],
+                    a["pos_rate"], a["neg_rate"], a["score"]])
+
+    # Pelanggan NPWP
+    ws4 = wb.create_sheet("Pelanggan NPWP")
+    ws4.append(["nik", "nama", "frekuensi", "topik"])
+    for c in d["customers_npwp"]:
+        ws4.append([c["nik"], c["name"], c["count"], c["topics"]])
+
+    # Pelanggan Non-NPWP
+    ws5 = wb.create_sheet("Pelanggan Non-NPWP")
+    ws5.append(["nama", "frekuensi", "topik"])
+    for c in d["customers_nonnpwp"]:
+        ws5.append([c["name"], c["count"], c["topics"]])
+
+    # Cluster kandidat intent baru
+    ws6 = wb.create_sheet("Kandidat Intent Baru")
+    ws6.append(["cluster", "jumlah_chat", "contoh_pertanyaan", "intent_terdekat", "skor"])
+    for c in d["clusters"]:
+        ws6.append([c["label"], c["size"], c["sample"], c["nearest_existing"], c["nearest_score"]])
+
+    # Taksonomi kebutuhan
+    ws7 = wb.create_sheet("Taksonomi")
+    ws7.append(["kelas", "label", "jumlah"])
+    for t in d.get("taxonomy", []):
+        ws7.append([t["key"], t["label"], t["value"]])
+
+    # Peluang perbaikan konten (Kelas B) & otomasi (Kelas C)
+    ws8 = wb.create_sheet("Peluang B (perbaikan)")
+    ws8.append(["intent", "jumlah_chat"])
+    for x in d.get("opportunities", {}).get("intent_B", []):
+        ws8.append([x["label"], x["value"]])
+    ws9 = wb.create_sheet("Peluang C (otomasi)")
+    ws9.append(["intent", "jumlah_chat"])
+    for x in d.get("opportunities", {}).get("intent_C", []):
+        ws9.append([x["label"], x["value"]])
+
+    # Review D (mis-map / ragu)
+    ws10 = wb.create_sheet("Review D (mis-map)")
+    ws10.append(["sid", "pertanyaan", "intent_terpetakan", "skor"])
+    for x in d.get("opportunities", {}).get("mismap", []):
+        ws10.append([x["sid"], x["query"], x["intent"], x["score"]])
+
+    # Sampel kalibrasi ambang (diisi manual oleh analis)
+    ws11 = wb.create_sheet("Kalibrasi (sampel)")
+    ws11.append(["sid", "pertanyaan", "intent_terpetakan", "skor", "score_mode",
+                 "coverage_band", "case_label",
+                 "label_covered(Y/T)", "label_kelas(A/B/C/D)", "catatan"])
+    _recs = result.get("records", [])
+    _sample = []
+    for _band in ("covered", "gray", "uncovered"):
+        _rs = [r for r in _recs if r.get("coverage_band") == _band]
+        _rs = sorted(_rs, key=lambda r: r.get("mapped_score", 0), reverse=True)
+        _sample += _rs[:60]
+    for r in _sample:
+        ws11.append([r.get("sid"), (r.get("query") or "")[:200], r.get("mapped_intent"),
+                     r.get("mapped_score"), r.get("score_mode"), r.get("coverage_band"),
+                     r.get("case_label"), "", "", ""])
+
+    # bold header
+    for ws_ in wb.worksheets:
+        for cell in ws_[1]:
+            cell.font = Font(bold=True)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def build_zip_bytes(result, template_path=TEMPLATE_PATH):
+    html = render_dashboard_html(result["dashboard"], template_path=template_path)
+    xlsx = build_excel_bytes(result)
+    data_json = json.dumps(result["dashboard"], ensure_ascii=False, indent=2)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("dashboard.html", html)
+        z.writestr("hasil_avaya.xlsx", xlsx)
+        z.writestr("dashboard_data.json", data_json)
+    return buf.getvalue()
+
+
+# ==================================================================
+# FASTAPI ROUTES
+# ==================================================================
+def register_avaya_routes(app, qwen_ctx=None, api_key=None):
+    """Pasang route AWE Avaya ke FastAPI app yang sudah ada.
+
+    qwen_ctx: dict {generate, load, unload} untuk reuse Qwen dari modul utama.
+    api_key : bila diisi, endpoint memvalidasi header X-API-Key.
+    """
+    from fastapi import UploadFile, File, Header, HTTPException, Request
+    from fastapi.responses import Response
+    import json as _json
+
+    @app.post("/api/avaya-analyze")
+    async def avaya_analyze(
+        request: Request,
+    ):
+        x_api_key = request.headers.get("x-api-key")
+        """Terima >=1 file JSON AWE Avaya (digabung) + Training Phrase + Intent.
+        Balikan ZIP: dashboard.html + hasil_avaya.xlsx + dashboard_data.json."""
+        if api_key and x_api_key != api_key:
+            raise HTTPException(status_code=401, detail="API key tidak valid")
+        _form = await request.form()
+        payloads = [await _f.read() for _f in _form.getlist("files")]
+        training = await _form["file_training"].read()
+        intent = await _form["file_intent"].read()
+        try:
+            result = run_pipeline(payloads, training, intent, qwen_ctx=qwen_ctx)
+            zip_bytes = build_zip_bytes(result)
+            return Response(
+                content=zip_bytes,
+                media_type="application/zip",
+                headers={"Content-Disposition": "attachment; filename=hasil_avaya.zip",
+                         "X-Total-Conv": str(result["dashboard"]["meta"]["total_conv"])},
+            )
+        except Exception as _e:
+            import traceback as _tb
+            return Response(content="AVAYA_ERROR: " + repr(_e) + "\n" + _tb.format_exc()[-1500:],
+                            media_type="text/plain; charset=utf-8", status_code=400)
+
+    @app.post("/api/avaya-data")
+    async def avaya_data(
+        request: Request,
+    ):
+        x_api_key = request.headers.get("x-api-key")
+        """Sama seperti /api/avaya-analyze tapi balikan JSON dashboard (untuk
+        render inline di frontend)."""
+        if api_key and x_api_key != api_key:
+            raise HTTPException(status_code=401, detail="API key tidak valid")
+        _form = await request.form()
+        payloads = [await _f.read() for _f in _form.getlist("files")]
+        training = await _form["file_training"].read()
+        intent = await _form["file_intent"].read()
+        try:
+            result = run_pipeline(payloads, training, intent, qwen_ctx=qwen_ctx)
+            return result["dashboard"]
+        except Exception as _e:
+            import traceback as _tb
+            return Response(content="AVAYA_ERROR: " + repr(_e) + "\n" + _tb.format_exc()[-1500:],
+                            media_type="text/plain; charset=utf-8", status_code=400)
+
+    @app.post("/api/avaya-dashboard")
+    async def avaya_dashboard(
+        request: Request,
+    ):
+        x_api_key = request.headers.get("x-api-key")
+        """Balikan dashboard.html yang sudah dirender (untuk embed di frontend)."""
+        if api_key and x_api_key != api_key:
+            raise HTTPException(status_code=401, detail="API key tidak valid")
+        _form = await request.form()
+        payloads = [await _f.read() for _f in _form.getlist("files")]
+        training = await _form["file_training"].read()
+        intent = await _form["file_intent"].read()
+        try:
+            result = run_pipeline(payloads, training, intent, qwen_ctx=qwen_ctx)
+            html = render_dashboard_html(result["dashboard"])
+            return Response(content=html, media_type="text/html; charset=utf-8")
+        except Exception as _e:
+            import traceback as _tb
+            return Response(content="AVAYA_ERROR: " + repr(_e) + "\n" + _tb.format_exc()[-1500:],
+                            media_type="text/plain; charset=utf-8", status_code=400)
+
+    # ---- Tambahan v3: diagnostik + endpoint terpecah + catch-all ----
+    from fastapi import Request as _Request
+    from fastapi.responses import PlainTextResponse as _PlainText
+    import traceback as _tb_all
+
+    @app.exception_handler(Exception)
+    async def _avaya_catch_all(request, exc):
+        return _PlainText("SERVER_ERROR: " + repr(exc) + "\n" + _tb_all.format_exc()[-1800:],
+                          status_code=500)
+
+    @app.get("/api/avaya-diag")
+    async def avaya_diag():
+        import os as _os
+        def _has(m):
+            try:
+                __import__(m); return True
+            except Exception:
+                return False
+        return {"ok": True, "diag": {
+            "build": AVAYA_BUILD,
+            "here": _HERE,
+            "cwd": _os.getcwd(),
+            "template_path": TEMPLATE_PATH,
+            "template_file_exists": _os.path.isfile(TEMPLATE_PATH),
+            "embedded_template_len": len(_EMBEDDED_TEMPLATE_B64),
+            "openpyxl": _has("openpyxl"),
+            "numpy": _has("numpy"),
+            "sentence_transformers": _has("sentence_transformers"),
+            "torch": _has("torch"),
+            "qwen_ctx": bool(qwen_ctx),
+        }}
+
+    @app.post("/api/avaya-result")
+    async def avaya_result(
+        request: Request,
+    ):
+        x_api_key = request.headers.get("x-api-key")
+        """Jalankan pipeline, balikan JSON {build, dashboard, records}.
+        Tidak menyentuh template/excel -> mengisolasi error pipeline."""
+        if api_key and x_api_key != api_key:
+            raise HTTPException(status_code=401, detail="API key tidak valid")
+        try:
+            _form = await request.form()
+            payloads = [await _f.read() for _f in _form.getlist("files")]
+            training = await _form["file_training"].read()
+            intent = await _form["file_intent"].read()
+            result = run_pipeline(payloads, training, intent, qwen_ctx=qwen_ctx)
+            return {"build": AVAYA_BUILD,
+                    "dashboard": result["dashboard"],
+                    "records": result["records"]}
+        except Exception as _e:
+            import traceback as _t
+            return Response(content="AVAYA_ERROR[result]: " + repr(_e) + "\n" + _t.format_exc()[-1800:],
+                            media_type="text/plain; charset=utf-8", status_code=400)
+
+    @app.post("/api/avaya-render")
+    async def avaya_render(request: _Request, x_api_key: str | None = Header(default=None)):
+        """Terima JSON {dashboard}, balikan HTML dashboard -> mengisolasi error template."""
+        if api_key and x_api_key != api_key:
+            raise HTTPException(status_code=401, detail="API key tidak valid")
+        try:
+            body = await request.json()
+            dash = body.get("dashboard", body) if isinstance(body, dict) else body
+            html = render_dashboard_html(dash)
+            return Response(content=html, media_type="text/html; charset=utf-8")
+        except Exception as _e:
+            import traceback as _t
+            return Response(content="AVAYA_ERROR[render]: " + repr(_e) + "\n" + _t.format_exc()[-1800:],
+                            media_type="text/plain; charset=utf-8", status_code=400)
+
+    @app.post("/api/avaya-excel")
+    async def avaya_excel(request: _Request, x_api_key: str | None = Header(default=None)):
+        """Terima JSON {dashboard, records}, balikan file XLSX -> mengisolasi error excel."""
+        if api_key and x_api_key != api_key:
+            raise HTTPException(status_code=401, detail="API key tidak valid")
+        try:
+            body = await request.json()
+            result = {"dashboard": body["dashboard"], "records": body.get("records", [])}
+            xlsx = build_excel_bytes(result)
+            return Response(content=xlsx,
+                media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                headers={"Content-Disposition": "attachment; filename=hasil_avaya.xlsx"})
+        except Exception as _e:
+            import traceback as _t
+            return Response(content="AVAYA_ERROR[excel]: " + repr(_e) + "\n" + _t.format_exc()[-1800:],
+                            media_type="text/plain; charset=utf-8", status_code=400)
+
+    # ---- v3-async: jalankan pipeline di background + progress polling ----
+    @app.post("/api/avaya-result-start")
+    async def avaya_result_start(request: Request):
+        x_api_key = request.headers.get("x-api-key")
+        if api_key and x_api_key != api_key:
+            raise HTTPException(status_code=401, detail="API key tidak valid")
+        try:
+            form = await request.form()
+            payloads = [await _f.read() for _f in form.getlist("files")]
+            training = await form["file_training"].read()
+            intent = await form["file_intent"].read()
+        except Exception as _e:
+            import traceback as _t
+            return Response(content="AVAYA_ERROR[start-input]: " + repr(_e) + "\n" + _t.format_exc()[-1500:],
+                            media_type="text/plain; charset=utf-8", status_code=400)
+        job_id = _uuid.uuid4().hex[:12]
+        with _AVAYA_JOBS_LOCK:
+            _AVAYA_JOBS[job_id] = {"stage": "antri", "done": 0, "total": 0,
+                                   "started": _time_mod.time(), "finished": False,
+                                   "error": None, "result": None}
+        def _worker():
+            def _prog(stage, done=None, total=None):
+                with _AVAYA_JOBS_LOCK:
+                    j = _AVAYA_JOBS.get(job_id)
+                    if not j: return
+                    j["stage"] = stage
+                    if done is not None: j["done"] = done
+                    if total is not None: j["total"] = total
+            try:
+                result = run_pipeline(payloads, training, intent, qwen_ctx=qwen_ctx, progress=_prog)
+                with _AVAYA_JOBS_LOCK:
+                    _AVAYA_JOBS[job_id].update(stage="selesai", finished=True,
+                        done=_AVAYA_JOBS[job_id].get("total", 0),
+                        result={"build": AVAYA_BUILD, "dashboard": result["dashboard"], "records": result["records"]})
+                _avaya_log("[%s] SELESAI" % job_id)
+            except Exception as _e:
+                import traceback as _t
+                with _AVAYA_JOBS_LOCK:
+                    _AVAYA_JOBS[job_id].update(stage="error", finished=True,
+                        error=repr(_e) + "\n" + _t.format_exc()[-1600:])
+                _avaya_log("[%s] ERROR %r" % (job_id, _e))
+        _threading.Thread(target=_worker, daemon=True).start()
+        _avaya_log("[%s] job dimulai (%d file JSON)" % (job_id, len(payloads)))
+        return {"job_id": job_id, "build": AVAYA_BUILD}
+
+    @app.get("/api/avaya-progress")
+    async def avaya_progress(job: str = ""):
+        with _AVAYA_JOBS_LOCK:
+            j = _AVAYA_JOBS.get(job)
+            if not j:
+                return {"found": False, "build": AVAYA_BUILD}
+            return {"found": True, "stage": j["stage"], "done": j["done"], "total": j["total"],
+                    "elapsed": round(_time_mod.time() - j["started"], 1),
+                    "finished": j["finished"], "error": j["error"],
+                    "has_result": j["result"] is not None, "build": AVAYA_BUILD}
+
+    @app.get("/api/avaya-result-fetch")
+    async def avaya_result_fetch(job: str = ""):
+        with _AVAYA_JOBS_LOCK:
+            j = _AVAYA_JOBS.get(job)
+        if not j:
+            return Response(content="job tidak ditemukan (mungkin server sudah di-restart)",
+                            media_type="text/plain; charset=utf-8", status_code=404)
+        if j["error"]:
+            return Response(content="AVAYA_ERROR[job]: " + j["error"],
+                            media_type="text/plain; charset=utf-8", status_code=400)
+        if not j["finished"] or j["result"] is None:
+            return {"finished": False, "stage": j["stage"], "done": j["done"], "total": j["total"]}
+        return j["result"]
+
+    print("[AVAYA v3-async] Route terpasang: diag, result(-start/-progress/-fetch), render, excel (+ analyze/data/dashboard lama)", flush=True)
+    return app

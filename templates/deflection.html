@@ -1,0 +1,401 @@
+{% extends "base.html" %}
+{% block title %}Analisis Deflection & Sesi · Camerad Studio{% endblock %}
+{% block head %}<style>
+.wrap{ max-width:1180px; margin:0 auto; padding:22px 18px 70px; }
+header.pg{ display:flex; align-items:flex-start; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+header.pg h1{ font-size:20px; margin:0; letter-spacing:-.01em; }
+header.pg .sub{ color:var(--muted); font-size:12.5px; margin-top:3px; max-width:720px; }
+.spacer{ flex:1; }
+.toolbar{ display:flex; flex-wrap:wrap; gap:10px; align-items:flex-end; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:12px 14px; margin-bottom:18px; }
+.field{ display:flex; flex-direction:column; gap:4px; }
+.field label{ font-size:11px; color:var(--muted); }
+input,select{ background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:8px 10px; font-size:13px; }
+.seg{ display:inline-flex; background:var(--panel2); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+.seg button{ background:transparent; border:0; color:var(--muted); padding:8px 12px; cursor:pointer; font-size:12px; }
+.seg button.active{ background:var(--brand); color:#0b1020; font-weight:600; }
+.btn{ display:inline-flex; align-items:center; gap:7px; background:var(--panel2); border:1px solid var(--line); color:var(--text); padding:8px 13px; border-radius:10px; cursor:pointer; font-size:13px; }
+.btn:hover{ border-color:var(--brand); }
+.btn.primary{ background:var(--brand); color:#0b1020; border-color:transparent; font-weight:600; }
+.btn.sm{ padding:5px 9px; font-size:12px; border-radius:8px; }
+.btn.warn{ color:var(--amber); }
+.btn.good{ color:var(--green); }
+
+.section{ margin-bottom:26px; }
+.section h2{ font-size:14px; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+.section .cap{ color:var(--muted); font-size:12px; margin:0 0 12px; }
+.badge{ font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--brand); border:1px solid var(--line); background:var(--panel2); border-radius:20px; padding:2px 9px; }
+
+.kpis{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+.kpi{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; }
+.kpi .lbl{ font-size:11.5px; color:var(--muted); margin-bottom:6px; }
+.kpi .val{ font-size:24px; font-weight:800; letter-spacing:-.02em; }
+.kpi .sub{ font-size:11.5px; color:var(--muted); margin-top:4px; }
+.kpi.good .val{ color:var(--green); } .kpi.warn .val{ color:var(--amber); } .kpi.red .val{ color:var(--red); } .kpi.blue .val{ color:var(--brand); }
+
+.card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; }
+.bar-row{ display:grid; grid-template-columns:280px 1fr 74px; align-items:center; gap:12px; margin:9px 0; }
+.bar-row .name{ font-size:12.5px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.bar-row .track{ background:var(--panel2); border-radius:8px; height:14px; overflow:hidden; }
+.bar-row .fill{ height:100%; border-radius:8px; background:linear-gradient(90deg,var(--brand),#8b5cf6); }
+.bar-row .num{ font-size:12px; color:var(--muted); text-align:right; }
+.j-self .fill{ background:linear-gradient(90deg,#22c55e,#16a34a); }
+.j-agent .fill{ background:linear-gradient(90deg,#f59e0b,#d97706); }
+.j-abandon .fill{ background:linear-gradient(90deg,#ef4444,#b91c1c); }
+.j-conn .fill{ background:linear-gradient(90deg,#a855f7,#7c3aed); }
+.j-fb2 .fill{ background:linear-gradient(90deg,#eab308,#a16207); }
+
+/* Heatmap */
+.hm{ overflow-x:auto; }
+.hm table{ border-collapse:collapse; }
+.hm th{ font-size:10px; color:var(--muted); font-weight:600; padding:2px 4px; text-align:center; }
+.hm td.d{ font-size:11px; color:var(--muted); padding-right:8px; white-space:nowrap; text-align:right; }
+.hm .cell{ width:22px; height:20px; border-radius:4px; text-align:center; }
+.hm .cell span{ font-size:0; }
+.legend{ display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); margin-top:10px; }
+.legend i{ width:16px; height:12px; border-radius:3px; display:inline-block; }
+.byhour{ display:flex; align-items:flex-end; gap:3px; height:110px; margin-top:6px; }
+.byhour .b{ flex:1; background:var(--brand); border-radius:4px 4px 0 0; min-height:2px; position:relative; }
+.byhour .b.work{ background:var(--green); } .byhour .b.off{ opacity:.5; }
+.byhour .hx{ text-align:center; font-size:9px; color:var(--muted); margin-top:3px; }
+.hgrid{ display:grid; grid-template-columns:2fr 1fr; gap:16px; }
+
+/* Candidate table */
+.tbl{ width:100%; border-collapse:collapse; }
+.tbl th{ text-align:left; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; padding:8px 10px; border-bottom:1px solid var(--line); }
+.tbl td{ padding:9px 10px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:top; }
+.tbl tr.clk{ cursor:pointer; } .tbl tr.clk:hover{ background:var(--panel2); }
+.tag{ font-size:10.5px; font-weight:700; padding:2px 8px; border-radius:20px; }
+.tag.skip{ background:var(--panel2); color:var(--muted); border:1px solid var(--line); }
+.tag.followup{ background:rgba(245,158,11,.15); color:var(--amber); }
+.tag.resolved{ background:rgba(34,197,94,.15); color:var(--green); }
+.searchbox{ margin-left:auto; }
+.pager{ display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-top:12px; font-size:12px; color:var(--muted); }
+.pager button{ background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:5px 10px; cursor:pointer; }
+.pager button:disabled{ opacity:.4; cursor:not-allowed; }
+
+/* Modal */
+.backdrop2{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); backdrop-filter:blur(3px); z-index:100; }
+.backdrop2.show{ display:block; }
+.modal{ position:fixed; z-index:101; top:50%; left:50%; transform:translate(-50%,-50%); width:min(860px,94vw); max-height:88vh; overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px 22px; box-shadow:var(--shadow); display:none; }
+.modal.show{ display:block; }
+.modal h3{ margin:0 0 2px; font-size:16px; }
+.modal .x{ position:absolute; top:14px; right:16px; cursor:pointer; color:var(--muted); font-size:20px; background:none; border:0; }
+.chips{ display:flex; flex-wrap:wrap; gap:6px; margin:8px 0 4px; }
+.chip{ background:var(--panel2); border:1px solid var(--line); border-radius:20px; padding:3px 10px; font-size:12px; }
+.chip.clk{ cursor:pointer; font:inherit; }
+.chip.sel{ border-color:var(--brand); background:rgba(59,130,246,.16); color:var(--text); }
+.chip b{ color:var(--brand); margin-left:5px; }
+.mono{ font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--muted); }
+.sess-item{ display:flex; align-items:center; gap:10px; padding:7px 0; border-bottom:1px solid var(--line); }
+.sess-item .sid{ font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.turn{ margin:10px 0; }
+.turn .u{ background:var(--panel2); border:1px solid var(--line); border-radius:12px 12px 12px 4px; padding:8px 12px; font-size:13px; display:inline-block; max-width:86%; }
+.turn .bt{ background:rgba(59,130,246,.08); border:1px solid var(--line); border-radius:12px 12px 4px 12px; padding:8px 12px; font-size:13px; margin-top:5px; margin-left:auto; max-width:86%; }
+.turn .meta{ font-size:10px; color:var(--muted); margin-top:3px; }
+.turn.fb .u{ border-color:var(--red); }
+.empty{ color:var(--muted); font-size:13px; padding:14px 4px; }
+.note{ font-size:11.5px; color:var(--muted); }
+@media(max-width:900px){ .kpis{grid-template-columns:repeat(2,1fr);} .hgrid{grid-template-columns:1fr;} .bar-row{grid-template-columns:150px 1fr 60px;} }
+</style>{% endblock %}
+
+{% block content %}
+<div class="wrap">
+  <header class="pg">
+    <div>
+      <h1>Analisis Deflection &amp; Sesi</h1>
+      <div class="sub">Rekonstruksi perjalanan percakapan per sesi: kapan bot berhasil melayani mandiri, kapan pengguna jatuh ke <em>fallback</em>, dan kapan tersambung ke agent (ketik <b>1500200</b> atau via kata kunci/typo). Termasuk jam sibuk, keandalan self-service, dan drill-down kandidat intent baru.</div>
+    </div>
+  </header>
+
+  {% include "_ask_ai.html" %}
+
+  <div class="toolbar">
+    <div class="field">
+      <label>Rentang</label>
+      <div class="seg" id="rangeSeg">
+        <button data-r="7d">7 hari</button>
+        <button data-r="30d" class="active">30 hari</button>
+        <button data-r="90d">90 hari</button>
+        <button data-r="all">Semua</button>
+        <button data-r="custom">Custom</button>
+      </div>
+    </div>
+    <div class="field cust" style="display:none"><label>Dari</label><input type="date" id="startD"></div>
+    <div class="field cust" style="display:none"><label>Sampai</label><input type="date" id="endD"></div>
+    <div class="field">
+      <label>Bahasa</label>
+      <select id="langSel"><option value="">Semua</option><option value="id">ID</option><option value="en">EN</option></select>
+    </div>
+    <div class="field">
+      <label>Jam kerja (WIB)</label>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <input type="number" id="wStart" value="8" min="0" max="23" style="width:62px">
+        <span class="note">s/d</span>
+        <input type="number" id="wEnd" value="16" min="1" max="24" style="width:62px">
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <button class="btn primary" id="reloadBtn">Muat ulang</button>
+  </div>
+
+  <!-- D3 KPI -->
+  <div class="section">
+    <div class="kpis" id="kpis">
+      <div class="kpi blue"><div class="lbl">Total Sesi</div><div class="val" id="kTotal">–</div><div class="sub" id="kTotalSub"></div></div>
+      <div class="kpi good"><div class="lbl">Self-service (dari semua sesi)</div><div class="val" id="kSelf">–</div><div class="sub" id="kSelfSub"></div></div>
+      <div class="kpi warn"><div class="lbl">Keandalan bot</div><div class="val" id="kRel">–</div><div class="sub">sesi yang benar‑benar pakai bot (agent dikecualikan)</div></div>
+      <div class="kpi red"><div class="lbl">Tersambung agent</div><div class="val" id="kAgent">–</div><div class="sub" id="kAgentSub"></div></div>
+    </div>
+  </div>
+
+  <!-- D1 Journeys -->
+  <div class="section">
+    <h2>Jejak Perjalanan Sesi <span class="badge">D1</span></h2>
+    <p class="cap">Setiap sesi diklasifikasikan ke satu kategori (prioritas: tersambung agent &gt; eskalasi fallback‑2 &gt; fallback ditinggalkan &gt; mandiri).</p>
+    <div class="card" id="journeyCard"><div class="empty">Memuat…</div></div>
+  </div>
+
+  <!-- D2 Heatmap -->
+  <div class="section">
+    <h2>Sesi &amp; Jam Sibuk (WIB) <span class="badge">D2</span></h2>
+    <p class="cap">Timestamp dikonversi dari UTC ke WIB (+7). Sel lebih terang = beban lebih tinggi.</p>
+    <div class="hgrid">
+      <div class="card">
+        <div class="hm" id="heatmap"><div class="empty">Memuat…</div></div>
+        <div class="legend">Rendah <i style="background:rgba(59,130,246,.12)"></i><i style="background:rgba(59,130,246,.35)"></i><i style="background:rgba(59,130,246,.6)"></i><i style="background:rgba(59,130,246,.9)"></i> Tinggi</div>
+      </div>
+      <div class="card">
+        <div style="font-size:12px; color:var(--muted); margin-bottom:6px;">Distribusi per jam (WIB)</div>
+        <div class="byhour" id="byhour"></div>
+        <div id="workInfo" style="margin-top:12px; font-size:13px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- D6 Candidates -->
+  <div class="section">
+    <h2>Kandidat Intent Baru — Drill-down <span class="badge">D6</span></h2>
+    <p class="cap">Frasa yang jatuh ke <em>fallback</em>. Klik baris untuk melihat rincian topik &amp; percakapan, lalu tandai <b>Skip</b> atau <b>Tindak lanjut</b>. Penandaan hanya status — pelatihan intent tetap dilakukan manual di Dialogflow, lalu dipantau otomatis di sini.</p>
+    <div class="card">
+      <div style="display:flex; gap:10px; align-items:center; margin-bottom:6px; flex-wrap:wrap;">
+        <span class="note" id="candCount"></span>
+        <input class="searchbox" id="candSearch" placeholder="Cari frasa…" style="min-width:220px">
+      </div>
+      <table class="tbl">
+        <thead><tr><th style="width:44px">#</th><th>Frasa (fallback)</th><th style="width:90px">Jumlah</th><th style="width:140px">Status</th></tr></thead>
+        <tbody id="candBody"><tr><td colspan="4" class="empty">Memuat…</td></tr></tbody>
+      </table>
+      <div class="pager" id="candPager"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal drill-down -->
+<div class="backdrop2" id="bd"></div>
+<div class="modal" id="modal">
+  <button class="x" id="mClose">&times;</button>
+  <div id="modalBody"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}<script>
+const $=(s,r=document)=>r.querySelector(s), $$=(s,r=document)=>[...r.querySelectorAll(s)];
+let RANGE='30d';
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function qs(){
+  const p=new URLSearchParams(); p.set('range',RANGE);
+  if(RANGE==='custom'){ const a=$('#startD').value,b=$('#endD').value; if(a)p.set('start',a); if(b)p.set('end',b); }
+  const lg=$('#langSel').value; if(lg)p.set('lang',lg);
+  p.set('work_start',$('#wStart').value||8); p.set('work_end',$('#wEnd').value||16);
+  return p.toString();
+}
+function num(n){ return (n==null?0:n).toLocaleString('id-ID'); }
+
+// ------- range seg -------
+$$('#rangeSeg button').forEach(b=>b.onclick=()=>{
+  $$('#rangeSeg button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
+  RANGE=b.dataset.r; $$('.cust').forEach(x=>x.style.display=(RANGE==='custom'?'flex':'none'));
+  if(RANGE!=='custom') loadAll();
+});
+$('#reloadBtn').onclick=loadAll; $('#langSel').onchange=loadAll;
+
+// ------- summary (D1/D2/D3) -------
+async function loadSummary(){
+  const r=await fetch('/api/deflection/summary?'+qs()); const d=await r.json();
+  if(!d.ok){ return; }
+  const q=d.quality, j=d.journeys, h=d.hourly;
+  // KPI
+  $('#kTotal').textContent=num(q.total_sessions);
+  $('#kTotalSub').textContent=(d.range.start||'')+' → '+(d.range.end||'');
+  $('#kSelf').textContent=q.self_service_rate+'%';
+  $('#kSelfSub').textContent=num(q.bot_only_resolved)+' sesi tuntas tanpa fallback';
+  $('#kRel').textContent=q.reliability_rate+'%';
+  $('#kAgent').textContent=q.agent_rate+'%';
+  $('#kAgentSub').textContent='1500200: '+num(q.to_agent_1500200)+' · kata kunci/typo: '+num(q.to_agent_connector);
+  // Journeys
+  const cls={self_served:'j-self',agent_1500200:'j-agent',fallback_abandon:'j-abandon',agent_connector:'j-conn',fallback2_no_agent:'j-fb2'};
+  const mx=Math.max(1,...j.items.map(i=>i.count));
+  $('#journeyCard').innerHTML=j.items.map(i=>`
+    <div class="bar-row ${cls[i.key]||''}">
+      <div class="name" title="${esc(i.label)}">${esc(i.label)}</div>
+      <div class="track"><div class="fill" style="width:${(i.count/mx*100).toFixed(1)}%"></div></div>
+      <div class="num">${num(i.count)} · ${i.pct}%</div>
+    </div>`).join('')+`
+    <div class="note" style="margin-top:10px">Fallback sebelum tersambung agent: <b>${num(j.fallback_before_agent)}</b> sesi · Sesi ber-fallback‑1: <b>${num(j.sessions_with_fallback1)}</b> · ber-fallback‑2 (eskalasi): <b>${num(j.sessions_with_fallback2)}</b></div>`;
+  renderHeatmap(h);
+}
+function renderHeatmap(h){
+  const dowOrder=[1,2,3,4,5,6,0], dowName={0:'Min',1:'Sen',2:'Sel',3:'Rab',4:'Kam',5:'Jum',6:'Sab'};
+  let mx=1; for(const row of h.matrix) for(const v of row) if(v>mx)mx=v;
+  let html='<table><thead><tr><th></th>';
+  for(let hr=0;hr<24;hr++) html+='<th>'+hr+'</th>'; html+='</tr></thead><tbody>';
+  for(const d of dowOrder){
+    html+='<tr><td class="d">'+dowName[d]+'</td>';
+    for(let hr=0;hr<24;hr++){
+      const v=h.matrix[d][hr]; const a=v? (0.12+0.78*(v/mx)) : 0.04;
+      html+='<td class="cell" style="background:rgba(59,130,246,'+a.toFixed(2)+')" title="'+dowName[d]+' '+hr+':00 WIB — '+num(v)+'"><span>'+v+'</span></td>';
+    }
+    html+='</tr>';
+  }
+  html+='</tbody></table>'; $('#heatmap').innerHTML=html;
+  // by hour
+  const bmax=Math.max(1,...h.by_hour); const ws=+($('#wStart').value||8), we=+($('#wEnd').value||16);
+  $('#byhour').innerHTML=h.by_hour.map((v,hr)=>{
+    const inw=(hr>=ws&&hr<we);
+    return '<div style="flex:1; display:flex; flex-direction:column; justify-content:flex-end;"><div class="b '+(inw?'work':'off')+'" style="height:'+(v/bmax*100).toFixed(1)+'%" title="'+hr+':00 — '+num(v)+'"></div><div class="hx">'+(hr%3===0?hr:'')+'</div></div>';
+  }).join('');
+  const peak=(h.peak_hour==null?'–':h.peak_hour+':00');
+  $('#workInfo').innerHTML=`Dalam jam kerja: <b style="color:var(--green)">${num(h.work)}</b> (${h.work_pct}%) · Luar jam: <b>${num(h.off)}</b><br><span class="note">Jam sibuk puncak: <b>${peak} WIB</b> · Jam kerja Sen–Jum ${ws}.00–${we}.00 WIB</span>`;
+}
+
+// ------- candidates (D6) -------
+let CANDS=[], CPAGE=1, CPS=20, CFILTER='';
+async function loadCandidates(){
+  const r=await fetch('/api/deflection/candidates?'+qs()+'&limit=300'); const d=await r.json();
+  CANDS = d.ok? d.items : []; CPAGE=1; renderCands();
+}
+function filtered(){ const f=CFILTER.trim().toLowerCase(); return f? CANDS.filter(c=>(c.phrase||'').toLowerCase().includes(f)) : CANDS; }
+function statusTag(c){
+  if(c.status==='skip') return '<span class="tag skip">Skip</span>';
+  if(c.status==='followup') return '<span class="tag followup">Tindak lanjut</span>';
+  return '<span class="note">–</span>';
+}
+function renderCands(){
+  const rows=filtered(); const tot=rows.length; const pages=Math.max(1,Math.ceil(tot/CPS));
+  if(CPAGE>pages)CPAGE=pages; const st=(CPAGE-1)*CPS; const pg=rows.slice(st,st+CPS);
+  $('#candCount').textContent=num(tot)+' frasa fallback';
+  $('#candBody').innerHTML = pg.length? pg.map((c,i)=>`
+    <tr class="clk" data-p="${esc(c.phrase)}">
+      <td class="mono">${st+i+1}</td>
+      <td>${esc((c.phrase||'').slice(0,160))}${(c.phrase||'').length>160?'…':''}</td>
+      <td><b>${num(c.count)}</b></td>
+      <td>${statusTag(c)}</td>
+    </tr>`).join('') : '<tr><td colspan="4" class="empty">Tidak ada kandidat pada rentang ini.</td></tr>';
+  $$('#candBody tr.clk').forEach(tr=>tr.onclick=()=>openCandidate(tr.dataset.p));
+  $('#candPager').innerHTML=`<button ${CPAGE<=1?'disabled':''} id="cprev">‹</button><span>Hal. ${CPAGE}/${pages}</span><button ${CPAGE>=pages?'disabled':''} id="cnext">›</button>`;
+  const pv=$('#cprev'),nx=$('#cnext'); if(pv)pv.onclick=()=>{CPAGE--;renderCands();}; if(nx)nx.onclick=()=>{CPAGE++;renderCands();};
+}
+$('#candSearch').oninput=e=>{ CFILTER=e.target.value; CPAGE=1; renderCands(); };
+
+// ------- modal drill-down -------
+function openModal(){ $('#bd').classList.add('show'); $('#modal').classList.add('show'); }
+function closeModal(){ $('#bd').classList.remove('show'); $('#modal').classList.remove('show'); }
+$('#bd').onclick=closeModal; $('#mClose').onclick=closeModal;
+
+let CUR_DETAIL=null, CUR_PHRASE='', SEL_INTENTS=new Set();
+
+async function openCandidate(phrase){
+  openModal(); $('#modalBody').innerHTML='<div class="empty">Memuat rincian...</div>';
+  const r=await fetch('/api/deflection/candidate?'+qs()+'&phrase='+encodeURIComponent(phrase)); const d=await r.json();
+  if(!d.ok){ $('#modalBody').innerHTML='<div class="empty">Gagal memuat.</div>'; return; }
+  CUR_DETAIL=d.detail; CUR_PHRASE=phrase; SEL_INTENTS=new Set();
+  const x=d.detail;
+  let mon='';
+  if(x.monitor&&x.monitor.followed_up){
+    mon = x.monitor.resolved
+      ? `<span class="tag resolved">Teratasi - 0 fallback sejak ${esc((x.monitor.followup_at||'').slice(0,10))}</span>`
+      : `<span class="tag followup">Masih ${num(x.monitor.still_fallback_since)}x fallback sejak ${esc((x.monitor.followup_at||'').slice(0,10))}</span>`;
+  }
+  const chips = x.cooccurring_intents.length
+    ? x.cooccurring_intents.map(ci=>`<button type="button" class="chip clk" data-intent="${esc(ci.intent)}">${esc(ci.intent)}<b>${num(ci.count)}</b>${istatusTag(ci.status)}</button>`).join('')
+    : '<span class="note">Tidak ada intent bersih terdeteksi di sesi-sesi ini.</span>';
+  $('#modalBody').innerHTML=`
+    <h3>${esc((phrase||'').slice(0,200))}</h3>
+    <div class="note">Muncul <b>${num(x.occurrences)}</b> kali di <b>${num(x.session_count)}</b> sesi. ${mon}</div>
+    <div style="font-size:12.5px; color:var(--muted); margin:14px 0 4px; font-weight:600;">Pecahan topik (intent bersih yang muncul di sesi yang sama)</div>
+    <div class="note" style="margin-bottom:6px;">Klik satu atau lebih intent untuk menyaring daftar percakapan. Status tindak lanjut (Skip / Tindak lanjut) berlaku untuk <b>intent terpilih</b>, bukan per frasa.</div>
+    <div class="chips" id="coChips">${chips}</div>
+    <div style="margin:12px 0; display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+      <button class="btn sm" data-st="followup">Tandai: Tindak lanjut</button>
+      <button class="btn sm warn" data-st="skip">Tandai: Skip</button>
+      <button class="btn sm" data-st="">Batalkan status</button>
+      <span class="note" id="stMsg" style="align-self:center"></span>
+    </div>
+    <div style="font-size:12.5px; color:var(--muted); margin:16px 0 4px; font-weight:600;">Percakapan (<span id="sessCount">${num(x.sessions.length)}</span> sesi teratas)</div>
+    <div id="sessList"></div>`;
+  $$('#coChips .chip').forEach(b=>b.onclick=()=>toggleIntent(b.dataset.intent));
+  $$('#modalBody [data-st]').forEach(b=>b.onclick=()=>saveIntentStatus(b.dataset.st));
+  renderSessions();
+}
+
+function toggleIntent(intent){
+  if(SEL_INTENTS.has(intent)) SEL_INTENTS.delete(intent); else SEL_INTENTS.add(intent);
+  $$('#coChips .chip').forEach(b=>b.classList.toggle('sel', SEL_INTENTS.has(b.dataset.intent)));
+  renderSessions();
+}
+
+function renderSessions(){
+  const x=CUR_DETAIL; if(!x) return;
+  let list=x.sessions||[];
+  if(SEL_INTENTS.size){
+    list=list.filter(s=>{ const ints=s.intents||[]; for(const it of SEL_INTENTS){ if(ints.indexOf(it)<0) return false; } return true; });
+  }
+  const sc=$('#sessCount'); if(sc) sc.textContent=num(list.length);
+  $('#sessList').innerHTML = list.length? list.map(s=>`
+    <div class="sess-item"><span class="sid" title="${esc(s.session_id)}">${esc(s.session_id)}</span>
+    <span class="note">${num(s.hits)}x</span>
+    <button class="btn sm" data-sid="${esc(s.session_id)}">Lihat percakapan</button></div>`).join('') : '<div class="empty">Tidak ada sesi untuk intent terpilih.</div>';
+  $$('#sessList [data-sid]').forEach(b=>b.onclick=()=>openTranscript(b.dataset.sid));
+}
+
+async function saveIntentStatus(status){
+  if(!SEL_INTENTS.size){ $('#stMsg').textContent='Pilih minimal satu intent (klik chip) sebelum menandai status.'; return; }
+  $('#stMsg').textContent='Menyimpan...';
+  const targets=[...SEL_INTENTS]; let okc=0;
+  for(const intent of targets){
+    const r=await fetch('/api/deflection/intent-status/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({intent,status})});
+    const d=await r.json();
+    if(d.ok){ okc++; const ci=(CUR_DETAIL.cooccurring_intents||[]).find(c=>c.intent===intent); if(ci){ ci.status=d.status; ci.followup_at=d.followup_at; } }
+  }
+  $('#stMsg').textContent = okc? `Tersimpan untuk ${okc} intent.` : 'Gagal menyimpan.';
+  $$('#coChips .chip').forEach(b=>{ const ci=(CUR_DETAIL.cooccurring_intents||[]).find(c=>c.intent===b.dataset.intent); if(ci){ b.innerHTML=`${esc(ci.intent)}<b>${num(ci.count)}</b>${istatusTag(ci.status)}`; b.classList.toggle('sel', SEL_INTENTS.has(b.dataset.intent)); } });
+}
+
+function istatusTag(st){
+  if(st==='skip') return ' <span class="tag skip">Skip</span>';
+  if(st==='followup') return ' <span class="tag followup">Tindak lanjut</span>';
+  return '';
+}
+
+async function openTranscript(sid){
+  $('#modalBody').innerHTML='<div class="empty">Memuat transkrip…</div>';
+  const r=await fetch('/api/deflection/transcript?session_id='+encodeURIComponent(sid)); const d=await r.json();
+  if(!d.ok){ $('#modalBody').innerHTML='<div class="empty">Gagal memuat.</div>'; return; }
+  const turns=d.turns||[];
+  $('#modalBody').innerHTML=`
+    <h3>Transkrip percakapan</h3>
+    <div class="mono">${esc(sid)}</div>
+    <div style="margin:10px 0"><button class="btn sm" id="backBtn">‹ Kembali</button></div>
+    <div id="turns"></div>`;
+  $('#backBtn').onclick=()=>{ closeModal(); };
+  $('#turns').innerHTML = turns.length? turns.map(t=>`
+    <div class="turn ${t.is_fallback?'fb':''}">
+      <div class="u">${esc(t.user_phrase||'')}</div>
+      <div class="bt">${esc(t.bot_response||'')}</div>
+      <div class="meta">${esc((t.ts||'').replace('T',' ').replace('Z',' UTC'))} · ${esc(t.intent||'')}${t.is_fallback?' · FALLBACK':''}</div>
+    </div>`).join('') : '<div class="empty">Tidak ada data.</div>';
+}
+
+function loadAll(){ loadSummary(); loadCandidates(); }
+loadAll();
+</script>{% endblock %}

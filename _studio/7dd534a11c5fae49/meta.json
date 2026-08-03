@@ -1,0 +1,263 @@
+{
+  "docid": "7dd534a11c5fae49",
+  "filename": "Laporan_Utama (3).xlsx",
+  "ext": "xlsx",
+  "n_chars": 1444666,
+  "pages": 0,
+  "note": "",
+  "owner": "admin",
+  "at": "2026-07-31T14:27:05.462991",
+  "tables_meta": [
+    {
+      "name": "Interaksi",
+      "columns": [
+        "ID trace",
+        "waktu interaksi",
+        "user phrase",
+        "bot response",
+        "intent name",
+        "lang",
+        "insertId",
+        "score"
+      ],
+      "n_rows": 5000
+    },
+    {
+      "name": "Statistik Intent",
+      "columns": [
+        "intent name",
+        "jumlah interaksi"
+      ],
+      "n_rows": 178
+    },
+    {
+      "name": "System",
+      "columns": [
+        "ID trace",
+        "waktu interaksi",
+        "user phrase",
+        "bot response",
+        "intent name",
+        "lang",
+        "insertId",
+        "score"
+      ],
+      "n_rows": 3369
+    },
+    {
+      "name": "Fallback",
+      "columns": [
+        "ID trace",
+        "waktu interaksi",
+        "user phrase",
+        "bot response",
+        "intent name",
+        "lang",
+        "insertId",
+        "score"
+      ],
+      "n_rows": 282
+    },
+    {
+      "name": "1 Karakter",
+      "columns": [
+        "ID trace",
+        "waktu interaksi",
+        "user phrase",
+        "bot response",
+        "intent name",
+        "lang",
+        "insertId",
+        "score"
+      ],
+      "n_rows": 266
+    },
+    {
+      "name": "Non Fallback",
+      "columns": [
+        "ID trace",
+        "waktu interaksi",
+        "user phrase",
+        "bot response",
+        "intent name",
+        "lang",
+        "insertId",
+        "score"
+      ],
+      "n_rows": 2163
+    },
+    {
+      "name": "Rekomendasi Fallback",
+      "columns": [
+        "InserId",
+        "ID Rekaman",
+        "Waktu Interaksi",
+        "Pertanyaan User",
+        "Rek_1_ID",
+        "Rek_1_Skor_Deteksi",
+        "Rek_1_Trigger_Phrase",
+        "Rek_1_Skor_Evaluasi",
+        "Rek_1_Jawaban",
+        "Rek_1_Metode",
+        "Rek_1_Skor_MPNet",
+        "Rek_1_Skor_RapidFuzz",
+        "Rek_1_Skor_Reranker",
+        "Rek_1_Skor_Voting",
+        "Rek_1_Exact_Match",
+        "Rek_1_Confidence",
+        "Rek_2_ID",
+        "Rek_2_Skor_Deteksi",
+        "Rek_2_Trigger_Phrase",
+        "Rek_2_Skor_Evaluasi",
+        "Rek_2_Jawaban",
+        "Rek_2_Metode",
+        "Rek_2_Skor_MPNet",
+        "Rek_2_Skor_RapidFuzz",
+        "Rek_2_Skor_Reranker",
+        "Rek_2_Skor_Voting",
+        "Rek_2_Exact_Match",
+        "Rek_2_Confidence",
+        "Rek_3_ID",
+        "Rek_3_Skor_Deteksi",
+        "Rek_3_Trigger_Phrase",
+        "Rek_3_Skor_Evaluasi",
+        "Rek_3_Jawaban",
+        "Rek_3_Metode",
+        "Rek_3_Skor_MPNet",
+        "Rek_3_Skor_RapidFuzz",
+        "Rek_3_Skor_Reranker",
+        "Rek_3_Skor_Voting",
+        "Rek_3_Exact_Match",
+        "Rek_3_Confidence",
+        "Rek_4_ID",
+        "Rek_4_Skor_Deteksi",
+        "Rek_4_Trigger_Phrase",
+        "Rek_4_Skor_Evaluasi",
+        "Rek_4_Jawaban",
+        "Rek_4_Metode",
+        "Rek_4_Skor_MPNet",
+        "Rek_4_Skor_RapidFuzz",
+        "Rek_4_Skor_Reranker",
+        "Rek_4_Skor_Voting",
+        "Rek_4_Exact_Match",
+        "Rek_4_Confidence",
+        "Rek_5_ID",
+        "Rek_5_Skor_Deteksi",
+        "Rek_5_Trigger_Phrase",
+        "Rek_5_Skor_Evaluasi",
+        "Rek_5_Jawaban",
+        "Rek_5_Metode",
+        "Rek_5_Skor_MPNet",
+        "Rek_5_Skor_RapidFuzz",
+        "Rek_5_Skor_Reranker",
+        "Rek_5_Skor_Voting",
+        "Rek_5_Exact_Match",
+        "Rek_5_Confidence",
+        "LLM_JUDGEMENT",
+        "LLM_RAW_OUTPUT",
+        "JUDGEMENT_SOURCE",
+        "GATE_REASON"
+      ],
+      "n_rows": 281
+    },
+    {
+      "name": "Analisis Fallback",
+      "columns": [
+        "Tanggal Rekaman",
+        "ID Percakapan",
+        "InsertId",
+        "Pertanyaan User",
+        "Catatan LLM",
+        "Intent Judgement LLM",
+        "Isi Intent"
+      ],
+      "n_rows": 281
+    },
+    {
+      "name": "_Opsi_Intent",
+      "columns": [
+        "Opsi dropdown (A-E) & isi jawaban (F-J) per baris. Jangan diubah/dihapus.",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "n_rows": 281
+    },
+    {
+      "name": "QA Conf MKTA",
+      "columns": [
+        "ID Rekaman",
+        "Waktu Interaksi",
+        "InsertId",
+        "Pertanyaan User",
+        "Bot Response",
+        "Intent Name",
+        "Skor Dialogflow",
+        "Skor Pemrosesan Bahasa",
+        "Relevansi Intent Bot",
+        "Skor QA",
+        "Skor NLI",
+        "Intent Terdekat (Mesin)",
+        "Skor Intent Terdekat",
+        "Selisih Terdekat-Bot",
+        "Kategori Mesin",
+        "Prioritas Tinjau",
+        "Kandidat Intent",
+        "PUTUSAN",
+        "INTENT SEHARUSNYA",
+        "ALASAN"
+      ],
+      "n_rows": 2099
+    },
+    {
+      "name": "Analisis MKTA",
+      "columns": [
+        "Pertanyaan User",
+        "Bot Response",
+        "Intent Name",
+        "Skor Dialogflow",
+        "Skor Pemrosesan Bahasa",
+        "Skor NLI",
+        "Kategori Mesin",
+        "Prioritas Tinjau",
+        "Intent Terdekat (Mesin)",
+        "Kandidat Intent",
+        "PUTUSAN",
+        "Intent Seharusnya (LLM)",
+        "ALASAN",
+        "Intent Seharusnya"
+      ],
+      "n_rows": 133
+    },
+    {
+      "name": "LM",
+      "columns": [
+        "TGL_REKAMAN",
+        "NOMOR_REKAMAN",
+        "NM_AGENT",
+        "HASIL_LM",
+        "CATATAN_LM"
+      ],
+      "n_rows": 208
+    },
+    {
+      "name": "Pembaruan",
+      "columns": [
+        "INSERT_ID",
+        "NAMA_MATERI",
+        "TGL PENYUSUNAN",
+        "NAMA PENYUSUN",
+        "RANGKUMAN",
+        "STATUS MATERI",
+        "KATEGORI"
+      ],
+      "n_rows": 246
+    }
+  ]
+}

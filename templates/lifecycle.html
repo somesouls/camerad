@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block title %}Siklus Hidup Intent — Camerad Studio{% endblock %}
+{% block head %}
+<style>
+  .lc-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-bottom:16px}
+  .lc-field{display:flex;flex-direction:column;gap:4px}
+  .lc-field label{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .lc-field input,.lc-field select{padding:7px 10px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel-bg);color:var(--text-main);font-size:13px}
+  .lc-field input[type=number]{width:88px}
+  .lc-field input[type=search]{min-width:220px}
+  .lc-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px}
+  @media(max-width:1100px){.lc-kpis{grid-template-columns:repeat(2,1fr)}}
+  .kpi{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-sm)}
+  .kpi .k-lbl{font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:6px}
+  .kpi .k-val{font-size:26px;font-weight:800;margin-top:6px;color:var(--text-main)}
+  .kpi .k-sub{font-size:11px;color:var(--text-muted);margin-top:2px}
+  .kpi.k-dot-green{border-left:3px solid var(--c-green)}
+  .kpi.k-dot-orange{border-left:3px solid var(--c-orange)}
+  .kpi.k-dot-red{border-left:3px solid var(--c-red)}
+  .kpi.k-dot-blue{border-left:3px solid var(--c-blue)}
+  .kpi.k-dot-purple{border-left:3px solid var(--c-purple)}
+  .lc-segs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+  .seg{padding:6px 12px;border:1px solid var(--line);border-radius:999px;background:var(--panel-bg);color:var(--text-muted);font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+  .seg.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .lc-card{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:var(--radius);box-shadow:var(--shadow-sm);overflow:hidden}
+  table.lc-tbl{width:100%;border-collapse:collapse;font-size:13px}
+  table.lc-tbl th,table.lc-tbl td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+  table.lc-tbl th{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0;background:var(--panel-bg);z-index:1}
+  table.lc-tbl td.num,table.lc-tbl th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .intent-name{font-weight:600;word-break:break-word}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;white-space:nowrap}
+  .pill.aktif{background:rgba(34,160,90,.14);color:var(--c-green)}
+  .pill.retensi{background:rgba(230,150,20,.16);color:var(--c-orange)}
+  .pill.tidak{background:rgba(210,60,60,.14);color:var(--c-red)}
+  .pill.soft{background:rgba(120,90,200,.16);color:var(--c-purple)}
+  .lc-btn{padding:5px 11px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel-bg);color:var(--text-main);font-size:12px;font-weight:600;cursor:pointer}
+  .lc-btn:hover{border-color:var(--accent);color:var(--accent)}
+  .lc-btn.danger:hover{border-color:var(--c-red);color:var(--c-red)}
+  .lc-btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+  .muted{color:var(--text-muted)}
+  .lc-note{font-size:12px;color:var(--text-muted);margin:2px 0 14px}
+  .lc-status{font-size:12px;color:var(--text-muted);margin-left:8px}
+  .lc-empty{padding:34px;text-align:center;color:var(--text-muted)}
+  .row-soft td{opacity:.62}
+</style>
+{% endblock %}
+{% block content %}
+<div style="max-width:1080px;margin:0 auto;padding:22px 18px 60px;">
+
+<div class="page-head">
+  <h1>Siklus Hidup Intent</h1>
+  <p class="lc-note">Kelola intent berdasarkan pemakaian nyata (data Dialogflow). Intent yang lama tidak terpanggil dapat ditandai untuk dibersihkan (soft delete) sesuai kebijakan retensi.</p>
+</div>
+
+{% include "_ask_ai.html" %}
+
+<div class="lc-toolbar">
+  <div class="lc-field">
+    <label>Retensi (bulan)</label>
+    <input id="lc-months" type="number" min="1" max="36" step="1" value="6">
+  </div>
+  <div class="lc-field">
+    <label>Bahasa</label>
+    <select id="lc-lang">
+      <option value="">Semua</option>
+      <option value="id">Indonesia</option>
+      <option value="en">English</option>
+    </select>
+  </div>
+  <div class="lc-field" style="flex:1">
+    <label>Cari intent</label>
+    <input id="lc-q" type="search" placeholder="Ketik nama intent…">
+  </div>
+  <div class="lc-field">
+    <label>&nbsp;</label>
+    <button id="lc-refresh" class="lc-btn primary">Segarkan</button>
+  </div>
+  <span id="lc-status" class="lc-status"></span>
+</div>
+
+<div class="lc-kpis">
+  <div class="kpi k-dot-blue"><div class="k-lbl">Total intent</div><div class="k-val" id="kpi-total">–</div><div class="k-sub">di Katalog Intent</div></div>
+  <div class="kpi k-dot-green"><div class="k-lbl">Terpanggil</div><div class="k-val" id="kpi-called">–</div><div class="k-sub" id="kpi-called-sub">pernah dipakai</div></div>
+  <div class="kpi k-dot-red"><div class="k-lbl">Tidak terpanggil</div><div class="k-val" id="kpi-uncalled">–</div><div class="k-sub">belum pernah dipakai</div></div>
+  <div class="kpi k-dot-orange"><div class="k-lbl">Kandidat retensi</div><div class="k-val" id="kpi-ret">–</div><div class="k-sub" id="kpi-ret-sub">idle ≥ 6 bln</div></div>
+  <div class="kpi k-dot-purple"><div class="k-lbl">Soft-deleted</div><div class="k-val" id="kpi-soft">–</div><div class="k-sub">ditandai dibersihkan</div></div>
+</div>
+
+<div class="lc-segs" id="lc-segs">
+  <span class="seg active" data-f="all">Semua</span>
+  <span class="seg" data-f="dipanggil">Terpanggil</span>
+  <span class="seg" data-f="tidak">Tidak terpanggil</span>
+  <span class="seg" data-f="retensi">Kandidat retensi</span>
+  <span class="seg" data-f="softdeleted">Soft-deleted</span>
+</div>
+
+<div class="lc-card">
+  <table class="lc-tbl">
+    <thead>
+      <tr>
+        <th>Intent</th>
+        <th style="width:66px">Bahasa</th>
+        <th class="num" style="width:96px">Frekuensi</th>
+        <th style="width:130px">Terakhir dipanggil</th>
+        <th style="width:96px">Idle</th>
+        <th style="width:132px">Status</th>
+        <th style="width:120px">Aksi</th>
+      </tr>
+    </thead>
+    <tbody id="lc-rows">
+      <tr><td colspan="7" class="lc-empty">Memuat…</td></tr>
+    </tbody>
+  </table>
+</div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var STATE = { filter: "all", loading: false };
+  var els = {
+    months: document.getElementById("lc-months"),
+    lang: document.getElementById("lc-lang"),
+    q: document.getElementById("lc-q"),
+    refresh: document.getElementById("lc-refresh"),
+    status: document.getElementById("lc-status"),
+    rows: document.getElementById("lc-rows"),
+    segs: document.getElementById("lc-segs")
+  };
+
+  function esc(s){
+    return String(s == null ? "" : s).replace(/[&<>\"']/g, function(c){
+      return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c];
+    });
+  }
+  function months(){ var n = parseInt(els.months.value, 10); return (n && n > 0) ? n : 6; }
+  function setStatus(t){ els.status.textContent = t || ""; }
+
+  function qs(withRefresh){
+    var p = new URLSearchParams();
+    p.set("months", months());
+    if (els.lang.value) p.set("lang", els.lang.value);
+    var q = (els.q.value || "").trim();
+    if (q) p.set("q", q);
+    p.set("filter", STATE.filter);
+    if (withRefresh) p.set("refresh", "1");
+    return p.toString();
+  }
+
+  function fmtIdle(item){
+    if (!item.dipanggil) return '<span class="muted">—</span>';
+    if (item.idle_bulan == null) return '<span class="muted">—</span>';
+    var b = item.idle_bulan;
+    return b + " bln";
+  }
+  function fmtDate(item){
+    if (item.last_called_at) return esc(item.last_called_at);
+    return '<span class="muted">belum pernah</span>';
+  }
+  function statusPill(item){
+    var s = item.siklus_status;
+    if (s === "soft_deleted") return '<span class="pill soft">Soft-deleted</span>';
+    if (s === "tidak_dipanggil") return '<span class="pill tidak">Tidak terpanggil</span>';
+    if (s === "retensi") return '<span class="pill retensi">Kandidat retensi</span>';
+    return '<span class="pill aktif">Aktif</span>';
+  }
+  function actionBtn(item){
+    var id = esc(item.id || item.intent);
+    if (item.soft_deleted) {
+      return '<button class="lc-btn" data-act="restore" data-id="' + id + '">Pulihkan</button>';
+    }
+    return '<button class="lc-btn danger" data-act="softdelete" data-id="' + id + '">Soft delete</button>';
+  }
+
+  function renderKpis(ov){
+    if (!ov) return;
+    document.getElementById("kpi-total").textContent = ov.total;
+    document.getElementById("kpi-called").textContent = ov.dipanggil;
+    document.getElementById("kpi-uncalled").textContent = ov.tidak_dipanggil;
+    document.getElementById("kpi-ret").textContent = ov.kandidat_retensi;
+    document.getElementById("kpi-soft").textContent = ov.soft_deleted;
+    document.getElementById("kpi-ret-sub").textContent = "idle ≥ " + ov.retensi_bulan + " bln";
+    var pct = ov.total ? Math.round(ov.dipanggil * 100 / ov.total) : 0;
+    document.getElementById("kpi-called-sub").textContent = pct + "% dari total";
+  }
+
+  function renderRows(items){
+    if (!items || !items.length){
+      els.rows.innerHTML = '<tr><td colspan="7" class="lc-empty">Tidak ada intent untuk filter ini.</td></tr>';
+      return;
+    }
+    var html = "";
+    for (var i = 0; i < items.length; i++){
+      var it = items[i];
+      html += '<tr class="' + (it.soft_deleted ? "row-soft" : "") + '">'
+        + '<td class="intent-name">' + esc(it.intent) + '</td>'
+        + '<td>' + esc((it.lang || "id").toUpperCase()) + '</td>'
+        + '<td class="num">' + (it.frekuensi_panggil || 0).toLocaleString("id-ID") + '</td>'
+        + '<td>' + fmtDate(it) + '</td>'
+        + '<td>' + fmtIdle(it) + '</td>'
+        + '<td>' + statusPill(it) + '</td>'
+        + '<td>' + actionBtn(it) + '</td>'
+        + '</tr>';
+    }
+    els.rows.innerHTML = html;
+  }
+
+  function load(withRefresh){
+    if (STATE.loading) return;
+    STATE.loading = true;
+    setStatus(withRefresh ? "Menyegarkan dari data interaksi…" : "Memuat…");
+    if (withRefresh){
+      // summary melakukan refresh last_called_at, lalu list membaca hasilnya
+      fetch("/api/lifecycle/summary?" + qs(true)).then(function(r){ return r.json(); })
+        .then(function(){ return fetchList(); })
+        .catch(onErr);
+    } else {
+      fetchList();
+    }
+  }
+  function fetchList(){
+    return fetch("/api/lifecycle/list?" + qs(false)).then(function(r){ return r.json(); })
+      .then(function(d){
+        STATE.loading = false;
+        if (!d.ok){ onErr(d.error || "gagal"); return; }
+        renderKpis(d.overview);
+        renderRows(d.items);
+        var n = (d.items || []).length;
+        setStatus("Menampilkan " + n + " intent" + (n >= 1000 ? " (dibatasi 1000)" : ""));
+      }).catch(onErr);
+  }
+  function onErr(e){
+    STATE.loading = false;
+    setStatus("Gagal memuat: " + esc(e));
+    els.rows.innerHTML = '<tr><td colspan="7" class="lc-empty">Gagal memuat data.</td></tr>';
+  }
+
+  function toggleSoftDelete(id, deleted){
+    setStatus(deleted ? "Menandai…" : "Memulihkan…");
+    fetch("/api/lifecycle/softdelete/save", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: id, soft_deleted: deleted })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      if (!d.ok){ setStatus("Gagal: " + esc(d.error || "") + (d.locked ? " (terkunci)" : "")); return; }
+      fetchList();
+    }).catch(function(e){ setStatus("Gagal: " + esc(e)); });
+  }
+
+  // events
+  els.segs.addEventListener("click", function(e){
+    var t = e.target.closest(".seg");
+    if (!t) return;
+    var segs = els.segs.querySelectorAll(".seg");
+    for (var i = 0; i < segs.length; i++) segs[i].classList.remove("active");
+    t.classList.add("active");
+    STATE.filter = t.getAttribute("data-f");
+    load(false);
+  });
+  els.rows.addEventListener("click", function(e){
+    var b = e.target.closest("button[data-act]");
+    if (!b) return;
+    var id = b.getAttribute("data-id");
+    var act = b.getAttribute("data-act");
+    if (act === "softdelete"){
+      if (confirm("Tandai intent ini sebagai soft-deleted (kandidat dibersihkan)?\n\n" + id)) toggleSoftDelete(id, true);
+    } else if (act === "restore"){
+      toggleSoftDelete(id, false);
+    }
+  });
+  els.refresh.addEventListener("click", function(){ load(true); });
+  els.months.addEventListener("change", function(){ load(false); });
+  els.lang.addEventListener("change", function(){ load(false); });
+  var qt;
+  els.q.addEventListener("input", function(){ clearTimeout(qt); qt = setTimeout(function(){ load(false); }, 300); });
+
+  // muat awal: sekaligus segarkan last_called_at dari interactions
+  load(true);
+})();
+</script>
+{% endblock %}

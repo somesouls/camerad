@@ -1,0 +1,510 @@
+{% extends "base.html" %}
+{% block title %}Peta Intent &amp; Maksud Analis{% endblock %}
+{% block head %}<style>
+.wrap{ max-width:1180px; margin:0 auto; padding:22px 18px 80px; }
+  header{ display:flex; align-items:center; gap:12px; margin-bottom:16px; }
+  header h1{ font-size:20px; margin:0; }
+  header .sub{ color:var(--muted); font-size:12px; }
+  .spacer{ flex:1; }
+  .navlink{ display:inline-flex; align-items:center; gap:6px; color:var(--muted); text-decoration:none; padding:7px 11px; border:1px solid var(--line); border-radius:10px; font-size:13px; }
+  .navlink:hover{ color:var(--text); border-color:#3a4150; }
+  .navlink svg{ width:15px; height:15px; }
+  .card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; margin-bottom:16px; }
+  .ic{ display:inline-flex; width:26px; height:26px; align-items:center; justify-content:center; border-radius:8px; background:var(--panel2); }
+  .ic svg{ width:15px; height:15px; }
+  .ic.blue{ color:var(--brand); }
+  details.guide{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:0 18px; margin-bottom:16px; }
+  details.guide summary{ cursor:pointer; padding:14px 0; font-weight:600; list-style:none; display:flex; align-items:center; gap:8px; }
+  details.guide summary::-webkit-details-marker{ display:none; }
+  details.guide summary .chev{ transition:.2s; color:var(--muted); }
+  details.guide[open] summary .chev{ transform:rotate(90deg); }
+  .guide-body{ padding-bottom:16px; font-size:13px; color:#cfd4de; }
+  .guide-body h3{ font-size:13px; margin:14px 0 6px; color:var(--text); }
+  .guide-body code{ background:var(--panel2); padding:1px 6px; border-radius:5px; font-size:12px; }
+  .guide-body table{ border-collapse:collapse; width:100%; margin:8px 0; }
+  .guide-body th,.guide-body td{ border:1px solid var(--line); padding:6px 9px; text-align:left; vertical-align:top; font-size:12.5px; }
+  .guide-body th{ background:var(--panel2); }
+  .rule{ border-left:3px solid var(--brand); background:var(--panel2); padding:8px 12px; border-radius:0 8px 8px 0; margin:8px 0; }
+  .good{ color:var(--green); } .bad{ color:var(--red); }
+  .toolbar{ display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-bottom:12px; }
+  input,select,textarea{ background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:10px; padding:8px 10px; font-size:13px; font-family:inherit; }
+  input:focus,select:focus,textarea:focus{ outline:none; border-color:var(--brand); }
+  .search{ flex:1; min-width:200px; }
+  .btn{ display:inline-flex; align-items:center; gap:7px; background:var(--panel2); border:1px solid var(--line); color:var(--text); padding:8px 13px; border-radius:10px; cursor:pointer; font-size:13px; }
+  .btn:hover{ border-color:#3a4150; }
+  .btn.primary{ background:var(--brand); color:#0b1020; border-color:transparent; font-weight:600; }
+  .btn:disabled{ opacity:.55; cursor:not-allowed; }
+  .btn svg{ width:15px; height:15px; }
+  table.grid{ width:100%; border-collapse:collapse; }
+  table.grid th,table.grid td{ border-bottom:1px solid var(--line); padding:9px 10px; text-align:left; font-size:13px; vertical-align:top; }
+  table.grid th{ color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; }
+  table.grid tr:hover td{ background:var(--panel2); }
+  .tag{ display:inline-block; font-size:11px; padding:2px 8px; border-radius:999px; background:var(--panel2); border:1px solid var(--line); color:var(--muted); }
+  .badge{ font-size:11px; padding:2px 7px; border-radius:6px; font-weight:600; }
+  .badge.ok{ color:var(--green); background:rgba(87,211,140,.12); }
+  .badge.no{ color:var(--amber); background:rgba(240,180,41,.12); }
+  .pr{ font-size:11px; padding:2px 8px; border-radius:6px; font-weight:600; white-space:nowrap; }
+  .pr.p90{ color:var(--red); background:rgba(242,99,122,.14); }
+  .pr.p70{ color:var(--amber); background:rgba(240,180,41,.14); }
+  .pr.p50{ color:var(--brand); background:rgba(110,168,254,.14); }
+  .pr.p30{ color:var(--muted); background:var(--panel2); }
+  .pr.p10{ color:var(--muted); background:var(--panel2); opacity:.75; }
+  .st{ font-size:11px; padding:2px 8px; border-radius:6px; font-weight:600; }
+  .st.mandiri{ color:var(--muted); background:var(--panel2); }
+  .st.megaintent{ color:var(--purple); background:rgba(181,140,255,.14); }
+  .st.bridging_child{ color:var(--brand); background:rgba(110,168,254,.14); }
+  .muted{ color:var(--muted); font-size:12px; }
+  .chip{ display:inline-block; font-size:11px; padding:1px 7px; margin:1px 2px 1px 0; border-radius:6px; background:var(--panel2); border:1px solid var(--line); }
+  .why{ color:#cfd4de; font-size:12px; margin-top:3px; max-width:340px; }
+  .act{ display:flex; gap:6px; }
+  .iconbtn{ background:var(--panel2); border:1px solid var(--line); color:var(--muted); border-radius:8px; padding:5px 8px; cursor:pointer; }
+  .iconbtn:hover{ color:var(--text); border-color:#3a4150; }
+  .iconbtn.del:hover{ color:var(--red); border-color:rgba(242,99,122,.5); }
+  .iconbtn svg{ width:14px; height:14px; display:block; }
+  .backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.55); display:none; align-items:flex-start; justify-content:center; padding:30px 16px; overflow:auto; z-index:50; }
+  .backdrop.show{ display:flex; }
+  .modal{ background:var(--panel); border:1px solid var(--line); border-radius:16px; width:100%; max-width:760px; padding:20px 22px; }
+  .modal h3{ margin:0 0 4px; font-size:16px; }
+  .form-grid{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:14px; }
+  .fld{ display:flex; flex-direction:column; gap:4px; }
+  .fld.full{ grid-column:1 / -1; }
+  .fld label{ font-size:12px; color:var(--text); font-weight:600; }
+  .fld .hint{ font-size:11px; color:var(--muted); font-weight:400; }
+  .fld textarea{ min-height:60px; resize:vertical; }
+  .req{ color:var(--red); }
+  .chk{ display:inline-flex; align-items:center; gap:8px; font-size:13px; }
+  .chk input{ width:16px; height:16px; }
+  .modal-foot{ display:flex; gap:10px; justify-content:flex-end; margin-top:18px; }
+  .modal-err{ color:var(--red); font-size:12.5px; margin-top:10px; display:none; }
+  .modal-err.show{ display:block; }
+  .count{ color:var(--muted); font-size:12px; }
+  .hide{ display:none; }
+</style>{% endblock %}
+{% block content %}
+<div class="wrap">
+  <header>
+    <span class="ic blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></span>
+    <div><h1>Peta Intent &amp; Maksud Analis</h1><div class="sub">Kunci jawaban analis: utterance mana masuk intent mana &amp; kenapa — acuan bagi AI</div></div>
+  </header>
+
+  {% include "_ask_ai.html" %}
+
+  <details class="guide">
+    <summary><span class="chev"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg></span> 📖 Petunjuk pengisian (baca dulu sebelum menambah/mengedit)</summary>
+    <div class="guide-body">
+      <p>Halaman ini menyimpan <b>keputusan sengaja analis</b> dalam memetakan pertanyaan user ke intent Dialogflow — terutama yang <b>melawan logika biasa</b> sehingga AI mustahil menebaknya. AI memakainya sebagai <b>“kunci jawaban”</b> saat menilai fallback &amp; MKTA, agar tidak salah memvonis.</p>
+
+      <h3>Kapan sebuah intent perlu dicatat di sini?</h3>
+      <div class="rule">Catat bila pemetaannya <b>tidak jelas dari teksnya saja</b>. Contoh: <code>“lupa email &amp; no hp” → Perubahan Data</code> (bukan keluhan login), atau keputusan struktural seperti <b>megaintent UMKM + bridging</b>. Kalau pemetaannya sudah jelas secara semantik, tidak perlu dicatat.</div>
+
+      <h3>Penjelasan tiap kolom</h3>
+      <table>
+        <tr><th>Kolom</th><th>Isi dengan</th></tr>
+        <tr><td><b>Intent</b> <span class="req">wajib</span></td><td>Nama intent persis seperti di Dialogflow. Contoh: <code>Perubahan Data</code>, <code>UMKM</code>.</td></tr>
+        <tr><td><b>Struktur</b></td><td><code>mandiri</code> (berdiri sendiri), <code>megaintent</code> (intent besar penampung banyak topik), atau <code>bridging_child</code> (anak/bridging di bawah megaintent).</td></tr>
+        <tr><td><b>Induk (parent)</b></td><td>Wajib bila struktur <code>bridging_child</code> — nama megaintent induknya.</td></tr>
+        <tr><td><b>Bridging anakan</b></td><td>Untuk <code>megaintent</code>: daftar intent anakan, <b>satu per baris</b>.</td></tr>
+        <tr><td><b>Cakupan</b></td><td>Topik/utterance yang <b>masuk</b> ke intent ini, <b>satu per baris</b> — termasuk yang tak terduga (<code>lupa email dan no hp</code>). Dipakai AI untuk mencocokkan.</td></tr>
+        <tr><td><b>Contoh utterance</b></td><td>Kalimat asli user yang mewakili, satu per baris.</td></tr>
+        <tr><td><b>BUKAN ini</b></td><td>Contoh yang <b>kelihatannya masuk tapi tidak</b>, + arah yang benar. Contoh: <code>lupa password (email masih aktif) → reset mandiri</code>.</td></tr>
+        <tr><td><b>Alasan / maksud analis</b> <span class="req">wajib</span></td><td>Kenapa analis memetakan begini. <b>Inti pengetahuan ini.</b> Jelaskan logika bisnisnya.</td></tr>
+        <tr><td><b>Batasan Dialogflow</b></td><td>Keterbatasan teknis yang mendasari keputusan (mis. intent mirip → fallback tinggi).</td></tr>
+        <tr><td><b>Prioritas</b></td><td>Seberapa kuat aturan ini harus <b>menang</b> saat beberapa aturan sama-sama cocok. Pilih 1 dari 5 tingkat (lihat bagian di bawah).</td></tr>
+        <tr><td><b>Terverifikasi</b></td><td>Centang bila sudah dicek tim. Yang belum yakin biarkan ⚠.</td></tr>
+      </table>
+
+      <h3>Prioritas — cara menentukan (5 tingkat)</h3>
+      <p>Prioritas menentukan <b>urutan tampil</b> dan <b>aturan mana yang dipakai lebih dulu</b> saat satu pertanyaan user cocok dengan beberapa intent sekaligus. Tidak perlu angka — cukup pilih tingkat. Pertimbangkan 3 hal: <i>seberapa mudah AI salah tanpa aturan ini</i>, <i>seberapa sering muncul di log</i>, dan <i>apakah aturan ini harus mengalahkan aturan yang lebih umum</i>.</p>
+      <table>
+        <tr><th>Tingkat</th><th>Pakai untuk</th><th>Contoh</th></tr>
+        <tr><td><span class="pr p90">Sangat Tinggi</span></td><td>Sangat kontra-intuitif <b>dan</b> sering muncul — wajib menang atas aturan lain.</td><td>“lupa email &amp; no hp” → Perubahan Data</td></tr>
+        <tr><td><span class="pr p70">Tinggi</span></td><td>Penting &amp; cukup sering, tapi tidak seekstrem di atas.</td><td>Megaintent UMKM</td></tr>
+        <tr><td><span class="pr p50">Sedang</span></td><td>Normal / cukup spesifik. <b>Pilihan default kalau ragu.</b></td><td>Bridging anakan UMKM</td></tr>
+        <tr><td><span class="pr p30">Rendah</span></td><td>Jarang muncul atau bersifat pelengkap.</td><td>Kasus tepi</td></tr>
+        <tr><td><span class="pr p10">Sangat Rendah</span></td><td>Sangat jarang / cadangan; jangan sampai menutupi aturan lain.</td><td>Fallback khusus</td></tr>
+      </table>
+      <div class="rule"><b>Tips prioritas:</b> Kalau bingung, pilih <b>Sedang</b> — prioritas hanya berpengaruh saat ada tumpang-tindih. Beri <b>Sangat Tinggi</b> hanya untuk aturan yang benar-benar harus mengalahkan yang lain (pemetaan kontra-intuitif bervolume besar). Aturan yang lebih <b>spesifik</b> sebaiknya diberi tingkat lebih tinggi daripada aturan <b>umum</b> agar tidak “kalah”.</div>
+
+      <h3>Contoh megaintent + bridging</h3>
+      <div class="rule">Intent <code>UMKM</code> (struktur <b>megaintent</b>) menampung semua pertanyaan UMKM agar tidak memecah jadi banyak intent mirip (risiko fallback/MKTA tinggi). Sub-topik diarahkan lewat <b>bridging anakan</b>: <code>UMKM - Pendaftaran</code>, <code>UMKM - PPh Final 0,5%</code>, dst. AI perlu tahu ini agar <b>tidak menyarankan memecah UMKM</b>.</div>
+
+      <h3>Tips &amp; larangan</h3>
+      <ul>
+        <li><span class="good">✓</span> Fokus pada intent kontra-intuitif &amp; bervolume tinggi lebih dulu.</li>
+        <li><span class="good">✓</span> Isi <b>Alasan</b> sejelas mungkin — itu yang paling dipakai AI.</li>
+        <li><span class="good">✓</span> Manfaatkan <b>BUKAN ini</b> untuk mencegah salah-tarik.</li>
+        <li><span class="bad">✗</span> Jangan catat pemetaan yang sudah jelas secara semantik (buang-buang pemeliharaan).</li>
+        <li><span class="bad">✗</span> Jangan pakai untuk arti istilah (itu Glosarium) atau frasa ambigu user (itu Disambiguasi).</li>
+      </ul>
+    </div>
+  </details>
+
+  <div class="toolbar">
+    <input class="search" id="q" placeholder="Cari intent, cakupan, atau alasan…">
+    <select id="fk"><option value="">Semua kategori</option></select>
+    <select id="fst"><option value="">Semua struktur</option></select>
+    <select id="fs"><option value="">Semua status</option></select>
+    <select id="fLang"><option value="">Semua bahasa</option><option value="id">ID</option><option value="en">EN</option></select>
+    <span class="count" id="count"></span>
+    <div class="spacer"></div>
+    <button class="btn primary" id="add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg> Tambah intent</button>
+  </div>
+
+  <div class="card" style="padding:0; overflow:hidden;">
+    <table class="grid">
+      <thead><tr>
+        <th style="width:18%">Intent</th><th style="width:10%">Struktur</th>
+        <th style="width:23%">Cakupan</th><th>Maksud analis</th>
+        <th style="width:10%">Prioritas</th><th style="width:7%">Verif</th><th style="width:70px"></th>
+      </tr></thead>
+      <tbody id="rows"><tr><td colspan="7" class="muted" style="padding:18px;">Memuat…</td></tr></tbody>
+    </table>
+  </div>
+  <div class="pager" id="pager" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 0;"></div>
+
+  <div class="card" id="catCard" style="margin-top:16px;">
+    <div class="toolbar" style="margin-bottom:10px;">
+      <div>
+        <b>Katalog Intent — Deskripsi AI</b>
+        <div class="muted" style="font-size:12px;margin-top:2px;max-width:680px;">
+          Deskripsi <b>maksud user</b> &amp; <b>cakupan jawaban</b> disimpulkan AI dari data Dialogflow (Step 3).
+          Semua hasil AI berstatus <b>draf</b> dan wajib direview analis sebelum sah.
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <span class="count" id="catStats"></span>
+    </div>
+    <div class="toolbar" style="margin-bottom:10px;">
+      <input class="search" id="cq" placeholder="Cari intent / maksud / cakupan…">
+      <select id="cfilter">
+        <option value="perlu">Draf perlu review</option>
+        <option value="review">Belum dideskripsikan</option>
+        <option value="berubah">Sumber berubah</option>
+        <option value="verified">Terverifikasi</option>
+        <option value="all">Semua</option>
+      </select>
+      <select id="clang"><option value="">Semua bahasa</option><option value="id">ID</option><option value="en">EN</option></select>
+      <input id="cLimit" type="number" min="1" max="500" value="50" title="Jumlah intent per batch" style="width:80px">
+      <button class="btn primary" id="cDesc">Deskripsikan (AI)</button>
+      <button class="btn" id="cReload">Muat ulang</button>
+    </div>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <table class="grid">
+        <thead><tr>
+          <th style="width:19%">Intent</th><th style="width:7%">Freq</th>
+          <th style="width:25%">Maksud user (AI)</th><th>Cakupan jawaban (AI)</th>
+          <th style="width:12%">Sistem</th><th style="width:9%">Status</th><th style="width:120px"></th>
+        </tr></thead>
+        <tbody id="crows"><tr><td colspan="7" class="muted" style="padding:18px;">Belum dimuat.</td></tr></tbody>
+      </table>
+    </div>
+    <div class="pager" id="cpager" style="display:flex;align-items:center;justify-content:center;gap:8px;padding:12px 0;"></div>
+  </div>
+</div>
+
+<div class="backdrop" id="bd">
+  <div class="modal">
+    <h3 id="mtitle">Tambah intent</h3>
+    <div class="muted">Isi sesuai petunjuk. Field bertanda <span class="req">*</span> wajib.</div>
+    <div class="form-grid">
+      <div class="fld"><label>Intent <span class="req">*</span> <span class="hint">nama persis di Dialogflow</span></label><input id="f_intent" placeholder="Perubahan Data"></div>
+      <div class="fld"><label>Kategori</label><select id="f_kategori"></select></div>
+      <div class="fld"><label>Struktur</label><select id="f_struktur"></select></div>
+      <div class="fld" id="wrap_parent"><label>Induk (parent) <span class="hint">untuk bridging_child</span></label><input id="f_parent" placeholder="UMKM"></div>
+      <div class="fld full hide" id="wrap_bridging"><label>Bridging anakan <span class="hint">untuk megaintent · satu per baris</span></label><textarea id="f_bridging" placeholder="UMKM - Pendaftaran&#10;UMKM - PPh Final 0,5%"></textarea></div>
+      <div class="fld full"><label>Cakupan <span class="hint">topik/utterance yang masuk · satu per baris</span></label><textarea id="f_cakupan" placeholder="lupa email dan no hp&#10;email dan no hp sudah tidak aktif&#10;ganti nomor hp"></textarea></div>
+      <div class="fld full"><label>Contoh utterance <span class="hint">kalimat asli user · satu per baris</span></label><textarea id="f_contoh" placeholder="saya lupa email dan no hp yang dulu"></textarea></div>
+      <div class="fld full"><label>BUKAN ini <span class="hint">yang tampak masuk tapi tidak + arah benar · satu per baris</span></label><textarea id="f_bukan" placeholder="lupa password (email masih aktif) -> reset mandiri"></textarea></div>
+      <div class="fld full"><label>Alasan / maksud analis <span class="req">*</span> <span class="hint">kenapa dipetakan begini</span></label><textarea id="f_alasan" style="min-height:80px" placeholder="User yang tidak tahu email & no hp lamanya tidak bisa reset mandiri, jadi diarahkan ke Perubahan Data…"></textarea></div>
+      <div class="fld full"><label>Batasan Dialogflow <span class="hint">keterbatasan teknis yang mendasari</span></label><textarea id="f_batasan"></textarea></div>
+      <div class="fld"><label>Prioritas <span class="hint">seberapa kuat aturan ini menang saat ada tumpang-tindih</span></label><select id="f_prioritas"></select></div>
+      <div class="fld"><label>Status</label><select id="f_status"></select></div>
+      <div class="fld"><label>Bahasa</label><select id="f_lang"><option value="id">ID (Indonesia)</option><option value="en">EN (English)</option></select></div>
+      <div class="fld full"><label class="chk"><input type="checkbox" id="f_verif"> Sudah diverifikasi tim</label></div>
+    </div>
+    <div class="modal-err" id="merr"></div>
+    <div class="modal-foot">
+      <button class="btn" id="cancel">Batal</button>
+      <button class="btn primary" id="save">Simpan</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $=s=>document.querySelector(s);
+let META={kategori:[],struktur:[],status:[]};
+let EDIT=null;
+
+function opts(sel, arr, withEmpty, empLabel){
+  sel.innerHTML="";
+  if(withEmpty){ const o=document.createElement("option"); o.value=""; o.textContent=empLabel||"—"; sel.appendChild(o); }
+  arr.forEach(v=>{ const o=document.createElement("option"); o.value=v; o.textContent=v; sel.appendChild(o); });
+}
+function esc(s){ return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function trunc(s,n){ s=s||""; return s.length>n?esc(s.slice(0,n))+"…":esc(s); }
+
+async function load(){
+  const p=new URLSearchParams();
+  if($("#q").value.trim()) p.set("q",$("#q").value.trim());
+  if($("#fk").value) p.set("kategori",$("#fk").value);
+  if($("#fst").value) p.set("struktur",$("#fst").value);
+  if($("#fs").value) p.set("status",$("#fs").value);
+  if($("#fLang").value) p.set("lang",$("#fLang").value);
+  const r=await fetch("/api/intentmap/list?"+p.toString());
+  const d=await r.json();
+  if(!d.ok){ $("#rows").innerHTML='<tr><td colspan=7 class=muted style="padding:18px;color:#f2637a">Gagal memuat: '+esc(d.error||"")+'</td></tr>'; return; }
+  META={kategori:d.kategori,struktur:d.struktur,status:d.status,prioritas:d.prioritas};
+  if($("#fk").children.length<=1){ opts($("#fk"),d.kategori,true,"Semua kategori"); opts($("#fst"),d.struktur,true,"Semua struktur"); opts($("#fs"),d.status,true,"Semua status"); }
+  $("#count").textContent=d.total+" intent";
+  render(d.items);
+}
+
+function render(items){
+  if(!items.length){ $("#rows").innerHTML='<tr><td colspan=7 class=muted style="padding:18px">Belum ada data yang cocok.</td></tr>'; return; }
+  $("#rows").innerHTML=items.map(it=>{
+    const cak=(it.cakupan||[]).slice(0,4).map(c=>'<span class="chip">'+esc(c)+'</span>').join(" ")+((it.cakupan||[]).length>4?' <span class=muted>+'+((it.cakupan.length)-4)+'</span>':"");
+    const st='<span class="st '+esc(it.struktur||'mandiri')+'">'+esc(it.struktur||'mandiri')+'</span>';
+    const par=(it.struktur==='bridging_child'&&it.parent)?'<div class=muted>↳ '+esc(it.parent)+'</div>':"";
+    const br=(it.struktur==='megaintent'&&(it.bridging||[]).length)?'<div class=muted>'+it.bridging.length+' bridging</div>':"";
+    const verif=it.terverifikasi?'<span class="badge ok">✓ ya</span>':'<span class="badge no">⚠ belum</span>';
+    const prLabel=it.prioritas_label||'Sedang';
+    const prCls={'Sangat Tinggi':'p90','Tinggi':'p70','Sedang':'p50','Rendah':'p30','Sangat Rendah':'p10'}[prLabel]||'p50';
+    const pr='<span class="pr '+prCls+'">'+esc(prLabel)+'</span>';
+    return '<tr>'+
+      '<td><b>'+esc(it.intent)+'</b>'+usedBadge(it)+langBadge(it)+par+br+'</td>'+
+      '<td>'+st+'</td>'+
+      '<td>'+cak+'</td>'+
+      '<td><div class=why>'+trunc(it.alasan,160)+'</div></td>'+
+      '<td>'+pr+'</td>'+
+      '<td>'+verif+'</td>'+
+      '<td><div class=act>'+
+        '<button class=iconbtn title=Edit data-id="'+esc(it.id)+'"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></button>'+
+        '<button class="iconbtn del" title=Hapus data-del="'+esc(it.id)+'"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg></button>'+
+      '</div></td></tr>';
+  }).join("");
+  window.__items=items;
+  document.querySelectorAll("[data-id]").forEach(b=>b.onclick=()=>openEdit(b.getAttribute("data-id")));
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=()=>del(b.getAttribute("data-del")));
+}
+
+function syncStruktur(){
+  const v=$("#f_struktur").value;
+  $("#wrap_parent").classList.toggle("hide", v!=="bridging_child");
+  $("#wrap_bridging").classList.toggle("hide", v!=="megaintent");
+}
+
+function fillForm(it){
+  opts($("#f_kategori"),META.kategori,true,"— pilih —");
+  opts($("#f_struktur"),META.struktur,false);
+  opts($("#f_status"),META.status,false);
+  opts($("#f_prioritas"),META.prioritas,false);
+  it=it||{};
+  $("#f_intent").value=it.intent||"";
+  $("#f_kategori").value=it.kategori||"";
+  $("#f_struktur").value=it.struktur||"mandiri";
+  $("#f_parent").value=it.parent||"";
+  $("#f_bridging").value=(it.bridging||[]).join("\n");
+  $("#f_cakupan").value=(it.cakupan||[]).join("\n");
+  $("#f_contoh").value=(it.contoh_utterance||[]).join("\n");
+  $("#f_bukan").value=(it.bukan_ini||[]).join("\n");
+  $("#f_alasan").value=it.alasan||"";
+  $("#f_batasan").value=it.batasan_dialogflow||"";
+  $("#f_prioritas").value=it.prioritas_label||"Sedang";
+  $("#f_status").value=it.status||"aktif";
+  $("#f_lang").value=it.lang||"id";
+  $("#f_verif").checked=!!it.terverifikasi;
+  syncStruktur();
+  $("#merr").classList.remove("show");
+}
+function openAdd(){ EDIT=null; $("#mtitle").textContent="Tambah intent"; fillForm(null); $("#bd").classList.add("show"); }
+function openEdit(id){ const it=(window.__items||[]).find(x=>x.id===id); EDIT=id; $("#mtitle").textContent="Edit intent"; fillForm(it); $("#bd").classList.add("show"); }
+function close(){ $("#bd").classList.remove("show"); }
+
+async function save(){
+  const body={
+    id:EDIT||undefined,
+    intent:$("#f_intent").value,
+    kategori:$("#f_kategori").value,
+    struktur:$("#f_struktur").value,
+    parent:$("#f_parent").value,
+    bridging:$("#f_bridging").value,
+    cakupan:$("#f_cakupan").value,
+    contoh_utterance:$("#f_contoh").value,
+    bukan_ini:$("#f_bukan").value,
+    alasan:$("#f_alasan").value,
+    batasan_dialogflow:$("#f_batasan").value,
+    prioritas:$("#f_prioritas").value,
+    status:$("#f_status").value,
+    lang:$("#f_lang").value,
+    terverifikasi:$("#f_verif").checked
+  };
+  $("#save").disabled=true;
+  try{
+    const r=await fetch("/api/intentmap/save",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    const d=await r.json();
+    if(!d.ok){ const e=$("#merr"); e.textContent=d.error||"Gagal menyimpan."; e.classList.add("show"); return; }
+    close(); load();
+  }finally{ $("#save").disabled=false; }
+}
+async function del(id){
+  if(!confirm("Hapus entri ini?")) return;
+  const r=await fetch("/api/intentmap/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+  const d=await r.json(); if(d.ok) load(); else alert(d.error||"Gagal menghapus.");
+}
+
+$("#add").onclick=openAdd; $("#cancel").onclick=close; $("#save").onclick=save;
+$("#f_struktur").onchange=syncStruktur;
+$("#bd").onclick=e=>{ if(e.target===$("#bd")) close(); };
+let t; $("#q").oninput=()=>{ clearTimeout(t); t=setTimeout(load,250); };
+$("#fk").onchange=load; $("#fst").onchange=load; $("#fs").onchange=load; $("#fLang").onchange=load;
+load();
+
+/* ===== Katalog Intent — Deskripsi AI ===== */
+(function(){
+  var CQ=document.getElementById("cq"), CF=document.getElementById("cfilter");
+  var CL=document.getElementById("cLimit"), CROWS=document.getElementById("crows");
+  var CSTAT=document.getElementById("catStats");
+  var CLANG=document.getElementById("clang");
+  function escc(s){ return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function stBadge(it){
+    if(String(it.terverifikasi)==="1") return '<span class="badge ok">Terverifikasi</span>';
+    if(it.sumber_deskripsi==="ai") return '<span class="badge no">Draf AI</span>';
+    if(String(it.sumber_berubah)==="1") return '<span class="badge no">Sumber berubah</span>';
+    if(it.sumber_status==="hilang") return '<span class="badge no">Hilang</span>';
+    return '<span class="muted">Belum ada</span>';
+  }
+  function appr(it){
+    if(String(it.terverifikasi)==="1" && it.disetujui_oleh){
+      return '<div class="muted" style="font-size:11px;margin-top:3px;">oleh '+escc(it.disetujui_oleh)+'</div>';
+    }
+    return "";
+  }
+  function sysTags(a){
+    if(!a||!a.length) return '<span class="muted">—</span>';
+    return a.map(function(s){ return '<span class="chip">'+escc(s)+'</span>'; }).join(" ");
+  }
+  function renderCat(items){
+    if(!items||!items.length){ CROWS.innerHTML='<tr><td colspan="7" class="muted" style="padding:18px;">Tidak ada intent pada filter ini.</td></tr>'; return; }
+    CROWS.innerHTML=items.map(function(it){
+      var m=it.deskripsi_maksud?escc(it.deskripsi_maksud):'<span class="muted">(belum dideskripsikan)</span>';
+      var c=it.deskripsi_cakupan?escc(it.deskripsi_cakupan):'<span class="muted">—</span>';
+      var act='<button class="btn" data-appr="'+escc(it.id)+'">Setujui</button> '
+             +'<button class="btn" data-edit="'+escc(it.id)+'">Edit</button>';
+      return '<tr><td><b>'+escc(it.intent)+'</b>'+usedBadge(it)+langBadge(it)+'</td>'
+        +'<td>'+escc(it.frekuensi_panggil||0)+'</td>'
+        +'<td>'+m+'</td><td>'+c+'</td>'
+        +'<td>'+sysTags(it.sistem_tersinggung)+'</td>'
+        +'<td>'+stBadge(it)+appr(it)+'</td>'
+        +'<td class="act">'+act+'</td></tr>';
+    }).join("");
+  }
+  function showStats(s){
+    if(!s){ CSTAT.textContent=""; return; }
+    CSTAT.textContent="Total "+s.total_katalog+" · Draf "+s.draf_perlu_review
+      +" · Terverifikasi "+s.terverifikasi+" · Belum "+s.perlu_deskripsi
+      +" · Berubah "+s.sumber_berubah;
+  }
+  function loadCat(){
+    var u="/api/intentmap/catalog?filter="+encodeURIComponent(CF.value)
+      +"&limit="+encodeURIComponent(CL.value||50);
+    if(CLANG&&CLANG.value) u+="&lang="+encodeURIComponent(CLANG.value);
+    if(CQ.value.trim()) u+="&q="+encodeURIComponent(CQ.value.trim());
+    CROWS.innerHTML='<tr><td colspan="7" class="muted" style="padding:18px;">Memuat…</td></tr>';
+    fetch(u).then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ CROWS.innerHTML='<tr><td colspan="7" class="muted" style="padding:18px;">Gagal: '+escc(d.error||"")+'</td></tr>'; return; }
+      renderCat(d.items); showStats(d.stats);
+    }).catch(function(e){ CROWS.innerHTML='<tr><td colspan="7" class="muted" style="padding:18px;">Error: '+escc(e)+'</td></tr>'; });
+  }
+  function runDescribe(){
+    var btn=document.getElementById("cDesc"); var old=btn.textContent;
+    btn.disabled=true; btn.textContent="Mendeskripsikan…";
+    fetch("/api/intentmap/describe",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({limit:parseInt(CL.value||50,10),only_called:true})})
+      .then(function(r){return r.json();}).then(function(d){
+        btn.disabled=false; btn.textContent=old;
+        if(!d.ok){ alert("Gagal: "+(d.error||"")); return; }
+        var h=d.hasil||{};
+        alert("Selesai. Berhasil: "+(h.berhasil||0)+", gagal: "+(h.gagal||0)+", terkunci: "+(h.terkunci||0)+".\nSemua hasil AI berstatus DRAF — mohon direview.");
+        loadCat();
+      }).catch(function(e){ btn.disabled=false; btn.textContent=old; alert("Error: "+e); });
+  }
+  function approveDesc(id, edits){
+    var body=Object.assign({id:id}, edits||{});
+    fetch("/api/intentmap/approve",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(d){
+        if(!d.ok){ alert(d.locked?"Sudah terkunci oleh analis.":("Gagal: "+(d.error||""))); return; }
+        loadCat();
+      }).catch(function(e){ alert("Error: "+e); });
+  }
+  function editDesc(id){
+    var m=prompt("Maksud user (kosongkan = tak berubah):","");
+    if(m===null) return;
+    var c=prompt("Cakupan jawaban (kosongkan = tak berubah):","");
+    if(c===null) return;
+    var e={}; if(m.trim()) e.deskripsi_maksud=m.trim(); if(c.trim()) e.deskripsi_cakupan=c.trim();
+    approveDesc(id,e);
+  }
+  CROWS.addEventListener("click",function(ev){
+    var a=ev.target.getAttribute("data-appr"); if(a){ approveDesc(a); return; }
+    var e=ev.target.getAttribute("data-edit"); if(e){ editDesc(e); return; }
+  });
+  document.getElementById("cDesc").addEventListener("click",runDescribe);
+  document.getElementById("cReload").addEventListener("click",loadCat);
+  CF.addEventListener("change",loadCat);
+  if(CLANG) CLANG.addEventListener("change",loadCat);
+  var t=null; CQ.addEventListener("input",function(){ clearTimeout(t); t=setTimeout(loadCat,300); });
+  loadCat();
+})();
+</script>
+<script>
+/* Statistik pemakaian per-baris + pagination daftar (Camerad Studio) */
+function langBadge(it){ var l=((it&&it.lang)||'id'); return ' <span title="Bahasa data" style="display:inline-block;background:rgba(80,140,255,.14);color:#7aa2ff;border:1px solid rgba(80,140,255,.45);border-radius:20px;padding:0 7px;font-size:10px;font-weight:700;white-space:nowrap;vertical-align:middle;">'+String(l).toUpperCase()+'</span>'; }
+function usedBadge(it){
+  var n=(it&&it.dipakai)||0;
+  if(!n) return '';
+  return ' <span title="Dipakai '+n+'x saat analisis/chat" style="display:inline-block;background:rgba(255,202,27,.16);color:#b58900;border:1px solid rgba(255,202,27,.45);border-radius:20px;padding:0 8px;font-size:11px;font-weight:600;white-space:nowrap;vertical-align:middle;">dipakai '+n+'\u00d7</span>';
+}
+function makePager(tbodyId, pagerId, size){
+  try{
+    var tb=document.getElementById(tbodyId), pg=document.getElementById(pagerId);
+    if(!tb || !pg) return;
+    size = size || 15;
+    var page=1;
+    function dataRows(){
+      return Array.prototype.filter.call(tb.children, function(tr){
+        return tr.querySelectorAll && tr.querySelectorAll('td').length>1;
+      });
+    }
+    function draw(total,pages,start,endShown){
+      if(!total){ pg.innerHTML=''; return; }
+      if(pages<=1){ pg.innerHTML='<span class="muted">'+total+' entri</span>'; return; }
+      pg.innerHTML='<button class="btn" type="button" data-pg="prev">\u2039 Sebelumnya</button>'
+        +'<span class="muted" style="margin:0 8px">Hal '+page+' / '+pages+' \u00b7 '+(start+1)+'\u2013'+endShown+' dari '+total+'</span>'
+        +'<button class="btn" type="button" data-pg="next">Berikutnya \u203a</button>';
+      var pv=pg.querySelector('[data-pg="prev"]'), nx=pg.querySelector('[data-pg="next"]');
+      if(page<=1 && pv) pv.disabled=true;
+      if(page>=pages && nx) nx.disabled=true;
+      if(pv) pv.onclick=function(){ if(page>1){ page--; apply(); } };
+      if(nx) nx.onclick=function(){ if(page<pages){ page++; apply(); } };
+    }
+    function apply(){
+      var rows=dataRows(), total=rows.length;
+      var pages=Math.max(1, Math.ceil(total/size));
+      if(page>pages) page=pages;
+      if(page<1) page=1;
+      var start=(page-1)*size, end=start+size;
+      Array.prototype.forEach.call(tb.children, function(tr){ tr.style.display=''; });
+      if(total){ rows.forEach(function(tr,i){ tr.style.display=(i>=start && i<end)?'':'none'; }); }
+      draw(total, pages, start, Math.min(end,total));
+    }
+    if(window.MutationObserver){
+      var obs=new MutationObserver(function(){ page=1; apply(); });
+      obs.observe(tb, {childList:true});
+    }
+    apply();
+  }catch(e){ /* pagination bersifat opsional; abaikan bila gagal */ }
+}
+makePager("rows","pager",15); makePager("crows","cpager",15);
+</script>
+{% endblock %}

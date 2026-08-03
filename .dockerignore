@@ -1,0 +1,7 @@
+.venv
+__pycache__
+*.pyc
+_runs
+_tmp
+.git
+*.zip

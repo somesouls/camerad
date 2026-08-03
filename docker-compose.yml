@@ -1,0 +1,24 @@
+# ================================================================
+#  Jalankan: docker compose up --build
+#  Akses dari PC lain di LAN: http://<IP-PC-HOST>:8080/
+# ================================================================
+services:
+  pipeline:
+    build: .
+    container_name: pipeline_lokal
+    ports:
+      - "8080:8080"        # host:container  -> ganti host port bila perlu
+    env_file:
+      - .env               # berisi LLM_PROVIDER + API key + PIPELINE_API_KEY
+    volumes:
+      # Simpan hasil/checkpoint di host (opsional tapi disarankan)
+      - ./_runs:/app/_runs
+      # Cache model HuggingFace supaya tidak download ulang tiap rebuild
+      - hf_cache:/root/.cache/huggingface
+      # service-account.json (HAPUS baris ini bila Anda tidak memakai
+      # Step yang butuh Google Cloud). File harus ADA sebelum 'up'.
+      - ./service-account.json:/app/service-account.json:ro
+    restart: unless-stopped
+
+volumes:
+  hf_cache:

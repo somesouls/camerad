@@ -1,0 +1,1 @@
+Dokumen yang Anda unggah tidak memuat isi yang dapat dibaca pada konteks yang tersedia, sehingga saya tidak bisa membuat ringkasan isinya secara setia. Jika Anda ingin, unggah ulang dokumen atau kirimkan teks/halaman yang ingin diringkas.

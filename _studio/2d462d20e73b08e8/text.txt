@@ -1,0 +1,2688 @@
+[Tabel: Penugasan]
+No | Nama Intent | PIC | Progress (Done/Not yet) | 
+1 | System_System_Welcome Intent | Aulia | DONE | 
+2 | System_System_Hubungi Agent | Aulia | DONE | 
+3 | Layanan Administrasi_EFIN_Lupa EFIN 2 | Aulia | DONE | 
+4 | System_System_Fallback Intent | Aulia | DONE | 
+5 | KUP_NPWP_Konfirmasi NPWP | Aulia | DONE | 
+6 | KUP_NPWP_Perubahan Data | Aulia | DONE | 
+7 | Layanan Administrasi_EFIN_Lupa EFIN Sudah Aktivasi 3 | Aulia | DROP | 
+8 | Layanan Administrasi_EFIN_Lupa EFIN_Belum Aktivasi 2 | Aulia | DROP | 
+9 | KUP_NPWP_Permintaan Kembali | Aulia | DONE | 
+10 | System_System_Hubungi Agent Connector | Aulia | DONE | 
+11 | KUP_NPWP_Tata Cara Pendaftaran | Aulia | DONE | 
+12 | Umum_Umum_Pertanyaan Umum | Aulia | DONE | 
+13 | Layanan Administrasi_Penonefektifan & Pengaktifan Kembali_Inform | Aulia | DONE | 
+14 | Coretax_Coretax 2025_Aktivasi Akun Wajib Pajak | Aulia | DONE | 
+15 | KUP_Pelaporan SPT_Umum | Aulia | DONE | 
+16 | Aplikasi Perpajakan_Aplikasi Umum_Lupa Password Pajak | Aulia | DONE | 
+17 | Umum_Umum_Closing | Aulia | DONE | 
+18 | KUP_NPWP_NIK Telah Terdaftar | Aulia | DONE | 
+19 | Kode Error_Error Coretax_Umum | Aulia | DONE | 
+20 | Kode Error_Coretax_Error Login | Aulia | DONE | 
+21 | Kode Error_Error Coretax_Gagal Unduh Dokumen Coretax | Aulia | DONE | 
+22 | System_System_Fallback Intent 2 | Aulia | DONE | 
+23 | KUP_NPWP_Pemutakhiran Data Mandiri | Aulia | DONE | 
+24 | System_System_Hubungi Agent-Foll | Aulia | DONE | 
+25 | Kode Error_Error Coretax_Kendala Aktivasi Akun Coretax | Aulia | DONE | 
+26 | Aplikasi Perpajakan_Aplikasi Umum_Token Umum | Aulia | DONE | 
+27 | Layanan Administrasi_EFIN_Aktivasi OP | Aulia | DONE | 
+28 | Umum_Umum_Tutorial Chatbot | Aulia | DONE | 
+29 | Aplikasi Perpajakan_Prosedur Pengajuan Sertifikat Elektronik KODJP | Aulia | DONE | 
+30 | KUP_Pembayaran Pajak_Billing Umum | Aulia | DONE | 
+31 | KUP_PKP_Persyaratan dan Saluran Pengukuhan 2 | Aulia | DONE | 
+32 | KUP_NPWP_Umum | Aulia | DONE | 
+33 | Kode Error_Error Coretax_Kendala Pengisian Identitas Pendaftaran | Aulia | DONE | 
+34 | Perpajakan Umum_Pengaduan_Umum | Aulia | DONE | 
+35 | KUP_WP Kriteria Tertentu | Aulia | DONE | 
+36 | Kode Error_Error Coretax_tiket Melati | Aulia | DONE | 
+37 | Coretax_Coretax_Umum | Aulia | DONE | 
+38 | PPh_PPh Final UMKM_Surat Keterangan PPh Final Bruto Tertentu | Aulia | DONE | 
+39 | Perpajakan Umum_Perpajakan Umum_Informasi Unit Kerja | Aulia | DONE | 
+40 | KUP_NPWP_Bagi Wanita Kawin | Aulia | DONE | 
+... (160 baris lagi)
+
+[Tabel: TEMPLATE]
+ | Accordion | Chips | Link
+ | {
+  "richContent": [
+    [
+      {
+        "text": "text: <p align='justify'></p>",
+        "subtitle": "",
+        "title": "title: <b></b>",
+        "type": "accordion"
+      }
+    ]
+  ]
+} | {
+  "richContent": [
+    [
+      {
+        "meta": "[chips]",
+        "options": [
+          {
+            "text": ""
+          },
+          {
+            "text": ""
+          },
+          {
+            "text": ""
+          }
+        ],
+        "type": "chips"
+      }
+    ]
+  ]
+} | {
+  "richContent": [
+    [
+      {
+        "mode": "blocking",
+        "type": "button",
+        "anchor": {
+          "href": ""
+        },
+        "icon": {
+          "color": "#FF9800",
+          "type": "chevron_right"
+        },
+        "event": {
+          "event": ""
+        },
+        "text": ""
+      }
+    ]
+  ]
+}
+
+[Tabel: Dian]
+Nama Intent | PIC | Text | Custom Payload 1 | Text | Custom Payload 2 | Custom Payload 3 | Text
+KUP_PKP_Pengukuhan Melalui Coretax | Dian | Apakah Kakak menanyakan informasi permohonan Pengukuhan PKP  melalui Coretax? | {
+  "richContent": [
+    [
+      {
+        "type": "accordion",
+        "title": "title: Tata Pengukuhan PKP  melalui Coretax",
+        "text": "text: <ol><li align='justify'>Login pada Aplikasi Portal dengan memasukkan username berupa NIK/NPWP/NITKU dan password</li><li align='justify'>Pilih menu 'portal saya' --> pilih 'Pengukuhan PKP/VAT Registration'</li><li align='justify'>Isi Status kepemilikan tempat usaha. Jika tempat usahanya menggunakan virtual office maka ada tambahan detail informasi yang harus diisi</li><li align='justify'>Isi data terkait pendapatan tahunan dan bulan mulai melakukan pemungutan PPN</li><li align='justify'>Jika status alamat utama PKP terletak di FTZ (kawasan bebas), maka pilih alamat cabang lain yang terletak di luar FTZ (kawasan bebas) dan akan dijadikan tempat pemusatan PPN</li><li align='justify'>Berikan tanda centang pada pernyataan, dan klik Submit atau 'Kirim'</li><li align='justify'>Silakan unduh dokumen tanda terima --> cek email secara berkala</li></ol><p align='justify'>Untuk video tutorial Pengajuan Pengukuhan PKP, Kakak dapat menyimak tautan video berikut👇</p><p align='justify'><b>Pengukuhan PKP Melalui Coretax</b><br><iframe width='240' height='250' src='https://www.youtube.com/embed/tjOoPmHJe_c?list=PLDDScx7l7xS19VM7N4aBtNaesWC2x3OQG'></iframe></p>"
+    }
+    ]
+  ]
+} |  | {
+  "richContent": [
+    [
+      {
+        "type": "chips",
+        "options": [
+          {
+            "text": "Kembali ke Pertanyaan Umum"
+          },
+          {
+            "text": "Akhiri Percakapan"
+          }
+        ],
+        "meta": "[chips]"
+      }
+    ]
+  ]
+} |  | 
+
+[Tabel: Samsul]
+Nama Intent | PIC | Text | Custom Payload 1 | Text | Custom Payload 2 | Custom Payload 3 | Text
+
+[Tabel: Radix]
+Nama Intent | PIC | Text | Custom Payload 1 | Text | Custom Payload 2 | Custom Payload 3 | Text
+
+[Tabel: Rudhy]
+Nama Intent | PIC | Text | Custom Payload 1 | Text | Custom Payload 2 | Custom Payload 3 | Text
+
+[Tabel: Aulia]
+Nama Intent | PIC |  | Text | Custom Payload 1 | Text | Custom Payload 2 | Custom Payload 3 | Text
+System_System_Welcome Intent | Aulia | Selamat datang di layanan Virtual Assistant (Chat Bot) DJP. Saya siap membantu Kakak.
+
+Silakan Kakak mengetik pertanyaan perpajakan di kolom chat ya, Kak 👇
+
+____________________
+
+Alternatif lainnya, Kakak dapat mengetik secara lengkap salah satu pilihan di bawah ini ya 👇
+
+Tutorial Chat Bot
+
+Pelaporan SPT
+
+Perubahan Data
+
+Konfirmasi NPWP
+
+Aktivasi Akun Coretax
+
+Kode Otorisasi DJP
+
+Daftar NPWP
+
+Lupa EFIN Belum Aktivasi
+
+Lupa EFIN Sudah Aktivasi
+
+Mengaktifkan Kembali/Penonaktifan NPWP
+
+Cetak NPWP
+
+Kode Error Coretax
+
+PP Nomor 20 Tahun 2026
+
+____________________
+
+Semua jawaban baik dari layanan Virtual Assistant (Chat Bot) DJP maupun Live Chat bukan merupakan dasar hukum dan tidak dapat dijadikan dasar atas suatu kasus tertentu.
+
+Bantu kami untuk meningkatkan layanan ya Kak, dengan mengeklik tautan/link survei di bawah ini 👇
+
+ https://s.kemenkeu.go.id/surveiDJPVA | Selamat datang di layanan Virtual Assistant (Chat Bot) DJP. Saya siap membantu Kakak.
+
+Silakan mengetik pertanyaan perpajakan di kolom chat ya atau Kakak dapat mengeklik salah satu pilihan di bawah ini ya 👇 | {
+  "richContent": [
+    [
+      {
+        "meta": "[chips]",
+        "options": [
+          {
+            "text": "Tutorial Chat Bot"
+          },
+          {
+            "text": "Pelaporan SPT"
+          },
+          {
+            "text": "Perubahan Data"
+          },
+          {
+            "text": "Konfirmasi NPWP"
+          },
+          {
+            "text": "Aktivasi Akun Coretax"
+          },
+          {
+            "text": "Kode Otorisasi DJP"
+          },
+          {
+            "text": "Daftar NPWP"
+          },
+          {
+            "text": "Lupa EFIN"
+          },
+          {
+            "text": "Mengaktifkan Kembali/Penonaktifan NPWP"
+          },
+          {
+            "text": "Cetak NPWP"
+          },
+          {
+            "text": "Kode Error Coretax"
+          },
+          {
+            "text": "PP Nomor 20 Tahun 2026"
+          }
+        ],
+        "type": "chips"
+      }
+    ]
+  ]
+} | Semua jawaban baik dari layanan Virtual Assistant (Chat Bot) DJP maupun Live Chat bukan merupakan dasar hukum dan tidak dapat dijadikan dasar atas suatu kasus tertentu.
+
+Bantu kami untuk meningkatkan layanan ya Kak, dengan mengeklik tautan/link survei di bawah ini 👇 | {
+  "richContent": [
+    [
+      {
+        "event": {
+          "event": ""
+        },
+        "anchor": {
+          "href": "https://s.kemenkeu.go.id/surveiDJPVA"
+        },
+        "text": "Link Survei Kepuasan Layanan VA",
+        "mode": "blocking",
+        "icon": {
+          "type": "chevron_right",
+          "color": "#FF9800"
+        },
+        "type": "button"
+      }
+    ]
+  ]
+} |  | 
+System_System_Hubungi Agent | Aulia | Mohon maaf, saat ini Kakak berada di luar jam layanan kami. Silakan menghubungi petugas kami kembali pada pukul 08:00 - 16:00 WIB (Senin s.d. Jumat).
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan yang tertera di bawah ini:
+
+- Waspada Penipuan
+
+- Daftar NPWP
+
+- Konfirmasi NPWP
+
+- Konfirmasi Status NPWP
+
+- Mengaktifkan Kembali/Penonaktifan Status NPWP
+
+- Perubahan Data
+
+- Pelaporan SPT
+
+- Belajar Coretax
+
+- Aktivasi akun Coretax
+
+- Tutorial Chat Bot
+
+Selain itu, Kakak juga dapat menghubungi kami melalui kanal:
+
+- telepon nomor 1500200
+- twitter akun @kring_pajak
+- email informasi@pajak.go.id
+- email pengaduan@pajak.go.id (khusus layanan pengaduan)
+
+Kakak juga dapat berkonsultasi ke KPP terdekat ya.  Untuk informasi lebih lanjut, silakan mengeklik link di bawah ini ya, Kak👇
+
+https://pajak.go.id/unit-kerja | Silakan menunggu, petugas kami akan segera membantu Kakak. Apabila Kakak ingin menyimpan transkrip percakapan sesi Chatbot maupun Live Chat ini, silakan melakukan tangkapan layar (screenshot) sebelum menutup percakapan ya, Kak. |  |  |  |  | 
+Layanan Administrasi_EFIN_Lupa EFIN 2 | Aulia | Apakah Kakak lupa EFIN? Jika Kakak sebelumnya sudah mendaftarkan NPWP, maka Kakak seharusnya sudah memiliki EFIN.
+
+Apakah Kakak sebelumnya sudah mengaktifkan EFIN?
+
+Ketik 1 jika Anda sudah mengaktifkan EFIN
+
+Ketik 2 jika Anda belum mengaktifkan EFIN
+
+Untuk pelaporan SPT Tahunan 2025 sudah tidak melalui https://djponline.pajak.go.id  lagi ya, Kak, tapi melalui
+
+  https://coretaxdjp.pajak.go.id/ 
+
+Jika Kakak memiliki pertanyaan lain, silakan ketik di kotak chat, atau pilih salah satu opsi berikut 👇
+Lupa Email : Informasi terkait lupa email
+Perubahan Data : Informasi pembaruan data NPWP seperti nomor telepon dan alamat Wajib Pajak
+Aktivasi Akun: Informasi aktivasi akun Coretax
+0: Kembali ke pertanyaan umum
+9: Akhiri percakapan
+1500200: Terhubung ke Agen Live Chat (pada jam/hari kerja pukul 08:00 - 16:00 WIB) | Apakah Kakak lupa EFIN? Jika Kakak sebelumnya sudah mendaftarkan NPWP, maka Kakak seharusnya sudah memiliki EFIN.
+
+Apakah Kakak sebelumnya sudah mengaktifkan EFIN? | {
+  "richContent": [
+    [
+      {
+        "text": "text: <p align='justify'>Jika Wajib Pajak sudah pernah melakukan aktivasi EFIN dan saat ini lupa EFIN, silakan cek email Kakak dan mencari dengan kata 'EFIN' terlebih dahulu. Jika tidak ada, terdapat beberapa alternatif untuk mendapatkan EFIN kembali, yaitu:<br><ul><li>melalui aplikasi M-Pajak (pastikan aplikasi M-Pajak versi terbaru telah ter-install pada HP, untuk informasi selengkapnya silakan mengeklik link/tautan  <a href='https://pajak.go.id/panduan-lupa-efin-di-m-pajak'>Panduan Lupa EFIN melalui M-Pajak</a>)</li><li>melalui email lupa.efin@pajak.go.id menggunakan alamat email terdaftar (sama dengan data pada isi email) dengan subjek 'Lupa EFIN' dan mencantumkan pada isi email:<br><ol><li>NPWP, nama wajib pajak, alamat terdaftar, alamat email terdaftar, dan nomor telepon/ handphone terdaftar; serta</li><li>afirmasi dengan mengetik 'Saya menyatakan bahwa saya adalah wajib pajak yang memiliki hak untuk mengakses informasi yang diminta. Saya bersedia menanggung akibat hukum sesuai dengan ketentuan hukum yang berlaku, apabila di kemudian hari saya terbukti bukan pihak yang memiliki hak.'</li></ol></li><li>melalui petugas Live Chat Kring Pajak apabila Wajib Pajak pada awal percakapan sudah masuk dengan pilihan 'NPWP', Wajib Pajak dapat langsung mengetik '1500200' pada kolom chat</li><li>melalui telepon Kring Pajak 1500200</li><li>datang secara langsung ke KPP/ KP2KP<br>untuk WP Orang Pribadi dapat ke KPP/ KP2KP terdekat, untuk WP non-Orang Pribadi ke KPP/ KP2KP terdaftar</li></ul><p align='justify'>Permohonan EFIN dilakukan oleh Wajib Pajak sendiri dan tidak diperkenakan untuk dikuasakan kepada pihak lain.</p><p align='justify'>Setelah proses verifikasi lupa EFIN melalui Kring Pajak terpenuhi, maka EFIN akan dikirimkan ke 'email terdaftar'.</p><p align='justify'>Jika EFIN dikirimkan dalam bentuk file pdf terproteksi, maka password untuk membuka pdf tersebut adalah digit ke-3 sampai dengan digit ke-9 NPWP Wajib Pajak bersangkutan.</p>",
+        "subtitle": "",
+        "title": "title: <b>Jika Sudah Pernah Aktivasi EFIN Sebelumnya</b>",
+        "type": "accordion"
+      },
+      {
+        "text": "text: <p align='justify'>Apabila Kakak belum atau tidak ingat pernah melakukan aktivasi EFIN, maka Wajib Pajak Orang Pribadi dapat datang secara langsung ke KPP (Kantor Pelayanan Pajak) terdekat. Sementara itu untuk WP lainnya tetap harus ke KPP terdaftar. Aktivasi EFIN tidak dapat diwakilkan oleh pihak lain.</p><p align='justify'>Sebagai tambahan informasi, aktivasi EFIN dilakukan hanya sekali dan belum dapat dilayani melalui layanan Kring Pajak 1500200.</p><p align='justify'>Alamat KPP terdaftar dapat diketahui pada link di bawah ini 👇<br><a href='https://pajak.go.id/wilayah-administrasi'>Daftar Kantor Pajak</a></p><p align='justify'>Untuk mengunduh formulir EFIN, silakan klik link/tautan di bawah ini 👇<br><a href='https://pajak.go.id/id/formulir-permohonan-efin'>Formulir Permohonan EFIN</a></p><p align='justify'>Apabila sampai dengan saat ini Wajib Pajak belum menerima email hasil aktivasi EFIN, silakan konfirmasi ke KPP tempat Wajib Pajak terdaftar.</p>",
+        "subtitle": "",
+        "title": "title: <b>Jika Tidak Ingat/Belum Pernah Aktivasi EFIN Sebelumnya</b>",
+        "type": "accordion"
+      }
+    ]
+  ]
+} | Untuk pelaporan SPT Tahunan 2025 sudah tidak melalui DJP Online  lagi ya, Kak, tapi melalui Coretax. 
+
+Jika Kakak memiliki pertanyaan lain, silakan ketik di kotak chat, atau pilih salah satu opsi berikut 👇 | {
+  "richContent": [
+    [
+      {
+        "meta": "[chips]",
+        "options": [
+          {
+            "text": "Lupa Email"
+          },
+          {
+            "text": "Perubahan Data"
+          },
+          {
+            "text": "Aktivasi Akun Coretax"
+          },
+          {
+            "text": "Kembali ke Pertanyaan Umum"
+          },
+          {
+            "text": "Akhiri Percakapan"
+          },
+          {
+            "text": "1500200"
+          }
+        ],
+        "type": "chips"
+      }
+    ]
+  ]
+} |  | 
+System_System_Fallback Intent | Aulia | Mohon maaf, Kak. Saya tidak memahami pertanyaan Kakak secara jelas. Saya juga tidak dapat memahami apabila Kakak menanyakan lebih dari satu konteks pertanyaan.
+
+Sebagai informasi, saat ini Kakak mengakses layanan Live Chat Kring Pajak yang hanya dapat merespon pertanyaan Kakak yang diketik dalam bahasa Indonesia.
+
+Apabila ingin berkomunikasi dengan menggunakan bahasa Inggris, silakan Kakak terlebih dahulu mengakhiri percakapan saat ini dan masuk kembali ke layanan Live Chat dengan memilih opsi bahasa Inggris (English). Layanan Live Chat Kring Pajak hanya tersedia dalam 2 (dua) bahasa pengantar yaitu Bahasa Indonesia dan Bahasa Inggris (English) ya, Kak.
+
+Silakan coba mengetik ulang menggunakan kalimat lain atau mengetik salah satu pilihan yang tertera di bawah ini:
+
+Tutorial Chat Bot
+
+Pelaporan SPT
+
+Perubahan Data
+
+Konfirmasi NPWP
+
+Aktivasi Akun Coretax
+
+Kode Otorisasi DJP
+
+Daftar NPWP
+
+Lupa EFIN
+
+Mengaktifkan Kembali/Penonaktifan NPWP
+
+Cetak NPWP
+
+Kode Error Coretax
+____________________
+
+Atau  silakan ketik "1500200" pada kolom chat untuk terhubung dengan Live Chat Agent (Petugas) pada jam kerja Senin-Jumat pukul 08.00-16.00 WIB. | Mohon maaf, Kak. Saya tidak memahami pertanyaan Kakak secara jelas. Saya juga tidak dapat memahami apabila Kakak menanyakan lebih dari satu konteks pertanyaan.
+
+Sebagai informasi, saat ini Kakak mengakses layanan Live Chat Kring Pajak yang hanya dapat merespon pertanyaan Kakak yang diketik dalam bahasa Indonesia. 
+
+Apabila ingin berkomunikasi dengan menggunakan bahasa Inggris, silakan Kakak terlebih dahulu mengakhiri percakapan saat ini dan masuk kembali ke layanan Live Chat dengan memilih opsi bahasa Inggris (English). Layanan Live Chat Kring Pajak hanya tersedia dalam 2 (dua) bahasa pengantar yaitu Bahasa Indonesia dan Bahasa Inggris (English) ya, Kak.
+
+Silakan coba mengetik ulang menggunakan kalimat lain atau memilih salah satu pilihan yang tertera di bawah ini. | {
+  "richContent": [
+    [
+      {
+        "meta": "[chips]",
+        "options": [
+          {
+            "text": "Tutorial Chat Bot"
+          },
+          {
+            "text": "Pelaporan SPT"
+          },
+          {
+            "text": "Perubahan Data"
+          },
+          {
+            "text": "Konfirmasi NPWP"
+          },
+          {
+            "text": "Aktivasi Akun Coretax"
+          },
+          {
+            "text": "Kode Otorisasi DJP"
+          },
+          {
+            "text": "Daftar NPWP"
+          },
+          {
+            "text": "Lupa EFIN"
+          },
+          {
+            "text": "Mengaktifkan Kembali/Penonaktifan NPWP"
+          },
+          {
+            "text": "Cetak NPWP"
+          },
+          {
+            "text": "Kode Error Coretax"
+          },
+          {
+            "text": "PP Nomor 20 Tahun 2026"
+          },
+          {
+            "text": "Kembali ke Pertanyaan Umum"
+          },
+          {
+            "text": "1500200"
+          }
+        ],
+        "type": "chips"
+      }
+    ]
+  ]
+} |  |  |  | 
+KUP_NPWP_Konfirmasi NPWP | Aulia | Apakah Kakak ingin melakukan konfirmasi NPWP?
+
+Untuk Wajib Pajak Orang Pribadi, sejak 1 Januari 2025, apabila NIK telah diaktivasi sebagai NPWP, maka NIK tersebut dapat digunakan sebagai NPWP ya, Kak.
+
+Apabila NIK Kakak belum diaktivasi sebagai NPWP, silakan kunjungi KPP terdekat untuk melakukan aktivasi NIK sebagai NPWP dengan membawa KTP dan Kartu NPWPnya ya, Kak.
+
+Terdapat 3 cara untuk mengecek NPWP milik Kakak:
+
+1. Kakak dapat mencoba mengecek status keaktifan NPWP/NIK sebagai NPWP secara mandiri pada situs:
+
+  https://coretaxdjp.pajak.go.id/ 
+
+Silakan klik 'Lupa Kata Sandi', kemudian input NIK pada ID Pengguna. Setelah itu, pada  kolom "Tujuan Konfirmasi", pilih salah satu opsi antara Surat Elektronik dan Nomor HP, apabila NIK Kakak sudah aktif sebagai NPWP atau Kakak terdaftar sebagai bagian dari Family Tax Unit, maka pada kolom "Tujuan Konfirmasi" akan tersedia informasi mengenai email ataupun nomor HP yang disamarkan ya, Kak. Kakak dapat mengetahui dari informasi tersebut.
+
+Apabila ternyata NPWP/NIK Kakak telah terdaftar atau Kakak telah terdaftar sebagai bagian dari Family Tax Unit, silakan lanjutkan proses login Coretax melalui menu 'Lupa Kata Sandi' atau 'Aktivasi Akun Wajib Pajak' ya, Kak.
+
+2. Kakak dapat melakukan pengecekan ke KPP terdekat. Berikut adalah link informasi kontak KPP terdekat 👇
+
+ https://pajak.go.id/unit-kerja  
+
+3. Silakan mengetik "1500200" pada kolom chat untuk terhubung dengan petugas live chat pada jam kerja (Senin-Jumat pukul 08.00-15.00 WIB) dan melakukan konfirmasi NPWP./konfirmasi status NPWP.
+
+Jika memang Kakak sudah pernah mendaftarkan diri untuk memperoleh NPWP sebelumnya, Kakak dapat melakukan permintaan kembali kartu NPWP. Ketik "Cetak NPWP" untuk mendapatkan informasi mengenai permohonan permintaan kembali atas NPWP.
+
+Apabila yang Kakak maksud adalah tentang notifikasi status NPWP yang sudah terdaftar yang muncul saat mendaftar NPWP, artinya Kakak sudah terdaftar sebagai wajib pajak dan memiliki NPWP.
+
+Jika Kakak mencari NPWP untuk lembaga jasa keuangan, informasi tersebut dapat diperoleh dengan mengklik tautan berikut dan pastikan untuk menambah angka '0' di depan NPWP 15 digit yang diperoleh ya, Kak 👇
+
+ https://ojk.go.id/id/kanal/perbankan/data-dan-statistik/direktori-perbankan-indonesia-baru/default.aspx
+
+Dengan diluncurkannya aplikasi Coretax, Kakak juga dapat mengecek apakah NPWPnya berstatus aktif atau tidak dengan cara login pada situs:
+
+  https://coretaxdjp.pajak.go.id/ 
+
+Informasi tersebut dapat dilihat di bagian Ikhtisar Profil Wajib Pajak > Profil > Status NPWP ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+CETAK NPWP : Informasi cara mencetak kartu NPWP
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan
+1500200 : Terhubung ke Live Chat Agent (Petugas) pada jam kerja Senin-Jumat pukul 08.00-16.00 WIB |  |  |  |  |  | 
+KUP_NPWP_Perubahan Data | Aulia | Hai Kak, apakah Kakak ingin melakukan perubahan data?
+
+Kakak dapat mengubah data melalui beberapa cara ya, Kak.
+
+- Melalui Kring Pajak
+
+Permohonan yang dilayani Kring Pajak hanya untuk perubahan data nomor HP dan alamat email.
+
+Kakak dapat mengetik "1500200" pada kolom chat atau menghubungi Kring Pajak di nomor telepon 1500200 pada hari dan jam kerja (Senin s.d. Jumat pukul 08.00 s.d. 16.00 WIB). Perubahan data melalui Kring Pajak akan diproses melalui aplikasi Coretax oleh petugas sepanjang Kakak dapat menyebutkan data yang terdaftar (sebelum diubah) dan tervalidasi oleh sistem ya, Kak.
+
+Apabila Kakak lupa/tidak mengetahui email dan/atau nomor HP yang terdaftar, Kakak dapat mencoba alternatif lainnya seperti di bawah ini.
+
+- Melalui KPP terdekat
+
+ Untuk informasi terkait kantor pajak terdekat dapat diakses pada link berikut:
+
+ https://pajak.go.id/unit-kerja
+
+- Melalui Coretax secara mandiri
+
+Coretax DJP dapat diakses pada alamat:
+
+  https://coretaxdjp.pajak.go.id/     
+
+Langkah-langkahnya sebagai berikut 👇
+
+A. Perubahan data untuk jenis data seperti Informasi Umum, KLU Tambahan, Data Cabang, keluarga, dll (tanpa penelitian):
+
+1. Login pada Aplikasi Portal dengan memasukkan username berupa NIK/NPWP/NITKU dan password
+
+2. Pilih menu 'Portal Saya' --> klik 'Profil Saya' --> klik 'Informasi Umum'  --> klik 'Edit' di bagian kanan atas laman
+
+3. Pada bagian informasi umum klik "Validasi data terbaru ke Dukcapil" kemudian lakukan perubahan data pada data yang ingin Kakak ubah dan bisa dilakukan perubahan data
+
+4. Unggah Dokumen Persyaratan/Pendukung apabila diperlukan
+
+5. Berikan tanda centang pada pernyataan lalu klik 'Submit' atau 'Kirim'
+
+6. Setelah permohonan berhasil dikirim --> unduh Bukti Penerimaan Surat (BPS) dan Surat Perubahan Data pada email atau Coretax
+
+B. Perubahan data untuk jenis data seperti KLU Utama dan Rekening Bank (dengan penelitian paling lama 1 hari kerja setelah permohonan diterima lengkap):
+
+1. Login pada Aplikasi Portal dengan memasukkan username berupa NIK/NPWP/NITKU dan password
+
+2. Pilih menu 'Portal Saya' --> klik 'Perubahan Data' --> klik Identitas Wajib Pajak
+
+3. Lakukan perubahan data pada ada data yang ingin Kakak ubah dan kolom dapat diisi
+
+4. Unggah Dokumen Persyaratan/Pendukung
+
+5. Berikan tanda centang pada pernyataan lalu klik 'Submit' atau 'Kirim'
+
+6. Setelah permohonan berhasil dikirim --> unduh Bukti Penerimaan Surat (BPS) pada email atau portal WP
+
+Baik Surat Pemberitahuan Perubahan Data ataupun Surat Penolakan Pemberitahuan Data dapat diperoleh Wajib Pajak melalui menu Portal Saya > Dokumen Saya ya, Kak.
+
+Perubahan data di Coretax juga mengubah data yang ada di DJP Online, namun perubahannya memerlukan sedikit tambahan waktu untuk sinkronisasi ya, Kak.
+
+Untuk memantau pemrosesan permohonan perubahan data yang disampaikan, silakan Kakak melakukan pengecekan dengan cara:
+
+1. Pilih menu Portal Saya > Kasus Saya;
+
+2. Klik tombol 'Refresh' > Cari kasus terkait permohonan perubahan data yang diajukan dengan menggunakan filter yang tersedia;
+
+3. Lihat progress pada kolom 'Status Kasus';
+
+4. Apabila:
+- status 'Diproses' dan Kakak ingin menanyakan secara langsung kepada petugas pemroses, silakan hubungi unit kerja terkait;
+
+- status 'Selesai', maka permohonan telah selesai ditindaklanjuti. Silakan cek Portal Saya > Dokumen Saya;
+
+- status 'Dibatalkan', maka permohonan telah dibatalkan petugas dikarenakan tidak memenuhi persyaratan; atau
+
+- status 'Ditarik', maka permohonan ditarik kembali oleh Wajib Pajak dan dianggap tidak pernah menyampaikan permohonan
+
+Untuk informasi lebih lengkap mengenai perubahan data Wajib Pajak, dapat Kakak peroleh melalui link berikut ya 👇
+
+ https://s.kemenkeu.go.id/CoretaxPerubahanData  
+
+Untuk video tutorial Perubahan Identitas Wajib Pajak, Kakak dapat menyimak tautan video berikut 👇
+
+ https://s.id/IdentitasWPCoretax
+
+Apabila Kakak ternyata mendapatkan pemberitahuan mengenai adanya perubahan data yang dilakukan atas data Kakak namun sebenarnya Kakak tidak pernah mengajukan permohonan perubahan data tersebut, maka Kakak dapat mengajukan pengaduan secara terperinci melalui:
+
+email pengaduan@pajak.go.id, telepon 1500200, atau mengetik "Pengaduan" di kolom chat di bawah ini.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+KKLU : Informasi Kode KLU
+IWPNE : Informasi Wajib Pajak Non Efektif
+UNKER : Informasi terkait dengan Unit Kerja
+9 : Akhiri percakapan
+0 : Kembali ke pertanyaan umum |  |  |  |  |  | 
+Layanan Administrasi_EFIN_Lupa EFIN Sudah Aktivasi 3 | Aulia | Jika Kakak sudah pernah melakukan aktivasi EFIN dan saat ini lupa EFIN, silakan cek email Kakak dan mencari dengan kata 'EFIN' terlebih dahulu. Jika tidak ada, terdapat beberapa alternatif untuk mendapatkan EFIN kembali, yaitu:
+
+- melalui aplikasi M-Pajak (pastikan aplikasi M-Pajak versi terbaru telah ter-install pada HP, untuk informasi selengkapnya silakan mengeklik link/tautan  https://pajak.go.id/panduan-lupa-efin-di-m-pajak )
+
+- melalui email lupa.efin@pajak.go.id menggunakan alamat email terdaftar (sama dengan data pada isi email) dengan subjek "Lupa EFIN" dan mencantumkan pada isi email :
+
+1. NPWP, nama wajib pajak, alamat terdaftar, alamat email terdaftar, dan nomor telepon/ handphone terdaftar; serta
+
+2. afirmasi dengan mengetik "Saya menyatakan bahwa saya adalah wajib pajak yang memiliki hak untuk mengakses informasi yang diminta. Saya bersedia menanggung akibat hukum sesuai dengan ketentuan hukum yang berlaku, apabila di kemudian hari saya terbukti bukan pihak yang memiliki hak".
+
+- melalui petugas Live Chat Kring Pajak
+apabila Kakak pada awal percakapan sudah masuk dengan pilihan "NPWP", Kakak dapat langsung mengetik "1500200" pada kolom chat
+
+- melalui telepon Kring Pajak 1500200
+
+- datang secara langsung ke KPP/ KP2KP
+untuk WP Orang Pribadi dapat ke KPP/ KP2KP terdekat, untuk WP non-Orang Pribadi ke KPP/ KP2KP terdaftar
+
+Permohonan EFIN dilakukan oleh Wajib Pajak sendiri dan tidak diperkenakan untuk dikuasakan kepada pihak lain.
+
+Setelah proses verifikasi lupa EFIN melalui Kring Pajak terpenuhi, maka EFIN akan dikirimkan ke "email terdaftar".
+
+Jika EFIN dikirimkan dalam bentuk file pdf terproteksi, maka password untuk membuka pdf tersebut adalah digit ke-3 sampai dengan digit ke-9 NPWP Wajib Pajak bersangkutan ya, Kak.
+
+Jika ada pertanyaan lain, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+UNKER : Informasi terkait KPP (termasuk email dan alamat kantor)
+PDMNPWP : Pemutakhiran Data Mandiri
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan
+1500200 : tersambung ke agent (petugas) Live Chat |  |  |  |  |  | 
+Layanan Administrasi_EFIN_Lupa EFIN_Belum Aktivasi 2 | Aulia | Apabila Kakak belum melakukan aktivasi EFIN, berikut cara untuk mengaktivasi EFIN:
+
+- datang secara langsung ke KPP (Kantor Pelayanan Pajak)
+
+(untuk WP Orang Pribadi dapat ke KPP terdekat, untuk WP lainnya ke KPP terdaftar. Aktivasi EFIN tidak dapat diwakilkan oleh pihak lain ya, Kak.)
+
+Sebagai tambahan informasi, aktivasi EFIN dilakukan hanya sekali dan belum dapat dilayani melalui layanan Kring Pajak 1500200.
+
+Alamat KPP terdaftar dapat diketahui pada link di bawah ini ya, Kak 👇
+
+ https://pajak.go.id/wilayah-administrasi
+
+Untuk mengunduh formulir EFIN, silakan klik link/tautan di bawah ini ya, Kak  👇
+
+ https://pajak.go.id/id/formulir-permohonan-efin
+
+Apabila sampai dengan saat ini Kakak belum menerima email hasil aktivasi EFIN, silakan konfirmasi ke KPP tempat Kakak terdaftar ya.
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan pada kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+EFIN : Kembali ke EFIN
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+KUP_NPWP_Permintaan Kembali | Aulia | Apakah Kakak:
+
+- melakukan registrasi di coretax namun belum mendapatkan email NPWP/nomor identitas perpajakan?; atau
+
+- melakukan aktivasi akun Coretax namun belum ada email yang masuk untuk perubahan password dan passphrase?; atau
+
+- ingin mengunduh/mencetak ulang kartu NPWP/SPPKP/SKT atau NPWP dan dokumen perpajakan lainnya hasil Coretax?
+
+Untuk pertanyaan 1 dan 2, mohon dipastikan bahwa penulisan email terdaftar dan Nomor HP sudah sesuai (perhatikan huruf besar dan kecil) dan email belum pernah digunakan untuk data email bagi wajib pajak lain.
+
+Jika sudah sesuai, mohon kesediannya untuk menunggu secara berkala ya, Kak.
+
+Namun jika Kakak memerlukannya segera, (termasuk untuk pertanyaan 3), silakan Kakak mengajukan permohonan pengiriman dokumen hasil coretax melalui telepon Kring Pajak 1500200, Live Chat (dengan mengetik ‘1500200’ di kolom chat), atau dengan mengunjungi KPP terdekat (untuk WP orang pribadi)/terdaftar (untuk WP selain orang pribadi) dengan mempersiapkan data-data sebagai berikut:
+- NIK/Nomor Paspor
+- Nama
+- Email terdaftar
+- Nomor HP terdaftar
+
+Kakak juga dapat mengunduh kembali dokumen perpajakan tersebut melalui Coretax dengan cara sebagai berikut:
+
+1. Login akun Coretax di  https://coretaxdjp.pajak.go.id/
+
+2. Setelah berhasil login, masuk ke bagian Portal Saya dan klik Dokumen Saya
+
+3. Klik tombol refresh > Hasilkan Dokumen pada bagian kanan diatas unggah dokumen.
+
+4. Setelah muncul list dokumen, cari dokumen terkait,  lalu geser ke kanan, klik Unduh.
+
+5.  Untuk selanjutnya, apabila Kakak ingin mengunduh kembali dan sudah pernah klik "Hasilkan Dokumen", silakan ulangi poin 1 dan 2, lalu Refresh list dokumen. Kemudian silakan unduh kembali dokumen tersebut.
+
+Apabila Kakak ingin ke KPP terdekat/terdaftar untuk mengajukan permintaan kembali atau cetak ulang dokumen terkait, pastikan Kakak telah mengisi formulir permintaan kembali yang dapat diunduh melalui tautan berikut ya 👇
+
+ https://pajak.go.id/id/formulir-pajak/formulir-permintaan-kembali
+
+Permintaan kembali Kartu NPWP, Surat Keterangan Terdaftar (SKT), dan/atau SPPKP dilengkapi dengan dokumen yang sama dengan yang disyaratkan sebagai kelengkapan permohonan pendaftaran dan:
+
+1. dalam hal permohonan disebabkan Kartu NPWP, SKT dan/atau SPPKP mengalami kerusakan, maka Kartu NPWP, SKT, dan/atau SPPKP tersebut diserahkan pada Petugas Pendaftaran pada KPP atau KP2KP; atau
+
+2. dalam hal permohonan disebabkan Kartu NPWP, SKT, dan/atau SPPKP hilang, maka Wajib Pajak melampiri permohonan permintaan kembali dengan surat pernyataan kehilangan yang dapat diperoleh melalui kepolisian atau pihak yang berwenang lainnya.
+
+Untuk mengetahui syarat pendaftaran NPWP, Kakak dapat memperoleh informasi tersebut dengan mengeklik tautan berikut ya, Kak👇
+
+1.  https://s.id/SyaratDaftarNPWPOP 
+
+2.  https://s.id/SyaratDaftarNPWPBadan  
+
+3.  https://s.id/SyaratDaftarNPWPIP
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+UNKER : Informasi terkait Unit Kerja
+Konfirmasi NPWP: Informasi konfirmasi NPWP
+9 : Akhiri percakapan
+0 : Kembali ke pertanyaan umum |  |  |  |  |  | 
+System_System_Hubungi Agent Connector | Aulia | Apakah Kakak ingin terhubung ke petugas? Jika iya, silakan mengetik angka 1500200 pada kolom chat ya, Kak  untuk terhubung dengan Live Chat Agent (Petugas) pada jam kerja Senin-Jumat pukul 08.00-16.00 WIB. |  |  |  |  |  | 
+KUP_NPWP_Tata Cara Pendaftaran | Aulia | Hai Kak, apakah Kakak ingin mendaftar NPWP?
+
+Silakan melakukan pendaftaran NPWP melalui tautan berikut:
+
+  https://s.id/daftarNPWPCoretax
+
+Berikut ini informasi cara Registrasi/Pendaftaran NPWP Baru terdiri dari:
+
+A. Pendaftaran NPWP Wajib Pajak Orang Pribadi, tata caranya sebagai berikut:
+
+1. Pendaftaran NPWP --> klik menu 'Daftar disini'
+
+2. Pilih jenis Wajib Pajak --> Perorangan
+
+3. Klik 'Ya' untuk pertanyaan apakah Wajib Pajak memiliki NIK
+
+4. Pilih jenis registrasi NIK, apakah “Pendaftaran dengan Aktivasi NIK / Aktivasi NIK” (Registration with NIK activation / NIK activation) atau “Hanya Registrasi” (Registration Only)
+
+- Aktivasi NIK dipilih jika WP orang pribadi dalam negeri ingin mengaktivasi NIK sebagai NPWP.
+
+- "Hanya Registrasi" dipilih jika Wajib Pajak hanya dipilih jika subjek pajak belum memenuhi persyaratan subjektif dan objektif sebagai subjek pajak dalam negeri, misalnya wanita kawin yang memilih gabung dengan suami, anak yang belum dewasa, dan lain-lain.
+
+5. Pada bagian Identitas Wajib Pajak, isikan data  Wajib Pajak secara detail --> klik 'verify' atau 'verifikasi' (Pastikan data-data yang diisi telah sesuai dengan data kependudukan karena apabila terdapat ketidaksesuaian data maka verifikasi akan gagal)
+
+6. Lanjut ke Detail Kontak, setelah mengisi email, nomor telepon/fax --> klik 'verify ' --> klik 'next' atau 'lanjut'
+
+7. Pada bagian Pihak Terkait, silakan isi jika ada --> klik lanjut
+
+8. Pada bagian KLU/Economic Data, klik 'add' atau 'tambah' untuk mengisi  KLU Utama, sumber pendapatan, dan detail tambahan, tergantung pada sumber pendapatan yang dipilih
+
+Kemudian pada bagian KLU -> klik 'add' --> klik 'select'
+
+Pilih KLU Utama (berikan tanda centang) dan klik 'save' lalu 'lanjut'.
+
+KLU tambahan apabila ada lebih dari satu KLU.
+
+9. Pada kolom Alamat, isikan alamat domisili dan alamat sesuai KTP (kolom seksi pengawasan/supervision code akan terisi otomatis setelah kakak memasukan data geometris) --> klik 'next' atau 'lanjut'
+
+10. Lakukan verifikasi identitas dengan validasi face recognition --> klik 'next' atau 'lanjut'
+
+11. Berikan tanda centang pada pernyataan --> klik 'Submit' atau 'Kirim' --> "cek email secara berkala"
+
+Untuk video tutorial  Pendaftaran NPWP Orang Pribadi, Kakak dapat menyimak tautan video berikut:
+
+ https://s.id/NPWPOrangPribadi  
+
+B. Untuk video tutorial  Pendaftaran NPWP Badan, Kakak dapat menyimak tautan video berikut:
+
+ https://s.id/NPWPBadan   
+
+C. Untuk video tutorial  Pendaftaran NPWP  Instansi Pemerintah, Kakak dapat menyimak tautan video berikut:
+
+ https://s.id/NPWPIP
+
+Apabila terdapat notifikasi "Data tidak ditemukan" pada saat pengisian NIK atau KK,  silakan pastikan pengisian NIK atau nomor KK sudah sesuai dengan data pada KTP/KK. Apabila masih terkendala, silakan konfirmasi ke Dukcapil untuk memastikan data tersebut ya, Kak.
+
+Apabila sudah pernah melakukan proses pendaftaran namun belum sampai pada submit permohonan, maka silakan diulangi kembali proses pendaftarannya dari awal ya, Kak.
+
+Apabila tombol 'verify' tidak bisa diklik, mohon dipastikan terlebih dahulu seluruh data sudah terisi. Jika masih gagal juga, silakan mencoba kembali mengisi data secara berkala ya, Kak.
+
+Apabila kakak melakukan pendaftaran NPWP Badan dengan kuasa, silakan melampirkan atau unggah juga authorization letter (Surat Kuasa Khusus) selain establishment document (akta  pendirian atau pembentukan Badan dan perubahannya).
+
+Kakak juga dapat mengajukan pendaftaran langsung ke KPP terdekat atau melalui pos/kurir, informasi unit kerja dapat diakses pada tautan berikut 👇
+
+ https://pajak.go.id/unit-kerja
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Umum_Umum_Pertanyaan Umum | Aulia | Kak, mohon maaf sebelumnya. Untuk memudahkan dalam menjawab pertanyaan Kakak, mohon menulis secara lengkap pertanyaan Kakak ya.
+
+Berikut ini adalah beberapa topik yang mungkin dapat membantu Kakak dalam memperoleh informasi sesuai kebutuhan Kakak:
+
+Tutorial Chat Bot
+
+Pelaporan SPT
+
+Perubahan Data
+
+Konfirmasi NPWP
+
+Aktivasi Akun Coretax
+
+Kode Otorisasi DJP
+
+Daftar NPWP
+
+Lupa EFIN
+
+Mengaktifkan Kembali/Penonaktifan NPWP
+
+Cetak NPWP
+
+Kode Error Coretax
+
+PP Nomor 20 Tahun 2026
+
+____________________
+
+Untuk mencari informasi selain yang ada di daftar tersebut, Kakak dapat mengetik pertanyaan melalui kolom chat di bawah ini ya, Kak 👇 |  |  |  |  |  | 
+Layanan Administrasi_Penonefektifan & Pengaktifan Kembali_Informasi WP NE | Aulia | Kakak bertanya mengenai permohonan NPWP Nonaktif atau pengaktifan kembali NPWP ya?
+
+Apabila Kakak ingin menyampaikan permohonan Wajib Pajak Nonaktif atau pengaktifan kembali Wajib Pajak Nonaktif melalui Coretax, silakan mengeklik tautan-tautan berikut ya, Kak
+
+  https://s.kemenkeu.go.id/video-aktifnonaktifwp  
+
+  https://s.kemenkeu.go.id/layanan-pengaktifanwp  
+
+  https://s.kemenkeu.go.id/layanan-nonaktifwp   
+
+Apabila Kakak ingin menyampaikan permohonan pengaktifan kembali Wajib Pajak Nonaktif melalui Kring Pajak, Kakak dapat mengetik "1500200" pada kolom chat atau menghubungi Kring Pajak melalui telepon di nomor 1500200 pada hari kerja (Senin s.d. Jumat) pada pukul 08.00-16.00 WIB ya, Kak. Selain itu, Kakak juga dapat mengajukan permohonan penonaktifan NPWP ke KPP terdekat.
+
+Adapun untuk permohonan penonaktifan NPWP dilajukan ke KPP terdekat. Untuk mengetahui dokumen yang perlu disiapkan, silakan mengeklik kriteria WP Nonaktif yang ada di tautan/link ini ya, Kak. 
+
+ https://s.kemenkeu.go.id/Kriteria-WP-NE 
+
+Namun, jika yang Kakak maksud adalah aktivasi NIK sebagai NPWP, maka proses aktivasi NIK tersebut hanya dapat dilakukan ke KPP terdekat ya, Kak. Silakan bawa KTP Kakak sebagai dokumen pendukung ya.
+
+Jika ingin mencari topik lain, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+Unit Kerja : Informasi unit kerja DJP
+Aktivasi Akun: Informasi terkait Aktivasi Akun Coretax
+Aktivasi EFIN: Informasi terkait Aktivasi EFIN
+Aktivasi NIK: Informasi terkait Aktivasi NIK/Pendaftaran NPWP
+9 : Akhiri percakapan
+0 : Kembali ke pertanyaan umum |  |  |  |  |  | 
+Coretax_Coretax 2025_Aktivasi Akun Wajib Pajak | Aulia | Apakah Kakak menanyakan cara mengakses akun Coretax DJP? Jika iya, silakan mengidentifikasi hal-hal berikut ini :
+
+1. Apabila Kakak sudah memiliki akses ke DJP Online, maka silakan klik 'Lupa Kata Sandi?'
+
+2. Apabila Kakak belum memiliki NPWP atau istri yang gabung NPWP suami, maka silakan klik 'Daftar Disini'. Dalam hal istri yang gabung NPWP suami namun 'belum masuk' Family Tax Unit, setelah klik 'Daftar disini', silakan Kakak memilih jenis pendaftaran 'Hanya Registrasi'.
+
+3. Apabila Kakak masuk kategori:
+
+- Sudah punya NPWP, namun belum pernah login DJPOnline;
+
+- Istri atau anak belum dewasa yang sudah masuk dalam FTU Suami/Ayah dengan status tertanggung; atau
+
+- Orang Pribadi/Badan SPLN yang memiliki kepentingan perpajakan di Indonesia, namun tidak memenuhi persyaratan subjektif dan objektif untuk memiliki NPWP;
+
+silakan mengeklik 'Aktivasi Akun Wajib Pajak' pada laman https://coretaxdjp.pajak.go.id dan ikuti petunjuk dibawah ini :
+
+a. Jika Wajib Pajak sudah terdaftar, klik 'Apakah Wajib Pajak sudah terdaftar?'
+
+b. Kemudian Isikan Identitas Wajib Pajak, Detail Kontak, centang Pernyataan Wajib Pajak, lalu Simpan.
+
+c. Jika tidak memilih 'Apakah Wajib Pajak Sudah terdaftar?', silakan pilih Jenis Wajib Pajak 'Badan' atau 'Orang Pribadi/Warisan Belum Terbagi'
+
+d. Kemudian Isikan Identitas Orang, Dokumen, centang Pernyataan Wajib Pajak, lalu Simpan.
+
+Apabila sudah berhasil submit permohonan aktivasi akun, silakan cek email terdaftar Kakak untuk mendapatkan dokumen terkait login pada aplikasi Coretax dan kemudian silakan login pada aplikasi Coretax menggunakan kredensial yang diberikan sekaligus mengganti password dan passphrase ya, Kak.
+
+Apabila Kakak mengalami kendala pada saat melakukan Aktivasi Akun Wajib Pajak, di mana Nomor HP atau email tidak sesuai (bertanda silang), silakan lakukan perubahan data terlebih dahulu ya, Kak.
+
+Apabila terdapat notifikasi "The taxpayer has already activated the taxpayer account, please change the password", maka silakan ajukan lupa password melalui menu 'Lupa Kata Sandi?' di laman muka Coretax ya, Kak.
+
+Apabila terdapat notifikasi "data tidak ditemukan" atau 'format pola tidak valid' pada saat pengisian NPWP, maka pastikan kakak menginput NPWP 16 digit. Wajib Pajak Orang Pribadi diisi NIK atau dengan menambah angka "0" di depan NPWP 15 digit untuk selain Orang Pribadi.
+
+Silakan mengetik "Perubahan Data" pada kolom chat untuk mendapatkan informasi terkait.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+Kode Otorisasi : Informasi terkait Kode Otorisasi DJP
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+KUP_Pelaporan SPT_Umum | Aulia | Apakah Kakak bertanya tentang Pelaporan SPT (Surat Pemberitahuan)?
+
+Untuk informasi pelaporan SPT Tahunan berupa video dan slide, Kakak dapat mengakses (klik) link berikut 👇
+
+  https://www.pajak.go.id/id/lapor-tahunan   
+
+Untuk tata cara pelaporan SPT Masa melalui aplikasi Coretax (mulai Masa Pajak 2025), silakan mengetik frasa berikut sesuai kebutuhan Kakak di kolom chat ya 👇
+
+- Tata Cara Pelaporan SPT Masa PPN via Coretax
+
+- Tata Cara Pelaporan SPT Masa PPN Instansi Pemerintah via Coretax
+
+- Tata Cara Pelaporan SPT Masa Unifikasi via Coretax
+
+Untuk upload faktur pajak, selain melalui Coretax, Kakak juga masih dapat memanfaatkan e-Faktur Desktop, namun pelaporan SPT Masa PPN-nya tetap menggunakan aplikasi Coretax ya, Kak.
+
+Apabila yang Kakak maksudkan pelaporan SPT Masa/Tahunan 2024 atau sebelumnya, Kakak masih harus menggunakan aplikasi lama. Silakan mengeklik tautan di bawah ini sesuai dengan kebutuhan Kakak ya 👇
+
+  https://s.kemenkeu.go.id/laporSPTTahunan  (Pelaporan SPT Tahunan 2024)
+
+  https://s.id/eBupot21_26 (Pelaporan SPT Masa PPh 21 per masa pajak Januari 2024)
+
+  https://s.id/tutorial-lapor-SPTUnifikasi 
+
+  https://s.id/tutorial-lapor-SPTPPN (via Web Efaktur) 
+
+  https://s.id/update-eFaktur-Web 
+
+Jika Kakak mengalami kendala berupa error/notifikasi tertentu, silakan tulis error/notifikasi tersebut di kolom chat ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu angka sesuai pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan
+1500200 : Terhubung ke Live Chat Agent pada jam kerja Senin-Jumat pukul 08.00-16.00 WIB |  |  |  |  |  | 
+Aplikasi Perpajakan_Aplikasi Umum_Lupa Password Pajak | Aulia | Apakah Kakak mengalami kendala saat Lupa Password di Coretax? Jika iya, silakan mengikuti langkah-langkah berikut:
+
+1. Setelah klik  https://coretaxdjp.pajak.go.id/identityproviderportal/Account/ResetPassword , Kakak diminta mengisi laman permohonan "Ubah Kata Sandi" yang berisi :
+
+    - ID Pengguna : disi dengan NIK/NPWP 16 digit/NITKU,
+
+    - Tujuan Konfirmasi : klik pilihan antara Surat Elektronik atau Nomor Gawai.
+
+    - Masukkan Captcha, lalu klik tombol "Kirim".
+
+    - Kemudian muncul pop up 'Reset Password Success'.
+
+Jika terdapat kendala berupa ketidaksesuaian data alamat email atau nomor gawai/HP yang menyebabkan link reset password tidak masuk, silakan lakukan perubahan data terlebih dahulu ke KPP terdekat atau melalui Kring Pajak dengan mengetik "1500200" pada kolom chat atau menghubungi Kring Pajak melalui telepon di nomor 1500200 pada hari dan jam kerja (Senin s.d. Jumat pukul 08.00 s.d. 16.00) ya, Kak.
+
+2. Untuk mengubah password, silakan klik tautan reset kata sandi baik yang terkirim di email atau nomor HP Kakak.
+
+3. Isikan data kata sandi baru pada new password dan confirm password dengan ketentuan : minimal 8 karakter, minimal 1 huruf besar, minimal 1 huruf besar, minimal 1 huruf kecil, minimal 1 angka, minimal 1 karakter khusus. Lalu save dan sukses.
+
+Untuk video tutorial cara reset password, Kakak dapat menyimak tautan video berikut:
+
+ https://s.id/ResetPasswordCoretax
+
+Jika yang Kakak maksud adalah lupa username pada aplikasi Coretax, maka username tersebut adalah NPWP 16 Digit, NITKU, atau NIK (yang sudah diaktivasi sebagai NPWP) ya, Kak.
+
+Jika yang Kakak maksud adalah lupa passphrase pada aplikasi coretax DJP, silakan Kakak ketik "Reset Passphrase Coretax di kolom chat ya untuk mendapatkan informasi terkait.
+
+Jika email atau nomor HPnya berbeda dengan yang Kakak miliki sekarang, silakan lakukan perubahan data terlebih dahulu ya Kak. Informasi tentang perubahan data dapat Kakak peroleh dengan mengetik "Perubahan Data" di kolom chat ya.
+
+Jika terdapat notifikasi bahwa Kakak belum terdaftar, silakan lakukan registrasi akun terlebih dahulu ya, Kak. Informasi lebih lengkap dapat diperoleh dengan mengetik "Registrasi Akun" di kolom chat ya.
+
+Jika terdapat notifikasi "Nama pengguna tidak ditemukan!", silakan pastikan ID Pengguna/User ID yang digunakan merupakan NIK atau NPWP 16 digit yang sudah memiliki akun coretax atau pernah mengakses DJP Online sebelumnya.
+
+Jika ternyata kakak belum menerima link untuk mengubah password, silakan pastikan kembali:
+- penulisan email/nomor telepon sudah sesuai dengan yang terdaftar
+- silakan cek semua folder termasuk spam/junk.
+- Penyimpanan email tidak penuh
+- nomor telepon mempunyai pulsa reguler yang cukup untuk menerima SMS
+- provider yang digunakan Telkomsel/Indosat/XL dan bukan nomor pasca bayar
+
+Apabila Kakak menerima notifikasi "Your password has been expired", silakan Kakak lakukan langkah berikut sebelum akses Coretax.
+1. Clear cookies & cache pada browser yg digunakan; 
+2. Gunakan browser & jaringan internet yg berbeda;
+3. Gunakan private window (Mozilla)/incognito window (Chrome);  
+4. Coba secara berkala.      
+
+================================
+
+Namun jika yang Kakak maksud Lupa Password selain Coretax, silakan klik tautan berikut:
+
+a. DJP Online, yang sekaligus merupakan password aplikasi M-Pajak, dengan mengakses tautan  https://s.id/password_lupa_djponline
+
+b. E-Faktur Desktop, dengan mengakses tautan  https://s.id/password_lupa_efaktur
+
+c. Untuk login ke aplikasi E-Faktur Web, silakan mengakses https://web-efaktur.pajak.go.id dengan menggunakan password yang sama dengan password e-Nofa.
+
+Jika masih ada pertanyaan, silakan Kakak mengetik pertanyaan melalui kolom chat. Kakak juga dapat mengetik salah satu opsi di bawah ini ya 👇
+LUPA EMAIL : untuk informasi lupa email
+Konfirmasi NPWP : untuk informasi terkait konfirmasi nomor NPWP
+Token: Informasi apabila kode Verifikasi belum masuk email/nomor telepon
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Umum_Umum_Closing | Aulia | Baik, Kak. Bantu kami untuk meningkatkan layanan ya Kak, dengan mengeklik tautan/link survei di bawah ini 👇
+
+ https://s.kemenkeu.go.id/surveiDJPVA  
+
+Apabila ada jawaban dari virtual assistant DJP (Tanya Fiska/Fisko) yang belum menjawab pertanyaan Kakak, silakan mengetik "1500200" pada kolom chat untuk terhubung dengan petugas live chat pada jam kerja (Senin-Jumat pukul 08.00-16.00 WIB).
+
+Sebagai informasi tambahan, selain Live Chat, Kring Pajak 1500200 juga melaksanakan kegiatan layanan informasi perpajakan dan layanan pengaduan melalui sarana:
+
+- telepon nomor 1500200
+- twitter akun @kring_pajak
+- email informasi@pajak.go.id
+- email pengaduan@pajak.go.id (khusus layanan pengaduan)
+
+Terima kasih telah menggunakan layanan Virtual Assistant DJP, selamat beraktivitas kembali dan semoga sehat selalu, Kak. |  |  |  |  |  | 
+KUP_NPWP_NIK Telah Terdaftar | Aulia | Kak, apabila pada saat melakukan validasi NIK saat pendaftaran NPWP terdapat notifikasi bahwa NIK yang Kakak gunakan telah terdaftar/terduplikasi, itu berarti atas NIK tersebut sudah pernah didaftarkan NPWP sebelumnya.
+
+Apabila Kakak menemukan fakta bahwa NIK Kakak telah terdaftar, jika Kakak belum pernah login ke DJP Online sebelumnya, maka untuk mengakses Coretax pertama kali Kakak perlu melakukan aktivasi akun melalui menu 'Aktivasi Akun Wajib Pajak' yang terdapat di laman utama Coretax ya, Kak.
+
+Tapi apabila Kakak sudah pernah menggunakan DJP Online, silakan akses menu 'Lupa Kata Sandi' yang terdapat pada laman utama Coretax ya, Kak.
+
+Sebagai Informasi ya Kak, bahwa satu NIK KTP hanya dapat digunakan untuk satu kali pendaftaran NPWP.
+
+Jika memang Kakak sudah pernah mendaftarkan diri untuk memperoleh NPWP sebelumnya, Kakak dapat melakukan permintaan kembali kartu NPWP. Ketik "Permintaan Kembali NPWP" untuk mendapatkan informasi mengenai permohonan permintaan kembali atas NPWP.
+
+Terdapat 3 cara untuk mengecek NPWP:
+
+1. Kakak dapat mencoba mengecek status keaktifan NPWP/NIK sebagai NPWP secara mandiri pada situs Coretax DJP. Pada laman utama Coretax, silakan klik 'Lupa Kata Sandi', kemudian input NIK pada ID Pengguna. Setelah itu, pada  kolom "Tujuan Konfirmasi", pilih salah satu opsi antara Surat Elektronik dan Nomor Gawai, apabila NIK Kakak sudah aktif sebagai NPWP atau Kakak terdaftar sebagai bagian dari Family Tax Unit, maka pada kolom "Tujuan Konfirmasi" akan tersedia informasi mengenai email ataupun nomor gawai yang disamarkan ya, Kak. Apabila Kakak lupa email dan nomor hp tersebut, silakan ajukan perubahan data ke KPP terdekat ya, Kak.
+
+Apabila ternyata NPWP/NIK Kakak telah terdaftar atau Kakak telah terdaftar sebagai bagian dari Family Tax Unit, silakan lanjutkan proses login Coretax melalui menu 'Lupa Kata Sandi' (jika pernah login DJP Online sebelumnya) atau 'Aktivasi Akun Wajib Pajak' (jika belum pernah login DJP Online sebelumnya) ya, Kak.Jika Kakak adalah orang pribadi dalam negeri, maka NIK sudah dapat digunakan sebagai NPWP ya, Kak.
+
+2. Kakak dapat melakukan pengecekan ke KPP terdekat. Berikut adalah tautan yang dapat Kakak manfaatkan dalam berkomunikasi dengan KPP terdekat 👇
+
+ https://pajak.go.id/wilayah-administrasi  
+
+3. Silakan mengetik "1500200" pada kolom chat untuk terhubung dengan petugas live chat pada jam kerja (Senin-Jumat pukul 08.00-16.00 WIB) dan melakukan konfirmasi NPWP.
+ 
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya , Kak 👇
+SPNPWP : Kembali ke Saluran Pendaftaran NPWP
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Kode Error_Error Coretax_Umum | Aulia | Apakah Kakak bertanya tentang kode error pada aplikasi Coretax?
+
+Mohon maaf atas ketidaknyamanannya ya, Kak.
+
+Apabila kakak mengalami kendala error pada Coretax, silakan ketik kode error (yang muncul di layar) secara lengkap pada kolom chat di bawah ini ya 👇
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan pada kolom chat atau Kakak juga dapat mengetik angka 0 untuk kembali ke menu awal. |  |  |  |  |  | 
+Kode Error_Coretax_Error Login | Aulia | Apakah Kakak terkendala ketika login Coretax?
+
+Berikut ini beberapa solusi terkait kendala login aplikasi Coretax:
+
+1. Apabila Kakak terkendala notifikasi "Nama pengguna tidak ditemukan" atau "data tidak ditemukan" karena NPWP 15 digit, silakan Kakak login menggunakan NIK (untuk Orang Pribadi) atau dengan menambah angka "0" di depan NPWP 15 digit (selain Orang Pribadi).
+
+2. Apabila Kakak belum melakukan pemadanan NIK-NPWP, Kakak dapat datang langsung ke KPP terdekat untuk dibantu melakukan pemadanan NIK-NPWP menggunakan aplikasi di KPP.
+
+3. Apabila Kakak terkendala karena email tidak sesuai atau Kakak lupa alamat email tujuan konfirmasi/validasi, Kakak dapat mengetik 1500200 pada kolom chat di bawah ini untuk terhubung dengan petugas kami.
+
+4. Apabila Kakak terkendala karena email/SMS verifikasi tidak terkirim, Kakak dapat mengetik 1500200 pada kolom chat di bawah ini untuk terhubung dengan petugas kami.
+
+5. Apabila Kakak belum pernah login menggunakan DJP Online sebelumnya, silakan Kakak menggunakan menu AKTIVASI AKUN WAJIB PAJAK di Coretax atau Kakak dapat datang langsung ke KPP terdekat untuk dibantu melakukan aktivasi akun.
+
+6. Apabila Kakak lupa/salah password (sebelumnya sudah pernah login di Coretax DJP), Kakak dapat menggunakan menu LUPA KATA SANDI di Coretax.
+
+7. Apabila Kakak belum pernah terdaftar sebagai wajib pajak, silakan menu DAFTAR DISINI di Coretax atau datang langsung ke KPP mengetik 1500200 pada kolom chat di bawah ini untuk terhubung dengan petugas kami.
+
+8. Apabila terdapat notifikasi "email tidak dikonfigurasi" pada saat Kakak login Coretax setelah Kakak aktivasi akun Coretax, silakan Kakak melakukan langkah-langkah sebagai berikut:
+- lakukan clear cache &cookies;
+- gunakan incognito mode atau private browser;
+- gunakan browser lain atau jaringan lain; dan
+- coba secara berkala
+atau  ketik '1500200' untuk mendapatkan bantuan dari petugas kami ya, Kak.
+
+Untuk mempelajari fitur-fitur Coretax, Kakak dapat mengetik "Coretax 2025" pada kolom chat ya, Kak.
+
+Jika ada pertanyaan lain, silakan ketik pertanyaan atau ketik salah satu pilihan di bawah ini ya, Kak:
+KNPWP : Konfirmasi NPWP
+1500200 : Terhubung ke Live Chat Agent (Petugas) pada jam kerja Senin-Jumat pukul 08.00-16.00 WIB
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Kode Error_Error Coretax_Gagal Unduh Dokumen Coretax | Aulia | Apakah Kakak mengalami kendala tidak dapat mengunduh dokumen pada Coretax?
+
+Mohon maaf atas ketidaknyamanannya ya, Kak.
+
+Atas kendala pengunduhan dokumen dengan notifikasi 'Operasi Gagal – Could not download file, reason: 'The requested file could not be found.', 'Terjadi kesalahan saat permintaan Anda', atau 'Http failure response for 500 OK' sedang ditangani oleh tim terkait saat ini.
+
+Untuk pesan error "Generating document is in progress", silakan ditunggu proses pembuatan pdf hingga selesai. Untuk mengunduh file PDF SPT yang telah dilaporkan pastikan Kakak melakukan Klik Icon Requset Document.
+
+Selain itu, sebelum mengakses Coretax kembali, silakan Kakak melakukan beberapa langkah berikut:
+1. Pastikan jaringan internet lancar dan stabil;
+2. clear cache & cookies pada browser;
+3. gunakan private/incognito window;
+4. gunakan jaringan/browser/perangkat lain.
+
+Dalam hal Kakak ingin mengunduh Dokumen Lain Keluaran  melalui menu Dokumen Lain --> Pajak Keluaran, maka memang tidak tersedia tombol untuk mengunduh atau mengekspor PDF dokumen terkait karena dokumen tertentu yang kedudukannya dipersamakan dengan Faktur Pajak tersebut dibuat dan tersedia di luar sistem aplikasi Coretax DJP.
+
+Silakan dicoba secara berkala atau secara paralel mengirimkan tiket permasalahan ke sistem Melati melalui helpdesk KPP, layanan telepon Kring Pajak 1500200, layanan Live Chat dengan mengetik '1500200' di kolom chat, atau email pengaduan@pajak.go.id dengan menyampaikan  tangkapan layar dan kronologis kendala yang dialami ya, Kak.
+
+Jika masih ada pertanyaan, silakan Kakak ketik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇 
+0 : Kembali ke pertanyaan umum 
+9 : Akhiri percakapan |  |  |  |  |  | 
+System_System_Fallback Intent 2 | Aulia | Baik, Kak. Mohon maaf apabila kami belum bisa melayani Kakak karena adanya keterbatasan layanan.
+
+Selagi menunggu, apabila Kakak ada pertanyaan lain, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+
+Tutorial Chat Bot
+
+Pelaporan SPT
+
+Perubahan Data
+
+Konfirmasi NPWP
+
+Aktivasi Akun Coretax
+
+Kode Otorisasi DJP
+
+Daftar NPWP
+
+Lupa EFIN
+
+Mengaktifkan Kembali/Penonaktifan NPWP
+
+Cetak NPWP
+
+Kode Error Coretax
+________
+
+Saluran lain Kring Pajak:
+- telepon nomor 1500200
+- X/twitter @kring_pajak
+- email informasi@pajak.go.id |  |  |  |  |  | 
+KUP_NPWP_Pemutakhiran Data Mandiri | Aulia | Apakah Kakak bertanya mengenai pemadanan NIK-NPWP?
+
+Apabila NIK atau NPWP Kakak sudah terdaftar sebelum 1 Januari 2025, maka untuk mengaktivasi NIK sebagai NPWP ataupun pemutakhiran mandiri agar mendapatkan NPWP 16 Digit harus disampaikan ke KPP (Kantor Pelayanan Pajak) terdekat dengan membawa kartu identitas yang sesuai ya, Kak.
+
+Namun apabila NIK Kakak terdaftar sejak 1 Januari 2025 melalui mekanisme 'Register Only', maka untuk mengaktivasi NIK sebagai NPWP dapat dilakukan melalui Coretax. Berikut adalah langkah-langkahnya ya, Kak:
+1. Pada Laman Utama Coretax, klik 'Daftar Di Sini'
+2. Klik 'Perorangan'
+3. Pada Persiapan Registrasi Wajib Pajak, pilih 'Ya, Wajib Pajak memiliki NIK'
+4. Klik 'Pendaftaran dengan Aktivasi NIK/Aktivasi NIK'
+5. Lakukan pengisian data yang diperlukan sampai submit.
+
+Jika Kakak ingin melakukan perubahan data kependudukan yang tidak sesuai, silakan hubungi petugas di dinas kependudukan dan catatan sipil tempat Kakak terdaftar ya.
+
+Jika Kakak ingin mendapatkan informasi terkait konfirmasi NPWP, kakak dapat mengetik "Konfirmasi NPWP" di kolom chat ya.
+
+Adapun cara untuk memastikan apabila NIK Kakak sudah diaktivasi/dipadankan sebagai NPWP adalah sebagai berikut:
+
+1. Jika Kakak sudah terdaftar sebelum 1 Januari 2025, sebelumnya Kakak pernah login DJP Online, dan belum pernah login coretax, maka silakan klik "Lupa Kata Sandi" di halaman muka aplikasi coretax dan input NIK Kakak pada kolom ID Pengguna. Apabila NIK Kakak sudah diaktivasi sebagai NPWP, maka ketika Kakak memilih salah satu antara "E-Mail" atau "Nomor Gawai" sebagai tujuan konfirmasi, maka kolom "Tujuan Konfirmasi" akan berisikan informasi mengenai E-Mail atau Nomor Gawai yang ditandai dengan ****. Apabila NIK Kakak belum diaktivasi sebagai NPWP, maka akan muncul notifikasi NPWP/NIK belum terdaftar ya, Kak.
+
+2. Apabila Kakak sudah pernah login coretax dengan menggunakan NIK, Kakak dapat mengecek status aktivasi NIK tersebut pada menu Portal Saya > Profil Saya > Cek "Ikhtisar Profil Wajib Pajak" pada "Status NPWP". Jika pada "Status NPWP" bertuliskan "Belum Aktif (SPDN)", maka itu berarti NIK Kakak belum diaktivasi sebagai NPWP.
+
+Sementara itu, apabila Kakak merupakan pemberi kerja yang ingin memadankan NIK-NPWP dari pegawai secara massal, dapat mengikuti panduan sebagaimana tercantum dalam link berikut ya, Kak.
+
+ https://www.pajak.go.id/id/panduan-registrasi-massal-nik-portal-npwp
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+NPWP : Informasi terkait NPWP
+LUPA EFIN : Informasi terkait EFIN
+UNKER : Informasi terkait saluran komunikasi Unit Kerja
+PNPK : Pengaktifan Kembali NPWP
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+System_System_Hubungi Agent-Foll | Aulia | Baik, Kak. Mohon maaf apabila kami belum bisa melayani Kakak karena adanya keterbatasan layanan.
+
+Selagi menunggu, apabila Kakak ada pertanyaan lain, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+
+Tutorial Chat Bot
+
+Pelaporan SPT
+
+Perubahan Data
+
+Konfirmasi NPWP
+
+Aktivasi Akun Coretax
+
+Kode Otorisasi DJP
+
+Daftar NPWP
+
+Lupa EFIN
+
+Mengaktifkan Kembali/Penonaktifan NPWP
+
+Cetak NPWP
+
+Kode Error Coretax
+____________________
+
+Saluran lain Kring Pajak:
+- telepon nomor 1500200
+- X/twitter @kring_pajak
+- email informasi@pajak.go.id |  |  |  |  |  | 
+Kode Error_Error Coretax_Kendala Aktivasi Akun Coretax | Aulia | Apakah Kakak mengalami kendala saat aktivasi akun Coretax ?
+
+Apabila kendala saat aktivasi akun di mana Nomor HP atau email tidak sesuai atau muncul tanda silang merah, silakan:
+
+1. input nomor HP atau email yang akan digunakan pada kolom yang sesuai > klik 'Verify' > cek email dan SMS > input OTP yang diperoleh di email/SMS > klik 'Verifikasi'; atau
+
+2. lakukan perubahan data dengan mengajukan perubahan data ke KPP terdekat.
+
+Apabila terdapat notifikasi "The taxpayer has already activated the taxpayer account, please change the password", maka silakan ajukan lupa password melalui menu 'Lupa Kata Sandi?' di laman muka Coretax.
+
+Apabila terdapat notifikasi "data tidak ditemukan" atau 'format pola tidak valid' pada saat pengisian NPWP, maka pastikan kakak menginput NPWP 16 digit. Wajib Pajak Orang Pribadi diisi NIK atau dengan menambah angka "0" di depan NPWP 15 digit untuk selain Orang Pribadi.
+
+Apabila terdapat notifikasi "Operasi Gagal, Email confirmation failed", "Kesalahan saat mengirimkan permintaan akses digital", silakan pastikan alamat email dan nomor telepon yang dimasukkan sesuai dengan data yang terdaftar pada DJP.
+
+Apabila terdapat notifikasi "Operasi Gagal, We can't verify your identity", silakan Kakak mencoba untuk melakukan hal-hal sebagai berikut:
+
+1. Pastikan semua field sudah terisi dengan format yg benar;
+
+2. Clear cache & cookies pada browser;
+
+3. Gunakan Private atau Incognito Window;
+
+4. Gunakan browser atau perangkat yang berbeda;
+
+5. Coba kembali secara berkala.
+
+Apabila masih terkendala hal yang serupa, silakan Kakak mengakses fitur tersebut secara berkala atau silakan mengetik "1500200" pada kolom chat untuk terhubung dengan petugas live chat pada jam kerja (Senin-Jumat pukul 08.00-16.00 WIB).
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan pada kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah Ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Aplikasi Perpajakan_Aplikasi Umum_Token Umum | Aulia | Apakah Kakak bertanya terkait belum diterimanya kode verifikasi/token/OTP/sejenisnya?
+
+Kode verifikasi/token/OTP/sejenisnya antara lain diperlukan pada saat:
+
+- aktivasi NIK/pendaftaran NPWP
+
+- penyampaian SPT via e-Filing atau e-Form
+
+- reset password akun Coretax
+
+Kode verifikasi/token/OTP/sejenisnya diberikan melalui email dan/atau SMS. Untuk layanan melalui SMS saat ini hanya dapat dilakukan untuk provider Telkomsel/Indosat/XL dan dikenakan biaya pulsa. Mohon memastikan ketersediaan pulsa ya, Kak.
+
+Apabila kode verifikasi/token/OTP/sejenisnya belum diterima, Kakak dapat mengecek secara berkala pada email dan/atau SMS. Kakak juga dapat mengajukan permintaan ulang kode verifikasi/token/OTP/sejenisnya.
+
+Khusus OTP terkait reset password akun Coretax, Kakak dapat mengajukan permohonan OTP ke kantor pajak terdekat ya, Kak.
+
+Untuk mendapatkan informasi alamat, nomor telepon, nomor Whatsapp, serta akun jejaring sosial kantor pajak, Kakak dapat mengeklik link di bawah ini ya, Kak 👇
+
+ https://pajak.go.id/unit-kerja  
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+Aktivasi Akun : Informasi aktivasi akun Coretax
+Ubah Data : Informasi terkait Perubahan Data
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Layanan Administrasi_EFIN_Aktivasi OP | Aulia | Apabila Kakak sudah memiliki NPWP namun belum melakukan aktivasi EFIN, silakan Kakak datang secara langsung ke KPP (untuk WP Orang Pribadi dapat ke KPP terdekat, untuk WP selain Orang Pribadi ke KPP terdaftar)
+
+Sebagai tambahan informasi, aktivasi EFIN dilakukan hanya sekali dan belum dapat dilayani melalui saluran online ataupun layanan Kring Pajak 1500200.
+
+Alamat KPP terdaftar dapat diketahui pada link di bawah ini ya, Kak 👇
+
+ https://pajak.go.id/wilayah-administrasi
+
+Untuk mengunduh formulir EFIN, silakan klik link/tautan di bawah ini ya, Kak  👇
+
+ https://pajak.go.id/id/formulir-permohonan-efin
+
+Selain formulir, Wajib Pajak Orang Pribadi juga diwajibkan:
+
+1. datang sendiri secara langsung (khusus WP Orang Pribadi tidak dapat diwakilkan)
+2. memiliki alamat email yang masih aktif;
+3. membawa KTP asli dan fotokopi (WNI) atau KITAS/KITAP (WNA); serta
+4. membawa fotokopi dan NPWP asli.
+
+Apabila sampai dengan saat ini Kakak belum menerima email hasil aktivasi EFIN, silakan konfirmasi ke KPP tempat Kakak terdaftar ya.
+
+Kami sampaikan bahwa saat ini aktivasi EFIN tidak dapat dilakukan secara online dan tidak dapat diwakilkan ya, Kak, kecuali untuk wajib pajak Badan (perusahaan).
+
+Untuk informasi syarat aktivasi EFIN Wajib Pajak Badan silakan mengetik 'Syarat EFIN Badan' ya, Kak.
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan pada kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+EFIN : Kembali ke EFIN
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Umum_Umum_Tutorial Chatbot | Aulia | Layanan Fiska dan Fisko adalah Virtual Assistant (Chat Bot) berbasis kecerdasan buatan yang dapat diakses melalui situs www.pajak.go.id atau aplikasi mobile app M-Pajak.
+
+Fiska dan Fisko dapat diakses 24 jam 7 hari dan dapat digunakan wajib pajak untuk mendapatkan beragam informasi perpajakan seperti informasi pendaftaran, pelaporan, pembayaran, dll.
+
+Untuk cara efektif dalam penggunaan Fiska dan Fisko, silakan mengunjungi laman berikut :
+
+ https://pajak.go.id/id/tutorial-penggunaan-virtual-assistant-chatbot
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Aplikasi Perpajakan_Prosedur Pengajuan Sertifikat Elektronik KODJP | Aulia | Untuk setiap Wajib Pajak orang pribadi, baik yang berlaku sebagai dirinya sendiri ataupun wakil bagi wajib pajak lain, memerlukan sertifikat digital untuk keperluan penandatanganan dokumen perpajakan dalam pelaksanaan hak dan kewajiban perpajakan dengan masa berlaku yang telah ditentukan.
+
+Apabila masa berlaku sertifikat digital tersebut akan/telah habis, silakan Kakak mengajukan permohonan sertifikat digital yang baru ya. Dengan demikian, tidak ada istilah perpanjangan sertifikat digital, namun sebaliknya, istilah yang digunakan adalah permohonan sertifikat digital baru.
+
+Wajib Pajak dapat menggunakan sertifikat digital yang disediakan oleh berbagai provider ataupun kode otorisasi yang diterbitkan DJP ya, Kak.
+
+Apabila Kakak mensubmit SPT dan muncul notifikasi 'Please register a digital certificate for this NIK', itu berarti akun Coretax Kakak belum memiliki sertifikat digital untuk penandatanganan secara elektronik ya, Kak.
+
+Berikut adalah langkah-langkah yang dilakukan untuk memperoleh Kode Otorisasi DJP (termasuk ketika Wajib Pajak lupa) atau mendaftarkan sertifikat digital atau lupa passphrase yang telah dibuat sebelumnya:
+
+1. Login ke akun Portal Wajib Pajak di  https://coretaxdjp.pajak.go.id
+
+2. Klik "Portal Saya" > "Permohonan Kode Otorisasi/Sertifikat Digital"
+
+3. Kolom "Manajemen Kasus", "Identitas Wajib Pajak", dan "Detail Kontak" akan terisi secara otomatis
+
+4. Pada "Rincian Sertifikat", pilih jenis sertifikat digital yang akan digunakan. Apabila memilih provider PSrE, isikan ID Penandatangan. Jika memilih Kode Otorisasi DJP, isikan Passphrase yang akan digunakan
+
+Pembuatan passphrase untuk tanda tangan elektronik minimal terdiri dari 8 digit,dengan ketentuan:
+
+• minimal 8 karakter
+• minimal terdapat 1 huruf besar
+• minimal terdapat 1 huruf kecil
+• minimal terdapat 1 angka
+• minimal terdapat 1 karakter khusus
+
+5. Berikan tanda centang pada "Pernyataan Wajib Pajak"
+
+6. Klik "Kirim"
+
+7. Unduh "Bukti Tanda Terima" dan "Surat Penerbitan Sertifikat Digital"
+
+8. Selesai.
+
+Apabila Surat Penerbitan Sertifikat Digital/Kode Otorisasi DJP tidak muncul pada saat submit permohonan, silakan melakukan pengecekan sebagai berikut:
+
+1. Klik 'Portal Saya' > 'Profil Saya'
+
+2. Klik 'Nomor Identifikasi Eksternal' > 'Digital Certificate'
+
+3. Lihat 'Status Kepemilikan', apabila berstatus 'Invalid', geser ke kana kolom 'Aksi', klik 'Periksa Status'
+
+4. Klik 'Menghasilkan' sampai muncul notifikasi berhasil
+
+5. Untuk mendapatkan dokumen terkait Surat Penerbitan Kode Otorisasi DJP, silakan cek email atau menu 'Dokumen Saya'.
+
+Apabila terdapat kendala, silakan diulang kembali langkah-langkah tersebut.
+
+Untuk tutorial lebih lengkap bisa Kakak lihat di video berikut ya
+
+ https://www.youtube.com/watch?v=RUV3lw9C21M&t=42s   
+
+Saat ini sudah tidak ada verifikasi face recognition pada proses pengajuan Sertel/Kode Otorisasi ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan atau ketik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+KUP_Pembayaran Pajak_Billing Umum | Aulia | Apakah Kakak bertanya tentang kode billing atau pembayaran pajak?
+
+Saat ini, pembayaran pajak dilakukan dengan cara membuat billing. Untuk pembayaran pajak tahun 2024 dan sebelumnya, pembuatan billing menggunakan DJP Online, untuk informasi selengkapnya silakan mengeklik tautan di bawah ini ya, Kak 👇
+
+  https://pajak.go.id/panduan-layanan-pajak/pembayaran  
+
+Untuk pembayaran pajak tahun 2025 dan setelahnya, pembuatan billing menggunakan Coretax. Khusus untuk pembayaran PPh Final atas penjualan tanah dan/atau bangunan di 2024 dan pembayaran tagihan/ketetapan pajak juga menggunakan Coretax.
+
+Coretax DJP dapat diakses pada alamat:
+
+  https://coretaxdjp.pajak.go.id/      
+
+Untuk informasi tambahan, sillakan mengetik angka sesuai pilihan yang tersedia berikut ya, Kak
+
+1 : Membuat Billing Pajak melalui Coretax
+
+2 : Membuat Billing Pajak Untuk Tagihan/Ketetapan Pajak.
+
+Sebagai informasi, mayoritas KAP/KJS harus dibuat SPT/Daftar Penyetoran Sendiri nya terlebih dahulu ya, Kak. Misalnya seperti KAP/KJS untuk PPh Unifikasi, PPN Masa, PPN yang dipungut oleh Pemungut PPN/Instansi Pemerintah, dan sebagainya.
+
+Beberapa KAP/KJS masih dapat dibuat secara mandiri melalui menu Pembayaran > Layanan Mandiri Kode Billing ya, Kak.
+
+Billing ini memiliki jangka waktu aktif yaitu 14 hari sejak billing dibuat. Jika tidak dibayar dalam waktu tersebut, kode billing akan kedaluwarsa dan harus dibuat ulang. Apabila kode billing dihasilkan dari proses pelaporan SPT, maka posisi SPT akan berubah dari status “SPT Menunggu Pembayaran” menjadi ”Konsep SPT" dan Kakak dapat kembali membuat kode billing dari konsep SPT tersebut.
+
+Jadi, mohon segera lakukan penyetoran ya, Kak.
+
+Jika masih ada pertanyaan,silakan Kakak ketik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+Pbk : Informasi terkait Pemindahbukuan/salah setor
+BWBSL : Informasi terkait Batas Waktu Pembayaran/Penyetoran dan Pelaporan
+BANKPOS : Informasi terkait Bank dan Pos Persepsi
+KAPKJS : Informasi terkait KAP dan KJS
+SALAHBILLING : Informasi terkait Kesalahan Kode Billing
+RKMSSP03 : Informasi terkait error RKMSSP03
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan
+1500200 : Terhubung ke Live Chat Agent (Petugas) pada jam kerja Senin-Jumat pukul 08.00-16.00 WIB |  |  |  |  |  | 
+KUP_PKP_Persyaratan dan Saluran Pengukuhan 2 | Aulia | Kak, Pengusaha dapat dikukuhkan sebagai PKP dengan mengajukan permohonan adalah sebagai berikut :
+
+1. Pengusaha yang melakukan penyerahan yang merupakan Objek Pajak sesuai UU PPN kecuali pengusaha kecil yang selama 1 tahun buku mempunyai peredaran bruto yang tidak lebih dari Rp4,8 miliar.
+
+2. Pengusaha Kecil dapat memilih untuk melaporkan usahanya guna dikukuhkan sebagai PKP.
+
+3. Pengusaha yang sejak semula bermaksud melakukan penyerahan yang merupakan objek pajak sesuai UU PPN, dapat melaporkan usahanya untuk dikukuhkan sebagai PKP.
+
+Kewajiban melaporkan usahanya untuk dikukuhkan sebagai Pengusaha Kena Pajak dilakukan paling lambat akhir tahun buku saat jumlah peredaran bruto dan/atau penerimaan brutonya melebihi batasan Rp4.8 Miliar ya, Kak.
+
+Untuk persyaratan dan saluran penyampaian permohonan pengukuhan PKP (Pengusaha Kena Pajak), silakan Kakak mengeklik link berikut ya, Kak 👇
+
+  https://s.kemenkeu.go.id/caraPKPCoretax    
+
+Untuk mencari alamat KPP atau KP2KP, silakan mengetik "unit kerja" pada kolom chat.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+KUP_NPWP_Umum | Aulia | Berikut ini beberapa informasi yang dapat Kakak pilih terkait NPWP, silakan Kakak mengetik ulang pada kolom chat sesuai pilihan yang tersedia 👇
+
+- Informasi Umum NPWP
+
+- Saluran dan Permintaan NPWP
+
+- Perubahan Data Wajib Pajak
+
+- Penetapan Wajib Pajak NE dan Pengaktifan Kembali
+
+- Penghapusan NPWP
+
+- Konfirmasi NPWP
+
+Jika ingin mencari topik lain, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Kode Error_Error Coretax_Kendala Pengisian Identitas Pendaftaran NPWP | Aulia | Apakah kakak mengalami kendala pendaftaran NPWP saat pengisian identiitas Wajib Pajak ?
+
+Pada bagian Identitas Wajib Pajak, isikan data  Wajib Pajak secara detail kemudian klik 'verify' atau 'verifikasi' (Pastikan data-data yang diisi telah sesuai karena apabila terdapat ketidaksesuaian data maka verifikasi akan gagal)
+
+Apabila terdapat notifikasi "Data tidak ditemukan" pada saat pengisian NIK atau KK,  silakan pastikan pengisian NIK atau nomor KK sudah sesuai dengan data pada KTP/KK. Apabila masih terkendala, silakan konfirmasi ke Dukcapil untuk memastikan data tersebut ya, Kak
+
+Apabila terdapat notifikasi error '...gagal dalam validasi pihak ketiga..’, mohon dipastikan kembali bahwa data yang diisi pada kolom yang diminta telah sesuai dan sama persis, termasuk penulisannya, dengan data yang tercantum dalam dokumen kependudukan yang asli ya, Kak. Apabila pengisian data sudah sesuai dengan dokumen kependudukan resmi yang Kakak miliki akan tetapi masih terkendala hal yang sama, silakan Kakak menghubungi Halo Dukcapil dengan nomor telepon 1500537.
+
+Apabila terdapat notifikasi error 'Nomor Kartu Keluarga tidak sesuai dengan Nomor Kartu Keluarga Kepala FTU', mohon untuk dipastikan:
+
+1. Nomor KK yang diinput sesuai dengan nomor KK Kepala Keluarga;
+
+2. Jika notifikasi ini muncul pada saat pendaftaran NPWP untuk wanita kawin yang memilih terpisah atau melakukan pisah harta, maka silakan lakukan perubahan data pada Unit Pajak Keluarga melalui akun Coretax milik Suami. Berikut adalah caranya:
+- Login Coretax menggunakan akun milik suami
+- Klik Portal Saya -> Profil Saya
+- Klik Informasi Umum
+- Klik 'Edit'
+- Cek data pada 'Unit Pajak Keluarga', apakah sudah terdapat data istri atau belum:
+
+a. Jika sudah terdapat data istri, klik 'Edit', kemudian lakukan perubahan pada 'Status Unit Perpajakan' menjadi 'Kepala Unit Keluarga Lain (MT) atau 'Kepala Unit Keluarga Lain (PH) dan klik Simpan dan submit perubahan data.
+
+b. Jika belum terdapat data istri, klik 'Tambah' dan isi data istri serta pastikan pada 'Status Unit Perpajakan' memilih 'Kepala Unit Keluarga Lain (MT) atau 'Kepala Unit Keluarga Lain (PH) dan klik Simpan dan submit perubahan data.
+
+Apabila kendala muncul saat pengisian identitas untuk pendaftaran WNA, data yang divalidasi untuk Pendaftaran NPWP bagi WNA adalah data paspor yang terdaftar pada sistem di Ditjen Imigrasi. Jika data paspor tidak ditemukan, maka silakan mengkonfirmasi mengenai data paspor tersebut terlebih dahulu ke Ditjen imigrasi.
+
+Apabila terdapat kendala validasi AHU, pastikan seluruh data sudah sesuai dengan yang terdaftar pada AHU. Apabila SK Pengesahannya baru, kemungkinan masih membutuhkan proses sinkronisasi. Silakan Kakak coba secara berkala. Kakak juga dapat melakukan konfirmasi kembali ke Ditjen AHU perihal kesesuaian data yang dipertukarkan ke DJP.
+
+Apabila tidak dapat melakukan pendaftaran NPWP secara elektronik, Kakak juga dapat melakukan pendaftaran NPWP melalui:
+
+a. secara langsung;
+
+b. melalui pos, perusahaan jasa ekspedisi, atau jasa kurir, ke KPP, KP2KP, atau tempat lain yang ditetapkan oleh DJP. 
+
+Info kontak dan alamat KPP/KP2KP dapat dilihat pada laman berikut ya, Kak 👇
+
+ https://pajak.go.id/id/unit-kerja
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan pada kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah Ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Perpajakan Umum_Pengaduan_Umum | Aulia | Apabila Kakak bermaksud menyampaikan Pengaduan, maka Kakak dapat menyampaikannya melalui:
+- telepon 1500200
+- faksimile di nomor (021) 5251245
+- email pengaduan@pajak.go.id
+- laman pengaduan:
+
+    https://pengaduan.pajak.go.id/  
+
+- melalui surat atau datang langsung ke Direktorat P2Humas atau unit kerja DJP lainnya.
+   link laman alamat Dit. P2Humas:
+
+    https://s.id/alamatp2humasdjp  
+
+Selain itu, Kakak juga dapat mengajukan pengaduan melalui aplikasi Coretax melalui menu Layanan Wajib Pajak --> pilih submenu yang ada pada Layanan Administrasi yaitu Layanan Pengaduan, Saran, dan Apresiasi --> untuk membuat dan melihat Pengaduan, Saran, dan Apresiasi.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+UNKER : Informasi lebih lanjut terkait saluran komunikasi unit kerja
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan
+1500200 : Hubungkan ke petugas (Senin-Jumat jam 08.00-16.00 WIB) |  |  |  |  |  | 
+KUP_WP Kriteria Tertentu | Aulia | Apakah Kakak ingin mengajukan permohonan Penetapan Wajib Pajak dengan Kriteria Tertentu?
+Wajib Pajak dengan kriteria tertentu dapat diberikan pengembalian pendahuluan kelebihan pembayaran pajak atas kelebihan pembayaran PPh maupun PPN.
+
+Penetapan Wajib Pajak dengan Kriteria Tertentu diajukan paling lambat tanggal 10 Januari.
+
+Namun, berdasarkan ketentuan terbaru pada PMK 28 Tahun 2026, Keputusan penetapan Wajib Pajak dengan kriteria tertentu yang diterbitkan berdasarkan aturan lama (PMK Nomor 39 Tahun 2018 beserta perubahannya) dinyatakan tidak berlaku, sehingga Wajib Pajak dapat mengajukan kembali.
+
+Pengajuan kembali tersebut dapat dilakukan mulai tanggal 1 Juni 2026 sampai dengan 10 Juni 2026.
+
+Terkait kendala, Notifikasi ‘Sertifikat harus diterbitkan untuk Sub Layanan AS.09-01’ muncul dikarenakan belum terdapat SK Penetapan Wajib Pajak Kriteria Tertentu sebelumnya. Apabila sebelumnya belum memiliki SK tersebut, maka silakan mengajukan SK Penetapan Wajib Pajak Kriteria Tertentu sepanjang Kakak sudah memenuhi ketentuan pada PMK 28 Tahun 2026 dan dapat diajukan paling lambat tanggal 10 Januari.
+
+Berikut ini adalah beberapa informasi terkait Penetapan WP Kriteria Tertentu. Silakan Kakak ketik di kolom chat sesuai kebutuhan, ya.
+1️⃣. Persyaratan WP Kriteria Tertentu
+2️⃣. Tata Cara Pengajuan melalui Coretax
+
+Untuk informasi selengkapnya mengenai Penetapan Wajib Pajak Kriteria Tertentu, silakan klik tautan berikut atau ketikkan angka di bawah berikut:
+
+https://pajak.go.id/id/wajib-pajak-kriteria-tertentu
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+PKP Risiko Rendah: Untuk mengetahui prosedur dan pengajuan PKP Berisiko Rendah
+9️⃣ : Akhiri percakapan
+0️⃣ : Kembali ke pertanyaan umum |  |  |  |  |  | 
+Kode Error_Error Coretax_tiket Melati | Aulia | Mohon maaf atas ketidaknyamanannya. Apabila kakak mengalami kendala error sistem Coretax terdapat mekanisme pengajuan tiket Melati dalam penanganan insiden terkait Coretax DJP.
+
+Penanganan insiden atau kendala Coretax DJP dilaksanakan secara berjenjang. Apabila terdapat insiden yang tidak dapat diselesaikan oleh petugas KPP atau Kring Pajak, maka petugas melakukan eskalasi melalui sistem internal Direktorat Jenderal Pajak yang dikenal dengan nama Melati (Meja Layanan TI).
+
+Apabila kakak menjumpai kendala yang tidak dapat diselesaikan sendiri, sebelum melaporkan kepada petugas ada baiknya kakak mempersiapkan deskripsi error secara jelas, termasuk notifikasi error yang muncul serta tangkapan layar (screenshot) yang menunjukkan error serta upaya apa yang sudah Anda lakukan untuk mengatasi kendala tersebut.
+
+Kakak dapat mengirimkan tiket permasalahan ke sistem Melati melalui helpdesk KPP, layanan telepon Kring Pajak 1500200 atau live chat dengan mengetik "1500200" di kolom chat dengan memberikan informasi lebih detail.
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan pada kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah Ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+Coretax_Coretax_Umum | Aulia | Apakah Kakak bertanya seputar Coretax?
+
+Coretax DJP dapat diakses pada alamat:
+
+  https://coretaxdjp.pajak.go.id/     
+
+Untuk mendapatkan informasi layanan Coretax, Kakak dapat mengeklik link berikut ini:
+
+  https://www.pajak.go.id/portal-layanan-wp/   
+
+Untuk informasi pelaporan SPT Tahunan berupa video dan slide, Kakak dapat mengakses (klik) link berikut 👇
+
+  https://www.pajak.go.id/id/lapor-tahunan
+
+Untuk informasi lebih lanjut tentang sistem Coretax, silakan mengetik salah satu pilihan di bawah ini ya, Kak 👇
+
+1: Petunjuk Penggunaan Coretax
+
+2: Buku Manual Coretax
+
+Untuk Soal Sering Ditanya terkait sistem Coretax, Kakak dapat mengeklik link berikut ini:
+
+  https://pajak.go.id/coretaxpedia/   
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan atau ketik salah satu pilihan di bawah ini ya, Kak 👇
+XML Coretax : Informasi format XML pada Coretax
+Aktivasi Akun : Informasi aktivasi akun Coretax
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+PPh_PPh Final UMKM_Surat Keterangan PPh Final Bruto Tertentu | Aulia | Kakak dapat mengajukan permohonan Surat Keterangan kepada Direktur Jenderal Pajak melalui akun Coretax masing-masing ya, Kak.
+
+Saat ini, Permohonan Surat Keterangan PP 55/2022 dapat dilakukan di Coretax.
+
+Silakan masuk ke menu Layanan Wajib Pajak> Layanan Administrasi> Buat Permohonan Layanan Administrasi> Pilih kode AS.06 Surat Keterangan Memenuhi Kriteria Sebagai Wajib Pajak Berdasarkan Peraturan Pemerintah Nomor 55 Tahun 2022 > LA.06-01 Pemberian Surat Keterangan Memenuhi Kriteria Sebagai Wajib Pajak Berdasarkan Peraturan Pemerintah Nomor 55 Tahun 2022 > Kirim.
+
+Selanjutnya, silakan Kakak klik alur kasus, isi data yang masih kosong dan cek validasi persyaratan apakah sudah ter-checklist semua. Jika sudah lengkap dan tervalidasi jangan lupa klik simpan ya, Kak. Setelah berhasil simpan, silakan Kakak klik pada bagian dokumen untuk mengunduh Surat KeteranganPP 55/2022 tersebut.
+
+Dalam hal pengajuan Surat Keterangan PP Nomor 55 Tahun 2022 (AS.06-01) pada alur kasus masih berstatus 'skrip saat ini sedang menjalankan', silakan ditunggu dan cek secara berkala ya, Kak. 
+
+Untuk melakukan pengecekan apakah permohonan SKET PP 55 tersebut sudah berhasil, Kakak dapat melakukan pengecekan pada menu Layanan Wajib Pajak > Layanan Administrasi > Daftar Fasilitas Saya.
+
+Tata cara pengajuan Surat Keterangan PP 55 di Coretax dapat diikuti dengan melihat video berikut ya, Kak.
+
+ https://www.youtube.com/watch?v=leiUwFwnmfA
+
+Jika status pengajuan SKET PP 55 Tahun 2022 yang dimaksud sudah ditutup atau kasus selesai pada menu Alur Kasus, mohon berkenan untuk mencoba secara berkala melakukan pengecekan pada bagian Portal Saya > Dokumen Saya untuk mengunduh SKET PP 55 Tahun 2022 tersebut. 
+
+Apabila masih terkendala, silakan Kakak melakukan langkah-langkah berikut sebelum mengakses Coretax:
+1. Pastikan koneksi internet berjalan stabil;
+2. Clear cache & cookies pada browser yang digunakan;
+3. Gunakan incognito/private window untuk mengakses coretax, dan;
+4. Silakan coba kembali secara berkala. 
+
+Apabila Kakak sudah terlanjur dilakukan pemotongan/pemungutan PPh non final, maka atas bukti potong atau pungut tersebut menjadi kredit pajak dalam SPT Tahunan PPh milik Kakak ya. Terkait penghasilan yang menjadi dasar pemotongan/pemungutan PPh non final tersebut, tetap terutang PPh Final berdasarkan PP 55 Tahun 2022 dan dilakukan penyetoran sendiri ya, Kak.
+
+Dalam hal masih mengalami kendala, Kakak dapat meminta bantuan untuk dibuatkan tiket permasalahan sistem (MELATI) melalui helpdesk KPP, layanan email pengaduan di pengaduan@pajak.go.id, layanan telepon Kring Pajak 1500200, atau live chat dengan mengetik '1500200' di kolom chat  untuk diteruskan ke tim teknis terkait ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+9 : Akhiri percakapan
+0 : Kembali ke pertanyaan umum |  |  |  |  |  | 
+Perpajakan Umum_Perpajakan Umum_Informasi Unit Kerja | Aulia | Untuk mendapatkan informasi tentang KPP (Kantor Pelayanan Pajak), alamat, nomor telepon, nomor Whatsapp, email, serta akun jejaring sosial KPP, Kakak dapat mengeklik link (tautan) di bawah ini ya, Kak 👇
+
+ https://pajak.go.id/unit-kerja
+
+Dari link di atas, Kakak dapat menuju ke laman
+
+ https://pajak.go.id/daftar-unit-kerja
+
+ https://pajak.go.id/wilayah-administrasi
+
+Jam pelayanan di TPT mulai pukul 08.00 - 16.00 waktu setempat pada hari kerja (Senin-Jumat kecuali hari libur atau cuti bersama) ya, Kak.
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan pada kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah Ini ya 👇
+KLIPDJP: Informasi terkait Layanan Kring Pajak
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  |  |  | 
+KUP_NPWP_Bagi Wanita Kawin | Aulia | Kak, sistem pengenaan pajak menempatkan keluarga sebagai satu kesatuan ekonomis, artinya penghasilan atau kerugian dari seluruh anggota keluarga digabungkan sebagai satu kesatuan yang dikenai pajak dan pemenuhan kewajiban pajaknya dilakukan oleh kepala keluarga (family tax unit system). Walaupun dalam hal-hal tertentu, dimungkinkan juga seorang wanita kawin melakukan pemenuhan kewajiban perpajakannya secara terpisah.
+
+Wanita kawin dan anak yang belum dewasa dapat mengajukan permintaan pencetakan Kartu NPWP dengan menggunakan NPWP kepala keluarga dan mencantumkan nama dirinya sendiri (NPWP gabung suami). Untuk prosedur cetak kartu NPWP tersebut, silakan konfirmasi ke KPP terdekat.
+
+Daftar kontak KPP dapat dilihat pada link/tautan berikut.
+
+  http://pajak.go.id/unit-kerja
+
+Untuk informasi lebih lengkap mengenai aspek perpajakan Wanita Kawin, silakan ketik salah satu pilihan angka yang tersedia berikut.
+
+1 : Cara Penggabungan NPWP Istri dan Suami
+
+2 : Cara Mendapatkan Akses Coretax untuk Istri yang NPWP-nya Gabung dengan Suami
+
+3 : Tata Cara Pendaftaran NPWP Pisah Harta/Memilih Terpisah bagi Wanita Kawin
+
+4 : Penghitungan PPh jika Wanita Kawin Memiliki NPWP yang Berbeda dari Suami (PH/MT)
+
+5 : Tata Cara Pelaporan SPT Tahunan PPh bagi Wanita Kawin
+
+6 : Perlakuan atas Penghasilan Istri dalam SPT Tahunan PPh
+
+7 : Kewajiban Pelaporan SPT Tahunan PPh bagi Wanita yang Menikah dalam Tahun Berjalan
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umu
+9 : Akhiri percakapan |  |  |  |  |  | 
+
+[Tabel: Daftar Intent]
+intent_id | display_name | priority | is_fallback | input_contexts | output_contexts | parameters | training_phrases | responses_text_id | responses_text_en | responses_payload_id | responses_payload_en | webhook_enabled | events | action | auto | default_telegram_response_platform | _parse_type | file_name | parse_error
+Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan | Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan | 500000 |  |  | AplikasiPerpajakan_AplikasiUmum_AplikasiPerpajakan-followup (lifespan=2) |  |  | Untuk mengakses informasi tentang aplikasi perpajakan, silakan mengetik salah satu pilihan di bawah ini ya, Kak 👇
+- e-SPT
+- e-Faktur
+- e-Bupot
+- e-Form
+- DJP Online
+- Coretax
+
+Jika masih ada pertanyaan, silakan Kakak ketik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya  👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | To access information about tax applications, please type one of the options below 👇
+
+- e-SPT
+
+- e-Faktur
+
+- e-Bupot
+
+- e-Form
+
+- DJP Online
+
+- Coretax
+
+If you still have questions, you may type your question in the chat box, or you can also type one of the options below 👇
+?
+0 : Back to general inquiries
+9 : End the conversation
+1500200 : Connect to Live Chat Agent (only at Working Hours/Days from 08:00 AM - 04:00 PM, Western Indonesia Time) |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan.json | 
+Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan - select.number | Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan - select.number | 500000 |  | AplikasiPerpajakan_AplikasiUmum_AplikasiPerpajakan-followup |  |  |  |  |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan - select.number.json | 
+Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan 2 | Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan 2 | -1 |  | saranpakmega | AplikasiPerpajakan-followup (lifespan=1) |  |  | Untuk mengakses informasi tentang aplikasi perpajakan, silakan mengetik salah satu pilihan di bawah ini ya, Kak 👇
+- e-SPT
+- e-Faktur
+- e-Bupot
+- e-Form
+
+Jika masih ada pertanyaan, silakan Kakak ketik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | In order to access information regarding taxation apps, please type one of these following option 👇
+- e-SPT
+- e-Faktur
+- e-Bupot
+- e-Form
+
+Should you have more enquiry, please type the question on the chatbox or you can also type one of these following options 👇
+0 : Back to general topics
+9 : Ending the conversation |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan 2.json | 
+Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan 3 | Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan 3 | -1 |  | DefaultWelcomeIntent-followup | saranpakmega (lifespan=1); DefaultWelcomeIntent-followup-2 (lifespan=1); DefaultWelcomeIntent-followup (lifespan=1) |  |  | Apabila Kakak ingin mengetahui informasi mengenai aplikasi perpajakan dan kode error terkait aplikasi tersebut, silakan ketik sesuai pilihan yang tersedia berikut ini ya, Kak 👇
+
+-  Aplikasi Perpajakan
+
+-  Kode Error
+
+Jika ada pertanyaan lain, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+9 : Akhiri percakapan
+0 : Kembali ke pertanyaan umum | Yes this is intent number 6 |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_Aplikasi Umum_Aplikasi Perpajakan 3.json | 
+Aplikasi Perpajakan_Aplikasi Umum_Captcha | Aplikasi Perpajakan_Aplikasi Umum_Captcha | 500000 |  |  |  |  |  | Apakah Kakak bertanya tentang captcha pada aplikasi?
+
+Apabila Kakak mengalami ketidaksesuaian captcha atau captcha tidak muncul, Kakak dapat merefresh captcha terlebih dahulu, dan setelah muncul captcha yang baru diinput pada kolom yang tersedia. Namun apabila masih belum berhasil, silakan Kakak ikuti langkah berikut ya 👇
+
+1. Clear cache dan cookies pada browser;
+
+2. Gunakan New Private Window atau New Incognito Window;
+
+3. Gunakan browser lain atau perangkat lainnya.
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_Aplikasi Umum_Captcha.json | 
+Aplikasi Perpajakan_Aplikasi Umum_Lupa Email | Aplikasi Perpajakan_Aplikasi Umum_Lupa Email | -1 |  |  |  |  |  | Apakah Kakak lupa email dan nomor telepon pada akun DJP Online?
+
+Untuk mengubah email dan no handphone yang sudah tidak dapat diakses, Kakak dapat melakukan proses perubahan data untuk mengganti email dan no handphone yang telah terdaftar. Silakan ketik "perubahan data npwp" pada kolom chat di bawah ini untuk melakukan perubahan data tersebut.
+
+Apabila Kakak ingin melakukannya melalui Kring Pajak, permohonan yang dilayani hanya untuk perubahan atas data nomor handphone dan alamat email. Kakak dapat mengetik "1500200" pada kolom chat atau menghubungi Kring Pajak melalui telepon di nomor 1500200 pada hari dan jam kerja (Senin s.d. Jumat pukul 08.00 s.d. 16.00) ya, Kak.
+
+Apabila berhasil masuk ke DJP Online, Kakak dapat mengecek pada akun DJP Online menu "profil" - "data lainnya" pada akun DJP Online.
+
+Apabila Kakak lupa password/kata sandi DJP Online, Kakak dapat mengikuti petunjuk dengan mengetik "LPDJP" pada kolom chat.
+
+Untuk informasi, pada proses Lupa EFIN bahwa setelah verifikasi lupa EFIN terpenuhi, maka EFIN akan dikirimkan ke "email terdaftar", sehingga mohon memastikan email yang terdaftar sudah sesuai dengan email yang Kakak gunakan saat ini.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+EFIN : Informasi terkait EFIN
+LPDJP : Lupa Password DJP Online
+PDMNPWP : Perubahan Data Mandiri
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | Did you forget the email and phone number linked to your DJP Online / Coretax account?
+
+To update an email address and phone number that can no longer be accessed, you can request a data update to replace the registered email and phone number. Please type "Data Update of my NPWP" in the chat box below to proceed with the data update.
+
+If you wish to conduct a data update through Kring Pajak, the service is only available for updates to your phone number and email address. You can type "1500200" in the chat box or contact Kring Pajak by phone at 1500200 during Kring Pajak's working hours (Monday to Friday, 08:00 AM – 04:00 PM, Western Indonesia Time).
+
+For your information, in the Forgot EFIN process, once the verification is completed, the EFIN will be sent to your registered email. Therefore, please make sure that the registered email matches the email you are currently using.
+
+If you still have questions, please type your question in the chat box, or you can also select one of the available options below 👇
+
+EFIN : Information about EFIN
+LPDJP : Forgot DJP Online Password
+PDMNPWP : Taxpayer Data Update
+0 : Back to general questions
+9 : End the conversation
+1500200 : Connect to Live Chat Agent (only at Working Hours/Days from 08:00 AM - 04:00 PM, Western Indonesia Time) |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_Aplikasi Umum_Lupa Email.json | 
+Aplikasi Perpajakan_Aplikasi Umum_Lupa Password Pajak | Aplikasi Perpajakan_Aplikasi Umum_Lupa Password Pajak | 500000 |  |  |  |  |  | Apakah Kakak mengalami kendala saat Lupa Password di Coretax? Jika iya, silakan mengikuti langkah-langkah berikut:
+
+1. Setelah klik  https://coretaxdjp.pajak.go.id/identityproviderportal/Account/ResetPassword , Kakak diminta mengisi laman permohonan "Ubah Kata Sandi" yang berisi :
+
+    - ID Pengguna : disi dengan NIK/NPWP 16 digit/NITKU,
+
+    - Tujuan Konfirmasi : klik pilihan antara Surat Elektronik atau Nomor Gawai.
+
+    - Masukkan Captcha, lalu klik tombol "Kirim".
+
+    - Kemudian muncul pop up 'Reset Password Success'.
+
+Jika terdapat kendala berupa ketidaksesuaian data alamat email atau nomor gawai/HP yang menyebabkan link reset password tidak masuk, silakan lakukan perubahan data terlebih dahulu ke KPP terdekat atau melalui Kring Pajak dengan mengetik "1500200" pada kolom chat atau menghubungi Kring Pajak melalui telepon di nomor 1500200 pada hari dan jam kerja (Senin s.d. Jumat pukul 08.00 s.d. 16.00) ya, Kak.
+
+2. Untuk mengubah password, silakan klik tautan reset kata sandi baik yang terkirim di email atau nomor HP Kakak.
+
+3. Isikan data kata sandi baru pada new password dan confirm password dengan ketentuan : minimal 8 karakter, minimal 1 huruf besar, minimal 1 huruf besar, minimal 1 huruf kecil, minimal 1 angka, minimal 1 karakter khusus. Lalu save dan sukses.
+
+Untuk video tutorial cara reset password, Kakak dapat menyimak tautan video berikut:
+
+ https://s.id/ResetPasswordCoretax
+
+Jika yang Kakak maksud adalah lupa username pada aplikasi Coretax, maka username tersebut adalah NPWP 16 Digit, NITKU, atau NIK (yang sudah diaktivasi sebagai NPWP) ya, Kak.
+
+Jika yang Kakak maksud adalah lupa passphrase pada aplikasi coretax DJP, silakan Kakak ketik "Reset Passphrase Coretax di kolom chat ya untuk mendapatkan informasi terkait.
+
+Jika email atau nomor HPnya berbeda dengan yang Kakak miliki sekarang, silakan lakukan perubahan data terlebih dahulu ya Kak. Informasi tentang perubahan data dapat Kakak peroleh dengan mengetik "Perubahan Data" di kolom chat ya.
+
+Jika terdapat notifikasi bahwa Kakak belum terdaftar, silakan lakukan registrasi akun terlebih dahulu ya, Kak. Informasi lebih lengkap dapat diperoleh dengan mengetik "Registrasi Akun" di kolom chat ya.
+
+Jika terdapat notifikasi "Nama pengguna tidak ditemukan!", silakan pastikan ID Pengguna/User ID yang digunakan merupakan NIK atau NPWP 16 digit yang sudah memiliki akun coretax atau pernah mengakses DJP Online sebelumnya.
+
+Jika ternyata kakak belum menerima link untuk mengubah password, silakan pastikan kembali:
+- penulisan email/nomor telepon sudah sesuai dengan yang terdaftar
+- silakan cek semua folder termasuk spam/junk.
+- Penyimpanan email tidak penuh
+- nomor telepon mempunyai pulsa reguler yang cukup untuk menerima SMS
+- provider yang digunakan Telkomsel/Indosat/XL dan bukan nomor pasca bayar
+
+Apabila Kakak menerima notifikasi "Your password has been expired", silakan Kakak lakukan langkah berikut sebelum akses Coretax.
+1. Clear cookies & cache pada browser yg digunakan; 
+2. Gunakan browser & jaringan internet yg berbeda;
+3. Gunakan private window (Mozilla)/incognito window (Chrome);  
+4. Coba secara berkala.      
+
+================================
+
+Namun jika yang Kakak maksud Lupa Password selain Coretax, silakan klik tautan berikut:
+
+a. DJP Online, yang sekaligus merupakan password aplikasi M-Pajak, dengan mengakses tautan  https://s.id/password_lupa_djponline
+
+b. E-Faktur Desktop, dengan mengakses tautan  https://s.id/password_lupa_efaktur
+
+c. Untuk login ke aplikasi E-Faktur Web, silakan mengakses https://web-efaktur.pajak.go.id dengan menggunakan password yang sama dengan password e-Nofa.
+
+Jika masih ada pertanyaan, silakan Kakak mengetik pertanyaan melalui kolom chat. Kakak juga dapat mengetik salah satu opsi di bawah ini ya 👇
+LUPA EMAIL : untuk informasi lupa email
+Konfirmasi NPWP : untuk informasi terkait konfirmasi nomor NPWP
+Token: Informasi apabila kode Verifikasi belum masuk email/nomor telepon
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | If you're experiencing issues with a forgotten password, please refer to the appropriate guide based on the application you're using:
+
+a. DJP Online
+Access the guide via:  https://s.id/password_lupa_djponline
+
+b. E-Faktur Desktop
+Access the guide via:  https://s.id/password_lupa_efaktur
+
+c. E-Faktur Web
+Log in at  https://web-efaktur.pajak.go.id  using the same password as your e-Nofa account.
+
+d. Coretax App
+To reset your password, follow these steps:
+
+1. Visit:  https://coretaxdjp.pajak.go.id/identityproviderportal/Account/ResetPassword
+
+2. Fill in the password reset form:
+- User ID: Enter your NIK/NPWP (16 digits)/NITKU
+- Confirmation Method: Choose between email or mobile number
+- Enter the captcha, then click Send
+- A pop-up message will appear: "Reset Password Success"
+
+If the reset link does not arrive due to outdated email or phone number, please update your data first by visiting the nearest Tax Office (KPP) or contacting Kring Pajak:
+- Type "1500200" in the chat; or
+- call 1500200 during business hours (Monday–Friday, 08:00–16:00 Western Indonesian Time)
+
+3. Once you receive the reset link via email or SMS, click the link to proceed
+4. Enter your new password following these rules:
+
+- Minimum 8 characters
+- At least 1 uppercase letter
+- At least 1 lowercase letter
+- At least 1 number
+- At least 1 special character
+- Click Save to complete the process
+
+For a video tutorial on resetting your Coretax password, please visit:
+ https://s.id/ResetPasswordCoretax
+
+If you meant to reset your Coretax passphrase, please type "Reset Passphrase Coretax" in the chat for further instructions.
+
+If your current email or phone number differs from the one registered, please update your data first. Type "Data Update" in the chat for guidance.
+
+If you receive a notification stating you're not registered, please complete your account registration first. Type "Account Registration" in the chat for more information.
+
+If you haven’t received the password reset email, please check all folders including Spam and Junk. Alternatively, you may choose to receive the reset link via SMS—just ensure your registered phone number is active and has sufficient credit to receive the verification message.
+
+If you have further questions, feel free to type your inquiry or select one of the options below:
+
+Forgot Email: Information about forgotten email
+TIN Validation: Information about NPWP confirmation
+0: Return to general inquiries
+9: End the conversation
+1500200 : Connect to Live Chat Agent (only at Working Hours/Days from 08:00 AM - 04:00 PM, Western Indonesia Time) |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_Aplikasi Umum_Lupa Password Pajak.json | 
+Aplikasi Perpajakan_Aplikasi Umum_Token Umum | Aplikasi Perpajakan_Aplikasi Umum_Token Umum | 500000 |  |  |  |  |  | Apakah Kakak bertanya terkait belum diterimanya kode verifikasi/token/OTP/sejenisnya?
+
+Kode verifikasi/token/OTP/sejenisnya antara lain diperlukan pada saat:
+
+- aktivasi NIK/pendaftaran NPWP
+
+- penyampaian SPT via e-Filing atau e-Form
+
+- reset password akun Coretax
+
+Kode verifikasi/token/OTP/sejenisnya diberikan melalui email dan/atau SMS. Untuk layanan melalui SMS saat ini hanya dapat dilakukan untuk provider Telkomsel/Indosat/XL dan dikenakan biaya pulsa. Mohon memastikan ketersediaan pulsa ya, Kak.
+
+Apabila kode verifikasi/token/OTP/sejenisnya belum diterima, Kakak dapat mengecek secara berkala pada email dan/atau SMS. Kakak juga dapat mengajukan permintaan ulang kode verifikasi/token/OTP/sejenisnya.
+
+Khusus OTP terkait reset password akun Coretax, Kakak dapat mengajukan permohonan OTP ke kantor pajak terdekat ya, Kak.
+
+Untuk mendapatkan informasi alamat, nomor telepon, nomor Whatsapp, serta akun jejaring sosial kantor pajak, Kakak dapat mengeklik link di bawah ini ya, Kak 👇
+
+ https://pajak.go.id/unit-kerja  
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+Aktivasi Akun : Informasi aktivasi akun Coretax
+Ubah Data : Informasi terkait Perubahan Data
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | Are you asking about not receiving a verification code, token, OTP, or similar?
+These codes are typically required during the following processes:
+
+1. NIK activation / NPWP registration
+2. EFIN request via the M-Pajak app
+3. Submission of Annual Tax Returns (SPT) via e-Filing or e-Form
+4. Password reset for Coretax account
+
+Verification codes, tokens, or OTPs are sent via email and/or SMS.
+
+Please note: SMS delivery is currently only supported for Telkomsel, Indosat, and XL providers and may incur a credit charge. Kindly ensure your phone has sufficient credit.
+
+If you haven’t received the code, please:
+
+- Check your email inbox and SMS regularly
+- Request the code again through the respective application or service
+
+For Coretax password reset OTP, you may request it directly at your nearest Tax Office (KPP).
+
+To find the address, phone number, WhatsApp contact, or social media account of your local tax office, please visit:
+ https://pajak.go.id/unit-kerja
+
+If you have further questions, feel free to type your inquiry in the chat box or type one of the options below:
+
+Account Activation: Information on Coretax account activation
+Data Update: Information on updating your personal data
+0: Return to general inquiries
+9: End the conversation
+1500200 : Connect to Live Chat Agent (only at Working Hours/Days from 08:00 AM - 04:00 PM, Western Indonesia Time) |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_Aplikasi Umum_Token Umum.json | 
+Aplikasi Perpajakan_DJPOnline_Aktivasi Fitur | Aplikasi Perpajakan_DJPOnline_Aktivasi Fitur | 250000 |  |  |  |  |  | Kakak bertanya tentang penambahan hak akses aplikasi pada DJP Online ya?
+
+Kakak perlu melakukan aktivasi fitur untuk menambahkan hak akses aplikasi, antara lain:
+e-PSPT (pemberitahuan perpanjangan SPT Tahunan), e-Bupot Unifikasi, PBB, e-Pbk, e-Objection, e-PHTB, e-SKD, e-SKTD, Info KSWP, Rumah Konfirmasi, e-Reporting Investasi, e-Reporting PPS.
+
+Berikut adalah langkah-langkah aktivasi fitur:
+
+1. Buka DJP Online ( https://djponline.pajak.go.id/ ) dan login
+2. Klik menu "Profil", dari menu tersebut pilih "Aktivasi Fitur"
+3. Beri tanda centang pada aplikasi yang akan ditambahkan hak aksesnya
+4. Tekan tombol "Ubah Fitur Layanan"
+
+Setelah kembali ke halaman login, silakan Kakak login ulang DJP Online dan menuju menu "Layanan" untuk menggunakan aplikasi yang telah ditambahkan hak aksesnya.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+RADO : Informasi terkait Registrasi Akun DJP Online
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_Aktivasi Fitur.json | 
+Aplikasi Perpajakan_DJPOnline_Coretax_Arsip SPT | Aplikasi Perpajakan_DJPOnline_Coretax_Arsip SPT | 500000 |  |  |  |  |  | Apakah Kakak ingin mengecek/mendapatkan arsip SPT Tahunan/Masa yang sudah dilaporkan sebelumnya? Apabila Kakak melaporkannya melalui efilling pada DJP Online, silakan mengikuti petunjuk berikut ya  👇
+
+1. Login ke  https://djponline.pajak.go.id
+
+2. Klik tombol 3 garis di pojok kanan atas > klik 'Lapor'
+
+3. Klik 'Efilling'
+
+4. Pada laman Daftar SPT, pilih SPT yang ingin anda lihat arsipnya. Klik ikon kaca pembesar ya yang terletak di kolom 'Aksi'
+
+5. Untuk mendapatkan bukti lapor, pada laman Daftar SPT, klik lambang 'pesawat kertas' untuk mengirimkan bukti pelaporan SPT ke email terdaftar atau klik ikon file untuk melihat langsung bukti pelaporan SPT.
+
+Jika Kakak sudah pernah melaporkan via Coretax, maka arsip bukti pelaporan SPT Kakak dapat diperoleh melalui petunjuk berikut ya
+
+1. Login akun Coretax
+
+2. Impersonate ke akun yang diinginkan (jika diperlukan)
+
+3. Klik menu "Surat Pemberitahuan (SPT)" > Surat Pemberitahuan (SPT)
+
+4. Klik "SPT Dilaporkan" > filter jenis SPT dan Masa Pajak yang diperlukan
+
+5. Klik tombol yang berwarna hijau untuk mengirim bukti pelaporan spt ke email terdaftar atau yang berwarna merah untuk mengunduh SPT yang telah dilaporkan
+
+Kakak juga dapat menghubungi KPP tempat Kakak terdaftar untuk mengkonfirmasi pelaporan SPT atau menghubungi agent Kring Pajak dengan mengetik "1500200" pada kolom chat pada hari dan jam kerja. Untuk informasi mengenai alamat dan korespondensi unit kerja, dapat dilihat dengan mengeklik link/tautan berikut ya, Kak
+
+ https://pajak.go.id/wilayah-administrasi
+
+Apabila yang Kakak maksud adalah ingin mengunduh Induk SPT pada Coretax namun gagal, silakan mengetik frasa 'gagal unduh SPT ' pada kolom di bawah.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan atau ketik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | Would you like to check or obtain an archive of your previously submitted Annual or Periodic Tax Return (SPT)?
+If you submitted your SPT through e-Filing, please follow the steps below👇
+If submitted via DJP Online (e-Filing):
+
+1. Log in to https://djponline.pajak.go.id
+
+2. Click the three-line menu in the top right corner, then select “File”
+
+3. Click “e-Filing”
+
+4. On the SPT List page, select the SPT you want to view. Click the magnifying glass icon in the “Action” column
+
+5. To obtain the submission receipt, on the SPT List page:
+
+- Click the paper airplane icon to send the receipt to your registered email, or
+
+- Click the file icon to view the receipt directly | If you submitted via Coretax:
+
+1. Log in to your Coretax account
+
+2. Impersonate the relevant account (if required)
+
+3. Click the “Tax Return (SPT)” menu > Tax Return (SPT)
+
+4. Click “Submitted SPT”, then filter by SPT type and Tax Period
+
+5. Click the green button to send the SPT submission receipt to your registered email, or the red button to download the submitted SPT | You may also contact the Tax Office (KPP) where you are registered to confirm your SPT submission, or connect with a Kring Pajak agent by typing “1500200” in the chat box during working hours.
+Information on office addresses and correspondence can be found at the following link:
+ https://pajak.go.id/wilayah-administrasi | If you have any further questions, please type your question in the chat box or select one of the options below👇
+0 : Return to general questions
+9 : End conversation |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_Coretax_Arsip SPT.json | 
+Aplikasi Perpajakan_DJPOnline_Coretax_Lupa Password | Aplikasi Perpajakan_DJPOnline_Coretax_Lupa Password | -1 |  |  | DefaultWelcomeIntent-EFIN-followup (lifespan=1) |  |  | Kakak terkendala login di Djponline atau Coretax?
+
+Untuk kendala lupa password DJP Online, pastikan kembali password yang Kakak isi telah sesuai.
+
+Jika masih tidak dapat login, silakan klik link/tautan
+
+ https://djponline.pajak.go.id/account/lupapassword
+
+Kemudian, silakan mengisi data yang diminta pada laman tersebut lalu klik "Submit". Kakak dapat melakukan pengecekan pada email terdaftar dan mengikuti panduan perubahan password pada isi email tersebut.
+
+Apabila Kakak sudah mengajukan permohonan ubah kata sandi namun belum terdapat notifikasi melalui email maupun SMS, silakan mengecek di folder spam atau silakan mengecek juga di surat masuk email maupun SMS secara berkala ya, Kak. Mohon menunggu hingga link verifikasi masuk ke email atau SMS tersebut.
+
+Namun jika email terdaftar sebelumnya sudah tidak dapat dibuka/lupa email sehingga tidak memperoleh link reset password, silakan lakukan perubahan data terlebih dahulu ke KPP terdaftar ya, Kak atau melalui Kring Pajak dengan mengetik "1500200" pada kolom chat atau menghubungi Kring Pajak melalui telepon di nomor 1500200 pada hari dan jam kerja (Senin s.d. Jumat pukul 08.00 s.d. 16.00) ya, Kak.
+
+Pastikan Kakak telah memiliki EFIN ya. Jika Kakak lupa EFIN, silakan ketik angka "1" pada kolom chat.
+
+Tutorial selengkapnya untuk ubah kata sandi dapat diakses pada link/tautan berikut ini ya, Kak 👇
+
+ https://s.id/tutorial_password_DJPOnline
+
+Apabila terdapat link yang tidak dapat dibuka, silakan coba untuk menghapus tulisan "www." pada link ya, Kak. Contoh :
+
+"https://www.pajak.go.id/" menjadi "https://pajak.go.id/"
+
+-----------------------------------------------------------------
+
+Apabila yang Kakak maksud adalah Lupa Password Coretax, silakan mengikuti langkah-langkah berikut:
+
+1. Setelah klik "Lupa Kata Sandi", Kakak diminta mengisi laman permohonan Ubah Kata Sandi yang berisi :
+
+    - ID Pengguna : disi dengan NIK/NPWP/NITKU,
+
+    - Tujuan Konfirmasi : klik pilihan antara Surat Elektronik atau Nomor Gawai.
+
+    - Masukkan Captcha, lalu klik tombol "Kirim".
+
+    - Kemudian muncul pop up 'Reset Password Success'.
+
+2. Untuk mengubah password, silakan klik tautan reset kata sandi baik yang terkirim di email atau nomor HP WP.
+
+3. Isikan data kata sandi baru pada new password dan confirm password dengan ketentuan : minimal 8 karakter, minimal 1 huruf besar, minimal 1 huruf besar, minimal 1 huruf kecil, minimal 1 angka, minimal 1 karakter khusus. Lalu save dan sukses.
+
+Untuk video tutorial cara reset password, Kakak dapat menyimak tautan video berikut:
+
+ https://s.id/ResetPasswordCoretax
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+MFA : Informasi terkait MFA (Multi Factor Authentication) saat login DJP Online
+1 : Informasi terkait Lupa EFIN
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | Are you having trouble logging into DJP Online or Coretax?
+
+For DJP Online forgotten password issues, please ensure the password you entered is correct.
+
+If you still cannot log in, please click the link:
+
+ https://djponline.pajak.go.id/account/lupapassword
+
+Then, please fill in the data requested on that page and click “Submit”. You can check your registered email and follow the password change instructions in the email content.
+
+If you have submitted a password change request but have not received a notification via email or SMS, please check your spam folder and email inbox, as well as your SMS regularly. Please wait until you receive the verification link in your email or SMS.
+
+However, if the previously registered email can no longer be accessed/forgotten so you do not receive the password reset link, please update your data first at your registered KPP, or through Kring Pajak by typing “1500200” in the chat column or by calling Kring Pajak at 1500200 during working days and hours (Monday to Friday, 08:00 to 16:00).
+
+Please ensure you have an EFIN. If you forgot your EFIN, please type “1” in the chat column. A complete tutorial for changing passwords can be accessed at the following link:
+
+ https://s.id/tutorial_password_DJPOnline
+
+If there are links that cannot be opened, please try removing “www.” from the link. Example: “https://www.pajak.go.id/” becomes “https://pajak.go.id/”
+
+If you are referring to Coretax Forgot Password, please follow these steps:
+
+1. After clicking “Forgot Password (Lupa Kata Sandi)”, you will be asked to fill in the Change Password request page, which contains:
+
+- User ID: fill with NIK/TIN/NITKU,
+
+- Confirmation Method: click the choice between Email or Mobile Number.
+
+- Enter Captcha, then click the “Send (Kirim)” button.
+
+- Then a pop-up “Reset Password Success” appears.
+
+2. To change the password, please click the password reset link sent to the taxpayer’s email or mobile number.
+
+3. Enter the new password and confirm password with the following requirements: minimum 8 characters, at least 1 uppercase letter, at least 1 lowercase letter, at least 1 number, at least 1 special character. Then save and success.
+
+For the video tutorial on how to reset the password, you can follow this video link:
+ https://s.id/ResetPasswordCoretax
+
+If you still have questions, please type your question in the chat column or you can also type one of the options below:
+
+MFA : Information related to MFA (Multi Factor Authentication) when logging in to DJP Online
+1 : Information related to Forgotten EFIN
+0 : Back to general questions
+9 : End the conversation
+1500200 : Connect to Live Chat Agent (only at Working Hours/Days from 08:00 AM - 04:00 PM, Western Indonesia Time) |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_Coretax_Lupa Password.json | 
+Aplikasi Perpajakan_DJPOnline_Coretax_Registrasi Akun | Aplikasi Perpajakan_DJPOnline_Coretax_Registrasi Akun | -1 |  |  |  |  |  | Apakah yang Kakak maksud adalah registrasi akun DJP Online? Kakak mencoba lupa password di DJP Online, tapi muncul notifikasi bahwa Kakak belum terdaftar? Apabila iya, Kakak dapat melakukan registrasi akun DJP Online terlebih dahulu ya sesuai tutorial berikut 👇
+ 
+ https://s.id/registrasiDJPOnline
+
+Apabila belum mendapatkan link aktivasi untuk login DJP Online di email, pastikan email yang digunakan untuk registrasi sesuai dengan yang Kakak miliki. Silakan cek folder inbox atau spam untuk mencari email aktivasi akun setelah proses registrasi ya, Kak. Apabila belum juga menerima email silakan mengecek secara berkala atau melakukan perubahan data email aktif. Untuk informasi lebih lengkap mengenai perubahan data, silakan ketik "Perubahan Data" di kolom chat ya, Kak.
+
+______________________________________
+
+Apabila yang Kakak maksud adalah registrasi akun Coretax, maka Kakak dapat melakukannya melalui  https://coretaxdjp.pajak.go.id  pada menu:
+
+1. Aktivasi Akun Wajib Pajak
+- Sudah punya NPWP, namun belum pernah login DJPOnline; atau
+
+- Istri yang hak dan kewajiban perpajakannya digabung suami (NPWP gabung suami) dan telah masuk ' Family Tax Unit; atau
+
+- WNA yang memiliki kepentingan perpajakan di Indonesia, namun tidak memenuhi persyaratan subjektif dan objektif untuk memiliki NPWP;
+
+silakan mengeklik 'Aktivasi Akun Wajib Pajak' pada laman https://coretaxdjp.pajak.go.id dan ikuti petunjuk dibawah ini :
+
+a. Jika Wajib Pajak sudah terdaftar, klik 'Apakah Wajib Pajak sudah terdaftar?'
+
+b. Kemudian Isikan Identitas Wajib Pajak, Detail Kontak, centang Pernyataan Wajib Pajak, lalu Simpan.
+
+c. Jika tidak memilih 'Apakah Wajib Pajak Sudah terdaftar?', silakan pilih Jenis Wajib Pajak 'Badan' atau 'Orang Pribadi/Warisan Belum Terbagi'
+
+d. Kemudian Isikan Identitas Orang, Dokumen, centang Pernyataan Wajib Pajak, lalu Simpan.
+
+Apabila Kakak mengalami kendala pada saat melakukan Aktivasi Akun Wajib Pajak, di mana Nomor HP atau email tidak sesuai, silakan lakukan perubahan data terlebih dahulu ya, Kak.
+
+Apabila terdapat notifikasi "The taxpayer has already activated the taxpayer account, please change the password", maka silakan ajukan lupa password melalui menu 'Lupa Kata Sandi?' di laman muka Coretax ya, Kak.
+
+Silakan mengetik "Perubahan Data" pada kolom chat untuk mendapatkan informasi terkait.
+
+2. Lupa Kata Sandi
+Apabila Kakak sudah pernah menggunakan DJP Online sebelumnya, maka untuk mendapatkan akun Coretax Kakak cukup mengklik menu 'Lupa Kata Sandi' di laman muka Coretax ya, Kak. Silakan ikuti petunjuk yang diberikan setelahnya.
+
+3. Daftar Di Sini
+Apabila Kakak belum memiliki NPWP atau NIK yang sudah diaktivasi sebagai NPWP sebelumnya atau Kakak adalah istri atau anak belum dewasa yang belum masuk ke dalam 'Family Tax Unit' Kepala Keluarga manapun namun belum memenuhi persyaratan subjektif dan objektif untuk memperoleh NPWP, maka untuk mendapatkan akun Coretax dapat mengklik 'Daftar Di Sini' di laman muka Coretax. Silakan ikuti petunjuk yang diberikan setelahnya.
+
+Apabila terdapat notifikasi "Data tidak ditemukan" pada saat pengisian NIK atau KK,  silakan pastikan pengisian NIK atau nomor KK sudah sesuai dengan data pada KTP/KK. Apabila masih terkendala, silakan konfirmasi ke Dukcapil untuk memastikan data tersebut ya, Kak
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+EFIN : Informasi EFIN
+LPDO : Informasi terkait Lupa Password DJP Online
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | Are you asking about DJP Online account registration?
+
+If you attempted a password reset but received a notification stating that you are not yet registered, you may need to register your DJP Online account first.
+
+Please follow the DJP Online registration tutorial at:
+ https://s.id/registrasiDJPOnline
+
+If you haven’t received the activation link via email after registration:
+
+- Ensure the email used during registration is correct
+- Check your Inbox, Spam, or Junk folders
+- If the email still hasn’t arrived, check periodically or update your email address
+- For more information on updating your data, type "Data Update" in the chat box.
+
+If you are asking about Coretax account registration, you may proceed via  https://coretaxdjp.pajak.go.id  and choose one of the following options:
+
+1. Aktivasi Akun Wajib Pajak
+This menu is for users who have never used DJP Online, married women whose NPWP is merged with their husband's, or foreign taxpayers without an NPWP that need to have an access to Coretax.
+
+For complete guidance, you can follow the tutorial video below
+ https://www.youtube.com/watch?v=61spGSQnceA
+
+Note: Some type of account activations may require prior verification.
+
+2. Lupa Kata Sandi
+This menu is for users who have previously used DJP Online.
+- If you are an individual taxpayer, please use your NIK
+- If your NIK has been activated as NPWP, you will see masked details (****) for your registered email or phone number
+- If your NIK has not been activated, a notification will appear stating that your NPWP/NIK is not registered
+
+3. Daftar Di Sini
+This menu is for users who do not yet have an NPWP or whose NIK has not been activated as NPWP. In order to get access to Coretax, these users needed to register themselves by clicking the menu 'Daftar di Sini' in Coretax sites.
+
+If you are referring to NPWP registration via Coretax, please type "TIN Registration" in the chat for more information.
+
+If you have further questions, feel free to type your inquiry or select one of the options below:
+
+EFIN: EFIN information
+LPDO: Forgot DJP Online password
+0: Return to general inquiries
+9: End the conversation
+1500200 : Connect to Live Chat Agent (only at Working Hours/Days from 08:00 AM - 04:00 PM, Western Indonesia Time) |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_Coretax_Registrasi Akun.json | 
+Aplikasi Perpajakan_DJPOnline_Login dan Lapor SPT | Aplikasi Perpajakan_DJPOnline_Login dan Lapor SPT | 500000 |  |  |  |  |  | Hai Kak, Apakah bertanya terkait cara login dan menu pelaporan SPT DJPOnline? Berikut petunjuknya ya Kak :
+
+1. Silakan kakak login DJPOnline melalui https://djponline.pajak.go.id dengan masukkan NPWP/NIK dan password, kemudian klik selanjutnya.
+
+2. Setelah itu, Kakak akan diarahkan ke halaman verifikasi. Silakan pilih "melalui email" terdaftar atau "melalui sms ke" nomor HP terdaftar untuk mengirimkan kode verifikasi. dan dikenakan biaya pulsa apabila melalui sms. Kemudian masukkan kode verifikasi yang didapatkan ke kolom yang tersedia lalu klik "Verifikasi".
+
+Apabila ada ketidaksesuaian data email dan/atau nomor HP, silakan hubungi Kring Pajak melalui saluran telp 1500200 atau saluran live chat dengan mengetik "1500200" pada kolom chat di bawah ini. Selain itu, Kakak dapat mengubungi KPP terdaftar untuk melakukan perubahan data email dan nomor HP.
+
+Apabila Kakak belum pernah register akun DJP Online, silakan ketik "registrasi DJP Online" pada kolom chat di bawah. Dan login kembali mulai seperti langkah nomor 1.
+
+3. Kemudian klik "Lapor". Di bawah lapor klik "Pelaporan"
+
+4. Setelah itu silakan pilih pengisian SPT secara elektronik baik secara eform (mengunduh formulir) maupun efiling (mengisi secara langsung di situs web).
+
+5. Jika Kakak memilih eform, silakan klik "eform" dan kemudian klik "buat SPT. Lalu isi pertanyaan  agar dapat diarahkan untuk mendownload formulir eform yang sesuai baik eform SPT Tahunan WP Badan 1771 atau Orang Pribadi 1770 maupun 1770S.
+
+6. untuk dapat membuka eform pdf silakan Kakak download "Adobe Acrobat Reader DC" pada menu Unduh Adobe PDF Reader.
+
+7. Jika Kakak memilih efiling, silakan klik "efiling" dan kemudian klik "buat SPT", Lalu isi pertanyaan  agar dapat diarahkan untuk menggunakan  formulir efiling yang sesuai baik dengan bentuk formulir maupun panduan untuk SPT Tahunan WP Badan 1771 atau Orang Pribadi 1770, 1770SS maupun 1770S.
+
+8. Untuk petunjuk pengisian SPT Tahunan silakan Kakak ketik salah satu kalimat dalam tanda petik dibawah ini pada kolom chat sesuai formulir SPT yang digunakan, yaitu :
+- "cara mengisi SPT 1770 SS"
+- "cara mengisi SPT 1770 S"
+- "cara mengisi SPT 1770"
+- "cara mengisi SPT 1771"
+
+9. Setelah melakukan pengisian lengkap, silakan Kakak kirim SPT Tahunan baik dengan token yang dikirim melalui email apabila menggunakan efiling maupun token untuk formulir e-Form pada dasarnya sudah Kakak peroleh ketika Kakak mengunduh formulir e-Form.
+
+Pelaporan SPT Tahunan melalui DJPOnline hanya dapat dilakukan untuk Tahun Pajak 2024 atau sebelumnya. Mulai Tahun Pajak 2025, sudah menggunakan aplikasi https://coretaxdjp.pajak.go.id ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan atau ketik salah satu pilihan di bawah ini ya, Kak 👇
+pdmnpwp : untuk informasi Pemutakhiran Data Mandiri NIK NPWP
+LPDJP : untuk informasi Lupa Password Coretax
+Lupa EFIN : untuk informasi Lupa Efin
+Token SPT : Untuk informasi Token SPT
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | Are you asking about how to log in and access the SPT reporting menu on DJP Online?
+Here are the steps to guide you:
+
+1. Log in to DJP Online by entering your NPWP or NIK and password, then click "Next."
+
+2. You will be directed to a verification page. Choose to receive the verification code either via your registered email or via SMS to your registered mobile number. Please note that SMS delivery may incur charges. Enter the verification code in the designated field and click "Verify."
+
+If there is a mismatch in your registered email or mobile number, please contact Kring Pajak via telephone at 1500200 or through live chat by typing "1500200" in the chat box. You may also visit your registered Tax Office (KPP) to update your contact information.
+
+If you have not yet registered for a DJP Online account, please type "registrasi DJP Online" in the chat box and follow the registration steps starting from step 1.
+
+3. Once logged in, click the "Lapor" menu, then select "Pelaporan."
+
+4. Choose your preferred method for submitting your SPT electronically—either via e-Form (downloadable form) or e-Filing (direct online submission).
+
+5. If you choose e-Form, click "e-Form" and then "Buat SPT." Answer the guiding questions to be directed to the appropriate form, such as Form 1771 for corporate taxpayers or Forms 1770, 1770S, or 1770SS for individual taxpayers.
+
+6. To open the e-Form PDF, download and install Adobe Acrobat Reader DC from the provided link.
+
+7. If you choose e-Filing, click "e-Filing" and then "Buat SPT." Answer the guiding questions to access the appropriate form and instructions for completing Form 1771 (corporate) or Forms 1770, 1770S, or 1770SS (individual).
+
+8. For detailed instructions on completing your tax return (SPT), you may type into the chatbox these following phrases:
+
+- “How to fill out 1770 SS Tax Return”
+- “How to fill out 1770 S Tax Return”
+- “How to fill out 1770 Tax Return”
+- “How to fill out 1771 Tax Return”
+
+9. After completing the form, submit your SPT. For e-Filing, use the token sent to your registered email. For e-Form, the token is provided when you download the form.
+
+Please note that SPT reporting via DJP Online is only available for Tax Year 2024 and earlier. Starting from Tax Year 2025, reporting must be done through the Coretax application at  https://coretaxdjp.pajak.go.id .
+
+If you have further questions, you may type your inquiry or refer to one of the following topics:
+
+pdmnpwp: Information on NIK-NPWP data updates
+LPDJP: Information on forgotten DJP Online passwords
+Lupa EFIN: Information on forgotten EFIN
+Token SPT: Information on SPT submission tokens
+0: Return to general inquiries
+9: End the conversation
+1500200 : Connect to Live Chat Agent (only at Working Hours/Days from 08:00 AM - 04:00 PM, Western Indonesia Time) |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_Login dan Lapor SPT.json | 
+Aplikasi Perpajakan_DJPOnline_MFA | Aplikasi Perpajakan_DJPOnline_MFA | -1 |  |  | AplikasiPerpajakan_DJPOnline_MFA-followup (lifespan=1) |  |  | Apakah Kakak bertanya tentang MFA (Multi Factor Authentication) saat login DJP Online?
+
+Saat ini, setelah menginput data NIK/NPWP/NITKU dan kata sandi, terdapat tambahan prosedur verifikasi akun yakni dengan menginput kode verifikasi (OTP) dari sistem DJP Online. Hal ini dimaksudkan untuk peningkatan keamanan akun DJP Online.
+
+Penjelasan mengenai metode pengiriman kode verifikasi (OTP) untuk diinput pada aplikasi DJP Online adalah sebagai berikut:
+
+- melalui email terdaftar (kode OTP hanya berlaku 2 jam);
+
+- melalui SMS ke nomor HP terdaftar (kode OTP hanya berlaku 2 jam dan pastikan terdapat pulsa yang cukup);
+
+- melalui aplikasi M-Pajak (kode OTP hanya berlaku 30 menit dan pastikan Kakak sudah mempunyai akun DJP Online yang aktif serta login akun M-Pajak terlebih dahulu); atau
+
+- melalui mobile authenticator (durasi berlakunya kode OTP mengikuti aplikasi autentikator yang terpasang pada perangkat dan sudah terkoneksi dengan DJP Online).
+
+Perihal prosedur yang harus Kakak lakukan agar dapat memperoleh kode verifikasi (OTP) melalui mobile authenticator dapat Kakak pelajari dengan mengetik "MA" pada kolom chat ya, Kak.
+
+Apabila Kakak mengalami kendala tidak terkirimnya kode OTP ke email atau nomor HP yang terdaftar atau aplikasi M-Pajak sampai durasi berlakunya kode OTP habis, Kakak dapat mengetik "1500200" pada kolom chat.
+
+Apabila ternyata nomor HP atau alamat email yang tertera tidak sesuai atau sudah tidak dapat diakses, maka silakan lakukan perubahan data terlebih dahulu. Informasi mengenai perubahan
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | Are you asking about Multi-Factor Authentication (MFA) when logging into DJP Online?
+
+Currently, after entering your NIK/NPWP/NITKU and password, an additional account verification step is required. This involves entering a One-Time Password (OTP) sent by the DJP Online system. This security measure is intended to enhance the protection of your DJP Online account.
+
+The available methods for receiving the OTP code are as follows:
+
+- Via registered email (valid for 2 hours)
+- Via SMS to your registered mobile number (valid for 2 hours; ensure sufficient credit is available)
+- Via the M-Pajak application (valid for 30 minutes; requires an active DJP Online account and login to M-Pajak)
+- Via a mobile authenticator app, such as Google Authenticator, Authy, Microsoft Authenticator, Duo Mobile, or LastPass. The validity period of the OTP depends on the authenticator app used and its connection to DJP Online.
+
+To learn how to set up OTP delivery via a mobile authenticator, you may refer to the official guide by typing "MA" in the chat.
+
+If you are experiencing issues such as not receiving the OTP via email, SMS, or M-Pajak before the code expires, you may contact Kring Pajak by typing "1500200" in the chat or calling 1500200 during business hours.
+
+If your registered email or mobile number is no longer accessible or incorrect, please update your contact information first. You can do this by visiting your local Tax Office (KPP) or contacting Kring Pajak.
+
+If you have further questions, feel free to ask or refer to the following options:
+
+0: Return to general inquiries
+9: End the conversation
+1500200 : Connect to Live Chat Agent (only at Working Hours/Days from 08:00 AM - 04:00 PM, Western Indonesia Time) |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_MFA.json | 
+Aplikasi Perpajakan_DJPOnline_MFA_Authenticator | Aplikasi Perpajakan_DJPOnline_MFA_Authenticator | 500000 |  | AplikasiPerpajakan_DJPOnline_MFA-followup |  |  |  | Apabila Kakak memilih opsi pengiriman kode verifikasi (OTP) melalui mobile authenticator, Kakak dapat mengecek kode verifikasi (OTP) tersebut pada aplikasi autentikator yang sudah Kakak instal pada HP tertentu. Namun, sebelumnya Kakak perlu mengaktivasi autentikator tersebut agar terhubung dengan akun DJP Online untuk tujuan verifikasi.
+
+Berikut ini merupakan petunjuk yang dapat Kakak lakukan agar Kakak dapat menggunakan aplikasi autentikator sebagai metode pengiriman kode verifikasi (OTP):
+
+1. Unduh aplikasi autentikator pada HP, yang akan dihubungkan dengan akun DJP Online (beberapa aplikasi autentikator yang dapat digunakan di antaranya Google Authenticator, Authy, Microsoft Authenticator, Duo Mobile, atau Last Pass, yang dapat Kakak unduh terlebih dahulu pada Google Play Store (untuk HP berbasis Android) atau App Store (untuk HP berbasis iOS);
+
+2. Akses laman DJP Online pada perangkat lainnya selain HP yang sudah terinstal aplikasi autentikator (https://djponline.pajak.go.id);
+
+3. Input data NIK/NPWP/NITKU dan Kata Sandi untuk login akun DJP Online, kemudian pilih Selanjutnya;
+
+4. Pilih metode atau jenis verifikasi melalui Mobile Authenticator;
+
+5. Klik tulisan "di sini" yang berwarna kontras dan terletak di atas tombol opsi Verifikasi;
+
+6. Buka aplikasi autentikator yang sudah Kakak instal sebelumnya pada HP, kemudian pilih opsi Tambah (+);
+
+7. Pindai kode QR yang tertera pada perangkat lainnya yang digunakan untuk mengakses laman DJP Online;
+
+8. Apabila berhasil, pada aplikasi autentikator akan muncul tulisan DJP Online dan NPWP yang sesuai dengan NPWP yang diinput pada laman DJP Online;
+
+9. Cek surel masuk dalam email yang terdaftar pada DJP Online dengan subjek "[DJP Online] Aktivasi Mobile Authenticator". Klik surel masuk tersebut, lalu klik tulisan "AKTIFKAN" yang terdapat di dalamnya.
+
+10. Kembali ke aplikasi autentikator dan perhatikan/klik opsi yang bertuliskan DJP Online dan NPWP yang sudah terhubung akun DJP Online untuk memperoleh kode verifikasi (OTP) DJP Online sebanyak 6 digit;
+
+11. Input kode verifikasi (OTP) yang muncul tersebut pada laman DJP Online, kemudian klik Verifikasi, maka Kakak sudah berhasil login akun DJP Online.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+MFA : Kembali ke informasi awal MFA
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan | If you choose to receive the verification code (OTP) via a mobile authenticator, you can retrieve the code from the authenticator app installed on your mobile device. However, before doing so, you must first activate and link the authenticator app to your DJP Online account for verification purposes.
+Below are the steps to set up and use a mobile authenticator as your OTP delivery method:
+
+1. Download an authenticator app on the mobile device you intend to link with your DJP Online account. Supported apps include Google Authenticator, Authy, Microsoft Authenticator, Duo Mobile, or LastPass Authenticator. These can be downloaded from the Google Play Store (for Android) or App Store (for iOS).
+
+2. Access the DJP Online website on a separate device (not the one with the authenticator app): https://djponline.pajak.go.id
+
+3. Log in using your NIK/NPWP/NITKU and password, then click Next.
+
+4. Select Mobile Authenticator as your verification method.
+
+5. Click the highlighted “here” link located above the verification options.
+
+6. Open the authenticator app on your mobile device and select the Add (+) option.
+
+7. Scan the QR code displayed on the other device where DJP Online is open.
+
+8. If successful, the authenticator app will display “DJP Online” along with the NPWP that matches the one entered on DJP Online.
+
+9. Check your registered email inbox for a message with the subject "[DJP Online] Mobile Authenticator Activation". Open the email and click the "ACTIVATE" button.
+
+10. Return to the authenticator app and locate the entry labeled DJP Online with your NPWP. This will display a 6-digit OTP.
+
+11. Enter the OTP on the DJP Online website and click Verify. You will then be successfully logged in to your DJP Online account.
+
+If you have further questions, feel free to ask. You may also refer to the following options:
+
+MFA: Return to the main information about Multi-Factor Authentication
+0: Return to general inquiries
+9: End the conversation
+1500200 : Connect to Live Chat Agent (only at Working Hours/Days from 08:00 AM - 04:00 PM, Western Indonesia Time) |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_MFA_Authenticator.json | 
+Aplikasi Perpajakan_DJPOnline_MFA_Email | Aplikasi Perpajakan_DJPOnline_MFA_Email | -1 |  | AplikasiPerpajakan_DJPOnline_MFA-followup |  |  |  | Apabila Kakak memilih opsi pengiriman kode verifikasi melalui email, kode tersebut hanya akan terkirim ke email yang terdaftar pada akun DJP Online milik Kakak. Dengan kata lain, saat ini tidak tersedia lagi opsi Lupa Email seperti aplikasi DJP Online versi sebelumnya ketika Kakak terkendala mengakses akun DJP Online.  Sebelum Kakak klik opsi pengiriman kode verifikasi melalui email, Kakak dapat memastikan email terdaftar Kakak yang tertera pada layar perangkat yang Kakak gunakan untuk mengakses DJP Online, walaupun tidak tertampil seluruhnya dengan jelas karena diproteksi dengan tanda asteris (*).
+
+Setelah Kakak mengeklik opsi pengiriman kode verifikasi melalui email, silakan Kakak dapat mengecek kode verifikasi tersebut pada kotak masuk atau kotak spam dari email terdaftar pada akun DJP Online. Perlu diperhatikan bahwa kode verifikasi yang terkirim ini hanya berlaku (valid) selama 2 jam ya, Kak. Saat jangka waktu tersebut terlampaui, Kakak dapat meminta pengiriman ulang kode verifikasi atau memilih metode pengiriman kode verifikasi yang lainnya.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+MFA : Kembali ke informasi awal MFA
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_MFA_Email.json | 
+Aplikasi Perpajakan_DJPOnline_MFA_M-Pajak | Aplikasi Perpajakan_DJPOnline_MFA_M-Pajak | -1 |  | AplikasiPerpajakan_DJPOnline_MFA-followup |  |  |  | Apabila Kakak memilih opsi pengiriman kode verifikasi melalui aplikasi M-Pajak, Kakak dapat mengecek kode verifikasi tersebut pada menu OTP DJP Online dalam aplikasi M-Pajak setelah Kakak melakukan login. Sebelum Kakak klik opsi pengiriman kode verifikasi melalui SMS, Kakak dapat memastikan nomor HP yang terdaftar tersebut yang tertera pada layar perangkat yang Kakak gunakan untuk mengakses DJP Online, walaupun tidak tertampil seluruhnya dengan jelas karena diproteksi dengan tanda asteris (*).
+
+Setelah Kakak mengeklik opsi pengiriman kode verifikasi melalui SMS, silakan Kakak dapat mengecek SMS masuk pada perangkat yang menggunakan nomor HP yang terdaftar pada akun DJP Online. Perlu diperhatikan bahwa kode verifikasi yang terkirim ini hanya berlaku (valid) selama 2 jam ya, Kak. Saat jangka waktu tersebut terlampaui, Kakak dapat meminta pengiriman ulang kode verifikasi atau memilih metode pengiriman kode verifikasi yang lainnya.
+
+Pastikan nomor HP dimaksud mempunyai pulsa dengan jumlah yang cukup karena pengiriman SMS yang berisi kode verifikasi ini memerlukan pulsa sejumlah nominal rupiah tertentu bergantung pada provider operator selular yang Kakak gunakan.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+MFA : Kembali ke informasi awal MFA
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_MFA_M-Pajak.json | 
+Aplikasi Perpajakan_DJPOnline_MFA_SMS | Aplikasi Perpajakan_DJPOnline_MFA_SMS | -1 |  | AplikasiPerpajakan_DJPOnline_MFA-followup |  |  |  | Apabila Kakak memilih opsi pengiriman kode verifikasi melalui SMS, kode tersebut akan terkirim dalam bentuk SMS ke perangkat yang menggunakan nomor HP yang terdaftar pada akun DJP Online milik Kakak. Sebelum Kakak klik opsi pengiriman kode verifikasi melalui SMS, Kakak dapat memastikan nomor HP yang terdaftar tersebut yang tertera pada layar perangkat yang Kakak gunakan untuk mengakses DJP Online, walaupun tidak tertampil seluruhnya dengan jelas karena diproteksi dengan tanda asteris (*).
+
+Setelah Kakak mengeklik opsi pengiriman kode verifikasi melalui SMS, silakan Kakak dapat mengecek SMS masuk pada perangkat yang menggunakan nomor HP yang terdaftar pada akun DJP Online. Perlu diperhatikan bahwa kode verifikasi yang terkirim ini hanya berlaku (valid) selama 2 jam ya, Kak. Saat jangka waktu tersebut terlampaui, Kakak dapat meminta pengiriman ulang kode verifikasi atau memilih metode pengiriman kode verifikasi yang lainnya.
+
+Pastikan nomor HP dimaksud mempunyai pulsa dengan jumlah yang cukup karena pengiriman SMS yang berisi kode verifikasi ini memerlukan pulsa sejumlah nominal rupiah tertentu bergantung pada provider operator selular yang Kakak gunakan.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+MFA : Kembali ke informasi awal MFA
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_MFA_SMS.json | 
+Aplikasi Perpajakan_DJPOnline_Status Kepala Keluarga | Aplikasi Perpajakan_DJPOnline_Status Kepala Keluarga | 500000 |  |  |  |  |  | Kakak bertanya mengenai status "Kepala Keluarga" pada profil akun DJP Online?
+
+Kami informasikan bahwa status "Kepala Keluarga" akan muncul pada profil akun DJP Online Wajib Pajak yang sudah memiliki NPWP yang terpisah, baik dari orang tua ataupun suami.
+
+Apabila Kakak memiliki NPWP sendiri, maka status "Kepala Keluarga" pada profil akun DJP Online tersebut tidak perlu dilakukan perubahan ya, Kak.
+
+Sejak implementasi coretax, setiap perubahan data mengenai keluarga dapat dilakukan melalui aplikasi coretax ya, Kak. Untuk informasi lebih lengkap, silakan ketik "Perubahan Data" di kolom chat.
+
+Jika masih ada pertanyaan, silakan mengetik pertanyaan pada kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_Status Kepala Keluarga.json | 
+Aplikasi Perpajakan_DJPOnline_Tanda Terima SPT | Aplikasi Perpajakan_DJPOnline_Tanda Terima SPT | -1 |  |  |  |  |  | Apakah Kakak bertanya terkait tanda terima SPT Tahunan?
+
+Untuk tanda terima penyelesaian penyampaian/pelaporan SPT Tahunan, silakan Kakak lakukan pengecekan kembali di kotak masuk pada email yang masih terdaftar di DJP Online, DJP Online telah mengirimkan tanda bukti bahwa kita telah melaporkan SPT Tahunan berupa Bukti Penerimaan Elektronik (BPE) ke alamat email tersebut setelah penyampaian SPT Tahunan selesai.
+
+Jika email BPE sudah hilang, silakan lakukan langkah berikut ini :
+1. masuk ke akun DJP Online dengan NPWP/NIK dan password serta capctha yang tertera pada halaman depan DJP Online.
+
+2. Pilih menu lapor, dan klik pada gambar efiling.
+
+3. Pilih arsip SPT, maka akan muncul daftar SPT yang sudah dilaporkan.
+
+4. pada kolom aksi terdapat menu kirim BPE dan lihat BPE.
+
+5. Jika memilih kirim BPE, maka BPE akan terkirim ke email yang masih terdaftar di DJP Online.
+
+6, Jika memilih lihat BPE, maka akan muncul info BPE sama seperti yang terkirim ke email jika Kakak memilih kirim BPE.
+ 
+Apabila Kakak belum mendapatkan bukti tanda terima SPT pada email, pastikan bahwa email yang  saat ini aktif digunakan sudah sesuai dengan yang terdapat pada DJP Online. Namun jika email yang digunakan saat ini berbeda atau Kakak lupa email yang digunakan pada DJPOnline,
+
+Silakan ketik ""LUPA EMAIL"" pada kolom chat untuk cara melihat email terdaftar atau mengubah email terdaftar.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan atau ketik salah satu pilihan di bawah ini ya, Kak 👇
+BPE/BPS : informasi terkait BPE/BPS
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan" |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_Tanda Terima SPT.json | 
+Aplikasi Perpajakan_DJPOnline_Token SPT | Aplikasi Perpajakan_DJPOnline_Token SPT | -1 |  |  |  |  |  | Apakah Kakak bertanya tentang kode verifikasi (token) SPT Tahunan? Kakak dapat memperoleh token pelaporan SPT Tahunan (efilling) saat sebelum melakukan pengiriman SPT Tahunan dengan melakukan konfirmasi "kirim" token pada SPT Tahunan baik yang dikirim melalui sms pada telepon atau melalui email terdaftar. Namun jika terkendala dengan pengiriman tersebut, silakan lakukan hal dibawah ini:
+
+- menghubungi KPP terdaftar untuk meminta token tersebut,
+
+- menghubungi Kring Pajak melalui saluran telepon 1500200,
+
+- mention twitter @Kring_Pajak pada hari dan jam kerja.
+
+- menghubungi agent Live Chat dengan mengetik 1500200 pada kolom chat di bawah ini 👇
+
+Sementara itu, untuk token untuk formulir e-Form pada dasarnya sudah Kakak peroleh ketika Kakak mengunduh formulir e-Form. Silakan Kakak cek di email yang digunakan di DJP Online ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+UNKER: Informasi Unit Kerja (KPP)
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan
+1500200 : Terhubung dengan Live Chat Agent (petugas) |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_DJPOnline_Token SPT.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_e-Bupot Unifikasi | Aplikasi Perpajakan_e-Bupot Unifikasi_e-Bupot Unifikasi | 500000 |  | AplikasiPerpajakan-followup |  |  |  | Informasi lebih lanjut tentang tutorial pelaporan ebupot unifikasi dapat dibaca melalui link/tautan berikut ya, Kak 👇
+
+ https://s.id/ebuni
+
+Untuk mengunduh skema impor ebupot PPh Pasal 23/26, silakan klik link/tautan di bawah ini ya, Kak 👇
+
+ https://s.id/Skema-Impor-Ebupot2326
+
+Jika masih ada pertanyaan, silakan Kakak ketik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+Aplikasi Perpajakan : Kembali ke pilihan sebelumnya
+EBPT : ke informasi Ebupot Unifikasi
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_e-Bupot Unifikasi.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 | -1 |  |  | ImporDownloadeBupot2126-followup (lifespan=2); ImporDownloadeBupot2126-followup-2 (lifespan=2) |  |  | Apakah Kakak bertanya terkait tata cara impor dan download bukti potong pada aplikasi e-Bupot 21/26? silakan ketik angka dibawah ini untuk mengetahui petunjuknya:
+
+1 : Impor data bukti potong
+
+2 : Download data bukti potong
+
+Petunjuk aplikasi e-Bupot 21/26 , silakan Kakak mengunduh buku elektronik pada tautan dibawah ini:
+
+ https://s.id/eBupot21_26  
+
+Saat ini pelaporan PPh Pasal 21 menggunakan aplikasi Coretax yang dapat diakses di alamat:
+
+  https://coretaxdjp.pajak.go.id/   
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+21 TER : informasi tentang PPh 21 TER
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Download | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Download | 500000 |  | ImporDownloadeBupot2126-followup, ImporDownloadeBupot2126-followup-2 | ImporDownloadeBupot2126-followup (lifespan=1) |  |  | Baik Kak, terkait langkah-langkah download  data bukti potong pasal 21/26 adalah sebagai berikut :
+
+- Pilih menu 'Bukti Potong' dan submenu 'Download Bupot' untuk mengunduh data bukti potong yang telah diterbitkan dalam suatu masa pajak.
+
+- Kemudian pada kolom  'Download  Bupot pada SPT Masa PPh 21/26' , terdapat  kolom 'Aksi '.
+
+- dan lalu pada kolom Aksi tersebut terdapat tombol 'Ajukan Ulang Unduh Bukti Potong' , tekan tombol tersebut untuk meminta data ke server DJP.
+
+- Jika berhasil tombol akan berubah menjadi 'Unduh Bukti Potong Pada SPT'.
+
+- Untuk mengunduh, tekan tombol aksi tersebut hingga muncul notifikasi berhasil,Bukti Potong terlah terunduh.
+
+Untuk Informasi Impor Data Bupot secara lengkap bisa  Kakak Lihat pada Petunjuk Aplikasi e-Bupot 21/26 dari halaman 50 s.d 51.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Download.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Impor | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Impor | 500000 |  | ImporDownloadeBupot2126-followup | ImporDownloadeBupot2126_Impor-followup (lifespan=2) |  |  | Baik Kak, terkait langkah-langkah impor data bukti potong pasal 21/26 adalah sebagai berikut :
+
+- Dengan menu impor bukti potong (bupot), Kakak tidak perlu merekam bukti potong secara manual. Sebelum melakukan impor data bupot, Kakak harus mengunduh terlebih dulu template impor excel yang filenya telah disediakan.
+
+- untuk mengunduh template impor excel ini, silakan Kakak ke menu 'Impor Data Bupot', kemudian pilih 'Petunjuk Pengisian' dan tekan tombil disini dari masing-masing pilihan template.
+
+- terdapat dua template format impor excel yaitu baik template bulanan dan final/tidak final, maupun template tahunan. silakan Kakak pilih yang sesuai dan isi sheet tersebut berdasarkan  petunjuk aplikasi e-Bupot 21/26.
+
+- sebelum impor data, pastikan fail impor excel telah terisi lengkap dengan ukuran maksimal sebesar 2 Mb dan maksimal 10 ribu rows.
+
+lebih lanjut untuk tata cara impor data bupot silakan ketik angka ""11"" pada kolom chat ya kak
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Impor.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Impor Tatacara | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Impor Tatacara | 500000 |  | ImporDownloadeBupot2126_Impor-followup | ImporDownloadeBupot2126_Impor_Tatacara-followup (lifespan=2) |  |  | Baik Kak, terkait tata cara impor data bukti potong pasal 21/26 adalah sebagai berikut :
+
+- Aturan penamaan Fail impor excel yang sudah siap adalah diawali dengan 15 digit NPWP.xlsx.
+
+- Kemudian Kakak klik pada menu impor data bupot dan masuk ke menu 'Bukti Potong', lalu ke submenu 'Impor Bupot'.
+
+- lalu dibawah menu Impor Bupot tersebut akan muncul isian Impor Data Bukti Pemotongan/Pemungutan sbb :
+   * Jenis Bukti Potong
+   * Tahun Pajak
+   * Masa Pajak
+   * Pilih FIle Bukti Pemotongan
+   * lalu setelah fail dipilih, klik 'Unggah'
+
+- silakan Kakak lihat status impor  bagian bawah  pada  daftar dokumen yang digunakan untuk monitoring proses impor data. Jika 'Sukses Validasi' maka impor data tersebut telah berhasil diproses oleh sistem.
+
+Apabila status 'Gagal Validasi', silakan Kakak ketik ""12"" pada kolom chat untuk mengetahui informasi lebih lanjut
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Impor Tatacara.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Impor Tatacara Gagal | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Impor Tatacara Gagal | 500000 |  | ImporDownloadeBupot2126_Impor_Tatacara-followup | ImporDownloadeBupot2126-followup (lifespan=1) |  |  | Baik Kak, dalam hal terdapat notifikasi  Status 'Gagal Validasi, berikut adalah petunjuknya :
+
+- Silakan tekan tombol Aksi Lihat (gambar mata) untuk mengetahui penyebabnya.
+
+- Kemudian akan muncul kolom 'Detil Validasi'
+
+- Lakukan pencarian keterangan berdasarkan 'Baris Error', lalu tekan tombol 'Cari'
+
+- Pada menu ini akan muncul tombol 'Unduh Hasil Validasi' untuk mengekspor data error tersebut ke dalam format excel.
+
+- Lakukan pembetulan fail excel bupot Kakak sesuai petunjuk excel data error.
+
+- Setelah diperbaiki, lakukan impor kembali data yang gagal tersebut dengan mengikuti petunjuk semula.
+
+Untuk Informasi Impor Data Bupot secara lengkap bisa  Kakak Lihat pada Petunjuk Aplikasi e-Bupot 21/26 dari halaman 31 s.d 49.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Impor Download eBupot 21 26 Impor Tatacara Gagal.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum | 500000 |  | eBupotUnifikasi-followup | eBupotUnifikasi_KetentuanUmum-followup (lifespan=1) |  |  | Jika Kakak ingin mengetahui perihal ketentuan umum eBupot Unifikasi bisa Kakak dapatkan informasinya dengan mengetik pilihan angka Kakak ketik "nomor" pilihan dibawah ini ya Kak:
+
+1 :  Syarat penggunaan dan kewajiban pemotong/pemungut
+2 :  Saat pembuatan eBupot Unifikasi dalam kondisi tertentu
+3 :  Perlakuan bukti pemotongan/pemungutan unifikasi
+4 :  Dokumen yang dipersamakan dengan bukti pemotongan/bukti pemungutan 
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+EBPT : Kembali ke eBupot Unifikasi
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Dokumen yang dipersamakan | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Dokumen yang dipersamakan | 500000 |  |  |  |  |  | Dokumen yang dipersamakan dengan bukti pemotongan/pemungutan unifikasi merupakan dokumen yang digunakan untuk melakukan pemotongan PPh atas:
+
+- penghasilan berupa bunga deposito/tabungan, diskonto SBI dan jasa giro
+
+- penghasilan berupa diskonto Surat Perbendaharaan Negara dan bunga obligasi berupa surat utang, surat utang negara, dan obligasi daerah yang berjangka waktu lebih dari 12 bulan, termasuk surat utang yang diterbitkan berdasarkan prinsip syariah
+
+- bunga atau diskonto surat berharga jangka pendek yang diperdagangkan di pasar uang
+
+- penghasilan dari transaksi penjualan bukan saham pendiri di bursa efek, penjualan saham milik perusahaan modal ventura tidak di bursa efek dan tambahan PPh atas kepemilikan saham pendiri pada saat penawaran umum perdana
+
+- penghasilan lain yang menggunakan dokumen yang dipersamakan dengan bukti pemotongan/ pemungutan PPh sesuai ketentuan peraturan perundang-undangan di bidang perpajakan
+
+Penggunaan Ebupot Unifikasi melalui DJPOnline hanya dapat dilakukan untuk masa Pajak sampai dengan Desember 2024. Mulai masa Pajak Januari 2025, sudah menggunakan aplikasi https://coretaxdjp.pajak.go.id ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Dokumen yang dipersamakan.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Dokumen yang dipersamakan 2 | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Dokumen yang dipersamakan 2 | 500000 |  | eBupotUnifikasi_KetentuanUmum-followup | eBupotUnifikasi_KetentuanUmum-followup (lifespan=1) |  |  | Dokumen yang dipersamakan dengan bukti pemotongan/pemungutan unifikasi merupakan dokumen yang digunakan untuk melakukan pemotongan PPh atas:
+
+- penghasilan berupa bunga deposito/tabungan, diskonto SBI dan jasa giro
+
+- penghasilan berupa diskonto Surat Perbendaharaan Negara dan bunga obligasi berupa surat utang, surat utang negara, dan obligasi daerah yang berjangka waktu lebih dari 12 bulan, termasuk surat utang yang diterbitkan berdasarkan prinsip syariah
+
+- bunga atau diskonto surat berharga jangka pendek yang diperdagangkan di pasar uang
+
+- penghasilan dari transaksi penjualan bukan saham pendiri di bursa efek, penjualan saham milik perusahaan modal ventura tidak di bursa efek dan tambahan PPh atas kepemilikan saham pendiri pada saat penawaran umum perdana
+
+- penghasilan lain yang menggunakan dokumen yang dipersamakan dengan bukti pemotongan/ pemungutan PPh sesuai ketentuan peraturan perundang-undangan di bidang perpajakan
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Dokumen yang dipersamakan 2.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Perlakuan Bukti Potong | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Perlakuan Bukti Potong | -1 |  |  |  |  |  | Jika Kakak ingin mengetahui bagaimana perlakuan bukti pemotongan/pemungutan unifikasi yang telah dilaporkan dalam SPT Masa PPh Unifikasi apabila terdapat kekeliruan. Berikut yang dapat dilakukan atas bukti pemotongan/pemungutan tersebut ya, Kak:
+
+- Pembetulan, dalam hal terdapat kekeliruan dalam pengisian bukti pemotongan/pemungutan Unifikasi atau terdapat transaksi retur Pembetulan dapat dilakukan atas setiap bagian kecuali; Nomor, Masa Pajak, dan Identitas pihak yang dipotong/dipungut,
+
+- Pembatalan, dalam hal terdapat transaksi yang dibatalkan,
+
+- Penambahan, dalam hal terdapat objek pajak yang belum dilaporkan dalam SPT Masa PPh Unifikasi.
+
+Penggunaan Ebupot Unifikasi melalui DJPOnline hanya dapat dilakukan untuk masa Pajak sampai dengan Desember 2024. Mulai masa Pajak Januari 2025, sudah menggunakan aplikasi https://coretaxdjp.pajak.go.id ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+1 : Kembali ke eBupot Unifikasi Ketentuan Umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Perlakuan Bukti Potong.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Perlakuan Bukti Potong 2 | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Perlakuan Bukti Potong 2 | 500000 |  | eBupotUnifikasi_KetentuanUmum-followup | eBupotUnifikasi-followup (lifespan=1) |  |  | Jika Kakak ingin mengetahui bagaimana perlakuan bukti pemotongan/pemungutan unifikasi yang telah dilaporkan dalam SPT Masa PPh Unifikasi apabila terdapat kekeliruan. Berikut yang dapat dilakukan atas bukti pemotongan/pemungutan tersebut ya, Kak:
+• Pembetulan, dalam hal terdapat kekeliruan dalam pengisian bukti pemotongan/pemungutan Unifikasi atau terdapat transaksi retur Pembetulan dapat dilakukan atas setiap bagian kecuali; Nomor. Masa Pajak, dan Identitas (NPWP/NIK) pihak yang dipotong/dipungut,
+• Pembatalan, dalam hal terdapat transaksi yang dibatalkan seperti pembatalan transaksi dgn NPWP. Atas bukti pemotongan/pemungutan yang dibatalkan, Nomor Bukti Pemotongan/ Pemungutan Unifikasi tidak dapat digunakan kembali.
+• Penambahan, dalam hal terdapat objek pajak yang belum dilaporkan dalam SPT Masa PPh Unifikasi.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+1 : Kembali ke eBupot Unifikasi Ketentuan Umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Perlakuan Bukti Potong 2.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Saat Pembuatan SPT | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Saat Pembuatan SPT | 500000 |  |  |  |  |  | Kakak, untuk melihat penjelasan terkait bukti pemotongan/pemungutan Unifikasi yang tetap dibuat dalam hal dibawah ini ya Kak:
+
+• Jumlah PPh yang dipotong/dipungut Nihil karena ada SKB
+• Transaksi dengan WP yang memiliki Surat Keterangan PP No. 23 Tahun 2018 terkonfirmasi dengan syarat SSP harus tetap dibuat sesuai PP No. 23 Tahun 2018
+• PPh Pasal 26 dipotong berdasarkan ketentuan P3B ditunjukkan dengan SKD WPLN
+• PPh terutang yang ditanggung Pemerintah (PPh DTP)
+• PPh yang dipotong, dipungut dan/atau disetor sendiri diberikan fasilitas PPh
+• Pemotongan/Pemungutan dengan SSP/BPN/sarana administrasi lain yang dipersamakan dengan SSP
+
+Penggunaan Ebupot Unifikasi melalui DJPOnline hanya dapat dilakukan untuk masa Pajak sampai dengan Desember 2024. Mulai masa Pajak Januari 2025, sudah menggunakan aplikasi https://coretaxdjp.pajak.go.id ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+1 : Kembali ke eBupot Unifikasi Ketentuan Umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Saat Pembuatan SPT.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Saat Pembuatan SPT 2 | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Saat Pembuatan SPT 2 | 500000 |  | eBupotUnifikasi_KetentuanUmum-followup | eBupotUnifikasi-followup (lifespan=1) |  |  | Kakak, untuk melihat penjelasan terkait bukti pemotongan/pemungutan Unifikasi yang tetap dibuat dalam hal dibawah ini ya Kak:
+• Jumlah PPh yang dipotong/dipungut Nihil karena ada SKB
+• Transaksi dengan WP yang memiliki Surat Keterangan PP No. 23 Tahun 2018 terkonfirmasi dengan syarat SSP harus tetap dibuat sesuai PP No. 23 Tahun 2018
+• PPh Pasal 26 dipotong berdasarkan ketentuan P3B ditunjukkan dengan SKD WPLN
+• PPh terutang yang ditanggung Pemerintah (PPh DTP)
+• PPh yang dipotong, dipungut dan/atau disetor sendiri diberikan fasilitas PPh
+• Pemotongan/Pemungutan dengan SSP/BPN/sarana administrasi lain yang dipersamakan dengan SSP
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+1 : Kembali ke eBupot Unifikasi Ketentuan Umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Saat Pembuatan SPT 2.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Syarat Kewajiban | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Syarat Kewajiban | 500000 |  |  |  |  |  | Jika Kakak merupakan pemotong/pemungut , dalam menggunakan e-bupot unifikasi perlu memiliki hal-hal dibawah ini ya Kak :
+
+- Memiliki EFIN untuk menggunakan DJP Online,
+
+- Memiliki sertifikat elektronik (SERTEL) untuk menandatangani SPT Masa PPh Unifikasi.
+
+
+Setelah Kakak memiliki EFIN dan SERTEL untuk menggunakan e-bupot unifikasi, berikut ini adalah kewajiban yang perlu diketahui oleh pemotong/pemungut PPh dalam memungut PPh :
+
+- Membuat bukti potong/bukti pungutan unifikasi dan menyerahkannya ke pihak yang dipotong,
+
+- Menyetorkan PPh yang telah dipotong, dipungut dan/atau disetor sendiri,
+
+- Melaporkan bukti potong/bukti pungutan unifikasi menggunakan SPT masa PPh Unifikasi paling lambat.
+
+
+Namun jika Kakak sebagai yang dipungut/dipotong, maka Kakak harus memberikan informasi berupa :
+
+- bagi Wajib Pajak dalam negeri adalah NPWP atau NIK bagi yang tidak memiliki NPWP,
+
+- bagi Wajib Pajak luar negeri adalah TIN (Tax Identification Number) atau SKD/tanda terima SKD bagi WPLN yang akan menerapkan P3B.
+
+Penggunaan Ebupot Unifikasi melalui DJPOnline hanya dapat dilakukan untuk masa Pajak sampai dengan Desember 2024. Mulai masa Pajak Januari 2025, sudah menggunakan aplikasi https://coretaxdjp.pajak.go.id ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+1 : Kembali ke eBupot Unifikasi Ketentuan Umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Syarat Kewajiban.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Syarat Kewajiban 2 | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Syarat Kewajiban 2 | 500000 |  | eBupotUnifikasi_KetentuanUmum-followup | eBupotUnifikasi-followup (lifespan=1) |  |  | Jika Kakak merupakan pemotong/pemungut , dalam menggunakan e-bupot unifikasi perlu memiliki hal-hal dibawah ini ya Kak :
+
+- Memiliki EFIN untuk menggunakan DJP Online,
+
+- Memiliki sertifikat elektronik (SERTEL) untuk menandatangani SPT Masa PPh Unifikasi.
+
+
+Setelah Kakak memiliki EFIN dan SERTEL untuk menggunakan e-bupot unifikasi, berikut ini adalah kewajiban yang perlu diketahui oleh pemotong/pemungut PPh dalam memungut PPh :
+
+- Membuat bukti potong/bukti pungutan unifikasi dan menyerahkannya ke pihak yang dipotong,
+
+- Menyetorkan PPh yang telah dipotong, dipungut dan/atau disetor sendiri,
+
+- Melaporkan bukti potong/bukti pungutan unifikasi menggunakan SPT masa PPh Unifikasi paling lambat.
+
+
+Namun jika Kakak sebagai yang dipungut/dipotong, maka Kakak harus memberikan informasi berupa :
+
+- bagi Wajib Pajak dalam negeri adalah NPWP atau NIK bagi yang tidak memiliki NPWP
+
+- bagi Wajib Pajak luar negeri adalah TIN (Tax Identification Number) atau SKD/tanda terima SKD bagi WPLN yang akan menerapkan P3B.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+0 : Kembali ke pertanyaan umum
+1 : Kembali ke eBupot Unifikasi Ketentuan Umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Ketentuan Umum Syarat Kewajiban 2.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Lawan Transaksi Tanpa NIK NPWP | Aplikasi Perpajakan_e-Bupot Unifikasi_Lawan Transaksi Tanpa NIK NPWP | 500000 |  |  |  |  |  | Bukti potong/pungut tidak dapat dibuat jika rekanan tidak memberikan NPWP/NIK sehingga sebelum melakukan transaksi pastikan bertransaksi dengan rekanan yang mau memberikan NPWP/NIK ya, Kak.
+
+Aplikasi Ebupot Unifikasi tidak mengakomodir pembuatan bukti potong atas subjek pajak yang tidak memberikan NIK.
+
+Jika masih ada pertanyaan, silakan Kakak ketik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Lawan Transaksi Tanpa NIK NPWP.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Pembetulan | Aplikasi Perpajakan_e-Bupot Unifikasi_Pembetulan | -1 |  |  |  |  |  | Kak, ketentuan pembetulan dibawah ini dapat menjadi pedoman Kakak dalam melakukan pembetulan SPT Masa PPh Unifikasi ya, Kak:
+
+- Dapat dilakukan untuk 1 atau beberapa jenis PPh,
+
+- Memberi tanda pada tempat yang disediakan dalam SPT Masa PPh Unifikasi,
+
+- Belum dilakukan pemeriksaan atau pemeriksaan bukti permulaan secara terbuka terhadap jenis pajak dan Masa Pajak yang bersangkutan,
+
+- Bentuk SPT Masa PPh Unifikasi yang dibetulkan mengikuti bentuk semula (sebelum dibetulkan).
+
+Perlu Kakak ketahui juga bahwasanya Pembetulan SPT Masa PPh Unifikasi mengakibatkan:
+
+- Pajak kurang disetor sehingga Pemotong/Pemungut PPh melunasi pajak yang kurang disetor tersebut sebelum menyampaikan pembetulan.
+
+- Pajak lebih disetor sehingga Pemotong/Pemungut PPh dapat mengajukan permohonan pengembalian atas kelebihan pembayaran pajak yang tidak seharusnya terutang atau mengajukan Pemindahbukuan (Pbk).
+
+Penggunaan Ebupot Unifikasi melalui DJPOnline hanya dapat dilakukan untuk masa Pajak sampai dengan Desember 2024. Mulai masa Pajak Januari 2025, sudah menggunakan aplikasi https://coretaxdjp.pajak.go.id ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+EBPT : Kembali ke eBupot Unifikasi
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Pembetulan.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Pembetulan 2 | Aplikasi Perpajakan_e-Bupot Unifikasi_Pembetulan 2 | 500000 |  | eBupotUnifikasi-followup | eBupotUnifikasi-followup (lifespan=1) |  |  | Kak, ketentuan pembetulan dibawah ini dapat menjadi pedoman Kakak dalam melakukan pembetulan SPT Masa PPh Unifikasi ya, Kak:
+
+- Dapat dilakukan untuk 1 atau beberapa jenis PPh,
+
+- Memberi tanda pada tempat yang disediakan dalam SPT Masa PPh Unifikasi,
+
+- Belum dilakukan pemeriksaan atau pemeriksaan bukti permulaan secara terbuka terhadap jenis pajak dan Masa Pajak yang bersangkutan,
+
+- Bentuk SPT Masa PPh Unifikasi yang dibetulkan mengikuti bentuk semula (sebelum dibetulkan).
+
+Perlu Kakak ketahui juga bahwasanya Pembetulan SPT Masa PPh Unifikasi mengakibatkan:
+
+- Pajak kurang disetor sehingga Pemotong/Pemungut PPh melunasi pajak yang kurang disetor tersebut sebelum menyampaikan pembetulan.
+
+- Pajak lebih disetor sehingga Pemotong/Pemungut PPh dapat mengajukan permohonan pengembalian atas kelebihan pembayaran pajak yang tidak seharusnya terutang atau mengajukan Pemindahbukuan (Pbk).
+
+Penggunaan Ebupot Unifikasi melalui DJPOnline hanya dapat dilakukan untuk masa Pajak sampai dengan Desember 2024. Mulai masa Pajak Januari 2025, sudah menggunakan aplikasi https://coretaxdjp.pajak.go.id ya, Kak.
+
+Jika masih ada pertanyaan, silakan ketik pertanyaan Kakak melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya, Kak 👇
+EBPT : Kembali ke e-Bupot Unifikasi
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Pembetulan 2.json | 
+Aplikasi Perpajakan_e-Bupot Unifikasi_Step By Step | Aplikasi Perpajakan_e-Bupot Unifikasi_Step By Step | 500000 |  |  | Coretax_PelaporanSPT_Bupot-followup (lifespan=1) |  |  | Dengan diluncurkannya aplikasi portal wajib pajak (coretax), maka sejak 1 Januari 2025 pembuatan bukti potong unifikasi dilakukan melalui aplikasi portal wajib pajak.
+
+Untuk tutorial terkait bukti potong unifikasi dalam aplikasi coretax, silakan ketik salah satu frasa berikut di kolom chat ya, Kak
+
+- "Tata Cara Pembuatan Bukti Potong Unifikasi via coretax"
+
+- "Tata Cara Penggantian atau Pembatalan Bukti Potong Unifikasi via coretax"
+
+- "Tata Cara Pembuatan Bukti Potong Unifikasi Instansi Pemerintah via coretax"
+
+Di bawah ini adalah informasi langkah-langkah yang dapat Kakak ikuti untuk menjadi pedoman dalam penggunaan e-Bupot Unifikasi (DJP Online). Silakan Kakak klik link di bawah untuk membaca petunjuknya ya Kak:
+
+ https://s.id/LangkahLangkah-Ebuni
+
+Jika Kakak ingin melihat tutorial penggunaan eBupot Unifikasi (DJP Online), silakan Kakak kunjungi tutorial di bawah ini dengan mengeklik link berikut ya, Kak:
+
+ https://s.id/ebuni 
+
+Untuk mengunduh skema impor ebupot PPh Pasal 23/26, silakan klik link/tautan di bawah ini ya, Kak 👇
+
+ https://s.id/Skema-Impor-Ebupot2326
+
+Penggunaan Ebupot Unifikasi melalui DJPOnline hanya dapat dilakukan untuk masa Pajak sampai dengan Desember 2024. Mulai masa Pajak Januari 2025, sudah menggunakan aplikasi Coretax ya, Kak.
+
+Jika masih ada pertanyaan, silakan Kakak ketik pertanyaan melalui kolom chat atau Kakak juga dapat mengetik salah satu pilihan di bawah ini ya 👇
+EBPT : kembali ke e-Bupot Unifikasi
+0 : Kembali ke pertanyaan umum
+9 : Akhiri percakapan |  |  |  | False |  |  | True | False | Dialogflow JSON | Aplikasi Perpajakan_e-Bupot Unifikasi_Step By Step.json | 
+... (1843 baris lagi)
