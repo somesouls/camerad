@@ -201,18 +201,12 @@ async def awe_kelola_page(request: Request):
 
 @app.get("/awe/penilaian")
 async def awe_penilaian_page(request: Request):
-    return render_page(request, "placeholder.html", "awe_penilaian", extra={
-        "page_title": "Penilaian QA (Assessor)",
-        "page_desc": "Filter percakapan agen lalu nilai atribut secara manual lewat formulir di dalam AWE. Segera dibangun pada tahap berikutnya.",
-    })
+    return render_page(request, "awe_penilaian.html", "awe_penilaian")
 
 
 @app.get("/awe/deflection-gap")
 async def awe_deflection_gap_page(request: Request):
-    return render_page(request, "placeholder.html", "awe_deflgap", extra={
-        "page_title": "Deflection Gap AWE",
-        "page_desc": "Pencocokan kemiripan topik/teks (tanpa ID) untuk menemukan pertanyaan yang belum tertangani; output di halaman sendiri. Segera dibangun pada tahap berikutnya.",
-    })
+    return RedirectResponse("/awe/coverage", status_code=302)
 
 
 @app.post("/api/login")
@@ -4047,6 +4041,9 @@ async def healthz():
 # =============================================================
 # Studio Dokumen (Epik C) — daftarkan route dari modul terpisah
 # =============================================================
+import awe_assess
+awe_assess.register(app)
+
 import studio_routes
 studio_routes.register(
     app,
