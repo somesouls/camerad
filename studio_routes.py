@@ -25,6 +25,15 @@ MAP_CHUNK_LIMIT = 14                  # maksimum potongan yang diproses tahap ma
 def register(app, *, base_dir, render_page, llm_client, kctx, xlsx_mime):
     STUDIO_DIR = os.path.join(base_dir, "_studio")
 
+    # ---- Submenu Analitik AWE (Avaya): dipasang di sini agar TIDAK perlu
+    #      menyentuh web_app.py (file besar). Menyediakan 5 halaman + API. ----
+    try:
+        import awe_analytics
+        awe_analytics.register(app, render_page=render_page)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+
     # ---------- helpers ----------
     def _user(request):
         u = getattr(request.state, "user", None)
