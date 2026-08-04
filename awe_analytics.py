@@ -266,4 +266,16 @@ def register(app, *, render_page):
         except Exception as ex:
             return JSONResponse({"ok": False, "error": str(ex)}, status_code=500)
 
-    app.add_api_route(
+    app.add_api_route("/api/awe/analytics", api_awe_analytics, methods=["GET"])
+
+    # Pasang modul Penilaian QA (Assessor): API transkrip percakapan.
+    # Dilakukan di sini agar tidak perlu menyentuh web_app.py maupun
+    # studio_routes.py. Halaman /awe/penilaian tetap dirender web_app.py
+    # (placeholder.html -> awe_penilaian.html) dan sudah ter-gate ke area
+    # "assess" oleh middleware.
+    try:
+        import awe_assess
+        awe_assess.register(app)
+    except Exception:
+        import traceback
+        traceback.print_exc()
