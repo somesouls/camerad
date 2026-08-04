@@ -261,7 +261,7 @@ def score_softskill(transkrip, cust_name=""):
 
     Returns dict:
       salam_pembuka, menanyakan_nama, menyapa_customer, menawarkan_bantuan,
-      hold, salam_penutup (semua bool); lengkap (bool — semua wajib lolos);
+      hold, salam_penutup (semua bool); lengkap (bool -- semua wajib lolos);
       is_poro (bool); jenis_layanan (str|None).
     Kembalikan None bila tidak ada pesan agent sama sekali.
     """
@@ -660,9 +660,15 @@ def get_transcript(conn, sid, run_id=None):
     return None
 
 
-def list_for_assess(conn, range_="7d", start="", end="", agent="", poro="",
+def list_for_assess(conn, range_="all", start="", end="", agent="", poro="",
                     jenis="", ss_lengkap="", ss_attrs=None, limit=200):
-    """Query percakapan untuk Penilaian QA dengan filter softskill."""
+    """Query percakapan untuk Penilaian QA dengan filter softskill.
+
+    Default range_='all' (mengikuti assessor.js yang tidak memfilter tanggal,
+    hanya mengambil N percakapan terbaru). Perbandingan tanggal memakai
+    substr(tanggal,1,10) agar baris dengan komponen jam tidak ter-eksklusi
+    pada hari terakhir rentang.
+    """
     import datetime as _dtt
     today = _dtt.date.today()
     if range_ == "today":
@@ -691,9 +697,9 @@ def list_for_assess(conn, range_="7d", start="", end="", agent="", poro="",
            "FROM awe_conversations WHERE 1=1")
     params = []
     if d_from:
-        sql += " AND tanggal>=?"; params.append(d_from)
+        sql += " AND substr(tanggal,1,10)>=?"; params.append(d_from)
     if d_to:
-        sql += " AND tanggal<=?"; params.append(d_to)
+        sql += " AND substr(tanggal,1,10)<=?"; params.append(d_to)
     if agent:
         sql += " AND agent_name LIKE ?"; params.append("%" + agent + "%")
     if poro == "ya":
@@ -927,9 +933,9 @@ if __name__ == "__main__":
     dash = {"meta": {"date_min": "2026-07-01", "date_max": "2026-07-31",
                       "total_conv": 2, "total_customers": 2, "engine": "mpnet"},
             "conversations": [
-                {"sid": "A1", "tanggal": "2026-07-02", "customer": "Budi Santoso",
+                {"sid": "A1", "tanggal": "2026-07-02 09:15:00", "customer": "Budi Santoso",
                  "mapped_intent": "Lapor SPT", "coverage_band": "Tinggi", "sentiment": "positif"},
-                {"sid": "A2", "tanggal": "2026-07-05", "customer": "cust2",
+                {"sid": "A2", "tanggal": "2026-07-05 14:00:00", "customer": "cust2",
                  "mapped_intent": "EFIN", "coverage_band": "Rendah", "sentiment": "negatif"},
             ]}
     records = [{
@@ -953,11 +959,17 @@ if __name__ == "__main__":
     assert tx["softskill"]["salam_penutup"] == 1, tx["softskill"]
     # jenis layanan
     assert tx["jenis_layanan"] == "Lupa EFIN", tx["jenis_layanan"]
-    # list_for_assess
+    # list_for_assess (default all)
     la = list_for_assess(c, range_="all")
     assert la["total"] == 2, la["total"]
     la2 = list_for_assess(c, range_="all", poro="tidak")
     assert la2["total"] >= 0
+    # REGRESI: rentang custom hari-akhir tepat harus tetap menangkap baris
+    # ber-timestamp (perbaikan substr(tanggal,1,10)).
+    la3 = list_for_assess(c, range_="custom", start="2026-07-02", end="2026-07-02")
+    assert la3["total"] == 1, ("substr date fix", la3["total"])
+    la4 = list_for_assess(c, range_="custom", start="2026-07-01", end="2026-07-31")
+    assert la4["total"] == 2, la4["total"]
     assert get_transcript(c, "NOPE") is None
     r2 = save_run(c, dash, records=[{"sid": "A1"}], n_files=1)
     assert r2["new"] is False and r2["id"] == r["id"], r2
