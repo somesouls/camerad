@@ -266,4 +266,4 @@ def register(app, *, render_page):
         except Exception as ex:
             return JSONResponse({"ok": False, "error": str(ex)}, status_code=500)
 
-    app.add_api_route("/api/awe/analytics", api_awe_analytics, methods=["GET"])
+    app.add_api_route(

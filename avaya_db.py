@@ -132,6 +132,7 @@ def init_db(conn):
     _ensure_columns(cur, "awe_conversations", [
         ("topik", "topik TEXT"),
         ("deflection_gap", "deflection_gap INTEGER"),
+        ("transkrip_json", "transkrip_json TEXT"),
     ])
     conn.commit()
     return conn
@@ -160,6 +161,28 @@ def _gap_flag(c):
     if v is None:
         return None
     return 1 if str(v).strip().lower() in ("1", "true", "ya", "yes", "y") else 0
+
+
+def _extract_transkrip(obj):
+    """Ambil daftar {role,text} dari sebuah dict (conv / record / payload mentah).
+    Mendukung kunci 'transkrip' atau 'transcript'. Kembalikan list minimal
+    [{"role","text"}] atau None bila tak ada isi."""
+    if not isinstance(obj, dict):
+        return None
+    t = obj.get("transkrip")
+    if t in (None, ""):
+        t = obj.get("transcript")
+    if not isinstance(t, list) or not t:
+        return None
+    out = []
+    for m in t:
+        if isinstance(m, dict):
+            role = str(_g(m, "role", "speaker", "peran", "from", default="")).strip()
+            text = _g(m, "text", "message", "isi", "pesan", "content", default="")
+            out.append({"role": role, "text": str(text)})
+        elif isinstance(m, str) and m.strip():
+            out.append({"role": "", "text": m})
+    return out or None
 
 
 def _make_run_id(dashboard, records):
@@ -289,13 +312,47 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
     )
     # ledakkan percakapan
     cur.execute("DELETE FROM awe_conversations WHERE run_id=?", (run_id,))
+
+    # ---- Transkrip per-sid (untuk Penilaian QA / Assessor) -----------------
+    # Transkrip TIDAK ada di dashboard["conversations"] (hanya metadata). Saat
+    # PROSES, kita rakit transkrip dari records mentah lalu lengkapi dari
+    # awe_staging.payload_json (data mentah hasil TARIK yang masih ada saat ini),
+    # kemudian simpan permanen di kolom transkrip_json agar assessor tetap bisa
+    # membaca percakapan meski staging sudah dibersihkan.
+    tx_by_sid = {}
+    for rec in records:
+        if not isinstance(rec, dict):
+            continue
+        rsid = str(_g(rec, "sid", "Sid", default="")).strip()
+        if not rsid or rsid in tx_by_sid:
+            continue
+        rtx = _extract_transkrip(rec)
+        if rtx:
+            tx_by_sid[rsid] = rtx
+    need = [str(_g(c, "sid", "Sid", default="")).strip() for c in convs if isinstance(c, dict)]
+    need = [s for s in need if s and s not in tx_by_sid]
+    for i in range(0, len(need), 400):
+        chunk = need[i:i + 400]
+        qs = ",".join("?" for _ in chunk)
+        for sr in cur.execute(
+            "SELECT sid, payload_json FROM awe_staging WHERE sid IN (%s)" % qs, chunk
+        ).fetchall():
+            try:
+                stx = _extract_transkrip(_json.loads(sr["payload_json"]))
+            except Exception:
+                stx = None
+            if stx:
+                tx_by_sid[str(sr["sid"])] = stx
+
     rows = []
     for c in convs:
         if not isinstance(c, dict):
             continue
+        csid = str(_g(c, "sid", "Sid", default=""))
+        ctx = tx_by_sid.get(csid.strip()) or _extract_transkrip(c)
         rows.append((
             run_id,
-            str(_g(c, "sid", "Sid", default="")),
+            csid,
             str(_g(c, "tanggal", "date", "start", default="")),
             str(_g(c, "customer", "pelanggan", default="")),
             str(_g(c, "agent_name", "agent", "agentName", default="")),
@@ -310,14 +367,15 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
             str(_g(c, "emotion", "emosi", default="")),
             (str(_g(c, "topik", "topic", default="")) or None),
             _gap_flag(c),
+            (_json.dumps(ctx, ensure_ascii=False) if ctx else None),
         ))
     if rows:
         cur.executemany(
             """INSERT OR REPLACE INTO awe_conversations
                  (run_id,sid,tanggal,customer,agent_name,agent_id,durasi,behavior,
                   is_returning,mapped_intent,coverage_band,case_label,sentiment,emotion,
-                  topik,deflection_gap)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  topik,deflection_gap,transkrip_json)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
     # tandai cakupan hari (agar analis tak perlu tarik ulang tanggal yang sudah ada)
@@ -361,6 +419,56 @@ def get_run(conn, run_id, with_records=False):
     if with_records:
         out["records"] = _json.loads(d["records_json"] or "[]")
     return out
+
+
+def get_transcript(conn, sid, run_id=None):
+    """Baca transkrip satu percakapan (sid) untuk Penilaian QA.
+
+    Prioritas: kolom permanen awe_conversations.transkrip_json. Fallback:
+    awe_staging.payload_json (bila data mentah masih ada). Kembalikan dict
+    {sid, run_id, source, transkrip:[{role,text}]} atau None bila tak ditemukan.
+    """
+    sid = str(sid or "").strip()
+    if not sid:
+        return None
+    cur = conn.cursor()
+    row = None
+    if run_id:
+        row = cur.execute(
+            "SELECT run_id, sid, transkrip_json FROM awe_conversations "
+            "WHERE run_id=? AND sid=?", (run_id, sid),
+        ).fetchone()
+    if row is None:
+        row = cur.execute(
+            "SELECT run_id, sid, transkrip_json FROM awe_conversations "
+            "WHERE sid=? AND transkrip_json IS NOT NULL "
+            "ORDER BY rowid DESC LIMIT 1", (sid,),
+        ).fetchone()
+    if row is None:
+        row = cur.execute(
+            "SELECT run_id, sid, transkrip_json FROM awe_conversations "
+            "WHERE sid=? ORDER BY rowid DESC LIMIT 1", (sid,),
+        ).fetchone()
+    if row is not None and row["transkrip_json"]:
+        try:
+            tx = _json.loads(row["transkrip_json"])
+        except Exception:
+            tx = None
+        if tx:
+            return {"sid": sid, "run_id": row["run_id"], "source": "database",
+                    "transkrip": tx}
+    rs = cur.execute(
+        "SELECT payload_json FROM awe_staging WHERE sid=?", (sid,)
+    ).fetchone()
+    if rs is not None:
+        try:
+            tx = _extract_transkrip(_json.loads(rs["payload_json"]))
+        except Exception:
+            tx = None
+        if tx:
+            return {"sid": sid, "run_id": (run_id or ""), "source": "staging",
+                    "transkrip": tx}
+    return None
 
 
 def delete_run(conn, run_id):
@@ -576,8 +684,14 @@ if __name__ == "__main__":
                  "mapped_intent": "EFIN", "coverage_band": "Rendah",
                  "sentiment": "negatif"},
             ]}
-    r = save_run(c, dash, records=[{"sid": "A1"}], n_files=1, source="upload", build="test")
+    r = save_run(c, dash, records=[{"sid": "A1", "transkrip": [
+        {"role": "customer", "text": "halo"},
+        {"role": "agent", "text": "ada yang bisa dibantu?"}]}],
+        n_files=1, source="upload", build="test")
     assert r["new"] is True and r["total_conv"] == 2, r
+    tx = get_transcript(c, "A1")
+    assert tx and tx["source"] == "database" and len(tx["transkrip"]) == 2, tx
+    assert get_transcript(c, "NOPE") is None
     # simpan lagi -> idempoten (bukan baru)
     r2 = save_run(c, dash, records=[{"sid": "A1"}], n_files=1)
     assert r2["new"] is False and r2["id"] == r["id"], r2
