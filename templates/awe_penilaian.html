@@ -1,56 +1,71 @@
+{% if active_page == 'awe_penilaian' %}
 <style>
-  .qa-wrap{max-width:1180px;margin:0 auto;padding:22px 26px 70px;}
-  .qa-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
-  .qa-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
-  .qa-sub{color:var(--text-muted,#8a8f98);font-size:12.5px;margin-top:4px;}
-  .qa-seg{display:flex;background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:12px;overflow:hidden;}
-  .qa-seg button{border:none;background:transparent;color:var(--text-muted,#8a8f98);padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;}
-  .qa-seg button.active{background:var(--accent-glow,rgba(90,120,255,.16));color:var(--accent,#5a78ff);}
-  .qa-cust{display:none;gap:6px;align-items:center;margin-top:8px;}
-  .qa-cust.show{display:flex;}
-  .qa-filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center;}
-  .qa-filters select,.qa-filters input{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:10px;color:var(--text-main,#e8e9ec);padding:7px 9px;font-size:12px;}
-  .qa-count{color:var(--text-muted,#8a8f98);font-size:12px;margin-left:auto;}
-  .qa-btn{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:10px;padding:8px 13px;font-weight:600;cursor:pointer;font-size:12px;}
-  .qa-card{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:14px;padding:6px 4px;}
-  table.qa-tbl{width:100%;border-collapse:collapse;font-size:12px;}
-  table.qa-tbl th,table.qa-tbl td{padding:8px 9px;border-bottom:1px solid var(--panel-border,#2a2b30);text-align:left;white-space:nowrap;}
-  table.qa-tbl th{color:var(--text-muted,#8a8f98);font-weight:600;position:sticky;top:0;background:var(--panel-bg,#1b1c1f);}
-  .qa-tbl-wrap{max-height:620px;overflow:auto;}
-  .qa-pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;}
-  .qa-pill.gap{background:rgba(240,90,90,.16);color:#f2726f;}
-  .qa-pill.pos{background:rgba(70,190,120,.16);color:#46be78;}
-  .qa-pill.neg{background:rgba(240,90,90,.16);color:#f2726f;}
-  .qa-pill.net{background:rgba(140,150,170,.16);color:#9aa1af;}
-  .qa-link{color:var(--accent,#5a78ff);cursor:pointer;font-weight:700;}
-  .qa-muted{color:var(--text-muted,#8a8f98);}
-  .qa-loading{color:var(--text-muted,#8a8f98);padding:34px;text-align:center;}
-  .qa-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:900;padding:20px;}
-  .qa-ov.show{display:flex;}
-  .qa-modal{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:16px;width:100%;max-width:720px;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;}
-  .qa-modal header{padding:14px 18px;border-bottom:1px solid var(--panel-border,#2a2b30);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
-  .qa-modal header h3{margin:0;font-size:15px;font-weight:800;}
-  .qa-modal .meta{font-size:11.5px;color:var(--text-muted,#8a8f98);margin-top:3px;}
-  .qa-x{border:none;background:transparent;color:var(--text-muted,#8a8f98);font-size:20px;cursor:pointer;line-height:1;}
-  .qa-body{padding:16px 18px;overflow:auto;}
-  .qa-msg{display:flex;margin:8px 0;}
-  .qa-msg .bub{max-width:78%;padding:9px 12px;border-radius:14px;font-size:12.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
-  .qa-msg .who{font-size:10.5px;font-weight:700;margin-bottom:3px;opacity:.75;}
-  .qa-msg.cust{justify-content:flex-start;}
-  .qa-msg.cust .bub{background:var(--panel-border,#2a2b30);color:var(--text-main,#e8e9ec);border-bottom-left-radius:4px;}
-  .qa-msg.agent{justify-content:flex-end;}
-  .qa-msg.agent .bub{background:var(--accent,#5a78ff);color:#fff;border-bottom-right-radius:4px;}
-  .qa-msg.other{justify-content:center;}
-  .qa-msg.other .bub{background:transparent;border:1px dashed var(--panel-border,#2a2b30);color:var(--text-muted,#8a8f98);font-size:11.5px;}
+/* ===== Penilaian QA ===== */
+.pq-wrap{max-width:1260px;margin:0 auto;padding:22px 26px 60px;}
+.pq-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;}
+.pq-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+.pq-sub{color:var(--text-muted,#8a8f98);font-size:12.5px;margin-top:4px;}
+.pq-toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.seg{display:flex;background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:12px;overflow:hidden;}
+.seg button{border:none;background:transparent;color:var(--text-muted,#8a8f98);padding:7px 11px;font-size:12px;font-weight:600;cursor:pointer;}
+.seg button.active{background:var(--accent-glow,rgba(90,120,255,.16));color:var(--accent,#5a78ff);}
+.cust-range{display:none;gap:6px;align-items:center;}
+.cust-range.show{display:flex;}
+.cust-range input{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:10px;color:var(--text-main,#e8e9ec);padding:6px 8px;font-size:12px;}
+.cust-range button,.btn-load{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:10px;padding:7px 13px;font-weight:600;cursor:pointer;font-size:12px;}
+.btn-load:disabled{opacity:.5;cursor:default;}
+/* Filter panel */
+.filter-panel{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:14px;padding:14px 16px;margin-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;}
+.fld{display:flex;flex-direction:column;gap:4px;}
+.fld label{font-size:11px;font-weight:600;color:var(--text-muted,#8a8f98);}
+.fld select,.fld input{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:8px;color:var(--text-main,#e8e9ec);padding:6px 9px;font-size:12px;min-width:120px;}
+.fld input{min-width:160px;}
+.ss-grid{display:flex;flex-wrap:wrap;gap:8px;}
+.ss-chip{display:flex;flex-direction:column;gap:3px;align-items:center;}
+.ss-chip span{font-size:10px;color:var(--text-muted,#8a8f98);font-weight:600;text-align:center;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ss-chip select{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:7px;color:var(--text-main,#e8e9ec);padding:4px 6px;font-size:11px;}
+/* Tabel */
+.card{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:14px;padding:15px 17px;margin-bottom:14px;}
+.card h3{margin:0 0 12px;font-size:13.5px;font-weight:700;}
+.tbl-wrap{max-height:65vh;overflow:auto;}
+table.tbl{width:100%;border-collapse:collapse;font-size:11.5px;}
+table.tbl th,table.tbl td{padding:7px 8px;border-bottom:1px solid var(--panel-border,#2a2b30);text-align:left;white-space:nowrap;}
+table.tbl th{color:var(--text-muted,#8a8f98);font-weight:600;position:sticky;top:0;background:var(--panel-bg,#1b1c1f);z-index:2;}
+.badge{display:inline-block;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700;}
+.badge-ok{background:rgba(12,135,75,.18);color:#0c874b;}
+.badge-x{background:rgba(220,53,69,.18);color:#dc3545;}
+.badge-poro{background:rgba(255,152,0,.18);color:#ff9800;}
+.badge-null{background:var(--panel-border,#2a2b30);color:var(--text-muted,#8a8f98);}
+.btn-lihat{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;}
+.btn-lihat:hover{opacity:.85;}
+.muted{color:var(--text-muted,#8a8f98);}
+.loading{color:var(--text-muted,#8a8f98);padding:34px;text-align:center;}
+/* Modal Transkrip */
+#pqModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);}
+#pqModal.open{display:flex;align-items:center;justify-content:center;}
+#pqBox{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:16px;width:min(720px,96vw);max-height:88vh;display:flex;flex-direction:column;overflow:hidden;}
+#pqHead{padding:13px 18px;border-bottom:1px solid var(--panel-border,#2a2b30);display:flex;justify-content:space-between;align-items:center;gap:10px;}
+#pqHead p{margin:0;font-weight:700;font-size:14px;}
+#pqClose{background:transparent;border:none;color:var(--text-muted,#8a8f98);font-size:22px;cursor:pointer;line-height:1;}
+#pqBodyInner{padding:12px 18px;overflow-y:auto;flex:1;}
+.tx-bubble{margin-bottom:9px;}
+.tx-role{font-size:10.5px;font-weight:700;margin-bottom:2px;}
+.tx-text{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:8px;padding:7px 11px;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}
+.role-agent{color:var(--accent,#5a78ff);}
+.role-customer{color:#0c874b;}
+.role-bot{color:#888;}
+#pqSS{padding:10px 18px 12px;border-top:1px solid var(--panel-border,#2a2b30);font-size:11.5px;}
+#pqSS .ss-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;}
 </style>
-<div class="qa-wrap" id="qaRoot">
-  <div class="qa-head">
+
+<div class="pq-wrap">
+  <div class="pq-head">
     <div>
-      <h1 class="qa-title">Penilaian QA Agen</h1>
-      <div class="qa-sub" id="qaRange">Memuat…</div>
+      <h1 class="pq-title">📋 Penilaian QA Agen</h1>
+      <div class="pq-sub" id="pqSub">Filter percakapan dan lihat hasil auto-skor softskill.</div>
     </div>
-    <div>
-      <div class="qa-seg" id="qaSeg">
+    <div class="pq-toolbar">
+      <div class="seg" id="pqSeg">
         <button data-r="today">Hari ini</button>
         <button data-r="yesterday">Kemarin</button>
         <button data-r="7d" class="active">7 hari</button>
@@ -59,158 +74,302 @@
         <button data-r="all">Semua</button>
         <button data-r="custom">Kustom</button>
       </div>
-      <div class="qa-cust" id="qaCust">
-        <input type="date" id="qaStart"><span class="qa-muted">s/d</span><input type="date" id="qaEnd">
-        <button class="qa-btn" id="qaApply">Terapkan</button>
+      <div class="cust-range" id="pqCust">
+        <input type="date" id="pqStart"><span class="muted">s/d</span><input type="date" id="pqEnd">
+        <button id="pqApply">Terapkan</button>
       </div>
     </div>
   </div>
-  <div class="qa-filters" id="qaFilters">
-    <input type="text" id="fText" placeholder="Cari customer / agent / topik…" style="min-width:200px;">
-    <select id="fAgent"><option value="">Semua agent</option></select>
-    <select id="fSent"><option value="">Semua sentimen</option><option>Positif</option><option>Netral</option><option>Negatif</option></select>
-    <select id="fCov"><option value="">Semua coverage</option></select>
-    <select id="fCase"><option value="">Semua kasus</option></select>
-    <select id="fGap"><option value="">Gap: semua</option><option value="gap">Ada gap</option><option value="nogap">Tanpa gap</option></select>
-    <select id="fRet"><option value="">Semua pelanggan</option><option value="ret">Returning</option><option value="new">Baru</option></select>
-    <span class="qa-count" id="qaCount"></span>
+
+  <!-- Filter Panel -->
+  <div class="filter-panel">
+    <div class="fld">
+      <label>Agent</label>
+      <select id="fAgent"><option value="">Semua agent</option></select>
+    </div>
+    <div class="fld">
+      <label>PORO</label>
+      <select id="fPoro">
+        <option value="">Semua</option>
+        <option value="ya">YA (PORO)</option>
+        <option value="tidak">Tidak</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>Jenis Layanan</label>
+      <select id="fJenis"><option value="">Semua</option></select>
+    </div>
+    <div class="fld">
+      <label>Status Softskill</label>
+      <select id="fLengkap">
+        <option value="">Semua</option>
+        <option value="ya">Lengkap (semua lolos)</option>
+        <option value="tidak">Belum lengkap</option>
+      </select>
+    </div>
+    <div class="fld">
+      <label>Cari nama customer / agent</label>
+      <input type="text" id="fCari" placeholder="ketik untuk filter lokal…">
+    </div>
+    <div class="fld" style="flex:1;">
+      <label>Per Atribut Softskill</label>
+      <div class="ss-grid" id="ssChips"></div>
+    </div>
+    <div class="fld">
+      <label>&nbsp;</label>
+      <button class="btn-load" id="pqLoad">↻ Muat</button>
+    </div>
   </div>
-  <div class="qa-card"><div class="qa-tbl-wrap">
-    <table class="qa-tbl">
-      <thead><tr>
-        <th>Tanggal</th><th>Customer</th><th>Agent</th><th>Topik</th>
-        <th>Coverage</th><th>Kasus</th><th>Sentimen</th><th>Gap</th><th></th>
-      </tr></thead>
-      <tbody id="qaRows"><tr><td colspan="9" class="qa-loading">Memuat data…</td></tr></tbody>
-    </table>
-  </div></div>
+
+  <!-- Hasil -->
+  <div id="pqResult"><div class="loading">Pilih filter lalu klik 'Muat'.</div></div>
 </div>
-<div class="qa-ov" id="qaOv">
-  <div class="qa-modal">
-    <header>
-      <div><h3 id="qaMTitle">Transkrip</h3><div class="meta" id="qaMMeta"></div></div>
-      <button class="qa-x" id="qaClose" title="Tutup">&times;</button>
-    </header>
-    <div class="qa-body" id="qaMBody"><div class="qa-loading">Memuat transkrip…</div></div>
+
+<!-- Modal Transkrip -->
+<div id="pqModal">
+  <div id="pqBox">
+    <div id="pqHead">
+      <p id="pqTitle">Transkrip Percakapan</p>
+      <button id="pqClose" title="Tutup">&times;</button>
+    </div>
+    <div id="pqBodyInner"><div class="loading">Memuat…</div></div>
+    <div id="pqSS"></div>
   </div>
 </div>
+
 <script>
 (function(){
-  var rows=document.getElementById('qaRows');
-  var rangeEl=document.getElementById('qaRange');
-  var countEl=document.getElementById('qaCount');
+  'use strict';
   var state={range:'7d',start:'',end:''};
-  var all=[];
-  function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
-  function opt(sel,vals){
-    var keep=sel.querySelector('option').outerHTML;
-    var extra=vals.map(function(v){return '<option>'+esc(v)+'</option>';}).join('');
-    sel.innerHTML=keep+extra;
-  }
-  function sentClass(s){s=(s||'').toLowerCase();if(s.indexOf('pos')===0)return 'pos';if(s.indexOf('neg')===0)return 'neg';return 'net';}
-  function uniq(arr){var m={},o=[];arr.forEach(function(x){x=(x||'').trim();if(x&&!m[x]){m[x]=1;o.push(x);}});o.sort();return o;}
-  function fillFilters(){
-    opt(document.getElementById('fAgent'),uniq(all.map(function(c){return c.agent_name;})));
-    opt(document.getElementById('fCov'),uniq(all.map(function(c){return c.coverage_band;})));
-    opt(document.getElementById('fCase'),uniq(all.map(function(c){return c.case_label;})));
-  }
-  function apply(){
-    var q=(document.getElementById('fText').value||'').toLowerCase();
-    var ag=document.getElementById('fAgent').value;
-    var se=document.getElementById('fSent').value;
-    var co=document.getElementById('fCov').value;
-    var ca=document.getElementById('fCase').value;
-    var ga=document.getElementById('fGap').value;
-    var re=document.getElementById('fRet').value;
-    var out=all.filter(function(c){
-      if(ag&&c.agent_name!==ag)return false;
-      if(se&&c.sentiment!==se)return false;
-      if(co&&c.coverage_band!==co)return false;
-      if(ca&&c.case_label!==ca)return false;
-      if(ga==='gap'&&!c.deflection_gap)return false;
-      if(ga==='nogap'&&c.deflection_gap)return false;
-      if(re==='ret'&&!c.is_returning)return false;
-      if(re==='new'&&c.is_returning)return false;
-      if(q){
-        var hay=((c.customer||'')+' '+(c.agent_name||'')+' '+(c.topik||'')+' '+(c.mapped_intent||'')+' '+(c.sid||'')).toLowerCase();
-        if(hay.indexOf(q)<0)return false;
-      }
-      return true;
-    });
-    render(out);
-  }
-  function render(list){
-    countEl.textContent=list.length+' / '+all.length+' percakapan';
-    if(!list.length){rows.innerHTML='<tr><td colspan="9" class="qa-muted" style="padding:22px;text-align:center;">Tidak ada percakapan sesuai filter.</td></tr>';return;}
-    rows.innerHTML=list.map(function(c){
-      var sc=sentClass(c.sentiment);
-      return '<tr>'+
-        '<td>'+esc(c.tanggal)+'</td>'+
-        '<td>'+esc(c.customer||'-')+'</td>'+
-        '<td>'+esc(c.agent_name||'-')+'</td>'+
-        '<td>'+esc(c.topik||'-')+'</td>'+
-        '<td>'+esc(c.coverage_band||'-')+'</td>'+
-        '<td>'+esc(c.case_label||'-')+'</td>'+
-        '<td><span class="qa-pill '+sc+'">'+esc(c.sentiment||'-')+'</span></td>'+
-        '<td>'+(c.deflection_gap?'<span class="qa-pill gap">gap</span>':'')+'</td>'+
-        '<td><span class="qa-link" data-sid="'+esc(c.sid)+'">Lihat</span></td>'+
-      '</tr>';
-    }).join('');
-  }
-  function load(){
-    rows.innerHTML='<tr><td colspan="9" class="qa-loading">Memuat data…</td></tr>';
-    var qs='range='+encodeURIComponent(state.range);
-    if(state.range==='custom'){qs+='&start='+encodeURIComponent(state.start)+'&end='+encodeURIComponent(state.end);}
-    fetch('/api/awe/analytics?'+qs).then(function(r){return r.json();}).then(function(d){
-      if(d&&d.ok===false){rows.innerHTML='<tr><td colspan="9" class="qa-loading">Gagal memuat: '+esc(d.error||'')+'</td></tr>';return;}
-      all=(d.conversations||[]);
-      var mn=(d.meta&&d.meta.date_min)||(d.range&&d.range.start)||'—';
-      var mx=(d.meta&&d.meta.date_max)||(d.range&&d.range.end)||'—';
-      rangeEl.textContent='Rentang: '+mn+' s/d '+mx+' · '+all.length+' percakapan dimuat';
-      fillFilters(); apply();
-    }).catch(function(){rows.innerHTML='<tr><td colspan="9" class="qa-loading">Gagal memuat data.</td></tr>';});
-  }
-  ['fText','fAgent','fSent','fCov','fCase','fGap','fRet'].forEach(function(id){
-    var el=document.getElementById(id);
-    el.addEventListener(id==='fText'?'input':'change',apply);
-  });
-  var seg=document.getElementById('qaSeg'),cust=document.getElementById('qaCust');
+  var allData=[];
+  function esc(s){return(s==null?'':String(s)).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+
+  // === Range selector ===
+  var seg=document.getElementById('pqSeg');
+  var custDiv=document.getElementById('pqCust');
   seg.addEventListener('click',function(e){
-    var b=e.target.closest('button'); if(!b)return;
+    var b=e.target.closest('button');if(!b)return;
     Array.prototype.forEach.call(seg.children,function(x){x.classList.remove('active');});
-    b.classList.add('active'); state.range=b.getAttribute('data-r');
-    if(state.range==='custom'){cust.classList.add('show');}else{cust.classList.remove('show');load();}
+    b.classList.add('active');
+    state.range=b.getAttribute('data-r');
+    custDiv.classList.toggle('show',state.range==='custom');
+    if(state.range!=='custom')load();
   });
-  document.getElementById('qaApply').addEventListener('click',function(){
-    state.start=document.getElementById('qaStart').value;
-    state.end=document.getElementById('qaEnd').value;
+  document.getElementById('pqApply').addEventListener('click',function(){
+    state.start=document.getElementById('pqStart').value;
+    state.end=document.getElementById('pqEnd').value;
     if(state.start&&state.end)load();
   });
-  var ov=document.getElementById('qaOv'),mBody=document.getElementById('qaMBody'),mMeta=document.getElementById('qaMMeta'),mTitle=document.getElementById('qaMTitle');
-  function closeOv(){ov.classList.remove('show');mBody.innerHTML='<div class="qa-loading">Memuat transkrip…</div>';}
-  document.getElementById('qaClose').addEventListener('click',closeOv);
-  ov.addEventListener('click',function(e){if(e.target===ov)closeOv();});
-  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeOv();});
-  rows.addEventListener('click',function(e){
-    var el=e.target.closest('.qa-link'); if(!el)return;
-    var sid=el.getAttribute('data-sid');
-    var c=null; for(var i=0;i<all.length;i++){if(String(all[i].sid)===String(sid)){c=all[i];break;}}
-    mTitle.textContent='Transkrip percakapan';
-    mMeta.textContent=c?((c.customer||'-')+' · '+(c.agent_name||'-')+' · '+(c.tanggal||'')+' · '+(c.sentiment||'')):('SID '+sid);
-    ov.classList.add('show');
-    mBody.innerHTML='<div class="qa-loading">Memuat transkrip…</div>';
-    fetch('/api/awe/assess/transcript?sid='+encodeURIComponent(sid)).then(function(r){return r.json();}).then(function(d){
-      if(d&&d.ok===false){mBody.innerHTML='<div class="qa-loading">Gagal: '+esc(d.error||'')+'</div>';return;}
-      var tx=(d&&d.transkrip)||[];
-      if(!tx.length){mBody.innerHTML='<div class="qa-loading">'+esc((d&&d.note)||'Transkrip tidak tersedia.')+'</div>';return;}
-      mBody.innerHTML=tx.map(function(m){
-        var role=(m.role||'').toLowerCase();
-        var cls=(role.indexOf('cust')>=0||role.indexOf('user')>=0||role.indexOf('pelanggan')>=0)?'cust':((role.indexOf('agent')>=0||role.indexOf('bot')>=0||role.indexOf('cs')>=0)?'agent':'other');
-        var who=m.role?esc(m.role):(cls==='cust'?'Customer':(cls==='agent'?'Agent':''));
-        return '<div class="qa-msg '+cls+'"><div class="bub">'+(who?'<div class="who">'+who+'</div>':'')+esc(m.text)+'</div></div>';
-      }).join('');
-    }).catch(function(){mBody.innerHTML='<div class="qa-loading">Gagal memuat transkrip.</div>';});
+  document.getElementById('pqLoad').addEventListener('click',load);
+
+  // === SS Chips ===
+  var SS_ATTRS=[
+    {id:'salam_pembuka',label:'Salam Buka'},
+    {id:'menanyakan_nama',label:'Tanya Nama'},
+    {id:'menyapa_customer',label:'Sapa Customer'},
+    {id:'menawarkan_bantuan',label:'Tawarkan Bantuan'},
+    {id:'hold',label:'Hold'},
+    {id:'salam_penutup',label:'Salam Tutup'},
+  ];
+  var chips=document.getElementById('ssChips');
+  SS_ATTRS.forEach(function(a){
+    var d=document.createElement('div');d.className='ss-chip';
+    d.innerHTML='<span title="'+esc(a.label)+'">'+esc(a.label)+'</span>'
+      +'<select id="ss_'+a.id+'">'
+      +'<option value="">Semua</option>'
+      +'<option value="ya">✅ Lolos</option>'
+      +'<option value="tidak">❌ Tidak</option>'
+      +'</select>';
+    chips.appendChild(d);
   });
+
+  function buildQs(){
+    var qs='range='+encodeURIComponent(state.range);
+    if(state.range==='custom')qs+='&start='+encodeURIComponent(state.start)+'&end='+encodeURIComponent(state.end);
+    var a=document.getElementById('fAgent').value;
+    var p=document.getElementById('fPoro').value;
+    var j=document.getElementById('fJenis').value;
+    var l=document.getElementById('fLengkap').value;
+    if(a)qs+='&agent='+encodeURIComponent(a);
+    if(p)qs+='&poro='+encodeURIComponent(p);
+    if(j)qs+='&jenis='+encodeURIComponent(j);
+    if(l)qs+='&ss_lengkap='+encodeURIComponent(l);
+    SS_ATTRS.forEach(function(at){
+      var v=(document.getElementById('ss_'+at.id)||{}).value||'';
+      if(v)qs+='&ss_'+at.id+'='+encodeURIComponent(v);
+    });
+    return qs;
+  }
+
+  function populateDropdowns(agents,jenises){
+    var fa=document.getElementById('fAgent');
+    var cur=fa.value;
+    fa.innerHTML='<option value="">Semua agent</option>';
+    (agents||[]).forEach(function(nm){fa.innerHTML+='<option value="'+esc(nm)+(nm===cur?' selected':'')+'">'+esc(nm)+'</option>';});
+    var fj=document.getElementById('fJenis');
+    var curj=fj.value;
+    fj.innerHTML='<option value="">Semua</option>';
+    (jenises||[]).forEach(function(j){fj.innerHTML+='<option value="'+esc(j)+(j===curj?' selected':'')+'">'+esc(j)+'</option>';});
+  }
+
+  function badge(val,labOk,labNo){
+    if(val===1||val===true)return '<span class="badge badge-ok">'+(labOk||'OK')+'</span>';
+    if(val===0||val===false)return '<span class="badge badge-x">'+(labNo||'X')+'</span>';
+    return '<span class="badge badge-null">—</span>';
+  }
+  function ssCell(v){return badge(v,'\u2705','\u274c');}
+
+  function applyLocal(data){
+    var q=(document.getElementById('fCari').value||'').toLowerCase().trim();
+    if(!q)return data;
+    return data.filter(function(c){
+      return (c.customer||'').toLowerCase().includes(q)||(c.agent_name||'').toLowerCase().includes(q);
+    });
+  }
+
+  function renderTable(data){
+    var rows=applyLocal(data);
+    var pqSub=document.getElementById('pqSub');
+    pqSub.textContent='Menampilkan '+rows.length+' dari '+data.length+' percakapan.';
+    if(!rows.length){
+      document.getElementById('pqResult').innerHTML='<div class="loading">Tidak ada data untuk filter ini.</div>';
+      return;
+    }
+    var html='<div class="card"><h3>Hasil Penilaian ('+rows.length+' percakapan)</h3>'
+      +'<div class="tbl-wrap"><table class="tbl"><thead><tr>'
+      +'<th>Tanggal</th><th>Customer</th><th>Agent</th><th>Layanan</th><th>PORO</th>'
+      +'<th title="Salam Pembuka">S.Buka</th>'
+      +'<th title="Menanyakan Nama">T.Nama</th>'
+      +'<th title="Menyapa Customer">S.Cust</th>'
+      +'<th title="Menawarkan Bantuan">Tawarkan</th>'
+      +'<th title="Hold">Hold</th>'
+      +'<th title="Salam Penutup">S.Tutup</th>'
+      +'<th>Status</th><th>Transkrip</th>'
+      +'</tr></thead><tbody>';
+    rows.forEach(function(c){
+      var isPoro=c.is_poro===1;
+      html+='<tr>'
+        +'<td>'+esc(c.tanggal||'')+'</td>'
+        +'<td>'+esc(c.customer||'')+'</td>'
+        +'<td>'+esc(c.agent_name||'')+'</td>'
+        +'<td>'+esc(c.jenis_layanan||'—')+'</td>'
+        +'<td>'+(isPoro?'<span class="badge badge-poro">PORO</span>':'<span class="badge badge-null">Tidak</span>')+'</td>'
+        +'<td>'+ssCell(c.ss_salam_pembuka)+'</td>'
+        +'<td>'+ssCell(c.ss_menanyakan_nama)+'</td>'
+        +'<td>'+ssCell(c.ss_menyapa_customer)+'</td>'
+        +'<td>'+ssCell(c.ss_menawarkan_bantuan)+'</td>'
+        +'<td>'+ssCell(c.ss_hold)+'</td>'
+        +'<td>'+ssCell(c.ss_salam_penutup)+'</td>'
+        +'<td>'+badge(c.ss_lengkap,'LENGKAP','BELUM')+'</td>'
+        +'<td>'+(c.sid?'<button class="btn-lihat" data-sid="'+esc(c.sid)+'">Lihat</button>':'—')+'</td>'
+        +'</tr>';
+    });
+    html+='</tbody></table></div></div>';
+    document.getElementById('pqResult').innerHTML=html;
+  }
+
+  function load(){
+    var btn=document.getElementById('pqLoad');
+    btn.disabled=true;
+    document.getElementById('pqResult').innerHTML='<div class="loading">Memuat data…</div>';
+    var qs=buildQs();
+    fetch('/api/awe/assess/list?'+qs)
+      .then(function(r){return r.json();})
+      .then(function(d){
+        btn.disabled=false;
+        if(!d.ok){document.getElementById('pqResult').innerHTML='<div class="loading">Gagal: '+esc(d.error||'error')+'</div>';return;}
+        allData=d.conversations||[];
+        populateDropdowns(d.agents,d.jenises);
+        renderTable(allData);
+      })
+      .catch(function(){btn.disabled=false;document.getElementById('pqResult').innerHTML='<div class="loading">Gagal memuat data.</div>';});
+  }
+
+  // Filter lokal cari
+  document.getElementById('fCari').addEventListener('input',function(){renderTable(allData);});
+
+  // === Modal Transkrip ===
+  var pqModal=document.getElementById('pqModal');
+  var pqBodyInner=document.getElementById('pqBodyInner');
+  var pqTitle=document.getElementById('pqTitle');
+  var pqSS=document.getElementById('pqSS');
+  document.getElementById('pqClose').onclick=function(){pqModal.classList.remove('open');};
+  pqModal.addEventListener('click',function(e){if(e.target===pqModal)pqModal.classList.remove('open');});
+
+  function roleCls(role){
+    var r=(role||'').toLowerCase();
+    if(r==='customer'||r==='cust'||r==='pelanggan')return 'role-customer';
+    if(r==='bot'||r==='ccai'||r==='chatbot')return 'role-bot';
+    return 'role-agent';
+  }
+  function roleLabel(role){
+    var r=(role||'').toLowerCase();
+    if(r==='customer'||r==='cust'||r==='pelanggan')return 'Customer';
+    if(r==='bot'||r==='ccai'||r==='chatbot')return 'Bot / CCAI';
+    return 'Agent';
+  }
+
+  document.getElementById('pqResult').addEventListener('click',function(e){
+    var btn=e.target.closest('.btn-lihat');
+    if(!btn)return;
+    var sid=btn.dataset.sid||'';
+    openTranskrip(sid);
+  });
+
+  function openTranskrip(sid){
+    pqModal.classList.add('open');
+    pqTitle.textContent='Transkrip — SID '+sid;
+    pqBodyInner.innerHTML='<div class="loading">Memuat…</div>';
+    pqSS.innerHTML='';
+    fetch('/api/awe/assess/transcript?sid='+encodeURIComponent(sid))
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d.ok||!d.found){
+          pqBodyInner.innerHTML='<div class="muted">'+(d.note||d.error||'Transkrip tidak ditemukan.')+'</div>';
+          return;
+        }
+        // transkrip
+        var html=(d.transkrip||[]).map(function(m){
+          return '<div class="tx-bubble">'
+            +'<div class="tx-role '+roleCls(m.role)+'">'+esc(roleLabel(m.role))+'</div>'
+            +'<div class="tx-text">'+esc(m.text||'')+'</div>'
+            +'</div>';
+        }).join('');
+        pqBodyInner.innerHTML=html||'<div class="muted">Transkrip kosong.</div>';
+        // softskill panel
+        var ss=d.softskill||{};
+        var SS_LABELS={
+          salam_pembuka:'Salam Pembuka',menanyakan_nama:'Menanyakan Nama',
+          menyapa_customer:'Menyapa Customer',menawarkan_bantuan:'Menawarkan Bantuan',
+          hold:'Hold',salam_penutup:'Salam Penutup'
+        };
+        var metaLines=[];
+        if(d.customer)metaLines.push('<b>Customer:</b> '+esc(d.customer));
+        if(d.agent_name)metaLines.push('<b>Agent:</b> '+esc(d.agent_name)+(d.agent_id?' ('+esc(d.agent_id)+')':''));
+        if(d.jenis_layanan)metaLines.push('<b>Layanan:</b> '+esc(d.jenis_layanan));
+        var poroTxt=d.is_poro===1?'<span class="badge badge-poro">PORO</span>':'<span class="badge badge-null">Tidak</span>';
+        metaLines.push('<b>PORO:</b> '+poroTxt);
+        var chips=Object.keys(SS_LABELS).map(function(k){
+          var v=ss[k];
+          var ok=(v===1||v===true);
+          var na=(v===null||v===undefined);
+          return '<span class="badge '+(na?'badge-null':ok?'badge-ok':'badge-x')+'">'
+            +(na?SS_LABELS[k]+': —':ok?'✅ '+SS_LABELS[k]:'❌ '+SS_LABELS[k])+'</span>';
+        }).join('');
+        var lengkapV=ss.lengkap;
+        var lengkapChip=(lengkapV===1||lengkapV===true)
+          ?'<span class="badge badge-ok" style="font-size:12px;padding:3px 10px;">LENGKAP</span>'
+          :'<span class="badge badge-x" style="font-size:12px;padding:3px 10px;">BELUM LENGKAP</span>';
+        pqSS.innerHTML='<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:baseline;">'
+          +metaLines.map(function(l){return '<span>'+l+'</span>';}).join('')+'</div>'
+          +'<div class="ss-row" style="margin-top:8px;">'+chips+'</div>'
+          +'<div style="margin-top:8px;">'+lengkapChip+'</div>';
+      })
+      .catch(function(){pqBodyInner.innerHTML='<div class="muted">Gagal memuat transkrip.</div>';});
+  }
+
+  // Muat data awal saat halaman terbuka
   load();
 })();
 </script>
+{% endif %}

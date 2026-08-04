@@ -37,6 +37,23 @@
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:rgba(240,90,90,.16);color:#f2726f;}
   .muted{color:var(--text-muted,#8a8f98);}
   .loading{color:var(--text-muted,#8a8f98);padding:34px;text-align:center;}
+  .btn-lihat{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;}
+  .btn-lihat:hover{opacity:.85;}
+  /* Modal transkrip */
+  #txModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);}
+  #txModal.open{display:flex;align-items:center;justify-content:center;}
+  #txBox{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:16px;width:min(700px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;}
+  #txHead{padding:14px 18px;border-bottom:1px solid var(--panel-border,#2a2b30);display:flex;justify-content:space-between;align-items:center;gap:12px;}
+  #txTitle{font-weight:700;font-size:14px;margin:0;}
+  #txClose{background:transparent;border:none;color:var(--text-muted,#8a8f98);font-size:20px;cursor:pointer;line-height:1;}
+  #txBody{padding:14px 18px;overflow-y:auto;flex:1;}
+  .tx-bubble{margin-bottom:10px;}
+  .tx-role{font-size:10.5px;font-weight:700;margin-bottom:3px;}
+  .tx-text{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:8px;padding:8px 11px;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}
+  .role-agent{color:var(--accent,#5a78ff);}
+  .role-customer{color:#0c874b;}
+  .role-bot{color:#888;}
+  #txMeta{padding:8px 18px 12px;border-top:1px solid var(--panel-border,#2a2b30);font-size:11px;color:var(--text-muted,#8a8f98);}
 </style>
 {% endblock %}
 {% block content %}
@@ -63,6 +80,18 @@
     </div>
   </div>
   <div id="aweBody"><div class="loading">Memuat data…</div></div>
+</div>
+
+<!-- Modal Transkrip Percakapan -->
+<div id="txModal">
+  <div id="txBox">
+    <div id="txHead">
+      <p id="txTitle">Transkrip Percakapan</p>
+      <button id="txClose" title="Tutup">&times;</button>
+    </div>
+    <div id="txBody"><div class="loading">Memuat transkrip…</div></div>
+    <div id="txMeta"></div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -95,8 +124,76 @@
     });
     return s+'</div>';
   }
+
+  // ======= Modal Transkrip =======
+  var txModal=document.getElementById('txModal');
+  var txBody=document.getElementById('txBody');
+  var txTitle=document.getElementById('txTitle');
+  var txMeta=document.getElementById('txMeta');
+  document.getElementById('txClose').onclick=function(){txModal.classList.remove('open');};
+  txModal.addEventListener('click',function(e){if(e.target===txModal)txModal.classList.remove('open');});
+
+  function roleCls(role){
+    var r=(role||'').toLowerCase();
+    if(r==='customer'||r==='cust'||r==='pelanggan')return 'role-customer';
+    if(r==='bot'||r==='ccai'||r==='chatbot')return 'role-bot';
+    return 'role-agent';
+  }
+  function roleLabel(role){
+    var r=(role||'').toLowerCase();
+    if(r==='customer'||r==='cust'||r==='pelanggan')return 'Customer';
+    if(r==='bot'||r==='ccai'||r==='chatbot')return 'Bot / CCAI';
+    return 'Agent';
+  }
+  function openTranskrip(sid){
+    txModal.classList.add('open');
+    txTitle.textContent='Transkrip — SID '+sid;
+    txBody.innerHTML='<div class="loading">Memuat…</div>';
+    txMeta.textContent='';
+    fetch('/api/awe/assess/transcript?sid='+encodeURIComponent(sid))
+      .then(function(r){return r.json();})
+      .then(function(d){
+        if(!d.ok||!d.found){
+          txBody.innerHTML='<div class="muted">'+(d.note||d.error||'Transkrip tidak ditemukan.')+'</div>';
+          return;
+        }
+        var html=(d.transkrip||[]).map(function(m){
+          var rc=roleCls(m.role);
+          return '<div class="tx-bubble"><div class="tx-role '+rc+'">'+esc(roleLabel(m.role))+'</div>'+
+            '<div class="tx-text">'+esc(m.text||'')+'</div></div>';
+        }).join('');
+        txBody.innerHTML=html||'<div class="muted">Transkrip kosong.</div>';
+        // meta info
+        var meta=[];
+        if(d.customer)meta.push('Customer: '+d.customer);
+        if(d.agent_name)meta.push('Agent: '+d.agent_name+(d.agent_id?' ('+d.agent_id+')':''));
+        if(d.jenis_layanan)meta.push('Layanan: '+d.jenis_layanan);
+        if(d.is_poro===1)meta.push('PORO: YA ⚠️');
+        if(d.softskill&&Object.keys(d.softskill).length){
+          var ss=d.softskill;
+          var labels={salam_pembuka:'Salam Buka',menanyakan_nama:'Tanya Nama',
+            menyapa_customer:'Sapa Customer',menawarkan_bantuan:'Tawarkan Bantuan',
+            hold:'Hold',salam_penutup:'Salam Tutup'};
+          var chips=Object.keys(labels).map(function(k){
+            var v=ss[k]; var ok=(v===1||v===true);
+            return '<span style="display:inline-block;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700;margin:1px;background:'+(ok?'rgba(12,135,75,.18)':'rgba(220,53,69,.18)')+';color:'+(ok?'#0c874b':'#dc3545')+';">'+labels[k]+': '+(ok?'OK':'X')+'</span>';
+          }).join('');
+          meta.push('Softskill: '+chips);
+        }
+        txMeta.innerHTML=meta.map(function(m){return '<span style="margin-right:12px;">'+m+'</span>';}).join('');
+      })
+      .catch(function(){txBody.innerHTML='<div class="muted">Gagal memuat transkrip.</div>';});
+  }
+
+  function setupLihat(){
+    body.addEventListener('click',function(e){
+      var btn=e.target.closest('.btn-lihat');
+      if(btn)openTranskrip(btn.dataset.sid||'');
+    });
+  }
+
   function render(d){
-    rangeEl.textContent='Rentang: '+(d.meta.date_min||d.range.start||'—')+' s/d '+(d.meta.date_max||d.range.end||'—')+' · '+d.meta.total+' percakapan · '+d.meta.customers+' pelanggan';
+    rangeEl.textContent='Rentang: '+(d.meta.date_min||d.range&&d.range.start||'—')+' s/d '+(d.meta.date_max||d.range&&d.range.end||'—')+' · '+d.meta.total+' percakapan · '+d.meta.customers+' pelanggan';
     var html='';
     if(section==='dasbor'){
       var cov=d.coverage, sent=d.sentiment;
@@ -120,8 +217,25 @@
       var rows=d.agents.map(function(a){return '<tr><td>'+a.rank+'</td><td>'+esc(a.name)+'</td><td>'+a.count+'</td><td>'+a.avg_durasi+'</td><td>'+a.pos_rate+'%</td><td>'+a.neg_rate+'%</td><td><b>'+a.score+'</b></td></tr>';}).join('');
       html+='<div class="card"><h3>Kinerja agent</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Agent</th><th>Chat</th><th>Durasi rata²</th><th>Positif</th><th>Negatif</th><th>Skor</th></tr></thead><tbody>'+(rows||'<tr><td colspan="7" class="muted">Tidak ada data.</td></tr>')+'</tbody></table></div></div>';
     } else if(section==='percakapan'){
-      var rows=d.conversations.map(function(c){return '<tr><td>'+esc(c.tanggal)+'</td><td>'+esc(c.customer)+'</td><td>'+esc(c.agent_name)+'</td><td>'+esc(c.mapped_intent)+'</td><td>'+esc(c.coverage_band)+'</td><td>'+esc(c.case_label)+'</td><td>'+esc(c.sentiment)+'</td><td>'+(c.deflection_gap?'<span class="pill">gap</span>':'')+'</td></tr>';}).join('');
-      html+='<div class="card"><h3>Detail percakapan ('+d.conversations.length+' baris pertama)</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Customer</th><th>Agent</th><th>Intent</th><th>Coverage</th><th>Kasus</th><th>Sentimen</th><th>Gap</th></tr></thead><tbody>'+(rows||'<tr><td colspan="8" class="muted">Tidak ada data.</td></tr>')+'</tbody></table></div></div>';
+      var rows=d.conversations.map(function(c){
+        var lihatBtn=c.sid?'<button class="btn-lihat" data-sid="'+esc(c.sid)+'">Lihat</button>':'-';
+        return '<tr>'
+          +'<td>'+esc(c.tanggal)+'</td>'
+          +'<td>'+esc(c.customer)+'</td>'
+          +'<td>'+esc(c.agent_name)+'</td>'
+          +'<td>'+esc(c.mapped_intent)+'</td>'
+          +'<td>'+esc(c.coverage_band)+'</td>'
+          +'<td>'+esc(c.case_label)+'</td>'
+          +'<td>'+esc(c.sentiment)+'</td>'
+          +'<td>'+(c.deflection_gap?'<span class="pill">gap</span>':'')+'</td>'
+          +'<td>'+lihatBtn+'</td>'
+          +'</tr>';
+      }).join('');
+      html+='<div class="card"><h3>Detail percakapan ('+d.conversations.length+' baris pertama)</h3>'
+        +'<div class="tbl-wrap"><table class="tbl"><thead><tr>'
+        +'<th>Tanggal</th><th>Customer</th><th>Agent</th><th>Intent</th>'
+        +'<th>Coverage</th><th>Kasus</th><th>Sentimen</th><th>Gap</th><th>Transkrip</th>'
+        +'</tr></thead><tbody>'+(rows||'<tr><td colspan="9" class="muted">Tidak ada data.</td></tr>')+'</tbody></table></div></div>';
     }
     body.innerHTML=html;
   }
@@ -148,6 +262,7 @@
     state.end=document.getElementById('cEnd').value;
     if(state.start&&state.end)load();
   });
+  setupLihat();
   load();
 })();
 </script>
