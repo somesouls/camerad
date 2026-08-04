@@ -80,6 +80,8 @@ def init_db(conn):
             case_label    TEXT,
             sentiment     TEXT,
             emotion       TEXT,
+            topik         TEXT,
+            deflection_gap INTEGER,
             PRIMARY KEY (run_id, sid)
         );
         CREATE INDEX IF NOT EXISTS idx_awe_conv_run ON awe_conversations(run_id);
@@ -127,6 +129,10 @@ def init_db(conn):
         );
         """
     )
+    _ensure_columns(cur, "awe_conversations", [
+        ("topik", "topik TEXT"),
+        ("deflection_gap", "deflection_gap INTEGER"),
+    ])
     conn.commit()
     return conn
 
@@ -137,6 +143,23 @@ def _g(d, *keys, default=""):
         if isinstance(d, dict) and k in d and d[k] not in (None, ""):
             return d[k]
     return default
+
+
+def _ensure_columns(cur, table, coldefs):
+    """Migrasi ringan: tambah kolom yang belum ada (ALTER TABLE ADD COLUMN).
+    Kolom baru nullable -> baris lama bernilai NULL (analitik akan fallback)."""
+    have = {r[1] for r in cur.execute("PRAGMA table_info(%s)" % table).fetchall()}
+    for name, ddl in coldefs:
+        if name not in have:
+            cur.execute("ALTER TABLE %s ADD COLUMN %s" % (table, ddl))
+
+
+def _gap_flag(c):
+    """Ambil deflection_gap dari dashboard conv -> 1/0, atau None bila tak ada."""
+    v = _g(c, "deflection_gap", "deflectionGap", default=None)
+    if v is None:
+        return None
+    return 1 if str(v).strip().lower() in ("1", "true", "ya", "yes", "y") else 0
 
 
 def _make_run_id(dashboard, records):
@@ -285,13 +308,16 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
             str(_g(c, "case_label", "case", "kasus", default="")),
             str(_g(c, "sentiment", "sentimen", default="")),
             str(_g(c, "emotion", "emosi", default="")),
+            (str(_g(c, "topik", "topic", default="")) or None),
+            _gap_flag(c),
         ))
     if rows:
         cur.executemany(
             """INSERT OR REPLACE INTO awe_conversations
                  (run_id,sid,tanggal,customer,agent_name,agent_id,durasi,behavior,
-                  is_returning,mapped_intent,coverage_band,case_label,sentiment,emotion)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  is_returning,mapped_intent,coverage_band,case_label,sentiment,emotion,
+                  topik,deflection_gap)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
     # tandai cakupan hari (agar analis tak perlu tarik ulang tanggal yang sudah ada)
