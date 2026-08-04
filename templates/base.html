@@ -370,9 +370,29 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <b>Kelola Data AWE</b>
         </a>
         {% endif %}
-        <a class="tool-side{% if active_page == 'awe' %} active{% endif %}" href="/awe">
+        <a class="tool-side{% if active_page == 'awe_dasbor' %} active{% endif %}" href="/awe/dasbor">
+          <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div>
+          <b>Dashboard AWE</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_coverage' %} active{% endif %}" href="/awe/coverage">
+          <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <b>Coverage &amp; Deflection</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_taksonomi' %} active{% endif %}" href="/awe/taksonomi">
+          <div class="ic c-purple"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></div>
+          <b>Taksonomi &amp; Peluang</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_sentimen' %} active{% endif %}" href="/awe/sentimen">
+          <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></div>
+          <b>Sentimen &amp; Agent</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_percakapan' %} active{% endif %}" href="/awe/percakapan">
           <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
-          <b>Analisis AWE</b>
+          <b>Detail Percakapan</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe' %} active{% endif %}" href="/awe">
+          <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 3v9l6 3"/><path d="M21 3v5h-5"/></svg></div>
+          <b>Analisis &amp; Riwayat</b>
         </a>
         {% if can_assess %}
         <a class="tool-side{% if active_page == 'awe_penilaian' %} active{% endif %}" href="/awe/penilaian">
