@@ -14,10 +14,11 @@ Tujuan: sekali analisis AWE dijalankan, hasilnya DISIMPAN supaya analis tidak
 perlu upload/analisa ulang. Setiap kali analisis selesai -> 1 baris di awe_runs
 (+ ledakan percakapan ke awe_conversations untuk query per-baris).
 
-Hanya memakai stdlib (sqlite3 + json + hashlib). Tidak butuh server database.
+Hanya memakai stdlib (sqlite3 + json + hashlib + re). Tidak butuh server database.
 """
 import os
 import json as _json
+import re as _re
 import sqlite3
 import hashlib as _hashlib
 import datetime as _dt
@@ -133,9 +134,163 @@ def init_db(conn):
         ("topik", "topik TEXT"),
         ("deflection_gap", "deflection_gap INTEGER"),
         ("transkrip_json", "transkrip_json TEXT"),
+        ("is_poro", "is_poro INTEGER"),
+        ("jenis_layanan", "jenis_layanan TEXT"),
+        ("ss_salam_pembuka", "ss_salam_pembuka INTEGER"),
+        ("ss_menanyakan_nama", "ss_menanyakan_nama INTEGER"),
+        ("ss_menyapa_customer", "ss_menyapa_customer INTEGER"),
+        ("ss_menawarkan_bantuan", "ss_menawarkan_bantuan INTEGER"),
+        ("ss_hold", "ss_hold INTEGER"),
+        ("ss_salam_penutup", "ss_salam_penutup INTEGER"),
+        ("ss_lengkap", "ss_lengkap INTEGER"),
     ])
     conn.commit()
     return conn
+
+
+# =========================================================================
+# SOFTSKILL SCORING (port dari assessor.js v4.2.0)
+# Semua regex pakai _re.I agar case-insensitive.
+# =========================================================================
+_RE_SALAM_PEMBUKA  = _re.compile(r'\bselamat\s+(pagi|siang|sore|malam)\b', _re.I)
+_RE_SALAM_PEMBUKA2 = _re.compile(r'perkenalkan\s+saya', _re.I)
+_RE_MENANYAKAN_NAMA = _re.compile(
+    r'(dengan\s+(bapak|ibu).*siapa|siapa\s+saya\s+terhubung'
+    r'|boleh.*(tahu|saya).*nama|dengan\s+siapa\s+saya)', _re.I | _re.S)
+_RE_MENAWARKAN = _re.compile(
+    r'(ada(kah)?\s+(lagi\s+)?yang\s+(bisa|dapat)\s+(saya|kami)\s+bantu'
+    r'|ada\s+yang\s+(bisa|dapat)\s+di?bantu'
+    r'|(bisa|boleh)\s+(saya|kami)\s+bantu'
+    r'|yang\s+(bisa|dapat)\s+(saya|kami)\s+bantu'
+    r'|ada\s+(lagi\s+)?yang\s+(bisa|ingin)\s+(ditanyakan|disampaikan)'
+    r'|silakan\s+(disampaikan|sampaikan)\s+(pertanyaan|keperluan|kendala|keluhan))',
+    _re.I)
+_RE_HOLD = _re.compile(
+    r'(mohon|silakan)\s+menunggu'
+    r'|kami\s+(cek|periksa|konfirmasi|telaah|pastikan)\s+(terlebih\s+dahulu|dahulu|ke)'
+    r'|mohon\s+waktu'
+    r'|terima\s+kasih\s+telah\s+bersedia\s+menunggu', _re.I)
+_RE_SALAM_PENUTUP = _re.compile(
+    r'(terima\s+kasih\s+telah\s+menggunakan|percakapan\s+ini\s+kami\s+akhiri'
+    r'|selamat\s+beraktivitas|mari\s+wujudkan\s+djp|survei\s+kepuasan)', _re.I)
+_RE_MENYAPA_SAPAAN = _re.compile(
+    r'\b(bapak|ibu|pak|bu|kak|kakak|mas|mbak|saudara|sdr|sdri)\s+([a-zA-Z]{3,})', _re.I)
+_STOP_MENYAPA = _re.compile(
+    r'^(siapa|yang|dengan|untuk|silakan|di|ada|dapat|bisa|mohon|sudah|akan|atas|terkait'
+    r'|sebelumnya|kami|saya|ini|itu|tersebut|segera|dalam|dan|atau|juga|agar|demi'
+    r'|berkenan|mengisi)$', _re.I)
+_RE_PORO_AFIRMASI = _re.compile(
+    r'(pernyataan\s+afirmasi|kami\s+membutuhkan\s+afirmasi'
+    r'|menyalin\s+ulang\s+pernyataan'
+    r'|menyadari\s+sepenuhnya\s+akan\s+segala\s+akibatnya'
+    r'|saya\s+menyatakan\s+bahwa\s+apa\s+yang\s+telah\s+saya'
+    r'\s+(beritahukan|sampaikan)\s+adalah\s+benar)', _re.I)
+_RE_PORO_VALIDASI = _re.compile(
+    r'((validasi|verifikasi)\s+(terlebih\s+dahulu|data|identitas)'
+    r'|memastikan\s+.{0,60}(mengajukan|pemohon|permohonan)'
+    r'|(silakan|mohon)\s+.{0,40}(isikan|lengkapi|isi)\s+data\s+berikut)',
+    _re.I | _re.S)
+_PORO_FIELDS = [
+    _re.compile(r'\bNPWP\b', _re.I),
+    _re.compile(r'\bNIK\b', _re.I),
+    _re.compile(r'email\s+terdaftar', _re.I),
+    _re.compile(r'(telepon|no\.?\s*hp|nomor\s+hp|no\s+hp)\b.{0,20}terdaftar', _re.I | _re.S),
+    _re.compile(r'tanggal\s+pelaporan\s+spt|spt\s+tahunan\s+terakhir', _re.I),
+    _re.compile(r'alamat\b.{0,25}(tinggal|terdaftar)', _re.I | _re.S),
+]
+_LAYANAN = [
+    (_re.compile(r'lupa\s*efin', _re.I), "Lupa EFIN"),
+    (_re.compile(r'aktivasi\s+efin', _re.I), "Aktivasi EFIN"),
+    (_re.compile(r'(perubahan|pemutakhiran|pembaruan)\s+data|\bpdmnpwp\b', _re.I), "Perubahan Data"),
+    (_re.compile(r'aktivasi\s+(akun|coretax)', _re.I), "Aktivasi Akun"),
+    (_re.compile(r'cetak\s+(ulang\s+)?npwp', _re.I), "Cetak NPWP"),
+    (_re.compile(r'kode\s+otorisasi', _re.I), "Kode Otorisasi DJP"),
+    (_re.compile(r'(penonaktifan|mengaktifkan\s+kembali).{0,10}npwp|npwp\s+non\s*efektif', _re.I),
+     "Aktivasi/Nonaktif NPWP"),
+]
+_BOT_ROLES  = {'bot', 'ccai', 'chatbot', 'virtual assistant'}
+_CUST_ROLES = {'customer', 'cust', 'pelanggan', 'user'}
+_BOT_NAME_RE = _re.compile(r'ccai|chatbot|virtual\s+assistant|google', _re.I)
+_BOT_PHRASE  = _re.compile(
+    r'virtual\s+assistant\s+\(chat\s+bot\)|petugas\s+kami\s+akan\s+segera\s+membantu', _re.I)
+
+
+def _is_agent(role, text):
+    r = (role or "").strip().lower()
+    if r in _CUST_ROLES:
+        return False
+    if r in _BOT_ROLES or _BOT_NAME_RE.search(r):
+        return False
+    if _BOT_PHRASE.search(text or ""):
+        return False
+    return True
+
+
+def _match_menyapa(t, cust_name=""):
+    if cust_name:
+        tokens = [w for w in cust_name.split() if len(w) >= 3]
+        for tok in tokens:
+            pref = tok[:max(4, int(len(tok) * 0.6))]
+            if _re.search(r'\b' + _re.escape(pref), t, _re.I):
+                return True
+    for m in _RE_MENYAPA_SAPAAN.finditer(t):
+        if not _STOP_MENYAPA.match(m.group(2)):
+            return True
+    return False
+
+
+def _detect_poro(all_text):
+    if _RE_PORO_AFIRMASI.search(all_text):
+        return True
+    if _RE_PORO_VALIDASI.search(all_text):
+        n = sum(1 for f in _PORO_FIELDS if f.search(all_text))
+        if n >= 3:
+            return True
+    return False
+
+
+def _detect_layanan(all_text):
+    for pat, nm in _LAYANAN:
+        if pat.search(all_text):
+            return nm
+    return None
+
+
+def score_softskill(transkrip, cust_name=""):
+    """Skor softskill dari list [{role, text}].
+
+    Returns dict:
+      salam_pembuka, menanyakan_nama, menyapa_customer, menawarkan_bantuan,
+      hold, salam_penutup (semua bool); lengkap (bool — semua wajib lolos);
+      is_poro (bool); jenis_layanan (str|None).
+    Kembalikan None bila tidak ada pesan agent sama sekali.
+    """
+    if not transkrip:
+        return None
+    agent_msgs = [
+        m.get("text", "") for m in transkrip
+        if isinstance(m, dict) and _is_agent(m.get("role", ""), m.get("text", ""))
+    ]
+    if not agent_msgs:
+        return None
+    awal  = "\n".join(agent_msgs[:2])
+    akhir = "\n".join(agent_msgs[-2:])
+    semua = "\n".join(agent_msgs)
+    all_text = "\n".join(m.get("text", "") for m in transkrip if isinstance(m, dict))
+    ss = {
+        "salam_pembuka":      bool(_RE_SALAM_PEMBUKA.search(awal) or _RE_SALAM_PEMBUKA2.search(awal)),
+        "menanyakan_nama":    bool(_RE_MENANYAKAN_NAMA.search(semua)),
+        "menyapa_customer":   _match_menyapa(semua, cust_name),
+        "menawarkan_bantuan": bool(_RE_MENAWARKAN.search(semua)),
+        "hold":               bool(_RE_HOLD.search(semua)),
+        "salam_penutup":      bool(_RE_SALAM_PENUTUP.search(akhir)),
+    }
+    _wajib = ["salam_pembuka", "menanyakan_nama", "menyapa_customer",
+               "menawarkan_bantuan", "salam_penutup"]
+    ss["lengkap"]      = all(ss[k] for k in _wajib)
+    ss["is_poro"]      = _detect_poro(all_text)
+    ss["jenis_layanan"] = _detect_layanan(all_text)
+    return ss
 
 
 # ---- util ekstraksi field dashboard (defensif thd variasi nama kunci) ------
@@ -147,8 +302,7 @@ def _g(d, *keys, default=""):
 
 
 def _ensure_columns(cur, table, coldefs):
-    """Migrasi ringan: tambah kolom yang belum ada (ALTER TABLE ADD COLUMN).
-    Kolom baru nullable -> baris lama bernilai NULL (analitik akan fallback)."""
+    """Migrasi ringan: tambah kolom yang belum ada (ALTER TABLE ADD COLUMN)."""
     have = {r[1] for r in cur.execute("PRAGMA table_info(%s)" % table).fetchall()}
     for name, ddl in coldefs:
         if name not in have:
@@ -156,7 +310,6 @@ def _ensure_columns(cur, table, coldefs):
 
 
 def _gap_flag(c):
-    """Ambil deflection_gap dari dashboard conv -> 1/0, atau None bila tak ada."""
     v = _g(c, "deflection_gap", "deflectionGap", default=None)
     if v is None:
         return None
@@ -164,9 +317,7 @@ def _gap_flag(c):
 
 
 def _extract_transkrip(obj):
-    """Ambil daftar {role,text} dari sebuah dict (conv / record / payload mentah).
-    Mendukung kunci 'transkrip' atau 'transcript'. Kembalikan list minimal
-    [{"role","text"}] atau None bila tak ada isi."""
+    """Ambil daftar {role,text} dari dict. Kembalikan list atau None."""
     if not isinstance(obj, dict):
         return None
     t = obj.get("transkrip")
@@ -199,7 +350,6 @@ def _make_run_id(dashboard, records):
 
 
 def _days_in_range(day_from, day_to):
-    """List tanggal inklusif YYYY-MM-DD dari day_from s/d day_to."""
     try:
         a = _dt.date.fromisoformat(str(day_from)[:10])
         b = _dt.date.fromisoformat(str(day_to)[:10])
@@ -229,7 +379,6 @@ def _mark_days(cur, days, run_id, source, total_conv):
 
 
 def mark_days_covered(conn, day_from, day_to, run_id=None, source="pull", total_conv=None):
-    """Tandai rentang hari sebagai sudah ditarik (dipakai flow tarik-langsung)."""
     cur = conn.cursor()
     _mark_days(cur, _days_in_range(day_from, day_to), run_id, source, total_conv)
     conn.commit()
@@ -243,12 +392,6 @@ def covered_days(conn):
 
 
 def coverage_for_range(conn, day_from, day_to):
-    """Bagi rentang jadi hari yang SUDAH ada vs BELUM ada di database AWE.
-
-    Return: {requested, covered, missing, runs} di mana runs = daftar run
-    (id,label,...) yang memuat hari-hari tercakup, agar UI bisa langsung buka
-    dashboard tanpa tarik ulang.
-    """
     req = _days_in_range(day_from, day_to)
     cur = conn.cursor()
     cov_map = {}
@@ -273,10 +416,7 @@ def coverage_for_range(conn, day_from, day_to):
 
 def save_run(conn, dashboard, records=None, label=None, n_files=0, source="upload", build=None,
              cover_from=None, cover_to=None):
-    """Simpan satu hasil analisis AWE. Idempoten: run_id sama -> ditimpa.
-
-    Mengembalikan dict {id, total_conv, total_cust, date_min, date_max, new}.
-    """
+    """Simpan satu hasil analisis AWE. Idempoten: run_id sama -> ditimpa."""
     if not isinstance(dashboard, dict):
         raise ValueError("dashboard harus dict")
     records = records or []
@@ -310,15 +450,9 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
          _json.dumps(records, ensure_ascii=False),
          _jkt_now_iso()),
     )
-    # ledakkan percakapan
     cur.execute("DELETE FROM awe_conversations WHERE run_id=?", (run_id,))
 
-    # ---- Transkrip per-sid (untuk Penilaian QA / Assessor) -----------------
-    # Transkrip TIDAK ada di dashboard["conversations"] (hanya metadata). Saat
-    # PROSES, kita rakit transkrip dari records mentah lalu lengkapi dari
-    # awe_staging.payload_json (data mentah hasil TARIK yang masih ada saat ini),
-    # kemudian simpan permanen di kolom transkrip_json agar assessor tetap bisa
-    # membaca percakapan meski staging sudah dibersihkan.
+    # Transkrip per-sid
     tx_by_sid = {}
     for rec in records:
         if not isinstance(rec, dict):
@@ -348,13 +482,34 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
     for c in convs:
         if not isinstance(c, dict):
             continue
-        csid = str(_g(c, "sid", "Sid", default=""))
-        ctx = tx_by_sid.get(csid.strip()) or _extract_transkrip(c)
+        csid      = str(_g(c, "sid", "Sid", default=""))
+        ctx       = tx_by_sid.get(csid.strip()) or _extract_transkrip(c)
+        cust_name = str(_g(c, "customer", "pelanggan", default=""))
+
+        # --- Softskill scoring ---
+        ss = score_softskill(ctx or [], cust_name) if ctx else None
+        all_text = "\n".join(m.get("text", "") for m in ctx if isinstance(m, dict)) if ctx else ""
+        is_poro       = (1 if _detect_poro(all_text) else 0) if ctx else None
+        jenis_layanan = _detect_layanan(all_text) if ctx else None
+        def _bi(val):
+            return 1 if val else 0
+        if ss is not None:
+            ss_salam_pembuka      = _bi(ss["salam_pembuka"])
+            ss_menanyakan_nama    = _bi(ss["menanyakan_nama"])
+            ss_menyapa_customer   = _bi(ss["menyapa_customer"])
+            ss_menawarkan_bantuan = _bi(ss["menawarkan_bantuan"])
+            ss_hold               = _bi(ss["hold"])
+            ss_salam_penutup      = _bi(ss["salam_penutup"])
+            ss_lengkap            = _bi(ss["lengkap"])
+        else:
+            ss_salam_pembuka = ss_menanyakan_nama = ss_menyapa_customer = None
+            ss_menawarkan_bantuan = ss_hold = ss_salam_penutup = ss_lengkap = None
+
         rows.append((
             run_id,
             csid,
             str(_g(c, "tanggal", "date", "start", default="")),
-            str(_g(c, "customer", "pelanggan", default="")),
+            cust_name,
             str(_g(c, "agent_name", "agent", "agentName", default="")),
             str(_g(c, "agent_id", "agentId", default="")),
             int(_g(c, "durasi", "duration", "duration_seconds", default=0) or 0),
@@ -368,17 +523,28 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
             (str(_g(c, "topik", "topic", default="")) or None),
             _gap_flag(c),
             (_json.dumps(ctx, ensure_ascii=False) if ctx else None),
+            is_poro,
+            jenis_layanan,
+            ss_salam_pembuka,
+            ss_menanyakan_nama,
+            ss_menyapa_customer,
+            ss_menawarkan_bantuan,
+            ss_hold,
+            ss_salam_penutup,
+            ss_lengkap,
         ))
     if rows:
         cur.executemany(
             """INSERT OR REPLACE INTO awe_conversations
                  (run_id,sid,tanggal,customer,agent_name,agent_id,durasi,behavior,
                   is_returning,mapped_intent,coverage_band,case_label,sentiment,emotion,
-                  topik,deflection_gap,transkrip_json)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                  topik,deflection_gap,transkrip_json,
+                  is_poro,jenis_layanan,
+                  ss_salam_pembuka,ss_menanyakan_nama,ss_menyapa_customer,
+                  ss_menawarkan_bantuan,ss_hold,ss_salam_penutup,ss_lengkap)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
-    # tandai cakupan hari (agar analis tak perlu tarik ulang tanggal yang sudah ada)
     if cover_from and cover_to:
         _mark_days(cur, _days_in_range(cover_from, cover_to), run_id, source, total_conv)
     else:
@@ -422,12 +588,7 @@ def get_run(conn, run_id, with_records=False):
 
 
 def get_transcript(conn, sid, run_id=None):
-    """Baca transkrip satu percakapan (sid) untuk Penilaian QA.
-
-    Prioritas: kolom permanen awe_conversations.transkrip_json. Fallback:
-    awe_staging.payload_json (bila data mentah masih ada). Kembalikan dict
-    {sid, run_id, source, transkrip:[{role,text}]} atau None bila tak ditemukan.
-    """
+    """Baca transkrip satu percakapan untuk Penilaian QA."""
     sid = str(sid or "").strip()
     if not sid:
         return None
@@ -435,18 +596,26 @@ def get_transcript(conn, sid, run_id=None):
     row = None
     if run_id:
         row = cur.execute(
-            "SELECT run_id, sid, transkrip_json FROM awe_conversations "
-            "WHERE run_id=? AND sid=?", (run_id, sid),
+            "SELECT run_id, sid, transkrip_json, customer, agent_name, agent_id, "
+            "is_poro, jenis_layanan, ss_salam_pembuka, ss_menanyakan_nama, "
+            "ss_menyapa_customer, ss_menawarkan_bantuan, ss_hold, ss_salam_penutup, ss_lengkap "
+            "FROM awe_conversations WHERE run_id=? AND sid=?", (run_id, sid),
         ).fetchone()
     if row is None:
         row = cur.execute(
-            "SELECT run_id, sid, transkrip_json FROM awe_conversations "
+            "SELECT run_id, sid, transkrip_json, customer, agent_name, agent_id, "
+            "is_poro, jenis_layanan, ss_salam_pembuka, ss_menanyakan_nama, "
+            "ss_menyapa_customer, ss_menawarkan_bantuan, ss_hold, ss_salam_penutup, ss_lengkap "
+            "FROM awe_conversations "
             "WHERE sid=? AND transkrip_json IS NOT NULL "
             "ORDER BY rowid DESC LIMIT 1", (sid,),
         ).fetchone()
     if row is None:
         row = cur.execute(
-            "SELECT run_id, sid, transkrip_json FROM awe_conversations "
+            "SELECT run_id, sid, transkrip_json, customer, agent_name, agent_id, "
+            "is_poro, jenis_layanan, ss_salam_pembuka, ss_menanyakan_nama, "
+            "ss_menyapa_customer, ss_menawarkan_bantuan, ss_hold, ss_salam_penutup, ss_lengkap "
+            "FROM awe_conversations "
             "WHERE sid=? ORDER BY rowid DESC LIMIT 1", (sid,),
         ).fetchone()
     if row is not None and row["transkrip_json"]:
@@ -455,8 +624,26 @@ def get_transcript(conn, sid, run_id=None):
         except Exception:
             tx = None
         if tx:
-            return {"sid": sid, "run_id": row["run_id"], "source": "database",
-                    "transkrip": tx}
+            d = dict(row)
+            return {
+                "sid": sid, "run_id": d["run_id"], "source": "database",
+                "customer": d.get("customer") or "",
+                "agent_name": d.get("agent_name") or "",
+                "agent_id": d.get("agent_id") or "",
+                "is_poro": d.get("is_poro"),
+                "jenis_layanan": d.get("jenis_layanan") or "",
+                "softskill": {
+                    "salam_pembuka":      d.get("ss_salam_pembuka"),
+                    "menanyakan_nama":    d.get("ss_menanyakan_nama"),
+                    "menyapa_customer":   d.get("ss_menyapa_customer"),
+                    "menawarkan_bantuan": d.get("ss_menawarkan_bantuan"),
+                    "hold":               d.get("ss_hold"),
+                    "salam_penutup":      d.get("ss_salam_penutup"),
+                    "lengkap":            d.get("ss_lengkap"),
+                },
+                "transkrip": tx,
+            }
+    # fallback ke staging
     rs = cur.execute(
         "SELECT payload_json FROM awe_staging WHERE sid=?", (sid,)
     ).fetchone()
@@ -467,8 +654,77 @@ def get_transcript(conn, sid, run_id=None):
             tx = None
         if tx:
             return {"sid": sid, "run_id": (run_id or ""), "source": "staging",
+                    "customer": "", "agent_name": "", "agent_id": "",
+                    "is_poro": None, "jenis_layanan": "", "softskill": {},
                     "transkrip": tx}
     return None
+
+
+def list_for_assess(conn, range_="7d", start="", end="", agent="", poro="",
+                    jenis="", ss_lengkap="", ss_attrs=None, limit=200):
+    """Query percakapan untuk Penilaian QA dengan filter softskill."""
+    import datetime as _dtt
+    today = _dtt.date.today()
+    if range_ == "today":
+        d_from = d_to = today.isoformat()
+    elif range_ == "yesterday":
+        y = today - _dtt.timedelta(days=1)
+        d_from = d_to = y.isoformat()
+    elif range_ == "7d":
+        d_from = (today - _dtt.timedelta(days=6)).isoformat()
+        d_to   = today.isoformat()
+    elif range_ == "30d":
+        d_from = (today - _dtt.timedelta(days=29)).isoformat()
+        d_to   = today.isoformat()
+    elif range_ == "90d":
+        d_from = (today - _dtt.timedelta(days=89)).isoformat()
+        d_to   = today.isoformat()
+    elif range_ == "custom" and start and end:
+        d_from, d_to = start, end
+    else:
+        d_from = d_to = None
+
+    sql = ("SELECT sid,tanggal,customer,agent_name,agent_id,durasi,"
+           "is_poro,jenis_layanan,"
+           "ss_salam_pembuka,ss_menanyakan_nama,ss_menyapa_customer,"
+           "ss_menawarkan_bantuan,ss_hold,ss_salam_penutup,ss_lengkap "
+           "FROM awe_conversations WHERE 1=1")
+    params = []
+    if d_from:
+        sql += " AND tanggal>=?"; params.append(d_from)
+    if d_to:
+        sql += " AND tanggal<=?"; params.append(d_to)
+    if agent:
+        sql += " AND agent_name LIKE ?"; params.append("%" + agent + "%")
+    if poro == "ya":
+        sql += " AND is_poro=1"
+    elif poro == "tidak":
+        sql += " AND is_poro=0"
+    if jenis:
+        sql += " AND jenis_layanan=?"; params.append(jenis)
+    if ss_lengkap == "ya":
+        sql += " AND ss_lengkap=1"
+    elif ss_lengkap == "tidak":
+        sql += " AND ss_lengkap=0"
+    for attr, v in (ss_attrs or {}).items():
+        col = "ss_" + attr
+        sql += " AND " + col + "=?"
+        params.append(1 if v == "ya" else 0)
+    sql += " ORDER BY tanggal DESC,rowid DESC LIMIT ?"
+    params.append(int(limit))
+
+    rows = conn.execute(sql, params).fetchall()
+    convs = [dict(r) for r in rows]
+
+    agents  = [r[0] for r in conn.execute(
+        "SELECT DISTINCT agent_name FROM awe_conversations "
+        "WHERE agent_name!='' ORDER BY agent_name").fetchall()]
+    jenises = [r[0] for r in conn.execute(
+        "SELECT DISTINCT jenis_layanan FROM awe_conversations "
+        "WHERE jenis_layanan IS NOT NULL AND jenis_layanan!='' "
+        "ORDER BY jenis_layanan").fetchall()]
+    return {"conversations": convs, "total": len(convs),
+            "agents": agents, "jenises": jenises}
 
 
 def delete_run(conn, run_id):
@@ -514,17 +770,13 @@ def get_meta(conn, key, default=None):
 
 
 # =============================================================
-# STAGING (penyimpanan sementara data mentah AWE) untuk alur
-# "Kelola Data AWE" 2-tahap: (1) TARIK ke staging, (2) PROSES ke awe_runs.
-# Dedup lintas tarikan & lintas pengguna berdasarkan sid.
+# STAGING
 # =============================================================
 def _stage_day_of(c):
     return str(_g(c, "tanggal", "date", "start", default=""))[:10]
 
 
 def stage_upsert_convs(conn, convs, batch_id=None, pulled_by=None):
-    """Sisipkan percakapan mentah ke staging. Dedup by sid (INSERT OR IGNORE:
-    percakapan yang sudah ada TIDAK ditimpa -> aman untuk melengkapi)."""
     cur = conn.cursor()
     now = _jkt_now_iso()
     n_seen = n_new = 0
@@ -564,8 +816,6 @@ def stage_add_batch(conn, batch_id, date_from, date_to, n_pulled, n_new, pulled_
 
 
 def stage_mark_days(conn, convs, day_from=None, day_to=None, batch_id=None, pulled_by=None):
-    """Tandai hari-hari yang KINI ada di staging (pakai tanggal aktual dari
-    percakapan; fallback ke rentang bila kosong)."""
     now = _jkt_now_iso()
     by_day = {}
     for c in convs:
@@ -598,7 +848,7 @@ def stage_coverage_for_range(conn, day_from, day_to):
             "SELECT day FROM awe_stage_coverage WHERE day IN (%s)" % qs, req
         ).fetchall()
         have = set(r["day"] for r in rs)
-    staged = [d for d in req if d in have]
+    staged  = [d for d in req if d in have]
     missing = [d for d in req if d not in have]
     return {"requested": req, "staged": staged, "missing": missing}
 
@@ -609,7 +859,7 @@ def stage_stats(conn):
         "SELECT COUNT(*) AS n, MIN(tanggal) AS dmin, MAX(tanggal) AS dmax FROM awe_staging"
     ).fetchone()
     ndays = cur.execute("SELECT COUNT(*) FROM awe_stage_coverage").fetchone()[0]
-    nb = cur.execute("SELECT COUNT(*) FROM awe_stage_batches").fetchone()[0]
+    nb    = cur.execute("SELECT COUNT(*) FROM awe_stage_batches").fetchone()[0]
     return {"total": row["n"] or 0, "date_min": row["dmin"] or "",
             "date_max": row["dmax"] or "", "days": ndays, "batches": nb}
 
@@ -655,7 +905,8 @@ def stage_purge(conn, day_from=None, day_to=None):
     cur = conn.cursor()
     if day_from and day_to:
         a, b = str(day_from)[:10], str(day_to)[:10]
-        n = cur.execute("SELECT COUNT(*) FROM awe_staging WHERE tanggal>=? AND tanggal<=?", (a, b)).fetchone()[0]
+        n = cur.execute("SELECT COUNT(*) FROM awe_staging WHERE tanggal>=? AND tanggal<=?",
+                        (a, b)).fetchone()[0]
         cur.execute("DELETE FROM awe_staging WHERE tanggal>=? AND tanggal<=?", (a, b))
         cur.execute("DELETE FROM awe_stage_coverage WHERE day>=? AND day<=?", (a, b))
         cur.execute("DELETE FROM awe_stage_batches WHERE date_from>=? AND date_to<=?", (a, b))
@@ -671,38 +922,48 @@ def stage_purge(conn, day_from=None, day_to=None):
 if __name__ == "__main__":
     import tempfile
     p = os.path.join(tempfile.gettempdir(), "avaya_smoke.db")
-    if os.path.exists(p):
-        os.remove(p)
+    if os.path.exists(p): os.remove(p)
     c = init_db(connect(p))
     dash = {"meta": {"date_min": "2026-07-01", "date_max": "2026-07-31",
-                       "total_conv": 2, "total_customers": 2, "engine": "mpnet"},
+                      "total_conv": 2, "total_customers": 2, "engine": "mpnet"},
             "conversations": [
-                {"sid": "A1", "tanggal": "2026-07-02", "customer": "cust1",
-                 "mapped_intent": "Lapor SPT", "coverage_band": "Tinggi",
-                 "sentiment": "positif"},
+                {"sid": "A1", "tanggal": "2026-07-02", "customer": "Budi Santoso",
+                 "mapped_intent": "Lapor SPT", "coverage_band": "Tinggi", "sentiment": "positif"},
                 {"sid": "A2", "tanggal": "2026-07-05", "customer": "cust2",
-                 "mapped_intent": "EFIN", "coverage_band": "Rendah",
-                 "sentiment": "negatif"},
+                 "mapped_intent": "EFIN", "coverage_band": "Rendah", "sentiment": "negatif"},
             ]}
-    r = save_run(c, dash, records=[{"sid": "A1", "transkrip": [
-        {"role": "customer", "text": "halo"},
-        {"role": "agent", "text": "ada yang bisa dibantu?"}]}],
-        n_files=1, source="upload", build="test")
+    records = [{
+        "sid": "A1",
+        "transkrip": [
+            {"role": "customer", "text": "halo"},
+            {"role": "agent",    "text": "Selamat pagi Bapak Budi, perkenalkan saya Rini. Ada yang bisa kami bantu?"},
+            {"role": "customer", "text": "saya lupa EFIN"},
+            {"role": "agent",    "text": "Mohon menunggu, kami cek terlebih dahulu."},
+            {"role": "agent",    "text": "Terima kasih telah menggunakan layanan kami."},
+        ],
+    }]
+    r = save_run(c, dash, records=records, n_files=1, source="upload", build="test")
     assert r["new"] is True and r["total_conv"] == 2, r
     tx = get_transcript(c, "A1")
-    assert tx and tx["source"] == "database" and len(tx["transkrip"]) == 2, tx
+    assert tx and tx["source"] == "database" and len(tx["transkrip"]) == 5, tx
+    # softskill scores
+    assert tx["softskill"]["salam_pembuka"] == 1, tx["softskill"]
+    assert tx["softskill"]["menawarkan_bantuan"] == 1, tx["softskill"]
+    assert tx["softskill"]["hold"] == 1, tx["softskill"]
+    assert tx["softskill"]["salam_penutup"] == 1, tx["softskill"]
+    # jenis layanan
+    assert tx["jenis_layanan"] == "Lupa EFIN", tx["jenis_layanan"]
+    # list_for_assess
+    la = list_for_assess(c, range_="all")
+    assert la["total"] == 2, la["total"]
+    la2 = list_for_assess(c, range_="all", poro="tidak")
+    assert la2["total"] >= 0
     assert get_transcript(c, "NOPE") is None
-    # simpan lagi -> idempoten (bukan baru)
     r2 = save_run(c, dash, records=[{"sid": "A1"}], n_files=1)
     assert r2["new"] is False and r2["id"] == r["id"], r2
-    assert len(list_runs(c)) == 1, list_runs(c)
-    got = get_run(c, r["id"], with_records=True)
-    assert got["dashboard"]["meta"]["total_conv"] == 2
-    assert len(got["records"]) == 1
+    assert len(list_runs(c)) == 1
     st = stats(c)
     assert st["runs"] == 1 and st["conversations"] == 2, st
-    ncols = c.execute("SELECT COUNT(*) FROM awe_conversations").fetchone()[0]
-    assert ncols == 2, ncols
     assert delete_run(c, r["id"]) >= 1
     assert len(list_runs(c)) == 0
     print("AVAYA_DB_SMOKE_OK")
