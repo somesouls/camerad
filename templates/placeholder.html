@@ -1,7 +1,10 @@
 {% extends "base.html" %}
-{% block title %}{{ page_title }} · Camerad Studio{% endblock %}
+{% block title %}{% if active_page == 'awe_penilaian' %}Penilaian QA · AWE{% else %}{{ page_title }} · Camerad Studio{% endif %}{% endblock %}
 {% block main %}
 <div class="content-area"><div class="content-inner">
+{% if active_page == 'awe_penilaian' %}
+{% include "awe_penilaian.html" %}
+{% else %}
   <div style="max-width:900px;margin:0 auto;padding:28px 18px 80px;">
     <header style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
       <h1 style="font-size:20px;margin:0;">{{ page_title }}</h1>
@@ -11,5 +14,6 @@
       <p style="margin:0;color:var(--text-muted);">{{ page_desc }}</p>
     </div>
   </div>
+{% endif %}
 </div></div>
 {% endblock %}

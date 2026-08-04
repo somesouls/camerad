@@ -1,0 +1,216 @@
+<style>
+  .qa-wrap{max-width:1180px;margin:0 auto;padding:22px 26px 70px;}
+  .qa-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:14px;}
+  .qa-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+  .qa-sub{color:var(--text-muted,#8a8f98);font-size:12.5px;margin-top:4px;}
+  .qa-seg{display:flex;background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:12px;overflow:hidden;}
+  .qa-seg button{border:none;background:transparent;color:var(--text-muted,#8a8f98);padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;}
+  .qa-seg button.active{background:var(--accent-glow,rgba(90,120,255,.16));color:var(--accent,#5a78ff);}
+  .qa-cust{display:none;gap:6px;align-items:center;margin-top:8px;}
+  .qa-cust.show{display:flex;}
+  .qa-filters{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;align-items:center;}
+  .qa-filters select,.qa-filters input{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:10px;color:var(--text-main,#e8e9ec);padding:7px 9px;font-size:12px;}
+  .qa-count{color:var(--text-muted,#8a8f98);font-size:12px;margin-left:auto;}
+  .qa-btn{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:10px;padding:8px 13px;font-weight:600;cursor:pointer;font-size:12px;}
+  .qa-card{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:14px;padding:6px 4px;}
+  table.qa-tbl{width:100%;border-collapse:collapse;font-size:12px;}
+  table.qa-tbl th,table.qa-tbl td{padding:8px 9px;border-bottom:1px solid var(--panel-border,#2a2b30);text-align:left;white-space:nowrap;}
+  table.qa-tbl th{color:var(--text-muted,#8a8f98);font-weight:600;position:sticky;top:0;background:var(--panel-bg,#1b1c1f);}
+  .qa-tbl-wrap{max-height:620px;overflow:auto;}
+  .qa-pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;}
+  .qa-pill.gap{background:rgba(240,90,90,.16);color:#f2726f;}
+  .qa-pill.pos{background:rgba(70,190,120,.16);color:#46be78;}
+  .qa-pill.neg{background:rgba(240,90,90,.16);color:#f2726f;}
+  .qa-pill.net{background:rgba(140,150,170,.16);color:#9aa1af;}
+  .qa-link{color:var(--accent,#5a78ff);cursor:pointer;font-weight:700;}
+  .qa-muted{color:var(--text-muted,#8a8f98);}
+  .qa-loading{color:var(--text-muted,#8a8f98);padding:34px;text-align:center;}
+  .qa-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:900;padding:20px;}
+  .qa-ov.show{display:flex;}
+  .qa-modal{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:16px;width:100%;max-width:720px;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;}
+  .qa-modal header{padding:14px 18px;border-bottom:1px solid var(--panel-border,#2a2b30);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+  .qa-modal header h3{margin:0;font-size:15px;font-weight:800;}
+  .qa-modal .meta{font-size:11.5px;color:var(--text-muted,#8a8f98);margin-top:3px;}
+  .qa-x{border:none;background:transparent;color:var(--text-muted,#8a8f98);font-size:20px;cursor:pointer;line-height:1;}
+  .qa-body{padding:16px 18px;overflow:auto;}
+  .qa-msg{display:flex;margin:8px 0;}
+  .qa-msg .bub{max-width:78%;padding:9px 12px;border-radius:14px;font-size:12.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;}
+  .qa-msg .who{font-size:10.5px;font-weight:700;margin-bottom:3px;opacity:.75;}
+  .qa-msg.cust{justify-content:flex-start;}
+  .qa-msg.cust .bub{background:var(--panel-border,#2a2b30);color:var(--text-main,#e8e9ec);border-bottom-left-radius:4px;}
+  .qa-msg.agent{justify-content:flex-end;}
+  .qa-msg.agent .bub{background:var(--accent,#5a78ff);color:#fff;border-bottom-right-radius:4px;}
+  .qa-msg.other{justify-content:center;}
+  .qa-msg.other .bub{background:transparent;border:1px dashed var(--panel-border,#2a2b30);color:var(--text-muted,#8a8f98);font-size:11.5px;}
+</style>
+<div class="qa-wrap" id="qaRoot">
+  <div class="qa-head">
+    <div>
+      <h1 class="qa-title">Penilaian QA Agen</h1>
+      <div class="qa-sub" id="qaRange">Memuat…</div>
+    </div>
+    <div>
+      <div class="qa-seg" id="qaSeg">
+        <button data-r="today">Hari ini</button>
+        <button data-r="yesterday">Kemarin</button>
+        <button data-r="7d" class="active">7 hari</button>
+        <button data-r="30d">30 hari</button>
+        <button data-r="90d">90 hari</button>
+        <button data-r="all">Semua</button>
+        <button data-r="custom">Kustom</button>
+      </div>
+      <div class="qa-cust" id="qaCust">
+        <input type="date" id="qaStart"><span class="qa-muted">s/d</span><input type="date" id="qaEnd">
+        <button class="qa-btn" id="qaApply">Terapkan</button>
+      </div>
+    </div>
+  </div>
+  <div class="qa-filters" id="qaFilters">
+    <input type="text" id="fText" placeholder="Cari customer / agent / topik…" style="min-width:200px;">
+    <select id="fAgent"><option value="">Semua agent</option></select>
+    <select id="fSent"><option value="">Semua sentimen</option><option>Positif</option><option>Netral</option><option>Negatif</option></select>
+    <select id="fCov"><option value="">Semua coverage</option></select>
+    <select id="fCase"><option value="">Semua kasus</option></select>
+    <select id="fGap"><option value="">Gap: semua</option><option value="gap">Ada gap</option><option value="nogap">Tanpa gap</option></select>
+    <select id="fRet"><option value="">Semua pelanggan</option><option value="ret">Returning</option><option value="new">Baru</option></select>
+    <span class="qa-count" id="qaCount"></span>
+  </div>
+  <div class="qa-card"><div class="qa-tbl-wrap">
+    <table class="qa-tbl">
+      <thead><tr>
+        <th>Tanggal</th><th>Customer</th><th>Agent</th><th>Topik</th>
+        <th>Coverage</th><th>Kasus</th><th>Sentimen</th><th>Gap</th><th></th>
+      </tr></thead>
+      <tbody id="qaRows"><tr><td colspan="9" class="qa-loading">Memuat data…</td></tr></tbody>
+    </table>
+  </div></div>
+</div>
+<div class="qa-ov" id="qaOv">
+  <div class="qa-modal">
+    <header>
+      <div><h3 id="qaMTitle">Transkrip</h3><div class="meta" id="qaMMeta"></div></div>
+      <button class="qa-x" id="qaClose" title="Tutup">&times;</button>
+    </header>
+    <div class="qa-body" id="qaMBody"><div class="qa-loading">Memuat transkrip…</div></div>
+  </div>
+</div>
+<script>
+(function(){
+  var rows=document.getElementById('qaRows');
+  var rangeEl=document.getElementById('qaRange');
+  var countEl=document.getElementById('qaCount');
+  var state={range:'7d',start:'',end:''};
+  var all=[];
+  function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function opt(sel,vals){
+    var keep=sel.querySelector('option').outerHTML;
+    var extra=vals.map(function(v){return '<option>'+esc(v)+'</option>';}).join('');
+    sel.innerHTML=keep+extra;
+  }
+  function sentClass(s){s=(s||'').toLowerCase();if(s.indexOf('pos')===0)return 'pos';if(s.indexOf('neg')===0)return 'neg';return 'net';}
+  function uniq(arr){var m={},o=[];arr.forEach(function(x){x=(x||'').trim();if(x&&!m[x]){m[x]=1;o.push(x);}});o.sort();return o;}
+  function fillFilters(){
+    opt(document.getElementById('fAgent'),uniq(all.map(function(c){return c.agent_name;})));
+    opt(document.getElementById('fCov'),uniq(all.map(function(c){return c.coverage_band;})));
+    opt(document.getElementById('fCase'),uniq(all.map(function(c){return c.case_label;})));
+  }
+  function apply(){
+    var q=(document.getElementById('fText').value||'').toLowerCase();
+    var ag=document.getElementById('fAgent').value;
+    var se=document.getElementById('fSent').value;
+    var co=document.getElementById('fCov').value;
+    var ca=document.getElementById('fCase').value;
+    var ga=document.getElementById('fGap').value;
+    var re=document.getElementById('fRet').value;
+    var out=all.filter(function(c){
+      if(ag&&c.agent_name!==ag)return false;
+      if(se&&c.sentiment!==se)return false;
+      if(co&&c.coverage_band!==co)return false;
+      if(ca&&c.case_label!==ca)return false;
+      if(ga==='gap'&&!c.deflection_gap)return false;
+      if(ga==='nogap'&&c.deflection_gap)return false;
+      if(re==='ret'&&!c.is_returning)return false;
+      if(re==='new'&&c.is_returning)return false;
+      if(q){
+        var hay=((c.customer||'')+' '+(c.agent_name||'')+' '+(c.topik||'')+' '+(c.mapped_intent||'')+' '+(c.sid||'')).toLowerCase();
+        if(hay.indexOf(q)<0)return false;
+      }
+      return true;
+    });
+    render(out);
+  }
+  function render(list){
+    countEl.textContent=list.length+' / '+all.length+' percakapan';
+    if(!list.length){rows.innerHTML='<tr><td colspan="9" class="qa-muted" style="padding:22px;text-align:center;">Tidak ada percakapan sesuai filter.</td></tr>';return;}
+    rows.innerHTML=list.map(function(c){
+      var sc=sentClass(c.sentiment);
+      return '<tr>'+
+        '<td>'+esc(c.tanggal)+'</td>'+
+        '<td>'+esc(c.customer||'-')+'</td>'+
+        '<td>'+esc(c.agent_name||'-')+'</td>'+
+        '<td>'+esc(c.topik||'-')+'</td>'+
+        '<td>'+esc(c.coverage_band||'-')+'</td>'+
+        '<td>'+esc(c.case_label||'-')+'</td>'+
+        '<td><span class="qa-pill '+sc+'">'+esc(c.sentiment||'-')+'</span></td>'+
+        '<td>'+(c.deflection_gap?'<span class="qa-pill gap">gap</span>':'')+'</td>'+
+        '<td><span class="qa-link" data-sid="'+esc(c.sid)+'">Lihat</span></td>'+
+      '</tr>';
+    }).join('');
+  }
+  function load(){
+    rows.innerHTML='<tr><td colspan="9" class="qa-loading">Memuat data…</td></tr>';
+    var qs='range='+encodeURIComponent(state.range);
+    if(state.range==='custom'){qs+='&start='+encodeURIComponent(state.start)+'&end='+encodeURIComponent(state.end);}
+    fetch('/api/awe/analytics?'+qs).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok===false){rows.innerHTML='<tr><td colspan="9" class="qa-loading">Gagal memuat: '+esc(d.error||'')+'</td></tr>';return;}
+      all=(d.conversations||[]);
+      var mn=(d.meta&&d.meta.date_min)||(d.range&&d.range.start)||'—';
+      var mx=(d.meta&&d.meta.date_max)||(d.range&&d.range.end)||'—';
+      rangeEl.textContent='Rentang: '+mn+' s/d '+mx+' · '+all.length+' percakapan dimuat';
+      fillFilters(); apply();
+    }).catch(function(){rows.innerHTML='<tr><td colspan="9" class="qa-loading">Gagal memuat data.</td></tr>';});
+  }
+  ['fText','fAgent','fSent','fCov','fCase','fGap','fRet'].forEach(function(id){
+    var el=document.getElementById(id);
+    el.addEventListener(id==='fText'?'input':'change',apply);
+  });
+  var seg=document.getElementById('qaSeg'),cust=document.getElementById('qaCust');
+  seg.addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b)return;
+    Array.prototype.forEach.call(seg.children,function(x){x.classList.remove('active');});
+    b.classList.add('active'); state.range=b.getAttribute('data-r');
+    if(state.range==='custom'){cust.classList.add('show');}else{cust.classList.remove('show');load();}
+  });
+  document.getElementById('qaApply').addEventListener('click',function(){
+    state.start=document.getElementById('qaStart').value;
+    state.end=document.getElementById('qaEnd').value;
+    if(state.start&&state.end)load();
+  });
+  var ov=document.getElementById('qaOv'),mBody=document.getElementById('qaMBody'),mMeta=document.getElementById('qaMMeta'),mTitle=document.getElementById('qaMTitle');
+  function closeOv(){ov.classList.remove('show');mBody.innerHTML='<div class="qa-loading">Memuat transkrip…</div>';}
+  document.getElementById('qaClose').addEventListener('click',closeOv);
+  ov.addEventListener('click',function(e){if(e.target===ov)closeOv();});
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')closeOv();});
+  rows.addEventListener('click',function(e){
+    var el=e.target.closest('.qa-link'); if(!el)return;
+    var sid=el.getAttribute('data-sid');
+    var c=null; for(var i=0;i<all.length;i++){if(String(all[i].sid)===String(sid)){c=all[i];break;}}
+    mTitle.textContent='Transkrip percakapan';
+    mMeta.textContent=c?((c.customer||'-')+' · '+(c.agent_name||'-')+' · '+(c.tanggal||'')+' · '+(c.sentiment||'')):('SID '+sid);
+    ov.classList.add('show');
+    mBody.innerHTML='<div class="qa-loading">Memuat transkrip…</div>';
+    fetch('/api/awe/assess/transcript?sid='+encodeURIComponent(sid)).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok===false){mBody.innerHTML='<div class="qa-loading">Gagal: '+esc(d.error||'')+'</div>';return;}
+      var tx=(d&&d.transkrip)||[];
+      if(!tx.length){mBody.innerHTML='<div class="qa-loading">'+esc((d&&d.note)||'Transkrip tidak tersedia.')+'</div>';return;}
+      mBody.innerHTML=tx.map(function(m){
+        var role=(m.role||'').toLowerCase();
+        var cls=(role.indexOf('cust')>=0||role.indexOf('user')>=0||role.indexOf('pelanggan')>=0)?'cust':((role.indexOf('agent')>=0||role.indexOf('bot')>=0||role.indexOf('cs')>=0)?'agent':'other');
+        var who=m.role?esc(m.role):(cls==='cust'?'Customer':(cls==='agent'?'Agent':''));
+        return '<div class="qa-msg '+cls+'"><div class="bub">'+(who?'<div class="who">'+who+'</div>':'')+esc(m.text)+'</div></div>';
+      }).join('');
+    }).catch(function(){mBody.innerHTML='<div class="qa-loading">Gagal memuat transkrip.</div>';});
+  });
+  load();
+})();
+</script>
