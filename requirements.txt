@@ -28,8 +28,25 @@ pandas
 numpy
 
 # PyTorch: instal manual sesuai mesin Anda!
-#   CPU  : pip install torch
-#   CUDA : ikuti https://pytorch.org/get-started/locally/
+# PENTING: JANGAN pakai 'torch' polos di server ber-GPU. pip default menarik
+# build CPU-only, sehingga SBERT + BGE reranker (Step 4/7/8) jalan di CPU,
+# jauh lebih lambat, dan bisa memicu read timeout di frontend.
+#
+#   GPU / CUDA (DISARANKAN -- mesin ini memakai GPU lokal):
+#     pip uninstall -y torch
+#     pip install torch --index-url https://download.pytorch.org/whl/cu121
+#     (ganti cu121 -> cu124 / cu118 menyesuaikan driver; cek via: nvidia-smi)
+#
+#   CPU saja (tanpa GPU):
+#     pip install torch
+#
+#   Verifikasi build:
+#     python -c "import torch; print(torch.__version__, torch.version.cuda, torch.cuda.is_available())"
+#     -> torch.cuda.is_available() harus True bila GPU terpakai.
+#
+#   Opsional: set env PIPELINE_TORCH_CUDA=cu121 agar backend meng-install
+#   torch CUDA secara otomatis saat start (lihat blok auto-install di
+#   llm_fix_final_combined.py).
 # torch
 
 # Templating base.html (Jinja2)
