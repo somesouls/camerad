@@ -1,0 +1,52 @@
+============================================================
+KONFIRMASI + PERBAIKAN: pemakaian database pengetahuan di STEP 8
+============================================================
+
+PERTANYAAN: Apakah judgement AI STEP 8 benar-benar memakai Glosarium,
+Disambiguasi, dan Peta Intent & Maksud Analis?
+
+TEMUAN (setelah cek kode + replay logika match pada 2 baris contoh):
+------------------------------------------------------------
+WIRING SUDAH BENAR:
+  run_mkta_verdict() -> kctx.build_analysis_context(user) -> disuntik ke
+  {konteks_analis} pada MKTA_VERDICT_PROMPT (header "ACUAN BENAR").
+  build_analysis_context menggabungkan hasil match() dari glossary_db,
+  disambig_db, intentmap_db (+ katalog intent).
+
+TAPI RETRIEVAL-nya RAPUH -> untuk sebagian baris konteks KOSONG:
+  Baris "lupa email dan pasword":
+     glosarium=KOSONG, disambig=KOSONG, intentmap=KOSONG
+     => LLM memutus TANPA pengetahuan (murni nalar umum).
+  Baris "lupa efin tapi belum aktivasi":
+     glosarium=EFIN, disambig=aktivasi, intentmap=EFIN => konteks ADA.
+
+PENYEBAB baris pertama lolos tanpa pengetahuan:
+  1. Salah ketik: "pasword" != "password" -> semua cocokan gagal.
+  2. disambig.match HANYA substring persis (tidak toleran urutan/sisipan kata),
+     jadi "lupa email dan pasword" tak memuat substring "lupa password".
+  3. Ambang token 60% di glosarium/intentmap terlalu ketat utk utterance nyata.
+
+PERBAIKAN (fix_knowledge_match.py):
+  1. disambig.match dijadikan token-aware (disamakan dgn glosarium/intentmap).
+  2. Ketiga pustaka jadi toleran salah ketik ringan (mis. pasword~password)
+     via difflib untuk token >= 5 huruf (cutoff 0.84).
+  Hasil uji: kedua baris contoh kini SAMA-SAMA mendapat konteks pengetahuan.
+
+CARA VERIFIKASI EMPIRIS (tanpa tebak-tebakan):
+  knowledge_ctx mencatat setiap pemakaian entri ke "Statistik Pemakaian
+  Pustaka" (pustaka_stats). Kalau sebuah baris menghasilkan 0 hit di sana,
+  berarti pengetahuan memang tidak terpakai utk baris itu.
+
+CARA PAKAI fix_knowledge_match.py (di server, folder berisi *_db.py):
+    python fix_knowledge_match.py
+  - mem-patch glossary_db.py, disambig_db.py, intentmap_db.py
+  - membuat backup .bak, aman diulang (deteksi bila sudah dipatch)
+  - py_compile otomatis; script berhenti aman bila anchor tak cocok
+  Lalu upload ketiga file itu ke GitHub, git pull di server, restart backend,
+  jalankan ulang Step 8.
+
+CATATAN KETERBATASAN:
+  Ini perbaikan berbasis keyword (cepat & stdlib). Untuk retrieval yang benar-
+  benar tahan-banting terhadap parafrase, langkah berikutnya adalah memakai
+  SBERT (yang sudah ada di pipeline) sebagai pencari entri pustaka. Bisa
+  dikerjakan sebagai peningkatan lanjutan bila diperlukan.
