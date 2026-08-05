@@ -199,14 +199,21 @@ _PORO_FIELDS = [
     _re.compile(r'alamat\b.{0,25}(tinggal|terdaftar)', _re.I | _re.S),
 ]
 _LAYANAN = [
-    (_re.compile(r'lupa\s*efin', _re.I), "Lupa EFIN"),
-    (_re.compile(r'aktivasi\s+efin', _re.I), "Aktivasi EFIN"),
-    (_re.compile(r'(perubahan|pemutakhiran|pembaruan)\s+data|\bpdmnpwp\b', _re.I), "Perubahan Data"),
-    (_re.compile(r'aktivasi\s+(akun|coretax)', _re.I), "Aktivasi Akun"),
-    (_re.compile(r'cetak\s+(ulang\s+)?npwp', _re.I), "Cetak NPWP"),
+    # Urutan = prioritas (first-match). Pola spesifik diletakkan di atas pola umum.
+    (_re.compile(r'lupa\s*efin|(lupa|hilang|tidak\s+tahu|nggak?\s+tau|ga\s+tau|belum\s+punya).{0,15}efin|efin.{0,15}(lupa|hilang|tidak\s+tahu)', _re.I | _re.S), "Lupa EFIN"),
+    (_re.compile(r'aktivasi\s+efin|permohonan\s+efin|efin.{0,15}(belum\s+aktif|aktivasi|permohonan|minta|daftar)', _re.I | _re.S), "Aktivasi EFIN"),
+    (_re.compile(r'(perubahan|pemutakhiran|pembaruan|ubah|mengubah|update|ganti|mengganti)\s+(data|e-?mail|email|nomor\s+(hp|handphone|telepon|telpon|ponsel)|no\.?\s*(hp|telp)|alamat|kontak)|\bpdmnpwp\b', _re.I | _re.S), "Perubahan Data"),
+    (_re.compile(r'aktivasi\s+(akun|coretax)|akun\s+coretax.{0,15}(aktif|aktivasi)', _re.I | _re.S), "Aktivasi Akun"),
+    (_re.compile(r'(lupa|reset|ubah|atur\s+ulang|mengatur\s+ulang)\s+(kata\s+sandi|password|sandi|kata\s+kunci)', _re.I | _re.S), "Reset/Lupa Password"),
+    (_re.compile(r'(lapor|pelaporan|melaporkan|mengisi|pengisian)\s+spt|spt\s+(tahunan|masa)|e-?filing', _re.I | _re.S), "Pelaporan SPT/e-Filing"),
+    (_re.compile(r'kode\s+billing|e-?billing|(buat|bikin|membuat|generate)\s+.{0,12}billing|\bntpn\b|(bayar|pembayaran)\s+pajak', _re.I | _re.S), "Pembayaran/Kode Billing"),
+    (_re.compile(r'e-?faktur|faktur\s+pajak|e-?nofa|nomor\s+seri\s+faktur|\bnsfp\b', _re.I | _re.S), "Faktur Pajak/e-Faktur"),
+    (_re.compile(r'sertifikat\s+elektronik|\bsertel\b|passphrase', _re.I), "Sertifikat Elektronik"),
+    (_re.compile(r'cetak\s+(ulang\s+)?(kartu\s+)?npwp', _re.I), "Cetak NPWP"),
     (_re.compile(r'kode\s+otorisasi', _re.I), "Kode Otorisasi DJP"),
-    (_re.compile(r'(penonaktifan|mengaktifkan\s+kembali).{0,10}npwp|npwp\s+non\s*efektif', _re.I),
-     "Aktivasi/Nonaktif NPWP"),
+    (_re.compile(r'(penonaktifan|non\s*efektif|nonaktif|mengaktifkan\s+kembali|aktifkan\s+kembali).{0,20}npwp|npwp.{0,20}(non\s*efektif|nonaktif|penonaktifan|\bne\b)', _re.I | _re.S), "Aktivasi/Nonaktif NPWP"),
+    (_re.compile(r'(daftar|pendaftaran|mendaftar|buat|membuat|registrasi|bikin)\s+npwp|npwp\s+baru', _re.I | _re.S), "Pendaftaran NPWP"),
+    (_re.compile(r'pengukuhan\s+(pkp|pengusaha)|pengusaha\s+kena\s+pajak', _re.I), "PKP"),
 ]
 _BOT_ROLES  = {'bot', 'ccai', 'chatbot', 'virtual assistant'}
 _CUST_ROLES = {'customer', 'cust', 'pelanggan', 'user'}
