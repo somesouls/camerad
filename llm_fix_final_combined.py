@@ -143,6 +143,20 @@ if os.environ.get("PIPELINE_NO_INSTALL", "0") != "1":
 else:
     print("[1/4] Lewati auto-install (PIPELINE_NO_INSTALL=1).")
 
+# Opsional: (re)install PyTorch build CUDA agar GPU lokal terpakai. Set
+# PIPELINE_TORCH_CUDA ke tag wheel CUDA resmi, mis. "cu121", "cu124", atau
+# "cu118" (sesuaikan dengan driver NVIDIA Anda). Kosong = lewati. Berguna bila
+# torch yang terpasang ternyata build CPU-only.
+_torch_cuda_tag = os.environ.get("PIPELINE_TORCH_CUDA", "").strip().lower()
+if _torch_cuda_tag:
+    print(f"[1/4] (Re)install PyTorch CUDA ({_torch_cuda_tag})...")
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install", "-q", "--upgrade",
+        "--index-url", f"https://download.pytorch.org/whl/{_torch_cuda_tag}",
+        "torch",
+    ])
+    importlib.invalidate_caches()
+
 import torch
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
@@ -196,11 +210,41 @@ PORT = int(os.environ.get("PIPELINE_PORT", str(PORT)))
 
 # Auto-deteksi perangkat untuk model lokal (SBERT/reranker/NLI/QA):
 # pakai GPU CUDA bila ada, kalau tidak jalan di CPU.
-if torch.cuda.is_available():
-    print("GPU:", torch.cuda.get_device_name(0), flush=True)
-else:
-    print("Perangkat: CPU (GPU CUDA tidak terdeteksi). Model lokal tetap "
-          "jalan namun lebih lambat.", flush=True)
+def _torch_build_info():
+    cuda_build = getattr(torch.version, "cuda", None)
+    return (f"torch {torch.__version__} "
+            f"(build CUDA: {cuda_build or 'TIDAK ADA / CPU-only'})")
+
+
+def _print_device_status():
+    """Status perangkat + diagnosa bila GPU lokal tidak terpakai (bukan Colab)."""
+    if torch.cuda.is_available():
+        print("GPU:", torch.cuda.get_device_name(0), "|",
+              _torch_build_info(), flush=True)
+        return
+    cuda_build = getattr(torch.version, "cuda", None)
+    print("Perangkat: CPU - GPU CUDA TIDAK terdeteksi. Model lokal tetap "
+          "jalan namun JAUH lebih lambat.", flush=True)
+    print("  Diagnosa:", _torch_build_info(), flush=True)
+    if not cuda_build:
+        print("  Penyebab paling umum: PyTorch yang terpasang adalah build "
+              "CPU-only (nama versi berakhiran '+cpu').", flush=True)
+        print("  Solusi (di venv lokal; ganti cu121 -> cu124/cu118 sesuai "
+              "driver NVIDIA):", flush=True)
+        print("    pip uninstall -y torch", flush=True)
+        print("    pip install torch --index-url "
+              "https://download.pytorch.org/whl/cu121", flush=True)
+        print("  Atau set PIPELINE_TORCH_CUDA=cu121 lalu jalankan ulang Step 4.",
+              flush=True)
+    else:
+        print("  Penyebab: PyTorch build CUDA terpasang tetapi runtime tidak "
+              "melihat GPU (driver NVIDIA belum aktif, atau "
+              "CUDA_VISIBLE_DEVICES kosong).", flush=True)
+        print("  Cek: jalankan 'nvidia-smi' dan pastikan driver NVIDIA aktif.",
+              flush=True)
+
+
+_print_device_status()
 
 # Inisialisasi client LLM cloud sejak awal (validasi kunci API).
 try:
@@ -1632,9 +1676,10 @@ def run_fallback_analysis(file_main, file_training, file_content):
     print(f"\nDevice: {device}")
     if device.type == "cpu":
         print(
-            "PERINGATAN: BGE reranker di CPU akan jauh lebih lambat. "
-            "Di Colab pilih Runtime > Change runtime type > GPU."
+            "PERINGATAN: BGE reranker di CPU akan JAUH lebih lambat dan bisa "
+            "memicu read timeout di frontend. GPU lokal tidak terpakai."
         )
+        _print_device_status()
 
     mpnet_batch_size = (
         MPNET_BATCH_SIZE_GPU if device.type == "cuda" else MPNET_BATCH_SIZE_CPU
