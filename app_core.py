@@ -71,6 +71,8 @@ def _page_user_ctx(request):
         "can_awe_manage": usr.area_allowed(role_key, "awe_manage"),
         "can_assess": usr.area_allowed(role_key, "assess"),
         "can_users": usr.area_allowed(role_key, "users"),
+        "can_sosmed": usr.area_allowed(role_key, "common"),
+        "can_sosmed_manage": usr.area_allowed(role_key, "awe_manage"),
     }
 
 
@@ -88,6 +90,11 @@ _PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ic
 def _route_action(method, path):
     if path == "/users" or path.startswith("/api/users"):
         return "admin"
+    if (path.startswith("/api/sosmed/import") or path.startswith("/api/sosmed/pull")
+            or path == "/api/sosmed/purge"):
+        return "ingest"
+    if path == "/api/sosmed/status" or path == "/api/sosmed/topik":
+        return "edit"
     if path.startswith("/api/awe/assess") or path.startswith("/api/assess"):
         return "assess"
     if path in ("/api/intentmap/approve", "/api/intentmap/describe", "/api/intentmap/describe/start", "/api/intentmap/describe/stop"):
@@ -111,6 +118,11 @@ def _route_area(path):
         return "assess"
     if path == "/awe" or path.startswith("/awe/") or path.startswith("/api/awe"):
         return "awe"
+    if (path == "/sosmed/kelola" or path.startswith("/api/sosmed/import")
+            or path.startswith("/api/sosmed/pull") or path == "/api/sosmed/purge"):
+        return "awe_manage"
+    if path == "/sosmed" or path.startswith("/sosmed/") or path.startswith("/api/sosmed"):
+        return "common"
     if (path == "/" or path == "/studio" or path.startswith("/api/ask")
             or path.startswith("/api/config") or path.startswith("/api/chat")
             or path.startswith("/api/studio")):

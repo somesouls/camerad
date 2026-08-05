@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Inbox Q&A · Sosmed{% endblock %}
+{% block head %}
+<style>
+.sm-wrap{max-width:1240px;margin:0 auto;padding:22px 26px 60px;}
+.sm-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+.sm-sub{color:var(--text-muted);font-size:12.5px;margin-top:4px;max-width:720px;}
+.seg{display:flex;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;overflow:hidden;flex-wrap:wrap;margin-top:6px;}
+.seg button{border:none;background:transparent;color:var(--text-muted);padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;}
+.seg button.active{background:var(--accent-glow);color:var(--accent);}
+.fp{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:12px 14px;margin:14px 0;}
+.fr{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;}
+.fld{display:flex;flex-direction:column;gap:4px;}
+.fld label{font-size:11px;font-weight:600;color:var(--text-muted);}
+.fld select,.fld input{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:8px;color:var(--text-main);padding:7px 9px;font-size:12px;min-width:120px;}
+.fld.grow{flex:1;min-width:180px;}.fld.grow input{width:100%;min-width:0;}
+.cust-range{display:none;gap:6px;align-items:center;margin-top:8px;}.cust-range.show{display:flex;}
+.cust-range input{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:8px;color:var(--text-main);padding:6px 8px;font-size:12px;}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:8px 15px;font-weight:600;cursor:pointer;font-size:12px;}
+.btn.ghost{background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);}
+.card{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:12px 14px;margin-bottom:10px;cursor:pointer;transition:.12s;}
+.card:hover{border-color:var(--accent);}
+.card .top{display:flex;justify-content:space-between;gap:10px;align-items:center;}
+.hd{font-weight:700;font-size:12.5px;}
+.muted{color:var(--text-muted);font-size:11.5px;}
+.txt{margin:7px 0 0;font-size:13px;line-height:1.5;}
+.badge{font-size:10.5px;font-weight:700;padding:3px 8px;border-radius:20px;white-space:nowrap;}
+.b-x{background:rgba(29,155,240,.15);color:#1d9bf0;}.b-ig{background:rgba(214,41,118,.14);color:#d62976;}.b-tiktok{background:rgba(120,120,120,.18);color:var(--text-main);}
+.st-belum_terjawab{background:rgba(239,83,80,.14);color:#ef5350;}.st-terjawab{background:rgba(38,166,91,.15);color:#2ea86a;}.st-pending{background:rgba(240,173,78,.16);color:#e0932f;}.st-diabaikan{background:rgba(120,120,120,.16);color:var(--text-muted);}
+.se-negatif{color:#ef5350;}.se-positif{color:#2ea86a;}.se-netral{color:var(--text-muted);}
+.tag{font-size:10.5px;background:var(--bg-base);border:1px solid var(--panel-border);border-radius:6px;padding:2px 7px;color:var(--text-muted);margin-right:5px;}
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:60;padding:20px;}
+.ov.show{display:flex;}
+.box{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:16px;max-width:720px;width:100%;max-height:86vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+.box .h{padding:14px 18px;border-bottom:1px solid var(--panel-border);display:flex;justify-content:space-between;align-items:center;}
+.box .h b{font-size:15px;}
+.box .bd{padding:16px 18px;overflow:auto;background:var(--bg-base);}
+.box .ft{padding:12px 18px;border-top:1px solid var(--panel-border);display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.x{cursor:pointer;color:var(--text-muted);font-size:20px;border:none;background:none;}
+.bub{max-width:78%;padding:9px 13px;border-radius:14px;margin:8px 0;font-size:13px;line-height:1.5;position:relative;}
+.bub .who{font-size:10.5px;font-weight:700;opacity:.8;margin-bottom:3px;}
+.bub .tm{font-size:10px;opacity:.6;margin-top:4px;}
+.cust{background:rgba(38,166,91,.16);border:1px solid rgba(38,166,91,.3);margin-right:auto;border-bottom-left-radius:4px;}
+.off{background:rgba(29,155,240,.16);border:1px solid rgba(29,155,240,.3);margin-left:auto;border-bottom-right-radius:4px;}
+.sel{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:8px;color:var(--text-main);padding:7px 9px;font-size:12px;}
+.empty{color:var(--text-muted);text-align:center;padding:40px;font-size:13px;}
+</style>
+{% endblock %}
+{% block content %}
+<div class="sm-wrap">
+  <h1 class="sm-title">Inbox &amp; Daftar Q&amp;A</h1>
+  <p class="sm-sub">Pertanyaan warga dari media sosial, otomatis diklasifikasi jenis layanan &amp; sentimen, serta ditandai apakah sudah dijawab akun resmi. Klik kartu untuk melihat utas percakapan.</p>
+
+  <div class="seg" id="segRange">
+    <button data-r="all" class="active">Semua</button><button data-r="today">Hari ini</button>
+    <button data-r="yesterday">Kemarin</button><button data-r="7d">7 hari</button>
+    <button data-r="30d">30 hari</button><button data-r="90d">90 hari</button>
+    <button data-r="custom">Rentang…</button>
+  </div>
+  <div class="cust-range" id="custRange"><input type="date" id="cStart"><span class="muted">s/d</span><input type="date" id="cEnd"><button class="btn" id="cApply">Terapkan</button></div>
+
+  <div class="fp"><div class="fr">
+    <div class="fld"><label>Platform</label><select id="fPlatform"><option value="">Semua</option><option value="x">X</option><option value="ig">Instagram</option><option value="tiktok">TikTok</option></select></div>
+    <div class="fld"><label>Jenis layanan</label><select id="fTopik"><option value="">Semua</option></select></div>
+    <div class="fld"><label>Status</label><select id="fStatus"><option value="">Semua</option><option value="belum_terjawab">Belum terjawab</option><option value="terjawab">Terjawab</option><option value="pending">Pending</option><option value="diabaikan">Diabaikan</option></select></div>
+    <div class="fld"><label>Sentimen</label><select id="fSent"><option value="">Semua</option><option value="negatif">Negatif</option><option value="positif">Positif</option><option value="netral">Netral</option></select></div>
+    <div class="fld"><label>Hanya pertanyaan</label><select id="fOnlyQ"><option value="1">Ya</option><option value="">Tidak</option></select></div>
+    <div class="fld grow"><label>Cari teks / handle</label><input id="fQ" placeholder="kata kunci…"></div>
+    <button class="btn" id="btnGo">Terapkan</button>
+    <button class="btn ghost" id="btnReset">Reset</button>
+  </div></div>
+
+  <div class="muted" id="count" style="margin-bottom:8px;"></div>
+  <div id="list"><div class="empty">Memuat…</div></div>
+</div>
+
+<div class="ov" id="ov"><div class="box">
+  <div class="h"><b id="ovTitle">Detail percakapan</b><button class="x" id="ovClose">×</button></div>
+  <div class="bd" id="ovBody"></div>
+  <div class="ft">
+    <span class="muted">Status:</span>
+    <select class="sel" id="ovStatus"><option value="belum_terjawab">Belum terjawab</option><option value="terjawab">Terjawab</option><option value="pending">Pending</option><option value="diabaikan">Diabaikan</option></select>
+    <button class="btn" id="ovSave">Simpan status</button>
+    <a class="btn ghost" id="ovLink" target="_blank" style="text-decoration:none;">Buka di platform</a>
+  </div>
+</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $=s=>document.querySelector(s);
+let RANGE='all',CS='',CE='',CURR=null;
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+async function jget(u){const r=await fetch(u);return r.json();}
+async function jpost(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return r.json();}
+function rt(s){if(s==null)return '';if(s<60)return s+'s';if(s<3600)return Math.round(s/60)+'m';return Math.round(s/360)/10+'j';}
+
+document.querySelectorAll('#segRange button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#segRange button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');RANGE=b.dataset.r;
+  $('#custRange').classList.toggle('show',RANGE==='custom');
+  if(RANGE!=='custom')load();
+});
+$('#cApply').onclick=()=>{CS=$('#cStart').value;CE=$('#cEnd').value;load();};
+$('#btnGo').onclick=load;$('#btnReset').onclick=()=>{
+  $('#fPlatform').value='';$('#fTopik').value='';$('#fStatus').value='';$('#fSent').value='';$('#fOnlyQ').value='1';$('#fQ').value='';load();
+};
+
+function q(){
+  const p=new URLSearchParams();
+  p.set('range',RANGE);if(RANGE==='custom'){p.set('start',CS);p.set('end',CE);}
+  const g=(id)=>$(id).value;
+  if(g('#fPlatform'))p.set('platform',g('#fPlatform'));
+  if(g('#fTopik'))p.set('topik',g('#fTopik'));
+  if(g('#fStatus'))p.set('status',g('#fStatus'));
+  if(g('#fSent'))p.set('sentiment',g('#fSent'));
+  p.set('only_questions',g('#fOnlyQ')?'1':'');
+  if(g('#fQ'))p.set('q',g('#fQ'));
+  p.set('limit','300');
+  return p.toString();
+}
+async function load(){
+  $('#list').innerHTML='<div class="empty">Memuat…</div>';
+  const d=await jget('/api/sosmed/list?'+q());
+  if(!d.ok){$('#list').innerHTML='<div class="empty">Gagal memuat.</div>';return;}
+  const ft=$('#fTopik');if(ft.options.length<=1&&d.topiks){d.topiks.forEach(t=>{const o=document.createElement('option');o.value=t;o.textContent=t;ft.appendChild(o);});}
+  $('#count').textContent=d.total+' item';
+  if(!d.items.length){$('#list').innerHTML='<div class="empty">Tidak ada item untuk filter ini.</div>';return;}
+  $('#list').innerHTML=d.items.map(it=>{
+    const pc={x:'b-x',ig:'b-ig',tiktok:'b-tiktok'}[it.platform]||'b-tiktok';
+    const tags=(it.topik?`<span class="tag">${esc(it.topik)}</span>`:'')+`<span class="tag se-${it.sentiment}">${it.sentiment||'netral'}</span>`+(it.response_time_s!=null?`<span class="tag">balas ${rt(it.response_time_s)}</span>`:'');
+    return `<div class="card" data-p="${it.platform}" data-c="${esc(it.conversation_id)}" data-id="${it.id}" data-link="${esc(it.permalink||'')}" data-status="${it.status}">
+      <div class="top"><span class="hd">@${esc(it.author_handle)||'-'} <span class="muted">· ${esc(it.author_name)||''}</span></span>
+      <span><span class="badge ${pc}">${it.platform}</span> <span class="badge st-${it.status}">${(it.status||'').replace('_',' ')}</span></span></div>
+      <p class="txt">${esc((it.text||'').slice(0,280))}</p>
+      <div style="margin-top:7px;">${tags}<span class="muted">${esc(it.created_at||'')}</span></div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('.card').forEach(c=>c.onclick=()=>openThread(c.dataset));
+}
+
+async function openThread(ds){
+  CURR=ds;
+  $('#ovBody').innerHTML='<div class="empty">Memuat…</div>';
+  $('#ov').classList.add('show');
+  $('#ovStatus').value=ds.status||'belum_terjawab';
+  $('#ovLink').href=ds.link||'#';$('#ovLink').style.display=ds.link?'inline-block':'none';
+  const d=await jget('/api/sosmed/thread?platform='+encodeURIComponent(ds.p)+'&conversation_id='+encodeURIComponent(ds.c));
+  if(!d||!d.ok){$('#ovBody').innerHTML='<div class="empty">Utas tidak ditemukan.</div>';return;}
+  $('#ovTitle').textContent='Utas · '+ds.p.toUpperCase()+' · '+d.n+' pesan';
+  $('#ovBody').innerHTML=d.items.map(it=>{
+    const off=it.is_official==1;
+    return `<div class="bub ${off?'off':'cust'}"><div class="who">${off?'✓ ':''}@${esc(it.author_handle)||'-'}</div>${esc(it.text)}<div class="tm">${esc(it.created_at||'')}${it.topik?' · '+esc(it.topik):''}</div></div>`;
+  }).join('');
+}
+$('#ovClose').onclick=()=>$('#ov').classList.remove('show');
+$('#ov').onclick=e=>{if(e.target.id==='ov')$('#ov').classList.remove('show');};
+$('#ovSave').onclick=async()=>{
+  if(!CURR)return;const r=await jpost('/api/sosmed/status',{id:parseInt(CURR.id),status:$('#ovStatus').value});
+  if(r.ok){$('#ov').classList.remove('show');load();}
+};
+load();
+</script>
+{% endblock %}

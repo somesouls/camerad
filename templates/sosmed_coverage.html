@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Coverage & SLA · Sosmed{% endblock %}
+{% block head %}
+<style>
+.sm-wrap{max-width:1080px;margin:0 auto;padding:22px 26px 60px;}
+.sm-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+.sm-sub{color:var(--text-muted);font-size:12.5px;margin-top:4px;max-width:720px;}
+.seg{display:flex;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;overflow:hidden;flex-wrap:wrap;margin:14px 0;}
+.seg button{border:none;background:transparent;color:var(--text-muted);padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;}
+.seg button.active{background:var(--accent-glow);color:var(--accent);}
+.fld{display:inline-flex;flex-direction:column;gap:4px;margin-right:10px;}
+.fld label{font-size:11px;font-weight:600;color:var(--text-muted);}
+.fld select{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:8px;color:var(--text-main);padding:7px 9px;font-size:12px;}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-top:16px;}
+.kp{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:16px 18px;}
+.kp b{font-size:28px;font-weight:800;display:block;letter-spacing:-.02em;}
+.kp span{font-size:12px;color:var(--text-muted);}
+.kp small{font-size:11px;color:var(--text-muted);display:block;margin-top:3px;}
+.bar{height:12px;border-radius:8px;background:var(--bg-base);border:1px solid var(--panel-border);overflow:hidden;margin-top:10px;}
+.bar > i{display:block;height:100%;background:var(--accent);}
+.good{color:#2ea86a;}.bad{color:#ef5350;}.warn{color:#e0932f;}
+</style>
+{% endblock %}
+{% block content %}
+<div class="sm-wrap">
+  <h1 class="sm-title">Coverage &amp; SLA</h1>
+  <p class="sm-sub">Seberapa banyak pertanyaan warga yang terjawab akun resmi dan seberapa cepat. KPI utama untuk menutup gap layanan di media sosial. Ambang SLA diatur server (default 60 menit).</p>
+  <div class="seg" id="segRange">
+    <button data-r="all" class="active">Semua</button><button data-r="today">Hari ini</button><button data-r="yesterday">Kemarin</button><button data-r="7d">7 hari</button><button data-r="30d">30 hari</button><button data-r="90d">90 hari</button>
+  </div>
+  <div class="fld"><label>Platform</label><select id="fPlatform"><option value="">Semua</option><option value="x">X</option><option value="ig">Instagram</option><option value="tiktok">TikTok</option></select></div>
+  <div class="kpis" id="kpis"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $=s=>document.querySelector(s);let RANGE='all';
+async function jget(u){const r=await fetch(u);return r.json();}
+function fmt(s){if(s==null)return '–';if(s<60)return s+' dtk';if(s<3600)return Math.round(s/60)+' mnt';return (Math.round(s/360)/10)+' jam';}
+document.querySelectorAll('#segRange button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#segRange button').forEach(x=>x.classList.remove('active'));b.classList.add('active');RANGE=b.dataset.r;load();});
+$('#fPlatform').onchange=load;
+async function load(){
+  const p=new URLSearchParams();p.set('range',RANGE);if($('#fPlatform').value)p.set('platform',$('#fPlatform').value);
+  const d=await jget('/api/sosmed/coverage?'+p.toString());if(!d.ok)return;
+  const pa=d.pct_answered,ps=d.pct_within_sla;
+  const cls=v=>v>=80?'good':(v>=50?'warn':'bad');
+  $('#kpis').innerHTML=
+    `<div class="kp"><b class="${cls(pa)}">${pa}%</b><span>Pertanyaan terjawab</span><small>${d.answered} dari ${d.total}</small><div class="bar"><i style="width:${pa}%"></i></div></div>`+
+    `<div class="kp"><b class="bad">${d.unanswered}</b><span>Belum terjawab</span><small>perlu ditindaklanjuti</small></div>`+
+    `<div class="kp"><b>${fmt(d.avg_response_s)}</b><span>Rata-rata waktu balas</span><small>median ${fmt(d.median_response_s)}</small></div>`+
+    `<div class="kp"><b class="${cls(ps)}">${ps}%</b><span>Dalam SLA (≤ ${d.sla_minutes} mnt)</span><small>${d.within_sla} tepat · ${d.breach_sla} lewat</small><div class="bar"><i style="width:${ps}%"></i></div></div>`+
+    `<div class="kp"><b>${d.ignored}</b><span>Diabaikan</span><small>ditandai manual</small></div>`;
+}
+load();
+</script>
+{% endblock %}

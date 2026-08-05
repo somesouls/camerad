@@ -151,6 +151,10 @@ awe_routes.register(
 import awe_assess
 awe_assess.register(app)
 
+# --- Rute Tool Sosmed (X/IG/TikTok) dipindah ke modul terpisah ---
+import sosmed_routes
+sosmed_routes.register(app)
+
 import studio_routes
 studio_routes.register(
     app,

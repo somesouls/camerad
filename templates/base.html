@@ -386,14 +386,47 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></div>
           <b>Sentimen &amp; Agent</b>
         </a>
+        <a class="tool-side{% if active_page == 'awe_percakapan' %} active{% endif %}" href="/awe/percakapan">
+          <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+          <b>Detail Percakapan</b>
+        </a>
         {% if can_assess %}
         <a class="tool-side{% if active_page == 'awe_penilaian' %} active{% endif %}" href="/awe/penilaian">
           <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
           <b>Penilaian QA</b>
         </a>
         {% endif %}
+        <a class="tool-side{% if active_page == 'awe_deflgap' %} active{% endif %}" href="/awe/deflection-gap">
+          <div class="ic c-red"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3v6a6 6 0 0 0 6 6 6 6 0 0 0 6 6v3"/><path d="M6 21v-3a6 6 0 0 1 6-6"/><circle cx="6" cy="3" r="1.6"/><circle cx="18" cy="21" r="1.6"/></svg></div>
+          <b>Deflection Gap AWE</b>
+        </a>
         {% endif %}
         
+        {% if can_sosmed %}
+        <div class="sec-label" style="margin-top:14px;">Sosmed</div>
+        <a class="tool-side{% if active_page == 'sosmed_inbox' %} active{% endif %}" href="/sosmed">
+          <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+          <b>Inbox &amp; Q&amp;A</b>
+        </a>
+        {% if can_sosmed_manage %}
+        <a class="tool-side{% if active_page == 'sosmed_kelola' %} active{% endif %}" href="/sosmed/kelola">
+          <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
+          <b>Kelola Data Sosmed</b>
+        </a>
+        {% endif %}
+        <a class="tool-side{% if active_page == 'sosmed_coverage' %} active{% endif %}" href="/sosmed/coverage">
+          <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <b>Coverage &amp; SLA</b>
+        </a>
+        <a class="tool-side{% if active_page == 'sosmed_analytics' %} active{% endif %}" href="/sosmed/analytics">
+          <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div>
+          <b>Analitik Sosmed</b>
+        </a>
+        <a class="tool-side{% if active_page == 'sosmed_faq' %} active{% endif %}" href="/sosmed/faq">
+          <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
+          <b>FAQ &amp; Deflection</b>
+        </a>
+        {% endif %}
         <div class="sec-label" style="margin-top:14px;">Umum</div>
         <a class="tool-side{% if active_page == 'studio' %} active{% endif %}" href="/studio">
           <div class="ic c-purple"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></div>

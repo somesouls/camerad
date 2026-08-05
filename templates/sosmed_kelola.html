@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block title %}Kelola Data · Sosmed{% endblock %}
+{% block head %}
+<style>
+.sm-wrap{max-width:1160px;margin:0 auto;padding:22px 26px 60px;}
+.sm-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+.sm-sub{color:var(--text-muted);font-size:12.5px;margin-top:4px;max-width:720px;}
+.sm-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px;}
+@media(max-width:900px){.sm-grid{grid-template-columns:1fr;}}
+.sm-card{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:16px 18px;}
+.sm-card h3{margin:0 0 4px;font-size:15px;font-weight:700;}
+.sm-card p.hint{color:var(--text-muted);font-size:12px;margin:0 0 12px;}
+.sm-lbl{font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin:10px 0 4px;}
+.sm-in,.sm-sel,textarea.sm-in{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:9px;color:var(--text-main);padding:8px 10px;font-size:12.5px;width:100%;box-sizing:border-box;}
+textarea.sm-in{min-height:120px;font-family:ui-monospace,Menlo,Consolas,monospace;resize:vertical;}
+.sm-btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-weight:600;cursor:pointer;font-size:12.5px;}
+.sm-btn:disabled{opacity:.5;cursor:default;}
+.sm-btn.ghost{background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);}
+.sm-btn.danger{background:transparent;color:#ef5350;border:1px solid rgba(239,83,80,.4);}
+.sm-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;}
+.cap-badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:20px;margin:3px 6px 3px 0;}
+.cap-ok{background:rgba(38,166,91,.15);color:#2ea86a;}
+.cap-no{background:rgba(239,83,80,.13);color:#ef5350;}
+.cap-warn{background:rgba(240,173,78,.15);color:#e0932f;}
+.sm-note{font-size:11.5px;color:var(--text-muted);margin-top:8px;line-height:1.5;}
+.sm-out{margin-top:12px;font-size:12.5px;padding:10px 12px;border-radius:9px;display:none;}
+.sm-out.ok{display:block;background:rgba(38,166,91,.12);color:#2ea86a;}
+.sm-out.err{display:block;background:rgba(239,83,80,.12);color:#ef5350;}
+table.sm-tb{width:100%;border-collapse:collapse;margin-top:10px;font-size:12px;}
+table.sm-tb th,table.sm-tb td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--panel-border);}
+table.sm-tb th{color:var(--text-muted);font-weight:600;}
+.kpi{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;}
+.kpi .k{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:10px;padding:9px 14px;min-width:90px;}
+.kpi .k b{font-size:19px;display:block;}
+.kpi .k span{font-size:11px;color:var(--text-muted);}
+</style>
+{% endblock %}
+{% block content %}
+<div class="sm-wrap">
+  <h1 class="sm-title">Kelola Data Sosmed</h1>
+  <p class="sm-sub">Kumpulkan percakapan dari media sosial (X, Instagram, TikTok) untuk dianalisis: deteksi topik/jenis layanan, sentimen, dan pemasangan pertanyaan–jawaban. Sumber data bisa lewat impor manual (ekspor/CSV/JSON) atau tarik langsung dari X API.</p>
+
+  <div class="kpi" id="statBox"></div>
+
+  <div class="sm-grid">
+    <!-- Tarik X -->
+    <div class="sm-card">
+      <h3>Tarik dari X (Twitter)</h3>
+      <p class="hint">Menarik mention/percakapan ke akun resmi. Ketersediaan bergantung tier X API pada kredensial server.</p>
+      <div id="capBox"><span class="cap-badge cap-warn">Memeriksa kapabilitas…</span></div>
+      <label class="sm-lbl">Sumber</label>
+      <select class="sm-sel" id="xSource">
+        <option value="mentions">Mentions ke akun resmi</option>
+        <option value="search">Pencarian kata kunci (butuh tier Basic+)</option>
+      </select>
+      <div id="xQueryWrap" style="display:none;">
+        <label class="sm-lbl">Kata kunci pencarian</label>
+        <input class="sm-in" id="xQuery" placeholder="mis. kringpajak OR lupa efin">
+      </div>
+      <label class="sm-lbl">Maks. item</label>
+      <input class="sm-in" id="xMax" type="number" value="50" min="5" max="100">
+      <div class="sm-row">
+        <button class="sm-btn" id="btnPull">Tarik sekarang</button>
+        <button class="sm-btn ghost" id="btnCap">Cek ulang kapabilitas</button>
+      </div>
+      <div class="sm-out" id="pullOut"></div>
+      <p class="sm-note">Free tier X API umumnya tidak bisa membaca mention/pencarian (butuh Basic+). Jika ditolak, gunakan impor manual di samping.</p>
+    </div>
+
+    <!-- Impor manual -->
+    <div class="sm-card">
+      <h3>Impor Manual</h3>
+      <p class="hint">Unggah berkas hasil ekspor (.json / .jsonl / .csv / .zip) atau tempel langsung. Payload mentah X API v2 (punya <code>data</code> &amp; <code>includes</code>) otomatis dikenali.</p>
+      <label class="sm-lbl">Platform default (bila tak ada di data)</label>
+      <select class="sm-sel" id="impPlatform">
+        <option value="">Auto / dari data</option>
+        <option value="x">X (Twitter)</option>
+        <option value="ig">Instagram</option>
+        <option value="tiktok">TikTok</option>
+      </select>
+      <label class="sm-lbl">Unggah berkas</label>
+      <input class="sm-in" id="impFile" type="file" multiple accept=".json,.jsonl,.ndjson,.csv,.zip">
+      <div class="sm-row"><button class="sm-btn" id="btnUpload">Unggah &amp; impor</button></div>
+      <label class="sm-lbl">Atau tempel JSON / CSV</label>
+      <textarea class="sm-in" id="impText" placeholder='[{"platform":"x","id":"123","author_handle":"warga","created_at":"2026-08-01T09:00:00Z","text":"lupa efin gimana?"}]'></textarea>
+      <div class="sm-row">
+        <select class="sm-sel" id="pasteFmt" style="width:auto;"><option value="json">JSON</option><option value="csv">CSV</option></select>
+        <button class="sm-btn" id="btnPaste">Impor teks</button>
+      </div>
+      <div class="sm-out" id="impOut"></div>
+    </div>
+  </div>
+
+  <!-- Riwayat batch -->
+  <div class="sm-card" style="margin-top:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <h3 style="margin:0;">Riwayat Impor / Tarik</h3>
+      <button class="sm-btn danger" id="btnPurge">Kosongkan semua data</button>
+    </div>
+    <table class="sm-tb"><thead><tr><th>Waktu</th><th>Platform</th><th>Sumber</th><th>Rentang</th><th>Baru</th><th>Total</th><th>Oleh</th></tr></thead>
+    <tbody id="batchBody"><tr><td colspan="7" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $=s=>document.querySelector(s);
+function out(el,ok,msg){el.className='sm-out '+(ok?'ok':'err');el.textContent=msg;}
+async function jget(u){const r=await fetch(u);return r.json();}
+async function jpost(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return {code:r.status,data:await r.json()};}
+
+async function loadStats(){
+  try{const d=await jget('/api/sosmed/stats');if(!d.ok)return;
+    const s=d.stats;
+    $('#statBox').innerHTML=
+      `<div class="k"><b>${s.total}</b><span>Total item</span></div>`+
+      `<div class="k"><b>${s.questions}</b><span>Pertanyaan</span></div>`+
+      `<div class="k"><b>${s.answered}</b><span>Terjawab</span></div>`+
+      `<div class="k"><b>${(s.platforms||[]).map(p=>p.platform+':'+p.n).join(' · ')||'-'}</b><span>Per platform</span></div>`;
+    const tb=$('#batchBody');
+    if(!d.batches||!d.batches.length){tb.innerHTML='<tr><td colspan=7 style="color:var(--text-muted)">Belum ada.</td></tr>';return;}
+    tb.innerHTML=d.batches.map(b=>`<tr><td>${b.created_at||''}</td><td>${b.platform||''}</td><td>${b.source||''}</td><td>${(b.date_from||'')} – ${(b.date_to||'')}</td><td>${b.n_new}</td><td>${b.n_fetched}</td><td>${b.pulled_by||''}</td></tr>`).join('');
+  }catch(e){}
+}
+async function loadCap(){
+  $('#capBox').innerHTML='<span class="cap-badge cap-warn">Memeriksa kapabilitas…</span>';
+  try{const d=await jget('/api/sosmed/x/capabilities');const c=d.capabilities||{};
+    const bd=(ok,t)=>`<span class="cap-badge ${ok?'cap-ok':'cap-no'}">${ok?'✓':'✗'} ${t}</span>`;
+    let h=bd(c.has_token,'Token')+bd(c.can_resolve_user,'Akun resmi')+bd(c.can_read_mentions,'Baca mentions')+bd(c.can_search,'Pencarian');
+    if(c.notes&&c.notes.length)h+='<div class="sm-note">'+c.notes.map(n=>'• '+n).join('<br>')+'</div>';
+    $('#capBox').innerHTML=h;
+  }catch(e){$('#capBox').innerHTML='<span class="cap-badge cap-no">Gagal memeriksa</span>';}
+}
+$('#xSource').onchange=e=>{$('#xQueryWrap').style.display=e.target.value==='search'?'block':'none';};
+$('#btnCap').onclick=loadCap;
+$('#btnPull').onclick=async()=>{
+  const b={source:$('#xSource').value,query:$('#xQuery').value,max_results:parseInt($('#xMax').value||'50')};
+  $('#btnPull').disabled=true;out($('#pullOut'),true,'Menarik…');
+  const {data}=await jpost('/api/sosmed/pull-x',b);$('#btnPull').disabled=false;
+  if(data.ok){out($('#pullOut'),true,`Berhasil: ${data.n_new} baru, ${data.n_dup} pembaruan (dari ${data.pulled||0} ditarik).`);loadStats();}
+  else out($('#pullOut'),false,data.error||'Gagal menarik.');
+};
+$('#btnUpload').onclick=async()=>{
+  const f=$('#impFile').files;if(!f.length){out($('#impOut'),false,'Pilih berkas dulu.');return;}
+  const fd=new FormData();for(const x of f)fd.append('file',x);fd.append('platform',$('#impPlatform').value);
+  $('#btnUpload').disabled=true;out($('#impOut'),true,'Mengunggah…');
+  const r=await fetch('/api/sosmed/import-upload',{method:'POST',body:fd});const data=await r.json();$('#btnUpload').disabled=false;
+  if(data.ok){out($('#impOut'),true,`Impor: ${data.n_new} baru, ${data.n_dup} pembaruan, ${data.n_skip} dilewati.`);loadStats();}
+  else out($('#impOut'),false,data.error||'Gagal impor.');
+};
+$('#btnPaste').onclick=async()=>{
+  const c=$('#impText').value.trim();if(!c){out($('#impOut'),false,'Teks kosong.');return;}
+  $('#btnPaste').disabled=true;out($('#impOut'),true,'Memproses…');
+  const {data}=await jpost('/api/sosmed/import-paste',{content:c,platform:$('#impPlatform').value,format:$('#pasteFmt').value});
+  $('#btnPaste').disabled=false;
+  if(data.ok){out($('#impOut'),true,`Impor: ${data.n_new} baru, ${data.n_dup} pembaruan, ${data.n_skip} dilewati.`);loadStats();}
+  else out($('#impOut'),false,data.error||'Gagal impor.');
+};
+$('#btnPurge').onclick=async()=>{
+  if(!confirm('Hapus SEMUA data sosmed? Tindakan ini tidak bisa dibatalkan.'))return;
+  const {data}=await jpost('/api/sosmed/purge',{});if(data.ok){loadStats();}
+};
+loadCap();loadStats();
+</script>
+{% endblock %}
