@@ -2628,16 +2628,19 @@ def run_mkta_verdict(input_path, output_path, threshold, limit=0):
             prompts.append(MKTA_VERDICT_PROMPT.format(
                 pertanyaan_user=user, intent_name=intent or "(tidak diketahui)",
                 kandidat_intent=cand, bot_response=bot, konteks_analis=konteks_analis))
-        msgs = [[{"role": "user", "content": p}] for p in prompts]
-        texts = [tokenizer.apply_chat_template(m, tokenize=False, add_generation_prompt=True) for m in msgs]
-        enc = tokenizer(texts, return_tensors="pt", padding=True, truncation=True,
-                        max_length=MAX_INPUT_TOKENS).to(model.device)
-        with torch.no_grad():
-            gen = model.generate(**enc, max_new_tokens=160, do_sample=False,
-                                  pad_token_id=tokenizer.eos_token_id)
+        # Step 8 memakai LLM cloud (llm_client), sama seperti step lain.
+        # Model/tokenizer Qwen lokal sudah dipensiunkan (tokenizer=None), jadi
+        # jangan panggil apply_chat_template/model.generate di sini.
+        _mkta_system = (
+            "Anda analis QA chatbot yang ketat. Nilai apakah bot MENJAWAB, "
+            "KURANG_LENGKAP, atau SALAH_INTENT terhadap pertanyaan user, lalu "
+            "usulkan intent yang seharusnya HANYA bila terjadi misrouting. "
+            "Ikuti persis format keluaran yang diminta pada prompt."
+        )
+        raw_outputs = llm_client.generate(prompts, max_new_tokens=160,
+                                          system=_mkta_system)
         for k, row in enumerate(chunk):
-            out_ids = gen[k][enc["input_ids"].shape[1]:]
-            raw = tokenizer.decode(out_ids, skip_special_tokens=True).strip()
+            raw = str(raw_outputs[k] if k < len(raw_outputs) else "").strip()
             putusan, intent_seharusnya, alasan = parse_mkta_verdict(raw)
             bot_intent = safe_text(ws.cell(row=row, column=i_intent + 1).value, 300) if i_intent >= 0 else ""
             # Bersihkan penanda kosong dari LLM.
@@ -2657,10 +2660,7 @@ def run_mkta_verdict(input_path, output_path, threshold, limit=0):
             ws.cell(row=row, column=i_seh + 1, value=intent_seharusnya)
             ws.cell(row=row, column=i_alasan + 1, value=alasan)
         processed += len(chunk)
-        del enc, gen
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
         print(f"[MKTA-VERDICT] {processed}/{total}", flush=True)
         wb.save(output_path)
 
