@@ -1,0 +1,157 @@
+{% extends "base.html" %}
+{% block title %}Ikhtisar AWE · AWE{% endblock %}
+{% block head %}
+<style>
+  .ov-wrap{max-width:1120px;margin:0 auto;padding:22px 26px 60px;}
+  .ov-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;}
+  .ov-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+  .ov-sub{color:var(--text-muted,#8a8f98);font-size:12.5px;margin-top:4px;}
+  .ov-tb{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .seg{display:flex;background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:12px;overflow:hidden;}
+  .seg button{border:none;background:transparent;color:var(--text-muted,#8a8f98);padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;}
+  .seg button.active{background:var(--accent-glow,rgba(90,120,255,.16));color:var(--accent,#5a78ff);}
+  .ov-chan{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:12px;color:var(--text-main,#e8e9ec);padding:8px 10px;font-size:12px;font-weight:600;}
+  .cust{display:none;gap:6px;align-items:center;}
+  .cust.show{display:flex;}
+  .cust input{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:10px;color:var(--text-main,#e8e9ec);padding:7px 9px;font-size:12px;}
+  .cust button{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:10px;padding:8px 13px;font-weight:600;cursor:pointer;font-size:12px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px;}
+  @media(max-width:860px){.kpis{grid-template-columns:repeat(2,1fr);}}
+  .kpi{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:14px;padding:15px 16px;}
+  .kpi .v{font-size:25px;font-weight:800;line-height:1.1;}
+  .kpi .l{font-size:11.5px;color:var(--text-muted,#8a8f98);margin-top:3px;}
+  .kpi .s{font-size:11px;color:var(--text-muted,#8a8f98);margin-top:2px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr;}}
+  .card{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:14px;padding:15px 17px;margin-bottom:14px;}
+  .card h3{margin:0 0 12px;font-size:13.5px;font-weight:700;}
+  .bar-row{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:12px;}
+  .bar-row .lab{width:180px;flex:none;color:var(--text-muted,#8a8f98);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .track{flex:1;height:9px;background:var(--panel-border,#2a2b30);border-radius:6px;overflow:hidden;}
+  .fill{height:100%;background:var(--accent,#5a78ff);border-radius:6px;}
+  .bar-row .num{width:92px;text-align:right;flex:none;}
+  .spark{display:flex;align-items:flex-end;gap:3px;height:74px;}
+  .spark .b{flex:1;background:var(--accent,#5a78ff);border-radius:3px 3px 0 0;min-height:2px;opacity:.85;}
+  .muted{color:var(--text-muted,#8a8f98);}
+  .loading{color:var(--text-muted,#8a8f98);padding:34px;text-align:center;}
+  .note{font-size:12px;color:#e0a83a;margin-bottom:12px;}
+</style>
+{% endblock %}
+{% block content %}
+<div class="ov-wrap">
+  <div class="ov-head">
+    <div>
+      <h1 class="ov-title">Ikhtisar AWE</h1>
+      <div class="ov-sub" id="ovRange">Memuat…</div>
+    </div>
+    <div class="ov-tb">
+      <select class="ov-chan" id="ovChan" title="Channel">
+        <option value="semua" selected>Semua channel</option>
+        <option value="livechat">Live Chat</option>
+        <option value="telepon" disabled>Telepon (segera)</option>
+      </select>
+      <div class="seg" id="seg">
+        <button data-r="today">Hari ini</button>
+        <button data-r="7d">7 hari</button>
+        <button data-r="30d" class="active">30 hari</button>
+        <button data-r="90d">90 hari</button>
+        <button data-r="all">Semua</button>
+        <button data-r="custom">Kustom</button>
+      </div>
+      <div class="cust" id="cust">
+        <input type="date" id="cStart"><span class="muted">s/d</span><input type="date" id="cEnd">
+        <button id="applyCustom">Terapkan</button>
+      </div>
+    </div>
+  </div>
+  <div id="ovNote" class="note" style="display:none;"></div>
+  <div id="ovBody"><div class="loading">Memuat data…</div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var body=document.getElementById('ovBody');
+  var rangeEl=document.getElementById('ovRange');
+  var noteEl=document.getElementById('ovNote');
+  var state={range:'30d',start:'',end:'',channel:'semua'};
+  function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function pct(n,d){return d?Math.round(1000*n/d)/10:0;}
+  function kpi(v,l,s){return '<div class="kpi"><div class="v">'+v+'</div><div class="l">'+esc(l)+'</div>'+(s?'<div class="s">'+esc(s)+'</div>':'')+'</div>';}
+  function card(title,inner){return '<div class="card"><h3>'+esc(title)+'</h3>'+inner+'</div>';}
+  function bars(items,color){
+    var max=1; items.forEach(function(i){if(i.val>max)max=i.val;});
+    return items.map(function(i){
+      return '<div class="bar-row"><div class="lab" title="'+esc(i.lab)+'">'+esc(i.lab)+'</div>'+
+        '<div class="track"><div class="fill" style="width:'+pct(i.val,max)+'%;'+(color?'background:'+color+';':'')+'"></div></div>'+
+        '<div class="num">'+i.val+(i.sub?' <span class="muted">'+esc(i.sub)+'</span>':'')+'</div></div>';
+    }).join('');
+  }
+  function spark(trend){
+    if(!trend||!trend.length) return '<div class="muted">Tidak ada data.</div>';
+    var max=1; trend.forEach(function(t){if(t.total>max)max=t.total;});
+    var s='<div class="spark">';
+    trend.forEach(function(t){
+      var h=Math.round(100*t.total/max);
+      s+='<div class="b" title="'+esc(t.day)+': '+t.total+' total, '+t.reached+' ke agent" style="height:'+h+'%"></div>';
+    });
+    return s+'</div>';
+  }
+  function render(d){
+    var k=d.kpi, m=d.meta;
+    rangeEl.textContent='Rentang: '+(m.date_min||'—')+' s/d '+(m.date_max||'—')+' · '+m.total+' percakapan';
+    if(d.channel==='telepon'){noteEl.style.display='block';noteEl.textContent='Channel telepon belum memiliki data (placeholder). Menampilkan data live chat yang ada.';}
+    else{noteEl.style.display='none';}
+    var html='';
+    html+='<div class="kpis">'
+      +kpi(k.total,'Total percakapan')
+      +kpi(k.reached_pct+'%','% sampai agent',k.reached+' dari '+k.total)
+      +kpi(k.avg_handle_fmt,'Rata² durasi handle',k.avg_handle_reached_fmt+' utk yang ke agent')
+      +kpi(k.neg_pct+'%','Sentimen negatif',k.pos_pct+'% positif')
+      +'</div>';
+    html+='<div class="kpis">'
+      +kpi(k.self_service_pct+'%','Self-service (tanpa agent)',k.self_service+' percakapan')
+      +kpi(k.direct_pct+'%','Langsung minta agent',k.direct+' percakapan')
+      +kpi(d.frequency.returning,'Pelanggan kembali',d.frequency.baru+' baru')
+      +kpi((d.top_topics[0]?esc(d.top_topics[0].topik):'–'),'Topik teratas',(d.top_topics[0]?d.top_topics[0].count+' percakapan':''))
+      +'</div>';
+    html+='<div class="card"><h3>Tren harian (volume · batang tinggi = total, tooltip berisi jumlah ke agent)</h3>'+spark(d.trend)+'</div>';
+    var topi=d.top_topics.map(function(t){return {lab:t.topik,val:t.count,sub:'('+t.pct+'%)'};});
+    html+=card('Topik teratas (by volume, top 12)',topi.length?bars(topi,'#5a78ff'):'<div class="muted">Tidak ada data.</div>');
+    html+='<div class="grid2">'
+      +card('Sentimen',bars([{lab:'Positif',val:d.sentiment.Positif},{lab:'Netral',val:d.sentiment.Netral},{lab:'Negatif',val:d.sentiment.Negatif}]))
+      +card('Emosi',d.emotions.length?bars(d.emotions.map(function(e){return{lab:e.label,val:e.value};}),'#a97bff'):'<div class="muted">Tidak ada data.</div>')
+      +'</div>';
+    if(d.top_layanan&&d.top_layanan.length){
+      html+=card('Jenis layanan teratas',bars(d.top_layanan.map(function(e){return{lab:e.label,val:e.value};}),'#f0a35a'));
+    }
+    body.innerHTML=html;
+  }
+  function load(){
+    body.innerHTML='<div class="loading">Memuat data…</div>';
+    var qs='range='+encodeURIComponent(state.range)+'&channel='+encodeURIComponent(state.channel);
+    if(state.range==='custom'){qs+='&start='+encodeURIComponent(state.start)+'&end='+encodeURIComponent(state.end);}
+    fetch('/api/awe/ikhtisar?'+qs).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok===false){body.innerHTML='<div class="loading">Gagal memuat: '+esc(d.error||'')+'</div>';return;}
+      render(d);
+    }).catch(function(){body.innerHTML='<div class="loading">Gagal memuat data.</div>';});
+  }
+  var seg=document.getElementById('seg'), cust=document.getElementById('cust');
+  seg.addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b)return;
+    Array.prototype.forEach.call(seg.children,function(x){x.classList.remove('active');});
+    b.classList.add('active');
+    state.range=b.getAttribute('data-r');
+    if(state.range==='custom'){cust.classList.add('show');}
+    else{cust.classList.remove('show');load();}
+  });
+  document.getElementById('ovChan').addEventListener('change',function(){state.channel=this.value;load();});
+  document.getElementById('applyCustom').addEventListener('click',function(){
+    state.start=document.getElementById('cStart').value;
+    state.end=document.getElementById('cEnd').value;
+    if(state.start&&state.end)load();
+  });
+  load();
+})();
+</script>
+{% endblock %}
