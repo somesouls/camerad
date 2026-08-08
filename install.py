@@ -34,6 +34,23 @@ def run(patcher, *args, optional=False):
         p(f"  [ERROR] {patcher} keluar dengan kode {r.returncode} — hentikan."); return False
     return True
 
+def safe_copy(src, dst, label):
+    """Salin file dengan aman. Lewati jika sumber == tujuan (mis. paket di-pull
+    ke dalam folder proyek) dan JANGAN pernah menghentikan installer."""
+    if not os.path.isfile(src):
+        return
+    try:
+        if os.path.abspath(src) == os.path.abspath(dst) or (
+            os.path.exists(dst) and os.path.samefile(src, dst)):
+            p(f"  [lewati] {label} sudah di tempat (sumber = tujuan)."); return
+    except OSError:
+        pass
+    try:
+        shutil.copy2(src, dst)
+        p(f"  [ok] {label} -> {dst}")
+    except Exception as e:
+        p(f"  [WARN] gagal menyalin {label} ({e}). Lewati — pastikan file sudah ada.")
+
 def main():
     pr = find('pipeline_routes.py', 'pipeline_routes.py')
     web = find('web_app.py', 'web_app.py')
@@ -73,15 +90,11 @@ def main():
         p('  [SKIP] llm_fix_final_combined.py tidak ditemukan')
 
     p('== 5) Salin file menu Audit Training Phrase ==')
-    src_routes = os.path.join(HERE, 'audit_tp_routes.py')
-    src_html = os.path.join(HERE, 'audit_tp.html')
-    if os.path.isfile(src_routes):
-        shutil.copy2(src_routes, os.path.join(CWD, 'audit_tp_routes.py'))
-        p('  [ok] audit_tp_routes.py -> ' + CWD)
-    if os.path.isfile(src_html):
-        os.makedirs(tmpl_dir, exist_ok=True)
-        shutil.copy2(src_html, os.path.join(tmpl_dir, 'audit_tp.html'))
-        p('  [ok] audit_tp.html -> ' + tmpl_dir)
+    safe_copy(os.path.join(HERE, 'audit_tp_routes.py'),
+              os.path.join(CWD, 'audit_tp_routes.py'), 'audit_tp_routes.py')
+    os.makedirs(tmpl_dir, exist_ok=True)
+    safe_copy(os.path.join(HERE, 'audit_tp.html'),
+              os.path.join(tmpl_dir, 'audit_tp.html'), 'audit_tp.html')
 
     p('\nSELESAI. Sekarang RESTART server + hard refresh (Ctrl+F5), lalu ikuti checklist di INSTALL.txt.')
     return 0
