@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block title %}Deflection Gap → Materi · AWE{% endblock %}
+
+{% block head %}
+<style>
+  .dg-wrap { padding: 18px 22px; color: var(--text-main); }
+  .dg-head h1 { margin: 0 0 4px; font-size: 20px; }
+  .dg-head p { margin: 0 0 16px; color: var(--text-muted); font-size: 13px; max-width: 820px; }
+  .dg-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: flex-end;
+            background: var(--panel-bg); border: 1px solid var(--panel-border);
+            border-radius: 12px; padding: 12px 14px; margin-bottom: 16px; }
+  .dg-bar label { display: flex; flex-direction: column; gap: 4px; font-size: 11px;
+                  color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+  .dg-bar select, .dg-bar input[type=date], .dg-bar input[type=number] {
+    background: var(--bg-base); color: var(--text-main); border: 1px solid var(--panel-border);
+    border-radius: 8px; padding: 6px 9px; font-size: 13px; }
+  .dg-bar .chk { flex-direction: row; align-items: center; gap: 6px; text-transform: none;
+                 font-size: 12px; color: var(--text-main); }
+  .dg-btn { background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+            padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .dg-btn.ghost { background: transparent; color: var(--text-main); border: 1px solid var(--panel-border); }
+  .dg-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+  .dg-card { background: var(--panel-bg); border: 1px solid var(--panel-border);
+             border-radius: 12px; padding: 14px 16px; }
+  .dg-card .n { font-size: 24px; font-weight: 700; }
+  .dg-card .l { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+  .dg-note { font-size: 12px; color: var(--text-muted); margin-bottom: 12px; }
+  .dg-note.warn { color: #b8860b; }
+  .dg-tabs { display: flex; gap: 8px; margin-bottom: 10px; }
+  .dg-tab { background: transparent; border: 1px solid var(--panel-border); color: var(--text-muted);
+            border-radius: 999px; padding: 6px 14px; font-size: 12px; cursor: pointer; }
+  .dg-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  table.dg { width: 100%; border-collapse: collapse; background: var(--panel-bg);
+             border: 1px solid var(--panel-border); border-radius: 12px; overflow: hidden; font-size: 13px; }
+  table.dg th, table.dg td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--panel-border); vertical-align: top; }
+  table.dg th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+  table.dg tr:last-child td { border-bottom: 0; }
+  table.dg tr.row-main { cursor: pointer; }
+  table.dg tr.row-main:hover { background: rgba(127,127,127,.08); }
+  .dg-sim { font-variant-numeric: tabular-nums; }
+  .dg-ex { background: var(--bg-base); font-size: 12px; color: var(--text-muted); }
+  .dg-ex ul { margin: 6px 0; padding-left: 18px; }
+  .dg-ex .sid { color: var(--accent); }
+  .dg-empty { padding: 22px; text-align: center; color: var(--text-muted); }
+  .dg-hidden { display: none; }
+  .dg-link { color: var(--accent); text-decoration: none; font-size: 12px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dg-wrap">
+  <div class="dg-head">
+    <h1>Deflection Gap → Materi</h1>
+    <p>Percakapan yang <b>berakhir di agent</b> dicocokkan dengan Katalog Intent lewat
+       kemiripan topik. Bila intent-nya <b>sudah ada</b> tetapi user tetap ke agent →
+       materi bot perlu diperbaiki. Bila tidak ada yang mirip → <b>kandidat intent baru</b>.</p>
+  </div>
+
+  <div class="dg-bar">
+    <label>Rentang
+      <select id="dg-range">
+        <option value="7d">7 hari</option>
+        <option value="30d" selected>30 hari</option>
+        <option value="90d">90 hari</option>
+        <option value="today">Hari ini</option>
+        <option value="all">Semua</option>
+        <option value="custom">Kustom…</option>
+      </select>
+    </label>
+    <label id="dg-custom-start" class="dg-hidden">Mulai
+      <input type="date" id="dg-start">
+    </label>
+    <label id="dg-custom-end" class="dg-hidden">Selesai
+      <input type="date" id="dg-end">
+    </label>
+    <label>Ambang kemiripan
+      <input type="number" id="dg-minsim" min="0.2" max="0.95" step="0.05" value="0.55" style="width:80px">
+    </label>
+    <label class="chk"><input type="checkbox" id="dg-exdirect"> Kecualikan yang langsung minta agent</label>
+    <button class="dg-btn" id="dg-run">Analisis</button>
+    <button class="dg-btn ghost" id="dg-export">Unduh CSV</button>
+  </div>
+
+  <div id="dg-note" class="dg-note"></div>
+
+  <div class="dg-cards">
+    <div class="dg-card"><div class="n" id="dg-total">–</div><div class="l">Berakhir di agent</div></div>
+    <div class="dg-card"><div class="n" id="dg-gap">–</div><div class="l">Gap materi (intent sudah ada)</div></div>
+    <div class="dg-card"><div class="n" id="dg-new">–</div><div class="l">Kandidat intent baru</div></div>
+    <div class="dg-card"><div class="n" id="dg-pct">–</div><div class="l">% gap dari total</div></div>
+  </div>
+
+  <div class="dg-tabs">
+    <button class="dg-tab active" data-tab="materi">Perbaiki Materi (intent ada)</button>
+    <button class="dg-tab" data-tab="baru">Kandidat Intent Baru</button>
+  </div>
+
+  <div id="dg-panel-materi">
+    <table class="dg">
+      <thead><tr><th>Intent (sudah ada)</th><th>Jumlah ke agent</th><th>Rata² kemiripan</th><th>Jenis layanan</th><th></th></tr></thead>
+      <tbody id="dg-body-materi"><tr><td colspan="5" class="dg-empty">Klik “Analisis” untuk memulai.</td></tr></tbody>
+    </table>
+  </div>
+
+  <div id="dg-panel-baru" class="dg-hidden">
+    <table class="dg">
+      <thead><tr><th>Topik (belum ada intent)</th><th>Jumlah</th><th></th></tr></thead>
+      <tbody id="dg-body-baru"><tr><td colspan="3" class="dg-empty">Klik “Analisis” untuk memulai.</td></tr></tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var last = null;
+
+  function params() {
+    return {
+      range: $("dg-range").value,
+      start: $("dg-start").value,
+      end: $("dg-end").value,
+      exclude_direct: $("dg-exdirect").checked ? "1" : "0",
+      min_sim: $("dg-minsim").value
+    };
+  }
+  function esc(s) { return (s == null ? "" : String(s)).replace(/[&<>"']/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]; }); }
+
+  function exRows(examples) {
+    if (!examples || !examples.length) return "";
+    var lis = examples.map(function (e) {
+      var sc = (e.score == null) ? "" : " · sim " + e.score;
+      return "<li><span class='sid'>" + esc(e.sid) + "</span> · " + esc(e.tanggal) +
+             " · " + esc(e.agent || "-") + sc + "<br>" + esc(e.topik || e.cust || "") + "</li>";
+    }).join("");
+    return "<ul>" + lis + "</ul>";
+  }
+
+  function renderMateri(d) {
+    var b = $("dg-body-materi");
+    var rows = d.candidates || [];
+    if (!rows.length) { b.innerHTML = "<tr><td colspan='5' class='dg-empty'>Tidak ada gap materi pada rentang ini.</td></tr>"; return; }
+    var html = "";
+    rows.forEach(function (c, i) {
+      html += "<tr class='row-main' data-t='m" + i + "'><td>" + esc(c.intent || "(tak terpetakan)") +
+        "</td><td>" + c.count + "</td><td class='dg-sim'>" + (c.avg_sim == null ? "–" : c.avg_sim) +
+        "</td><td>" + esc(c.jenis_layanan || "–") + "</td><td class='dg-link'>lihat contoh</td></tr>";
+      html += "<tr id='m" + i + "' class='dg-ex dg-hidden'><td colspan='5'>" + exRows(c.examples) + "</td></tr>";
+    });
+    b.innerHTML = html;
+  }
+
+  function renderBaru(d) {
+    var b = $("dg-body-baru");
+    var rows = d.new_candidates || [];
+    if (!rows.length) { b.innerHTML = "<tr><td colspan='3' class='dg-empty'>Tidak ada kandidat intent baru.</td></tr>"; return; }
+    var html = "";
+    rows.forEach(function (c, i) {
+      html += "<tr class='row-main' data-t='b" + i + "'><td>" + esc(c.topik) + "</td><td>" + c.count +
+        "</td><td class='dg-link'>lihat contoh</td></tr>";
+      html += "<tr id='b" + i + "' class='dg-ex dg-hidden'><td colspan='3'>" + exRows(c.examples) + "</td></tr>";
+    });
+    b.innerHTML = html;
+  }
+
+  function bindRows() {
+    Array.prototype.forEach.call(document.querySelectorAll("tr.row-main"), function (tr) {
+      tr.addEventListener("click", function () {
+        var ex = $(tr.getAttribute("data-t"));
+        if (ex) ex.classList.toggle("dg-hidden");
+      });
+    });
+  }
+
+  function run() {
+    var note = $("dg-note");
+    note.className = "dg-note"; note.textContent = "Menganalisis…";
+    fetch("/api/awe/deflection-gap/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params())
+    }).then(function (r) { return r.json(); }).then(function (d) {
+      if (!d.ok) { note.className = "dg-note warn"; note.textContent = "Gagal: " + (d.error || "tidak diketahui"); return; }
+      last = d;
+      $("dg-total").textContent = d.meta.total_reached;
+      $("dg-gap").textContent = d.meta.n_gap;
+      $("dg-new").textContent = d.meta.n_new;
+      $("dg-pct").textContent = d.meta.gap_pct + "%";
+      if (d.note) { note.className = "dg-note warn"; note.textContent = d.note; }
+      else { note.className = "dg-note"; note.textContent = "Metode: kemiripan teks (SBERT) · ambang " + d.min_sim; }
+      renderMateri(d); renderBaru(d); bindRows();
+    }).catch(function (e) { note.className = "dg-note warn"; note.textContent = "Error: " + e; });
+  }
+
+  $("dg-range").addEventListener("change", function () {
+    var c = this.value === "custom";
+    $("dg-custom-start").classList.toggle("dg-hidden", !c);
+    $("dg-custom-end").classList.toggle("dg-hidden", !c);
+  });
+  $("dg-run").addEventListener("click", run);
+  $("dg-export").addEventListener("click", function () {
+    var p = params(); var qs = Object.keys(p).map(function (k) { return k + "=" + encodeURIComponent(p[k]); }).join("&");
+    window.location = "/api/awe/deflection-gap/export?" + qs;
+  });
+  Array.prototype.forEach.call(document.querySelectorAll(".dg-tab"), function (t) {
+    t.addEventListener("click", function () {
+      Array.prototype.forEach.call(document.querySelectorAll(".dg-tab"), function (x) { x.classList.remove("active"); });
+      t.classList.add("active");
+      var m = t.getAttribute("data-tab") === "materi";
+      $("dg-panel-materi").classList.toggle("dg-hidden", !m);
+      $("dg-panel-baru").classList.toggle("dg-hidden", m);
+    });
+  });
+  run();
+})();
+</script>
+{% endblock %}
