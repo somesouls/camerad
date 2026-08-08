@@ -1,0 +1,168 @@
+{% extends "base.html" %}
+{% block title %}Audit Training Phrase — Camerad Studio{% endblock %}
+
+{% block head %}
+<style>
+  .atp-wrap{max-width:1100px;margin:0 auto;padding:8px 4px 60px;}
+  .atp-card{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:20px 22px;margin-bottom:18px;}
+  .atp-h1{font-size:22px;font-weight:800;margin:2px 0 6px;color:var(--text-main);}
+  .atp-sub{color:var(--text-muted);font-size:13px;line-height:1.5;margin-bottom:6px;}
+  .atp-row{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;}
+  .atp-field{display:flex;flex-direction:column;gap:6px;}
+  .atp-field label{font-size:12px;color:var(--text-muted);font-weight:600;}
+  .atp-field input[type=number]{width:110px;background:var(--bg-base);border:1px solid var(--panel-border);color:var(--text-main);border-radius:9px;padding:9px 10px;font-size:14px;}
+  .atp-file{border:1.5px dashed var(--panel-border);border-radius:11px;padding:14px;background:var(--bg-base);color:var(--text-muted);font-size:13px;}
+  .atp-btn{background:var(--accent);color:#fff;border:0;border-radius:10px;padding:11px 20px;font-size:14px;font-weight:700;cursor:pointer;}
+  .atp-btn[disabled]{opacity:.55;cursor:not-allowed;}
+  .atp-btn.ghost{background:transparent;color:var(--text-main);border:1px solid var(--panel-border);}
+  .atp-stat{display:flex;gap:22px;flex-wrap:wrap;margin:4px 0 2px;}
+  .atp-stat b{font-size:20px;color:var(--text-main);}
+  .atp-stat span{display:block;font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.04em;}
+  .atp-tabs{display:flex;gap:8px;margin:6px 0 12px;flex-wrap:wrap;}
+  .atp-tab{padding:8px 14px;border-radius:9px;border:1px solid var(--panel-border);background:transparent;color:var(--text-muted);cursor:pointer;font-size:13px;font-weight:600;}
+  .atp-tab.on{background:var(--accent);color:#fff;border-color:var(--accent);}
+  table.atp{width:100%;border-collapse:collapse;font-size:13px;}
+  table.atp th,table.atp td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--panel-border);vertical-align:top;color:var(--text-main);}
+  table.atp th{color:var(--text-muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em;position:sticky;top:0;background:var(--panel-bg);}
+  .atp-scroll{max-height:560px;overflow:auto;border:1px solid var(--panel-border);border-radius:11px;}
+  .atp-score{font-weight:800;}
+  .sc-hi{color:#ef4444;} .sc-mid{color:#f59e0b;} .sc-lo{color:var(--text-muted);}
+  .atp-int{font-weight:700;}
+  .atp-msg{font-size:13px;padding:10px 12px;border-radius:9px;margin-top:10px;display:none;}
+  .atp-msg.err{display:block;background:rgba(239,68,68,.12);color:#ef4444;}
+  .atp-msg.ok{display:block;background:rgba(34,197,94,.12);color:#22c55e;}
+  .atp-spin{display:none;}
+  .atp-loading .atp-spin{display:inline;}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="atp-wrap">
+  <div class="atp-card">
+    <div class="atp-h1">🧹 Audit Training Phrase</div>
+    <div class="atp-sub">
+      Menyandingkan training phrase <b>antar intent</b> memakai SBERT untuk menemukan frasa
+      yang tumpang tindih (penyebab utama match rate turun) dan duplikat dalam satu intent.
+      Fitur ini <b>berdiri sendiri</b> — bukan bagian dari langkah Analisis Dialogflow.
+    </div>
+    <div class="atp-sub">
+      Unggah ZIP <i>“Database Intent Dialogflow”</i> (output Step 3/13) atau langsung file xlsx
+      Training Phrase berkolom <code>ID</code> &amp; <code>Training Phrase</code>.
+    </div>
+    <div style="height:12px"></div>
+    <div class="atp-row">
+      <div class="atp-field" style="flex:1;min-width:260px;">
+        <label>File ZIP / xlsx</label>
+        <input class="atp-file" type="file" id="atpFile" accept=".zip,.xlsx">
+      </div>
+      <div class="atp-field">
+        <label title="Ambang cosine untuk konflik antar intent">Ambang Konflik</label>
+        <input type="number" id="minCross" value="0.85" step="0.01" min="0.5" max="1">
+      </div>
+      <div class="atp-field">
+        <label title="Ambang cosine untuk duplikat dalam intent">Ambang Duplikat</label>
+        <input type="number" id="minDup" value="0.97" step="0.01" min="0.5" max="1">
+      </div>
+      <div class="atp-field">
+        <button class="atp-btn" id="atpRun">Jalankan Audit <span class="atp-spin">…</span></button>
+      </div>
+    </div>
+    <div class="atp-msg" id="atpMsg"></div>
+  </div>
+
+  <div class="atp-card" id="atpResult" style="display:none;">
+    <div class="atp-stat">
+      <div><b id="stIntents">0</b><span>Intent</span></div>
+      <div><b id="stPhrases">0</b><span>Training Phrase</span></div>
+      <div><b id="stCross">0</b><span>Konflik Antar-Intent</span></div>
+      <div><b id="stDup">0</b><span>Duplikat Dalam Intent</span></div>
+      <div style="margin-left:auto;align-self:center;">
+        <button class="atp-btn ghost" id="atpDl">⬇ Unduh Laporan xlsx</button>
+      </div>
+    </div>
+    <div class="atp-tabs">
+      <button class="atp-tab on" data-tab="cross">Konflik Antar-Intent</button>
+      <button class="atp-tab" data-tab="agg">Ringkasan Pasangan Intent</button>
+      <button class="atp-tab" data-tab="dup">Duplikat Dalam Intent</button>
+    </div>
+    <div class="atp-scroll">
+      <table class="atp" id="tblCross"><thead><tr><th>Skor</th><th>Intent A</th><th>Frasa A</th><th>Intent B</th><th>Frasa B</th></tr></thead><tbody></tbody></table>
+      <table class="atp" id="tblAgg" style="display:none;"><thead><tr><th>Intent A</th><th>Intent B</th><th>Jumlah Konflik</th><th>Skor Maks</th></tr></thead><tbody></tbody></table>
+      <table class="atp" id="tblDup" style="display:none;"><thead><tr><th>Skor</th><th>Intent</th><th>Frasa A</th><th>Frasa B</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function(){
+  var lastB64=null, lastName='audit_training_phrase.xlsx';
+  var msg=document.getElementById('atpMsg');
+  function showMsg(t,cls){ msg.textContent=t; msg.className='atp-msg '+cls; }
+  function esc(s){ return (s==null?'':String(s)).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+  function scoreCls(s){ return s>=0.95?'sc-hi':(s>=0.88?'sc-mid':'sc-lo'); }
+
+  document.querySelectorAll('.atp-tab').forEach(function(t){
+    t.addEventListener('click', function(){
+      document.querySelectorAll('.atp-tab').forEach(function(x){x.classList.remove('on');});
+      t.classList.add('on');
+      var tab=t.getAttribute('data-tab');
+      document.getElementById('tblCross').style.display = tab==='cross'?'':'none';
+      document.getElementById('tblAgg').style.display = tab==='agg'?'':'none';
+      document.getElementById('tblDup').style.display = tab==='dup'?'':'none';
+    });
+  });
+
+  function fill(res){
+    document.getElementById('stIntents').textContent=res.n_intents||0;
+    document.getElementById('stPhrases').textContent=res.n_phrases||0;
+    document.getElementById('stCross').textContent=(res.cross_pairs||[]).length + (res.truncated?'+':'');
+    document.getElementById('stDup').textContent=(res.dupes||[]).length;
+    var b1=document.querySelector('#tblCross tbody'); b1.innerHTML='';
+    (res.cross_pairs||[]).forEach(function(p){
+      b1.insertAdjacentHTML('beforeend','<tr><td class="atp-score '+scoreCls(p.score)+'">'+p.score.toFixed(3)+'</td><td class="atp-int">'+esc(p.intent_a)+'</td><td>'+esc(p.phrase_a)+'</td><td class="atp-int">'+esc(p.intent_b)+'</td><td>'+esc(p.phrase_b)+'</td></tr>');
+    });
+    var b2=document.querySelector('#tblAgg tbody'); b2.innerHTML='';
+    (res.intent_conflicts||[]).forEach(function(c){
+      b2.insertAdjacentHTML('beforeend','<tr><td class="atp-int">'+esc(c.intent_a)+'</td><td class="atp-int">'+esc(c.intent_b)+'</td><td>'+c.count+'</td><td class="atp-score '+scoreCls(c.max_score)+'">'+c.max_score.toFixed(3)+'</td></tr>');
+    });
+    var b3=document.querySelector('#tblDup tbody'); b3.innerHTML='';
+    (res.dupes||[]).forEach(function(d){
+      b3.insertAdjacentHTML('beforeend','<tr><td class="atp-score '+scoreCls(d.score)+'">'+d.score.toFixed(3)+'</td><td class="atp-int">'+esc(d.intent)+'</td><td>'+esc(d.phrase_a)+'</td><td>'+esc(d.phrase_b)+'</td></tr>');
+    });
+    lastB64=res.xlsx_b64||null; lastName=res.xlsx_name||lastName;
+    document.getElementById('atpResult').style.display='';
+  }
+
+  document.getElementById('atpRun').addEventListener('click', function(){
+    var f=document.getElementById('atpFile').files[0];
+    if(!f){ showMsg('Pilih file dulu.','err'); return; }
+    var fd=new FormData();
+    fd.append('file', f);
+    fd.append('min_cross', document.getElementById('minCross').value||'0.85');
+    fd.append('min_dup', document.getElementById('minDup').value||'0.97');
+    var btn=this; btn.disabled=true; document.body.classList.add('atp-loading');
+    showMsg('Memproses embedding & penyandingan… (bisa beberapa menit untuk data besar)','ok');
+    fetch('/api/audit-tp/run',{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(res){
+      btn.disabled=false; document.body.classList.remove('atp-loading');
+      if(!res.ok){ showMsg(res.error||'Gagal.','err'); return; }
+      showMsg('Selesai. '+(res.note||''),'ok');
+      fill(res);
+    }).catch(function(e){
+      btn.disabled=false; document.body.classList.remove('atp-loading');
+      showMsg('Kesalahan jaringan: '+e,'err');
+    });
+  });
+
+  document.getElementById('atpDl').addEventListener('click', function(){
+    if(!lastB64){ showMsg('Belum ada laporan.','err'); return; }
+    var bin=atob(lastB64), len=bin.length, buf=new Uint8Array(len);
+    for(var i=0;i<len;i++) buf[i]=bin.charCodeAt(i);
+    var blob=new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=lastName; a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);},1500);
+  });
+})();
+</script>
+{% endblock %}
