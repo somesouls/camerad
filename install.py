@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
-# Installer berurutan untuk paket perbaikan Camerad yang antre.
+# Installer berurutan untuk paket perbaikan Camerad yang antre (v2).
 # Jalankan dari FOLDER PROYEK: python install.py
+#
+# Catatan v2: perbaikan Step 9 SAVE ("Data Edit Tidak Valid") sudah terpasang di
+# mesin ini sebelumnya, jadi fix_step9.py / fix_step9_save.py DIBUANG dari alur.
+# Yang tersisa untuk Step 9 hanyalah tweak step9_load opsional (non-fatal).
 import os, sys, subprocess, shutil
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -14,16 +18,19 @@ def find(name, *cands):
             return c
     return None
 
-def run(patcher, *args):
+def run(patcher, *args, optional=False):
+    """Jalankan patcher. optional=True => kegagalan TIDAK menghentikan installer."""
     script = os.path.join(HERE, patcher)
     if not os.path.isfile(script):
-        p(f"  [MISS] patcher tidak ada: {patcher}"); return False
+        p(f"  [MISS] patcher tidak ada: {patcher}"); return optional
     for a in args:
         if not os.path.isfile(a):
             p(f"  [SKIP] target tidak ditemukan untuk {patcher}: {a}"); return True
     p(f"  -> python {patcher} {' '.join(args)}")
     r = subprocess.run([sys.executable, script, *args])
     if r.returncode != 0:
+        if optional:
+            p(f"  [WARN] {patcher} kode {r.returncode} (opsional) — dilewati, lanjut."); return True
         p(f"  [ERROR] {patcher} keluar dengan kode {r.returncode} — hentikan."); return False
     return True
 
@@ -35,11 +42,10 @@ def main():
     tools = find('tools.html', os.path.join('templates','tools.html'), 'tools.html')
     tmpl_dir = 'templates' if os.path.isdir('templates') else '.'
 
-    p('== 1) pipeline_routes.py: Step 9 LOAD -> Step 9 SAVE -> Step 10 laporan ==')
+    p('== 1) pipeline_routes.py: Step 9 LOAD (opsional) -> Step 10 laporan (WAJIB) ==')
     if pr:
-        if not run('fix_step9.py', pr): return 1
-        if not run('fix_step9_save.py', pr): return 1
-        if not run('fix_step10_report.py', pr): return 1  # step10_build_new.py di folder sama
+        run('fix_step9_load_only.py', pr, optional=True)   # tweak tampilan, non-fatal
+        if not run('fix_step10_report.py', pr): return 1    # step10_build_new.py di folder sama
     else:
         p('  [SKIP] pipeline_routes.py tidak ditemukan')
 

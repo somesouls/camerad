@@ -1,0 +1,49 @@
+CAMERAD INSTALL PACK v2
+- fix_step9.py & fix_step9_save.py DIHAPUS: perbaikan Step 9 SAVE ("Data Edit Tidak Valid") sudah terpasang di mesin Anda.
+- Step 9 LOAD kini patcher terpisah & OPSIONAL (fix_step9_load_only.py), non-fatal.
+- Cukup jalankan: python install.py
+----------------------------------------
+
+PAKET PASANG PERBAIKAN CAMERAD (antre) — urutan aman
+=====================================================
+Semua patcher membuat BACKUP otomatis (.bak*) dan lolos py_compile saat divalidasi
+di baseline terakhir. Jalankan dari FOLDER PROYEK (tempat pipeline_routes.py,
+web_app.py, llm_fix_final_combined.py, dan folder templates/ berada).
+
+CARA CEPAT (otomatis, urutan sudah benar):
+    python install.py
+
+CARA MANUAL (kalau mau satu per satu):
+  1) pipeline_routes.py  (Step 9 LOAD -> Step 9 SAVE -> Step 10 laporan)
+       python fix_step9.py pipeline_routes.py
+       python fix_step9_save.py pipeline_routes.py
+       python fix_step10_report.py pipeline_routes.py     (step10_build_new.py HARUS 1 folder)
+  2) templates/tools.html  (CSS scope -> Opsi B pill Step 6)
+       python fix_tools_scope.py templates/tools.html
+       python fix_step6_pill_opsiB.py templates/tools.html
+  3) base.html  (modal solid -> wiring menu Audit)
+       python fix_modal_canvas.py templates/base.html
+       python fix_wire_audit_tp.py web_app.py templates/base.html
+  4) llm_fix_final_combined.py  (Opsi B label 7 "TIDAK LAYAK TRAINING")
+       python fix_step5_opsiB.py llm_fix_final_combined.py
+  5) Menu Audit Training Phrase — salin 2 file:
+       audit_tp_routes.py   -> folder proyek (samakan dg web_app.py)
+       audit_tp.html        -> templates/audit_tp.html
+
+  6) RESTART server (wajib — HTML & route di-cache saat start) + hard refresh (Ctrl+F5).
+
+CATATAN
+- fix_tools_scope.py & fix_step6_pill_opsiB.py TIDAK bisa saya validasi di sandbox
+  karena templates/tools.html tidak ada di sana. Keduanya idempoten & auto-backup;
+  kalau ada yang tak cocok, patcher berhenti tanpa merusak (cek pesan [skip]/error).
+- Semua patcher idempoten: aman dijalankan ulang (akan [skip] jika sudah ter-patch).
+
+VALIDASI SETELAH RESTART
+[ ] Step 9  -> Simpan Perubahan tidak lagi error "Data Edit Tidak Valid"
+[ ] Step 10 -> Buat Laporan:
+      sheet LM  = TGL_REKAMAN | NOMOR_REKAMAN | NM_AGENT | HASIL_LM | CATATAN_LM
+      sheet Pembaruan = INSERT_ID | NAMA_MATERI | TGL PENYUSUNAN | NAMA PENYUSUN | RANGKUMAN | STATUS MATERI | KATEGORI
+      CSV Pembaruan = NAMA_MATERI,TGL PENYUSUNAN,NAMA PENYUSUN,RANGKUMAN,STATUS MATERI
+[ ] Analisis Dialogflow -> modal TIDAK transparan; bulatan "Engine Aktif" ukuran normal
+[ ] Step 5 -> muncul label 7 "TIDAK LAYAK TRAINING"
+[ ] Sidebar -> muncul menu "Audit Training Phrase" (butuh SBERT aktif)
