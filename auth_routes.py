@@ -20,6 +20,11 @@ def register(app):
     async def login_page():
         return HTMLResponse(_load_html("login.html"))
 
+    @app.get("/credit")
+    async def credit_page():
+        # Halaman kredit & penghargaan (publik; lihat _PUBLIC_PATHS di app_core).
+        return HTMLResponse(_load_html("credit.html"))
+
     @app.get("/users")
     async def users_page(request: Request):
         return render_page(request, "users.html", "users")
