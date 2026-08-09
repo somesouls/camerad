@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}SLA & Analitik · Sosmed{% endblock %}
+{% block head %}
+<style>
+.sm-wrap{max-width:1240px;margin:0 auto;padding:22px 26px 60px;}
+.sm-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+.sm-sub{color:var(--text-muted);font-size:12.5px;margin-top:4px;max-width:760px;}
+.seg{display:flex;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;overflow:hidden;flex-wrap:wrap;margin-top:10px;}
+.seg button{border:none;background:transparent;color:var(--text-muted);padding:7px 12px;font-size:12px;font-weight:600;cursor:pointer;}
+.seg button.active{background:var(--accent-glow);color:var(--accent);}
+.fr{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin-top:10px;}
+.fld{display:flex;flex-direction:column;gap:4px;}
+.fld label{font-size:11px;font-weight:600;color:var(--text-muted);}
+.fld select,.fld input{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:8px;color:var(--text-main);padding:7px 9px;font-size:12px;min-width:120px;}
+.cust-range{display:none;gap:6px;align-items:center;margin-top:8px;}.cust-range.show{display:flex;}
+.cust-range input{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:8px;color:var(--text-main);padding:6px 8px;font-size:12px;}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:8px 15px;font-weight:600;cursor:pointer;font-size:12px;}
+.sec-h{font-size:14px;font-weight:800;margin:26px 0 10px;letter-spacing:-.01em;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;}
+.kpi{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:15px 16px;}
+.kpi .l{font-size:11.5px;color:var(--text-muted);font-weight:600;}
+.kpi .v{font-size:27px;font-weight:800;margin-top:5px;letter-spacing:-.02em;}
+.kpi .s{font-size:11px;color:var(--text-muted);margin-top:3px;}
+.kpi.good .v{color:#2ea86a;}.kpi.warn .v{color:#e0932f;}.kpi.bad .v{color:#ef5350;}
+.panel{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:16px;margin-bottom:14px;}
+.panel h3{margin:0 0 12px;font-size:13px;font-weight:700;}
+.bar-row{display:flex;align-items:center;gap:10px;margin-bottom:8px;}
+.bar-row .nm{width:150px;font-size:12px;color:var(--text-main);text-align:right;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.bar-row .track{flex:1;background:var(--bg-base);border-radius:6px;height:20px;overflow:hidden;}
+.bar-row .fill{height:100%;background:var(--accent);border-radius:6px;min-width:2px;}
+.bar-row .vv{width:52px;font-size:11.5px;color:var(--text-muted);text-align:right;flex-shrink:0;}
+.spark{display:flex;align-items:flex-end;gap:3px;height:110px;padding-top:6px;}
+.spark .b{flex:1;background:var(--accent);border-radius:3px 3px 0 0;min-height:2px;opacity:.85;}
+.spark-x{display:flex;gap:3px;margin-top:6px;}
+.spark-x span{flex:1;font-size:9px;color:var(--text-muted);text-align:center;overflow:hidden;white-space:nowrap;}
+.empty{color:var(--text-muted);text-align:center;padding:26px;font-size:12.5px;}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+@media(max-width:820px){.two{grid-template-columns:1fr;}}
+</style>
+{% endblock %}
+{% block content %}
+<div class="sm-wrap">
+  <h1 class="sm-title">SLA &amp; Analitik Sosmed</h1>
+  <p class="sm-sub">Ringkasan cakupan jawaban, kecepatan respons (SLA), dan analitik distribusi — gabungan menu Coverage &amp; SLA + Analitik. Pertanyaan warga saja yang dihitung; balasan resmi &amp; susulan tidak dianggap pertanyaan baru.</p>
+
+  <div class="seg" id="segRange">
+    <button data-r="all" class="active">Semua</button><button data-r="today">Hari ini</button>
+    <button data-r="7d">7 hari</button><button data-r="30d">30 hari</button>
+    <button data-r="90d">90 hari</button><button data-r="custom">Rentang…</button>
+  </div>
+  <div class="cust-range" id="custRange"><input type="date" id="cStart"><span class="muted">s/d</span><input type="date" id="cEnd"><button class="btn" id="cApply">Terapkan</button></div>
+  <div class="fr">
+    <div class="fld"><label>Platform</label><select id="fPlatform"><option value="">Semua</option><option value="x">X</option><option value="ig">Instagram</option><option value="tiktok">TikTok</option></select></div>
+    <button class="btn" id="btnGo">Terapkan</button>
+  </div>
+
+  <div class="sec-h">Cakupan &amp; SLA</div>
+  <div class="grid" id="kpis"><div class="empty">Memuat…</div></div>
+
+  <div class="sec-h">Analitik distribusi</div>
+  <div class="panel">
+    <h3>Volume pertanyaan per hari</h3>
+    <div class="spark" id="spark"></div>
+    <div class="spark-x" id="sparkx"></div>
+  </div>
+  <div class="two">
+    <div class="panel"><h3>Per jenis layanan (topik)</h3><div id="byTopik"></div></div>
+    <div class="panel"><h3>Per sentimen</h3><div id="bySent"></div></div>
+  </div>
+  <div class="panel"><h3>Per platform</h3><div id="byPlat"></div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $=s=>document.querySelector(s);
+let RANGE='all',CS='',CE='';
+async function jget(u){const r=await fetch(u);return r.json();}
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function rt(s){if(s==null)return '–';if(s<60)return Math.round(s)+' dtk';if(s<3600)return Math.round(s/60)+' mnt';return (Math.round(s/360)/10)+' jam';}
+
+document.querySelectorAll('#segRange button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#segRange button').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');RANGE=b.dataset.r;
+  $('#custRange').classList.toggle('show',RANGE==='custom');
+  if(RANGE!=='custom')load();
+});
+$('#cApply').onclick=()=>{CS=$('#cStart').value;CE=$('#cEnd').value;load();};
+$('#btnGo').onclick=load;
+function qs(){const p=new URLSearchParams();p.set('range',RANGE);if(RANGE==='custom'){p.set('start',CS);p.set('end',CE);}if($('#fPlatform').value)p.set('platform',$('#fPlatform').value);return p.toString();}
+
+function kpi(l,v,s,cls){return `<div class="kpi ${cls||''}"><div class="l">${l}</div><div class="v">${v}</div><div class="s">${s||''}</div></div>`;}
+function bars(el,rows,keyN,keyV){
+  if(!rows||!rows.length){el.innerHTML='<div class="empty">Tidak ada data.</div>';return;}
+  const max=Math.max(...rows.map(r=>r[keyV]||0))||1;
+  el.innerHTML=rows.map(r=>`<div class="bar-row"><div class="nm">${esc(String(r[keyN]||'–'))}</div><div class="track"><div class="fill" style="width:${Math.round((r[keyV]||0)/max*100)}%"></div></div><div class="vv">${r[keyV]||0}</div></div>`).join('');
+}
+
+async function load(){
+  $('#kpis').innerHTML='<div class="empty">Memuat…</div>';
+  const [c,a]=await Promise.all([jget('/api/sosmed/coverage?'+qs()),jget('/api/sosmed/analytics?'+qs())]);
+  const pct=c.pct_answered!=null?c.pct_answered:0;
+  const sla=c.pct_within_sla!=null?c.pct_within_sla:0;
+  const covCls=pct>=90?'good':pct>=70?'warn':'bad';
+  const slaCls=sla>=90?'good':sla>=70?'warn':'bad';
+  $('#kpis').innerHTML=[
+    kpi('Total pertanyaan',c.total||0,'warga bertanya'),
+    kpi('Terjawab',(c.answered||0),pct+'% cakupan',covCls),
+    kpi('Belum terjawab',(c.unanswered||0),'perlu tindak lanjut',(c.unanswered>0?'bad':'good')),
+    kpi('Diabaikan',(c.ignored||0),'ditandai diabaikan'),
+    kpi('Rata-rata respons',rt(c.avg_response_s),'median '+rt(c.median_response_s)),
+    kpi('Dalam SLA',sla+'%',(c.within_sla||0)+'/'+((c.within_sla||0)+(c.breach_sla||0))+' · target '+(c.sla_minutes||60)+' mnt',slaCls),
+  ].join('');
+  const bd=a.by_day||[];
+  if(bd.length){const max=Math.max(...bd.map(d=>d.n))||1;
+    $('#spark').innerHTML=bd.map(d=>`<div class="b" style="height:${Math.round(d.n/max*100)}%" title="${d.day}: ${d.n}"></div>`).join('');
+    const step=Math.ceil(bd.length/8);
+    $('#sparkx').innerHTML=bd.map((d,i)=>`<span>${i%step===0?esc((d.day||'').slice(5)):''}</span>`).join('');
+  }else{$('#spark').innerHTML='<div class="empty">Tidak ada data.</div>';$('#sparkx').innerHTML='';}
+  bars($('#byTopik'),a.by_topik,'topik','n');
+  bars($('#bySent'),a.by_sentiment,'sentiment','n');
+  bars($('#byPlat'),a.by_platform,'platform','n');
+}
+load();
+</script>
+{% endblock %}
