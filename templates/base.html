@@ -146,7 +146,8 @@ body {
 .user-info { text-align: right; display: flex; flex-direction: column; justify-content: center; }
 .user-info b { font-size: 14px; font-weight: 600; line-height: 1.2; }
 .user-info span { font-size: 11.5px; color: var(--text-muted); }
-.user-avatar { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #8b5cf6); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 15px; box-shadow: 0 4px 10px var(--accent-glow); }
+.user-avatar { width: 38px; height: 38px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #8b5cf6); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; font-size: 15px; box-shadow: 0 4px 10px var(--accent-glow); overflow: hidden; }
+.user-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 .action-btn { border: 1px solid var(--panel-border); background: var(--panel-bg); backdrop-filter: blur(10px); color: var(--text-main); width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.3s; }
 .action-btn:hover { border-color: var(--accent); box-shadow: 0 0 15px var(--accent-glow); transform: translateY(-2px); }
@@ -441,11 +442,6 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
         </a>
         {% endif %}
 
-        <a class="tool-side{% if active_page == 'credit' %} active{% endif %}" href="/credit">
-          <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M8.21 13.89L7 22l5-3 5 3-1.21-8.11"/></svg></div>
-          <b>Kredit &amp; Penghargaan</b>
-        </a>
-
         <div class="sec-label" style="margin-top: 14px;">Riwayat Percakapan</div>
         <div id="histList"></div>
       </div>
@@ -466,7 +462,11 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
             <b>{{ user_name }}</b>
             <span>{{ user_role }}</span>
           </div>
-          <a href="/users" class="user-avatar" title="Profil & Pengguna" style="text-decoration:none;">{{ user_avatar }}</a>
+          <a href="/profil" class="user-avatar" title="Akun Saya" style="text-decoration:none;">{% if user_avatar_img %}<img src="{{ user_avatar_img }}" alt="avatar">{% else %}{{ user_avatar }}{% endif %}</a>
+
+          <a href="/credit" class="action-btn" title="Kredit &amp; Penghargaan" style="text-decoration:none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M8.21 13.89L7 22l5-3 5 3-1.21-8.11"/></svg>
+          </a>
 
           <button class="action-btn theme-toggle" id="theme-btn" aria-label="Toggle Mode">
             <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24"><path d="M12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3zm0-2V3M12 21v-4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
