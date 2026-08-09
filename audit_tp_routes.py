@@ -378,6 +378,16 @@ async def audit_tp_page(request: Request):
     return render_page(request, "audit_tp.html", "audit_tp")
 
 
+async def pipeline_page(request: Request):
+    """Halaman "Pipeline Otomatis" (orkestrasi Step 1-11 dengan checkpoint manual).
+
+    Berbagi run (localStorage 'dfp_run') dan backend /tools?action=stepN dengan
+    halaman Analisis Dialogflow, sehingga tidak menambah endpoint proses baru.
+    Titik pemeriksaan manual (Step 6/9/11) dibuka di halaman Analisis Dialogflow.
+    """
+    return render_page(request, "pipeline_auto.html", "pipeline")
+
+
 def _to_float(v, default):
     try:
         return float(v)
@@ -434,4 +444,5 @@ def register(app):
     app.add_api_route("/audit-tp", audit_tp_page, methods=["GET"])
     app.add_api_route("/api/audit-tp/run", api_audit_run, methods=["POST"])
     app.add_api_route("/api/audit-tp/refresh", api_audit_refresh, methods=["POST"])
+    app.add_api_route("/pipeline", pipeline_page, methods=["GET"])
     _start_catalog_scheduler()
