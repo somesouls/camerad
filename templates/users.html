@@ -1,37 +1,44 @@
 {% extends "base.html" %}
-{% block title %}Kelola User — Pipeline Lokal DJP{% endblock %}
+{% block title %}Pengguna & Peran — Camerad Studio{% endblock %}
 {% block head %}<style>
-.wrap { max-width:980px; margin:0 auto; padding:24px 16px; }
+.wrap { max-width:980px; margin:0 auto; padding:24px 16px 60px; }
 .top { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
-h1 { font-size:20px; margin:0; }
-a.back { color:#93c5fd; text-decoration:none; font-size:13px; }
-table { width:100%; border-collapse:collapse; background:#1e293b; border:1px solid #334155; }
-th, td { padding:10px 12px; text-align:left; font-size:13px; border-bottom:1px solid #334155; }
-th { color:#94a3b8; font-weight:600; background:#172033; }
+h1 { font-size:20px; margin:0; color:var(--text-main); }
+a.back { color:var(--accent); text-decoration:none; font-size:13px; }
+a.back:hover { text-decoration:underline; }
+table { width:100%; border-collapse:collapse; background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:10px; overflow:hidden; }
+th, td { padding:10px 12px; text-align:left; font-size:13px; border-bottom:1px solid var(--panel-border); color:var(--text-main); }
+th { color:var(--text-muted); font-weight:600; background:var(--bg-base); }
 tr:last-child td { border-bottom:none; }
-.badge { padding:2px 8px; border-radius:999px; font-size:11px; }
-.b-admin { background:#7c2d12; color:#fed7aa; }
-.b-analis { background:#1e3a8a; color:#bfdbfe; }
-.b-viewer { background:#334155; color:#cbd5e1; }
+.badge { padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; }
+.b-admin { background:var(--c-orange); color:var(--c-orange-txt); }
+.b-analis { background:var(--c-blue); color:var(--c-blue-txt); }
+.b-assessor { background:var(--c-purple); color:var(--c-purple-txt); }
+.b-viewer { background:var(--panel-border); color:var(--text-muted); }
+.uname { display:flex; align-items:center; gap:10px; }
+.uav { width:30px; height:30px; border-radius:50%; overflow:hidden; flex:none; background:linear-gradient(135deg, var(--accent), #8b5cf6); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
+.uav img { width:100%; height:100%; object-fit:cover; display:block; }
 .off { opacity:.5; }
-.btn { padding:6px 10px; border:1px solid #334155; border-radius:7px; background:#0f172a; color:#e2e8f0; font-size:12px; cursor:pointer; }
-.btn:hover { border-color:#3b82f6; }
-.btn.danger:hover { border-color:#ef4444; color:#fca5a5; }
-.card { background:#1e293b; border:1px solid #334155; border-radius:10px; padding:18px; margin-top:20px; }
+.btn { padding:6px 10px; border:1px solid var(--panel-border); border-radius:7px; background:var(--bg-base); color:var(--text-main); font-size:12px; cursor:pointer; }
+.btn:hover { border-color:var(--accent); color:var(--accent); }
+.btn.danger:hover { border-color:#ef4444; color:#f87171; }
+.card { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:12px; padding:18px; margin-top:20px; backdrop-filter:blur(10px); box-shadow:var(--shadow-sm); }
 .row { display:flex; gap:12px; flex-wrap:wrap; }
 .fld { flex:1; min-width:160px; }
-label { display:block; font-size:12px; color:#94a3b8; margin:0 0 6px; }
-input, select { width:100%; padding:9px 10px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:#e2e8f0; font-size:13px; }
-.primary { background:#3b82f6; color:#fff; border:none; padding:10px 16px; border-radius:8px; font-weight:600; cursor:pointer; margin-top:14px; }
+label { display:block; font-size:12px; color:var(--text-muted); margin:0 0 6px; }
+input, select { width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--panel-border); background:var(--bg-base); color:var(--text-main); font-size:13px; outline:none; }
+input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-glow); }
+.primary { background:var(--accent); color:#fff; border:none; padding:10px 16px; border-radius:8px; font-weight:600; cursor:pointer; margin-top:14px; }
+.primary:hover { background:var(--accent-hover); }
 .msg { margin-top:12px; font-size:13px; display:none; padding:9px 12px; border-radius:8px; }
-.msg.ok { background:#064e3b; color:#a7f3d0; display:block; }
-.msg.no { background:#7f1d1d; color:#fecaca; display:block; }
+.msg.ok { background:rgba(16,185,129,0.15); color:var(--c-green-txt); display:block; }
+.msg.no { background:rgba(239,68,68,0.15); color:var(--c-red-txt); display:block; }
 </style>{% endblock %}
 {% block content %}
 <div class="wrap">
   <div class="top">
-    <h1>Kelola User</h1>
-    <div><a class="back" href="/">← Kembali</a> · <a class="back" href="/api/logout">Keluar</a></div>
+    <h1>Pengguna &amp; Peran</h1>
+    <a class="back" href="/">← Kembali</a>
   </div>
   <div class="card">
     <h3 id="ftitle" style="margin:0 0 14px; font-size:15px;">Tambah User Baru</h3>
@@ -45,6 +52,7 @@ input, select { width:100%; padding:9px 10px; border-radius:8px; border:1px soli
         <label>Peran</label>
         <select id="fr">
           <option value="viewer">viewer — hanya lihat</option>
+          <option value="assessor">assessor — lihat + Penilaian QA (AWE)</option>
           <option value="analis">analis — lihat, edit, setujui, ingest</option>
           <option value="admin">admin — semua + kelola user</option>
         </select>
@@ -55,7 +63,7 @@ input, select { width:100%; padding:9px 10px; border-radius:8px; border:1px soli
     <button class="btn" id="reset" style="margin-top:14px;">Batal / Reset Form</button>
     <div class="msg" id="msg"></div>
   </div>
-  <div class="card">
+  <div class="card" style="padding:0; overflow:hidden;">
     <table>
       <thead>
         <tr><th>Username</th><th>Nama</th><th>Peran</th><th>Status</th><th></th></tr>
@@ -81,10 +89,20 @@ function show(text, ok) {
   msg.className = "msg " + (ok ? "ok" : "no");
 }
 
+function esc(s) {
+  return (s || "").replace(/[&<>\"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]; });
+}
+
 function badge(role) {
   if (role === "admin") return '<span class="badge b-admin">admin</span>';
   if (role === "analis") return '<span class="badge b-analis">analis</span>';
+  if (role === "assessor") return '<span class="badge b-assessor">assessor</span>';
   return '<span class="badge b-viewer">viewer</span>';
+}
+
+function avatarCell(u) {
+  var inner = u.avatar ? ('<img src="' + u.avatar + '" alt="">') : esc((u.username || "?").charAt(0).toUpperCase());
+  return '<div class="uname"><span class="uav">' + inner + '</span><span>' + esc(u.username) + '</span></div>';
 }
 
 async function load() {
@@ -99,14 +117,14 @@ async function load() {
     const tr = document.createElement("tr");
     if (!u.aktif) tr.className = "off";
     tr.innerHTML =
-      '<td>' + u.username + '</td>' +
-      '<td>' + (u.nama || '') + '</td>' +
+      '<td>' + avatarCell(u) + '</td>' +
+      '<td>' + esc(u.nama || '') + '</td>' +
       '<td>' + badge(u.role) + '</td>' +
       '<td>' + (u.aktif ? 'aktif' : 'nonaktif') + '</td>' +
       '<td style="text-align:right; white-space:nowrap;">' +
-      '<button class="btn" data-edit="' + JSON.stringify(u).replace(/"/g, '&quot;') + '">Ubah</button> ' +
+      '<button class="btn" data-edit="' + JSON.stringify({id:u.id,username:u.username,nama:u.nama,role:u.role,aktif:u.aktif}).replace(/\"/g, '&quot;') + '">Ubah</button> ' +
       '<button class="btn" data-toggle="' + u.id + '" data-aktif="' + (u.aktif ? 0 : 1) + '">' + (u.aktif ? 'Nonaktifkan' : 'Aktifkan') + '</button> ' +
-      '<button class="btn danger" data-del="' + u.id + '" data-name="' + u.username + '">Hapus</button>' +
+      '<button class="btn danger" data-del="' + u.id + '" data-name="' + esc(u.username) + '">Hapus</button>' +
       '</td>';
     tb.appendChild(tr);
   });
