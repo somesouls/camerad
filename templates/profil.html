@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Akun Saya — Camerad Studio{% endblock %}
+{% block head %}<style>
+.wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 60px; }
+.top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.top h1 { font-size: 20px; margin: 0; color: var(--text-main); }
+a.back { color: var(--accent); text-decoration: none; font-size: 13px; }
+a.back:hover { text-decoration: underline; }
+.card { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 14px; padding: 20px; margin-top: 18px; backdrop-filter: blur(10px); box-shadow: var(--shadow-sm); }
+.card h3 { margin: 0 0 4px; font-size: 15px; color: var(--text-main); }
+.card .desc { margin: 0 0 16px; font-size: 12.5px; color: var(--text-muted); }
+.av-row { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.av-prev { width: 88px; height: 88px; border-radius: 50%; overflow: hidden; flex: none; background: linear-gradient(135deg, var(--accent), #8b5cf6); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 700; box-shadow: 0 4px 14px var(--accent-glow); }
+.av-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.av-actions { display: flex; flex-direction: column; gap: 8px; }
+.info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.info-grid .it { background: var(--bg-base); border: 1px solid var(--panel-border); border-radius: 10px; padding: 10px 12px; }
+.info-grid .it label { display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+.info-grid .it b { font-size: 13.5px; color: var(--text-main); }
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.fld { flex: 1; min-width: 200px; }
+label.lb { display: block; font-size: 12px; color: var(--text-muted); margin: 0 0 6px; }
+input { width: 100%; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--panel-border); background: var(--bg-base); color: var(--text-main); font-size: 13.5px; outline: none; }
+input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
+.primary { background: var(--accent); color: #fff; border: none; padding: 10px 18px; border-radius: 9px; font-weight: 600; cursor: pointer; margin-top: 16px; font-size: 13.5px; }
+.primary:hover { background: var(--accent-hover); }
+.btn { padding: 8px 14px; border: 1px solid var(--panel-border); border-radius: 9px; background: var(--bg-base); color: var(--text-main); font-size: 12.5px; cursor: pointer; }
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn.danger:hover { border-color: #ef4444; color: #f87171; }
+.msg { margin-top: 12px; font-size: 13px; display: none; padding: 9px 12px; border-radius: 8px; }
+.msg.ok { background: rgba(16,185,129,0.15); color: var(--c-green-txt); display: block; }
+.msg.no { background: rgba(239,68,68,0.15); color: var(--c-red-txt); display: block; }
+</style>{% endblock %}
+{% block content %}
+<div class="wrap">
+  <div class="top">
+    <h1>Akun Saya</h1>
+    <a class="back" href="/">← Kembali</a>
+  </div>
+
+  <div class="card">
+    <h3>Foto Profil</h3>
+    <p class="desc">Format gambar (JPG/PNG). Otomatis dipotong persegi &amp; diperkecil ke 256px.</p>
+    <div class="av-row">
+      <div class="av-prev" id="avPrev">{% if user_avatar_img %}<img src="{{ user_avatar_img }}" alt="avatar">{% else %}{{ user_avatar }}{% endif %}</div>
+      <div class="av-actions">
+        <input type="file" id="avFile" accept="image/*" style="display:none" />
+        <button class="btn" id="avPick">Pilih / Ganti Foto</button>
+        <button class="btn danger" id="avDel">Hapus Foto</button>
+      </div>
+    </div>
+    <div class="msg" id="avMsg"></div>
+  </div>
+
+  <div class="card">
+    <h3>Informasi Akun</h3>
+    <p class="desc">Nama dan peran hanya dapat diubah oleh administrator.</p>
+    <div class="info-grid">
+      <div class="it"><label>Username</label><b>{{ user_username or '-' }}</b></div>
+      <div class="it"><label>Nama</label><b>{{ user_name }}</b></div>
+      <div class="it"><label>Peran</label><b>{{ user_role }}</b></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Ganti Sandi</h3>
+    <p class="desc">Masukkan sandi lama untuk verifikasi, lalu sandi baru minimal 6 karakter.</p>
+    <div class="row">
+      <div class="fld"><label class="lb">Sandi Lama</label><input id="pOld" type="password" autocomplete="current-password" /></div>
+    </div>
+    <div class="row">
+      <div class="fld"><label class="lb">Sandi Baru</label><input id="pNew" type="password" autocomplete="new-password" /></div>
+      <div class="fld"><label class="lb">Ulangi Sandi Baru</label><input id="pNew2" type="password" autocomplete="new-password" /></div>
+    </div>
+    <button class="primary" id="pSave">Simpan Sandi Baru</button>
+    <div class="msg" id="pMsg"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var avPrev = document.getElementById('avPrev');
+  var avFile = document.getElementById('avFile');
+  var avMsg = document.getElementById('avMsg');
+  var fallback = avPrev.textContent.trim();
+
+  function showMsg(el, text, ok){ el.textContent = text; el.className = 'msg ' + (ok ? 'ok' : 'no'); }
+
+  document.getElementById('avPick').addEventListener('click', function(){ avFile.click(); });
+
+  avFile.addEventListener('change', function(){
+    var f = avFile.files && avFile.files[0];
+    if (!f) return;
+    if (!/^image\//.test(f.type)) { showMsg(avMsg, 'File harus berupa gambar.', false); return; }
+    var reader = new FileReader();
+    reader.onload = function(e){
+      var img = new Image();
+      img.onload = function(){
+        var S = 256;
+        var canvas = document.createElement('canvas');
+        canvas.width = S; canvas.height = S;
+        var ctx = canvas.getContext('2d');
+        var side = Math.min(img.width, img.height);
+        var sx = (img.width - side) / 2, sy = (img.height - side) / 2;
+        ctx.drawImage(img, sx, sy, side, side, 0, 0, S, S);
+        var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        saveAvatar(dataUrl);
+      };
+      img.onerror = function(){ showMsg(avMsg, 'Gagal membaca gambar.', false); };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(f);
+  });
+
+  function saveAvatar(dataUrl){
+    fetch('/api/profil/avatar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ avatar: dataUrl }) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (j.ok) {
+          avPrev.innerHTML = dataUrl ? ('<img src="' + dataUrl + '" alt="avatar">') : fallback;
+          showMsg(avMsg, dataUrl ? 'Foto profil diperbarui.' : 'Foto profil dihapus.', true);
+        } else {
+          showMsg(avMsg, j.error || 'Gagal menyimpan foto.', false);
+        }
+      })
+      .catch(function(){ showMsg(avMsg, 'Gagal terhubung ke server.', false); });
+  }
+
+  document.getElementById('avDel').addEventListener('click', function(){
+    if (!confirm('Hapus foto profil?')) return;
+    saveAvatar('');
+  });
+
+  var pMsg = document.getElementById('pMsg');
+  document.getElementById('pSave').addEventListener('click', function(){
+    var oldp = document.getElementById('pOld').value;
+    var np = document.getElementById('pNew').value;
+    var np2 = document.getElementById('pNew2').value;
+    if (!oldp) { showMsg(pMsg, 'Sandi lama wajib diisi.', false); return; }
+    if (np.length < 6) { showMsg(pMsg, 'Sandi baru minimal 6 karakter.', false); return; }
+    if (np !== np2) { showMsg(pMsg, 'Konfirmasi sandi baru tidak cocok.', false); return; }
+    fetch('/api/profil/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ old_password: oldp, new_password: np }) })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        if (j.ok) {
+          showMsg(pMsg, 'Sandi berhasil diganti.', true);
+          document.getElementById('pOld').value = '';
+          document.getElementById('pNew').value = '';
+          document.getElementById('pNew2').value = '';
+        } else {
+          showMsg(pMsg, j.error || 'Gagal mengganti sandi.', false);
+        }
+      })
+      .catch(function(){ showMsg(pMsg, 'Gagal terhubung ke server.', false); });
+  });
+})();
+</script>
+{% endblock %}
