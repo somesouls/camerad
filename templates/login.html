@@ -235,6 +235,9 @@
     text-align: center;
     color: var(--text-muted);
   }
+  .footer a { color: var(--text-muted); text-decoration: none; font-weight: 600; }
+  .footer a:hover { color: var(--accent); }
+  .footer .sep { margin: 0 8px; opacity: 0.5; }
 
   /* SVG Icons for Theme Toggle */
   .icon-moon { display: none; }
@@ -279,7 +282,7 @@
     <button type="submit" id="btn">Otorisasi Masuk</button>
     <div class="err" id="e" role="alert" aria-live="polite"></div>
     
-    <div class="footer">Sistem khusus agen layanan Kring Pajak.</div>
+    <div class="footer">Sistem khusus agen layanan Kring Pajak.<span class="sep">·</span><a href="/credit">Kredit &amp; Penghargaan</a></div>
   </form>
 
   <script>
