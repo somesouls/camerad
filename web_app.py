@@ -155,6 +155,10 @@ awe_assess.register(app)
 import sosmed_routes
 sosmed_routes.register(app)
 
+# --- Endpoint ingest untuk ekstensi Camerad X-Scraper (POST /api/sosmed/ingest) ---
+import sosmed_ingest
+sosmed_ingest.register(app)
+
 import studio_routes
 studio_routes.register(
     app,
