@@ -1,13 +1,19 @@
 # -*- coding: utf-8 -*-
-"""sosmed_routes.py — Rute Tool Sosmed (X / IG / TikTok).
+"""sosmed_routes.py — Rute Menu Sosmed (X / IG / TikTok), versi ringkas 4 menu.
 
-Halaman menu + API untuk: Kelola Data (impor manual & tarik X capability-aware),
-Inbox / Daftar Q&A, Detail thread, Coverage & SLA, Analitik, dan FAQ/Deflection.
+Struktur menu (rombak Agustus 2026, sesuai arahan "cukup jadi database FAQ"):
+  1. Q&A                   — gabungan Inbox + Daftar Q&A (pertanyaan warga + utas).
+  2. Kelola Data Sosmed    — impor manual / tarik X + housekeeping + perbaiki data.
+  3. SLA & Analitik        — gabungan Coverage & SLA + Analitik Sosmed.
+  4. Coverage & Deflection — database FAQ: klaster pertanyaan yang lagi trending +
+                             cek apakah bot SUDAH punya intent yang menjawab
+                             (bila belum -> gap pengetahuan), lengkap draf jawaban.
 
-Mengikuti pola data_routes.py & awe_routes.py. Daftarkan dengan:
+Semua menu punya filter platform (X / IG / TikTok), siap untuk impor IG & TikTok.
+
+Lapisan data: sosmed_db.py (pairing Q&A sadar-thread). Otak FAQ/gap:
+sosmed_knowledge.py. Collector X: sosmed_x.py. Daftarkan dengan:
     import sosmed_routes; sosmed_routes.register(app)
-
-Lapisan data: sosmed_db.py (SQLite). Collector: sosmed_x.py (free-tier aware).
 """
 import io
 import csv
@@ -15,12 +21,13 @@ import json
 import zipfile
 
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.concurrency import run_in_threadpool
 
 import sosmed_db as sdb
 import sosmed_x as sx
+import sosmed_knowledge as sk
 from app_core import render_page
 
 
@@ -103,26 +110,35 @@ def _parse_items_upload(data, name, default_platform=None):
 
 
 # ---------------------------------------------------------------------------
-# Halaman menu
+# Halaman menu (4 menu)
 # ---------------------------------------------------------------------------
-async def sosmed_inbox_page(request: Request):
-    return render_page(request, "sosmed_inbox.html", "sosmed_inbox")
+async def sosmed_qna_page(request: Request):
+    return render_page(request, "sosmed_qna.html", "sosmed_qna")
 
 
 async def sosmed_kelola_page(request: Request):
     return render_page(request, "sosmed_kelola.html", "sosmed_kelola")
 
 
-async def sosmed_coverage_page(request: Request):
-    return render_page(request, "sosmed_coverage.html", "sosmed_coverage")
+async def sosmed_sla_page(request: Request):
+    return render_page(request, "sosmed_sla.html", "sosmed_sla")
 
 
-async def sosmed_analytics_page(request: Request):
-    return render_page(request, "sosmed_analytics.html", "sosmed_analytics")
+async def sosmed_deflection_page(request: Request):
+    return render_page(request, "sosmed_deflection.html", "sosmed_deflection")
 
 
-async def sosmed_faq_page(request: Request):
-    return render_page(request, "sosmed_faq.html", "sosmed_faq")
+# Redirect rute lama -> baru (kompatibilitas bookmark setelah rombak menu)
+async def _redir_qna(request: Request):
+    return RedirectResponse("/sosmed", status_code=307)
+
+
+async def _redir_sla(request: Request):
+    return RedirectResponse("/sosmed/sla", status_code=307)
+
+
+async def _redir_deflection(request: Request):
+    return RedirectResponse("/sosmed/deflection", status_code=307)
 
 
 # ---------------------------------------------------------------------------
@@ -233,8 +249,21 @@ async def api_pull_x(request: Request):
     return JSONResponse(res, status_code=code)
 
 
+async def api_repair(request: Request):
+    """Perbaiki data lama: jalankan ulang pairing Q&A sadar-thread untuk SEMUA
+    conversation. Dipakai sekali setelah upgrade agar baris lama (yang di-ingest
+    versi backend lama) mendapat item_type/status yang benar."""
+    def _do():
+        c = _conn()
+        try:
+            return sdb.repair_all_pairing(c)
+        finally:
+            c.close()
+    return JSONResponse(await run_in_threadpool(_do))
+
+
 # ---------------------------------------------------------------------------
-# Inbox / Daftar Q&A
+# Q&A (dulu Inbox / Daftar Q&A)
 # ---------------------------------------------------------------------------
 def _qp(request, key, default=""):
     return (request.query_params.get(key) or default).strip()
@@ -324,7 +353,7 @@ async def api_set_topik(request: Request):
 
 
 # ---------------------------------------------------------------------------
-# Coverage / Analytics / FAQ / stats / purge
+# SLA & Analitik (gabungan Coverage & SLA + Analitik)
 # ---------------------------------------------------------------------------
 async def api_coverage(request: Request):
     def _do():
@@ -350,25 +379,33 @@ async def api_analytics(request: Request):
     return JSONResponse(await run_in_threadpool(_do))
 
 
-async def api_faq(request: Request):
-    only_un = (request.query_params.get("only_unanswered") or "").lower() in ("1", "true", "ya")
+# ---------------------------------------------------------------------------
+# Coverage & Deflection (database FAQ + gap pengetahuan bot)
+# ---------------------------------------------------------------------------
+async def api_knowledge_gap(request: Request):
+    q = request.query_params
     try:
-        min_count = int(request.query_params.get("min_count") or 2)
+        min_count = int(q.get("min_count") or 1)
     except Exception:
-        min_count = 2
+        min_count = 1
+    use_sem = (q.get("semantic") or "1").lower() not in ("0", "false", "no", "")
 
     def _do():
         c = _conn()
         try:
-            return sdb.faq_candidates(c, platform=_qp(request, "platform"),
-                                      range_=_qp(request, "range", "all"),
-                                      start=_qp(request, "start"), end=_qp(request, "end"),
-                                      only_unanswered=only_un, min_count=min_count)
+            return sk.knowledge_gap(
+                c, platform=_qp(request, "platform"),
+                range_=_qp(request, "range", "all"),
+                start=_qp(request, "start"), end=_qp(request, "end"),
+                min_count=min_count, use_semantic=use_sem)
         finally:
             c.close()
     return JSONResponse(await run_in_threadpool(_do))
 
 
+# ---------------------------------------------------------------------------
+# Stats / housekeeping
+# ---------------------------------------------------------------------------
 async def api_stats(request: Request):
     def _do():
         c = _conn()
@@ -394,26 +431,34 @@ async def api_purge(request: Request):
 # Registrasi
 # ---------------------------------------------------------------------------
 def register(app):
-    # Halaman
-    app.add_api_route("/sosmed", sosmed_inbox_page, methods=["GET"])
-    app.add_api_route("/sosmed/inbox", sosmed_inbox_page, methods=["GET"])
+    # Halaman (4 menu)
+    app.add_api_route("/sosmed", sosmed_qna_page, methods=["GET"])
+    app.add_api_route("/sosmed/qna", sosmed_qna_page, methods=["GET"])
     app.add_api_route("/sosmed/kelola", sosmed_kelola_page, methods=["GET"])
-    app.add_api_route("/sosmed/coverage", sosmed_coverage_page, methods=["GET"])
-    app.add_api_route("/sosmed/analytics", sosmed_analytics_page, methods=["GET"])
-    app.add_api_route("/sosmed/faq", sosmed_faq_page, methods=["GET"])
+    app.add_api_route("/sosmed/sla", sosmed_sla_page, methods=["GET"])
+    app.add_api_route("/sosmed/deflection", sosmed_deflection_page, methods=["GET"])
+    # Redirect rute lama -> baru
+    app.add_api_route("/sosmed/inbox", _redir_qna, methods=["GET"])
+    app.add_api_route("/sosmed/coverage", _redir_sla, methods=["GET"])
+    app.add_api_route("/sosmed/analytics", _redir_sla, methods=["GET"])
+    app.add_api_route("/sosmed/faq", _redir_deflection, methods=["GET"])
     # Kelola data
     app.add_api_route("/api/sosmed/import-upload", api_import_upload, methods=["POST"])
     app.add_api_route("/api/sosmed/import-paste", api_import_paste, methods=["POST"])
     app.add_api_route("/api/sosmed/x/capabilities", api_x_capabilities, methods=["GET"])
     app.add_api_route("/api/sosmed/pull-x", api_pull_x, methods=["POST"])
     app.add_api_route("/api/sosmed/purge", api_purge, methods=["POST"])
-    # Inbox / Q&A
+    app.add_api_route("/api/sosmed/repair", api_repair, methods=["POST"])
+    # Q&A
     app.add_api_route("/api/sosmed/list", api_list, methods=["GET"])
     app.add_api_route("/api/sosmed/thread", api_thread, methods=["GET"])
     app.add_api_route("/api/sosmed/status", api_set_status, methods=["POST"])
     app.add_api_route("/api/sosmed/topik", api_set_topik, methods=["POST"])
-    # Insight
+    # SLA & Analitik
     app.add_api_route("/api/sosmed/coverage", api_coverage, methods=["GET"])
     app.add_api_route("/api/sosmed/analytics", api_analytics, methods=["GET"])
-    app.add_api_route("/api/sosmed/faq", api_faq, methods=["GET"])
+    # Coverage & Deflection (FAQ + gap)
+    app.add_api_route("/api/sosmed/knowledge-gap", api_knowledge_gap, methods=["GET"])
+    # kompat: endpoint FAQ lama -> knowledge-gap
+    app.add_api_route("/api/sosmed/faq", api_knowledge_gap, methods=["GET"])
     app.add_api_route("/api/sosmed/stats", api_stats, methods=["GET"])
