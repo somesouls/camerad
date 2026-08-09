@@ -49,6 +49,9 @@
       Unggah ZIP <i>“Database Intent Dialogflow”</i> (output Step 3/13) atau langsung file xlsx
       Training Phrase berkolom <code>ID</code> &amp; <code>Training Phrase</code>, atau <b>gunakan data terakhir dari Analisis Dialogflow</b>.
     </div>
+    <div class="atp-sub" style="font-size:12px;">
+      💡 Katalog “Data Terakhir” diperbarui <b>otomatis tiap hari</b>. Klik <b>Tarik ulang katalog</b> untuk menariknya sekarang juga (langsung dari Dialogflow, ~1–2 menit).
+    </div>
     <div style="height:12px"></div>
     <div class="atp-row">
       <div class="atp-field" style="flex:1;min-width:260px;">
@@ -71,6 +74,9 @@
       </div>
       <div class="atp-field">
         <button class="atp-btn" id="atpRun">Jalankan Audit <span class="atp-spin">…</span></button>
+      </div>
+      <div class="atp-field">
+        <button class="atp-btn ghost" id="atpRefresh" title="Tarik ulang katalog intent + training phrase terbaru dari Dialogflow (dipakai 'Gunakan Data Terakhir')">↻ Tarik ulang katalog <span class="atp-spin">…</span></button>
       </div>
     </div>
     <div class="atp-msg" id="atpMsg"></div>
@@ -166,6 +172,20 @@
       if(!res.ok){ showMsg(res.error||'Gagal.','err'); return; }
       showMsg('Selesai. '+(res.note||''),'ok');
       fill(res);
+    }).catch(function(e){
+      btn.disabled=false; document.body.classList.remove('atp-loading');
+      showMsg('Kesalahan jaringan: '+e,'err');
+    });
+  });
+
+  document.getElementById('atpRefresh').addEventListener('click', function(){
+    var btn=this; btn.disabled=true; document.body.classList.add('atp-loading');
+    showMsg('Menarik katalog terbaru dari Dialogflow… (bisa 1–2 menit)','ok');
+    fetch('/api/audit-tp/refresh',{method:'POST'}).then(function(r){return r.json();}).then(function(res){
+      btn.disabled=false; document.body.classList.remove('atp-loading');
+      if(!res.ok){ showMsg(res.error||'Gagal menarik katalog.','err'); return; }
+      if(useLatestCb){ useLatestCb.checked=true; updateFileInput(); }
+      showMsg('Katalog terbaru berhasil ditarik. Silakan klik “Jalankan Audit”.','ok');
     }).catch(function(e){
       btn.disabled=false; document.body.classList.remove('atp-loading');
       showMsg('Kesalahan jaringan: '+e,'err');

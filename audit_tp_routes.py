@@ -9,7 +9,9 @@ SBERT (model sama seperti pipeline) untuk menemukan:
   2) Duplikat dalam intent : frasa nyaris kembar di intent SAMA (seed mubazir).
 
 Input = ZIP "Database Intent Dialogflow" (output Step 3/13) ATAU langsung file
-xlsx Training Phrase berkolom ["ID", "Training Phrase"].
+xlsx Training Phrase berkolom ["ID", "Training Phrase"], ATAU "Gunakan Data
+Terakhir" yang membaca katalog dari slot run tetap (auto-daily) yang diperbarui
+otomatis tiap hari + tombol "Tarik ulang katalog".
 
 Daftarkan dengan:  import audit_tp_routes; audit_tp_routes.register(app)
 
@@ -288,6 +290,88 @@ def run_audit(file_bytes, min_cross=DEF_MIN_CROSS, min_dup=DEF_MIN_DUP):
 
 
 # ---------------------------------------------------------------------------
+# Refresh katalog headless (Step 3) — dipakai penjadwal harian & tombol manual
+# ---------------------------------------------------------------------------
+_SCHED_STARTED = False
+
+
+def run_step3_headless(cfg, run_id):
+    """Tarik katalog intent + training phrase (Step 3) TANPA request HTTP.
+
+    Memanggil ulang fungsi Step 3 dari pipeline (pipeline_routes) dengan Ctx
+    minimal, memakai service account (access_token kosong), lalu menyimpan ZIP
+    ke slot run tetap. Menu Audit membacanya lewat "Gunakan Data Terakhir".
+
+    CATATAN PENTING: log harian (menu Kelola Data Dialogflow) HANYA memuat
+    percakapan/logs — BUKAN training phrase. Jadi katalog intent+training phrase
+    WAJIB ditarik terpisah langsung dari Dialogflow Agent API di sini.
+    """
+    import pipeline_routes
+    os.makedirs(pipeline_routes.run_dir(cfg, run_id), exist_ok=True)
+    ctx = pipeline_routes.Ctx(run_id, {}, {}, {})
+    pipeline_routes.step3_training_intent(cfg, ctx)
+    summary, at = {}, ""
+    try:
+        st = pipeline_routes.load_state(cfg, run_id) or {}
+        step = (st.get("steps", {}) or {}).get("3", {}) or {}
+        summary = step.get("summary", {}) or {}
+        at = step.get("at", "")
+    except Exception:
+        pass
+    return {"at": at, "summary": summary, "run": run_id}
+
+
+def _start_catalog_scheduler():
+    """Nyalakan penjadwal harian refresh katalog. Dipasang dari register() agar
+    tidak perlu menyentuh web_app.py (mengikuti pola modul lain di proyek ini,
+    mis. awe_analytics dipasang dari studio_routes). Idempoten: aman meski
+    register() terpanggil lebih dari sekali."""
+    global _SCHED_STARTED
+    if _SCHED_STARTED:
+        return
+    if (os.environ.get("PIPELINE_SCHEDULER", "1") or "1").strip() == "0":
+        return
+    if (os.environ.get("PIPELINE_CATALOG_REFRESH", "1") or "1").strip() == "0":
+        print("[audit-tp] refresh katalog otomatis dimatikan (PIPELINE_CATALOG_REFRESH=0).", flush=True)
+        return
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+    except Exception as e:
+        print("[audit-tp] APScheduler belum terpasang, refresh katalog otomatis dilewati:", e, flush=True)
+        return
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Asia/Jakarta")
+    except Exception:
+        tz = None
+    hour = int(os.environ.get("PIPELINE_CATALOG_HOUR",
+                              os.environ.get("PIPELINE_INGEST_HOUR", "8")))
+    minute = int(os.environ.get("PIPELINE_CATALOG_MINUTE",
+                                os.environ.get("PIPELINE_INGEST_MINUTE", "0")))
+    run_id = os.environ.get("PIPELINE_CATALOG_RUN", "auto-daily")
+
+    def _job():
+        from app_core import CONFIG
+        try:
+            run_step3_headless(CONFIG, run_id)
+            print("[audit-tp] katalog Step 3 diperbarui -> run '%s'." % run_id, flush=True)
+        except Exception as e:
+            print("[audit-tp] refresh katalog gagal:", e, flush=True)
+
+    try:
+        sch = BackgroundScheduler(timezone=tz) if tz else BackgroundScheduler()
+        sch.add_job(_job, "cron", hour=hour, minute=minute,
+                    id="audit_tp_catalog_refresh", replace_existing=True)
+        sch.start()
+        globals()["_CATALOG_SCH"] = sch      # jaga referensi agar tak di-GC
+        _SCHED_STARTED = True
+        print("[audit-tp] refresh katalog otomatis aktif jam %02d:%02d Asia/Jakarta -> run '%s'."
+              % (hour, minute, run_id), flush=True)
+    except Exception as e:
+        print("[audit-tp] gagal memulai penjadwal katalog:", e, flush=True)
+
+
+# ---------------------------------------------------------------------------
 # Route
 # ---------------------------------------------------------------------------
 async def audit_tp_page(request: Request):
@@ -310,7 +394,7 @@ async def api_audit_run(request: Request):
     if use_latest:
         zip_path = find_latest_step3_zip()
         if not zip_path or not os.path.isfile(zip_path):
-            return JSONResponse({"ok": False, "error": "Tidak ditemukan data Step 3/13 terakhir. Harap unggah file atau jalankan Step 3 di Analisis Dialogflow."})
+            return JSONResponse({"ok": False, "error": "Tidak ditemukan data Step 3/13 terakhir. Klik 'Tarik ulang katalog', unggah file, atau jalankan Step 3 di Analisis Dialogflow."})
         with open(zip_path, "rb") as f:
             data = f.read()
     else:
@@ -330,6 +414,24 @@ async def api_audit_run(request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
+async def api_audit_refresh(request: Request):
+    """Tarik ulang katalog Step 3 sekarang juga (tombol manual di menu Audit).
+    Hanya penarikan katalog intent+training phrase — BUKAN menjalankan seluruh
+    Analisis Dialogflow."""
+    from app_core import CONFIG
+    run_id = os.environ.get("PIPELINE_CATALOG_RUN", "auto-daily")
+
+    def _run():
+        info = run_step3_headless(CONFIG, run_id)
+        return {"ok": True, **info}
+    try:
+        return JSONResponse(await run_in_threadpool(_run))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 def register(app):
     app.add_api_route("/audit-tp", audit_tp_page, methods=["GET"])
     app.add_api_route("/api/audit-tp/run", api_audit_run, methods=["POST"])
+    app.add_api_route("/api/audit-tp/refresh", api_audit_refresh, methods=["POST"])
+    _start_catalog_scheduler()
