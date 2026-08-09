@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Kredit &amp; Penghargaan — Camerad Studio</title>
+<link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+<style>
+:root{
+  --bg-base:#030712; --bg-grad-1:#0f172a; --bg-grad-2:#020617;
+  --card-bg:rgba(15,23,42,0.65); --card-border:rgba(51,65,85,0.5);
+  --text-main:#f8fafc; --text-muted:#94a3b8;
+  --accent:#3b82f6; --accent-hover:#60a5fa; --accent-glow:rgba(59,130,246,0.25);
+  --grid-color:rgba(255,255,255,0.03); --chip-bg:rgba(2,6,23,0.6);
+}
+[data-theme="light"]{
+  --bg-base:#f8fafc; --bg-grad-1:#e2e8f0; --bg-grad-2:#f1f5f9;
+  --card-bg:rgba(255,255,255,0.7); --card-border:rgba(203,213,225,0.8);
+  --text-main:#0f172a; --text-muted:#475569;
+  --accent:#2563eb; --accent-hover:#1d4ed8; --accent-glow:rgba(37,99,235,0.15);
+  --grid-color:rgba(0,0,0,0.04); --chip-bg:rgba(255,255,255,0.9);
+}
+*{box-sizing:border-box; transition:background-color .3s,border-color .3s,color .3s;}
+body{
+  margin:0; min-height:100vh; padding:56px 24px 48px;
+  display:flex; align-items:flex-start; justify-content:center;
+  background-color:var(--bg-base);
+  background:radial-gradient(circle at 15% 20%, var(--accent-glow), transparent 25%),
+            radial-gradient(circle at 85% 15%, rgba(139,92,246,0.1), transparent 25%),
+            linear-gradient(135deg, var(--bg-grad-1), var(--bg-grad-2));
+  color:var(--text-main);
+  font-family:'Inter',-apple-system,Segoe UI,Roboto,sans-serif;
+}
+.grid-bg{position:fixed; inset:0; background-size:40px 40px;
+  background-image:linear-gradient(to right,var(--grid-color) 1px,transparent 1px),
+                   linear-gradient(to bottom,var(--grid-color) 1px,transparent 1px);
+  z-index:-1; pointer-events:none;}
+.theme-btn{position:fixed; top:20px; right:20px; background:var(--card-bg);
+  border:1px solid var(--card-border); color:var(--text-main); width:44px; height:44px;
+  border-radius:12px; display:flex; align-items:center; justify-content:center; cursor:pointer;
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); z-index:10;}
+.theme-btn:hover{border-color:var(--accent); box-shadow:0 0 15px var(--accent-glow);}
+.theme-btn svg{width:20px; height:20px; fill:none; stroke:currentColor;}
+.icon-moon{display:none;} .icon-sun{display:block;}
+[data-theme="light"] .icon-moon{display:block;} [data-theme="light"] .icon-sun{display:none;}
+.back-link{position:fixed; top:20px; left:20px; display:flex; align-items:center; gap:8px;
+  padding:10px 16px; border-radius:12px; background:var(--card-bg); border:1px solid var(--card-border);
+  color:var(--text-main); text-decoration:none; font-size:13px; font-weight:600;
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px); z-index:10;}
+.back-link:hover{border-color:var(--accent); color:var(--accent);}
+.back-link svg{width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:2.5;}
+.wrap{width:100%; max-width:760px;}
+.card{background:var(--card-bg); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--card-border); border-radius:20px; padding:40px 36px;
+  box-shadow:0 25px 50px -12px rgba(0,0,0,0.5); position:relative;}
+.card::before{content:''; position:absolute; top:0; left:0; right:0; height:2px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent); border-radius:20px 20px 0 0;}
+.logo{width:64px; height:64px; border-radius:16px; background:#fff; display:flex; align-items:center;
+  justify-content:center; padding:9px; margin:0 auto 16px; box-shadow:0 8px 24px rgba(0,0,0,.35);}
+.logo img{width:100%; height:100%; object-fit:contain; display:block;}
+h1{font-size:26px; font-weight:800; letter-spacing:-0.5px; text-align:center; margin:0 0 4px;}
+.sub{text-align:center; color:var(--text-muted); font-size:14px; margin:0 0 32px;}
+.role-group{margin-bottom:26px;}
+.role-label{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.08em;
+  color:var(--accent); margin-bottom:12px; display:flex; align-items:center; gap:10px;}
+.role-label::after{content:''; flex:1; height:1px; background:var(--card-border);}
+.person{display:flex; align-items:flex-start; gap:14px; padding:14px 16px; border-radius:14px;
+  background:var(--chip-bg); border:1px solid var(--card-border); margin-bottom:10px;}
+.person .ava{width:42px; height:42px; border-radius:12px; flex:none; display:flex; align-items:center;
+  justify-content:center; font-weight:800; font-size:17px; color:#fff;
+  background:linear-gradient(135deg,var(--accent),#8b5cf6);}
+.person .info{flex:1; min-width:0;}
+.person .nm{font-weight:700; font-size:15px;}
+.person .rl{color:var(--text-muted); font-size:13px; margin-top:2px; line-height:1.5;}
+.person.lead{background:linear-gradient(135deg,rgba(59,130,246,0.14),rgba(139,92,246,0.10));
+  border-color:var(--accent);}
+.person.lead .ava{width:52px; height:52px; font-size:20px;}
+.person.lead .nm{font-size:17px;}
+.note{font-size:12px; color:var(--text-muted); font-style:italic; margin-top:6px; line-height:1.5;}
+.foot{margin-top:22px; padding-top:20px; border-top:1px solid var(--card-border);
+  text-align:center; font-size:12.5px; color:var(--text-muted); line-height:1.8;}
+.foot b{color:var(--text-main);}
+</style>
+</head>
+<body>
+  <div class="grid-bg"></div>
+  <a class="back-link" href="/"><svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>Kembali</a>
+  <button class="theme-btn" id="theme-btn" aria-label="Toggle Dark/Light Mode">
+    <svg class="icon-sun" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round"><path d="M12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3zm0-2V3M12 21v-4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+    <svg class="icon-moon" viewBox="0 0 24 24" stroke-width="2" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+  </button>
+
+  <div class="wrap">
+    <div class="card">
+      <div class="logo"><img src="/static/logo-only.svg" alt="Camerad Studio"></div>
+      <h1>Kredit &amp; Penghargaan</h1>
+      <p class="sub">Camerad Studio — Computer Automation for Monitoring, Evaluating, Research &amp; Development</p>
+
+      <div class="role-group">
+        <div class="role-label">Pengembang Utama</div>
+        <div class="person lead">
+          <div class="ava">S</div>
+          <div class="info">
+            <div class="nm">Samsul Hidayatullah</div>
+            <div class="rl">Developer · Designer · Logic &amp; Arsitektur Utama</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="role-group">
+        <div class="role-label">Kontribusi Logic (Ide Awal)</div>
+        <div class="person">
+          <div class="ava">A</div>
+          <div class="info">
+            <div class="nm">Aulia Irfan Mufti</div>
+            <div class="rl">Kontribusi ide logic awal — pemrosesan SBERT pada Analisis Dialogflow (Step 4–5 &amp; 8) dan konsep awal Sosmed</div>
+            <div class="note">Arsitektur final Analisis Dialogflow &amp; Sosmed dirancang dan dibangun ulang sepenuhnya oleh pengembang utama.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="role-group">
+        <div class="role-label">Supervisor</div>
+        <div class="person">
+          <div class="ava">E</div>
+          <div class="info">
+            <div class="nm">Edmalia Rohmani</div>
+            <div class="rl">Supervisor — arahan &amp; kontribusi ide</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="role-group">
+        <div class="role-label">Rekan Sejawat</div>
+        <div class="person">
+          <div class="ava">A</div>
+          <div class="info">
+            <div class="nm">Alif Radix Tegar Sejati</div>
+            <div class="rl">Kontribusi ide &amp; pengujian</div>
+          </div>
+        </div>
+        <div class="person">
+          <div class="ava">D</div>
+          <div class="info">
+            <div class="nm">Dian Anggrayuni</div>
+            <div class="rl">Kontribusi ide &amp; pengujian</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="role-group">
+        <div class="role-label">Kontributor Lainnya</div>
+        <div class="person">
+          <div class="ava">T</div>
+          <div class="info">
+            <div class="nm">Tim Analis Chatbot 2026 01</div>
+            <div class="rl">Dukungan ide, masukan, dan pengujian</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="foot">
+        © 2026 <b>Camerad Studio</b> · Hak Cipta <b>Samsul Hidayatullah</b><br>
+        Dikembangkan bersama Tim Analis Chatbot 2026 01 · Build v13
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const themeBtn=document.getElementById('theme-btn');
+    const root=document.documentElement;
+    const saved=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme: light)').matches?'light':'dark');
+    if(saved==='light') root.setAttribute('data-theme','light');
+    themeBtn.addEventListener('click',()=>{
+      const cur=root.getAttribute('data-theme')||'dark';
+      const nx=cur==='dark'?'light':'dark';
+      root.setAttribute('data-theme',nx);
+      localStorage.setItem('theme',nx);
+    });
+  </script>
+</body>
+</html>
