@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Coverage & Deflection · Sosmed{% endblock %}
+{% block head %}
+<style>
+.sm-wrap{max-width:1240px;margin:0 auto;padding:22px 26px 60px;}
+.sm-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+.sm-sub{color:var(--text-muted);font-size:12.5px;margin-top:4px;max-width:820px;line-height:1.55;}
+.fr{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end;margin:14px 0;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:12px 14px;}
+.fld{display:flex;flex-direction:column;gap:4px;}
+.fld label{font-size:11px;font-weight:600;color:var(--text-muted);}
+.fld select,.fld input{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:8px;color:var(--text-main);padding:7px 9px;font-size:12px;min-width:120px;}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:8px 15px;font-weight:600;cursor:pointer;font-size:12px;}
+.sumrow{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:16px;}
+.sc{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:13px 15px;}
+.sc .l{font-size:11px;color:var(--text-muted);font-weight:600;}
+.sc .v{font-size:25px;font-weight:800;margin-top:4px;letter-spacing:-.02em;}
+.sc.bad .v{color:#ef5350;}.sc.good .v{color:#2ea86a;}.sc.warn .v{color:#e0932f;}
+.gap{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:15px 17px;margin-bottom:12px;border-left:4px solid var(--panel-border);}
+.gap.isgap{border-left-color:#ef5350;}
+.gap.covered{border-left-color:#2ea86a;}
+.gap .top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;}
+.gap .tt{font-size:15px;font-weight:800;letter-spacing:-.01em;}
+.gap .meta{font-size:11.5px;color:var(--text-muted);margin-top:3px;}
+.pill{font-size:10.5px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap;}
+.pill.gapp{background:rgba(239,83,80,.14);color:#ef5350;}
+.pill.covp{background:rgba(38,166,91,.15);color:#2ea86a;}
+.cnt{font-size:26px;font-weight:800;line-height:1;}
+.kw{margin-top:9px;}
+.kw .tag{font-size:10.5px;background:var(--bg-base);border:1px solid var(--panel-border);border-radius:6px;padding:2px 8px;color:var(--text-muted);margin:0 5px 5px 0;display:inline-block;}
+.ex{margin-top:10px;background:var(--bg-base);border:1px solid var(--panel-border);border-radius:9px;padding:9px 12px;font-size:12.5px;line-height:1.5;}
+.ex .q{color:var(--text-main);}
+.ex .q+.q{margin-top:6px;padding-top:6px;border-top:1px dashed var(--panel-border);}
+.draf{margin-top:10px;background:rgba(29,155,240,.07);border:1px solid rgba(29,155,240,.25);border-radius:9px;padding:10px 12px;}
+.draf .h{font-size:11px;font-weight:700;color:#1d9bf0;margin-bottom:4px;}
+.draf .b{font-size:12.5px;line-height:1.55;}
+.draf .src{font-size:10.5px;color:var(--text-muted);margin-top:5px;}
+.intents{margin-top:9px;font-size:11.5px;color:var(--text-muted);}
+.intents b{color:#2ea86a;}
+.empty{color:var(--text-muted);text-align:center;padding:40px;font-size:13px;}
+.legend{font-size:11.5px;color:var(--text-muted);margin:2px 0 12px;}
+.legend .dot{display:inline-block;width:10px;height:10px;border-radius:3px;margin:0 4px 0 12px;vertical-align:middle;}
+.legend .dg{background:#ef5350;}.legend .dc{background:#2ea86a;}
+</style>
+{% endblock %}
+{% block content %}
+<div class="sm-wrap">
+  <h1 class="sm-title">Coverage &amp; Deflection</h1>
+  <p class="sm-sub">Database FAQ dari pertanyaan warga di media sosial. Fokusnya: menemukan pertanyaan yang <b>lagi tren</b> (banyak ditanyakan) namun <b>belum ada intent</b> yang tepat menjawabnya di bot. Setiap klaster dicek ke Peta Intent &amp; training phrase (plus kemiripan semantik). Klaster bertanda merah = celah pengetahuan yang perlu dibuatkan intent.</p>
+  <p class="legend"><span class="dot dg"></span>Celah pengetahuan (belum ada intent) <span class="dot dc"></span>Sudah tercakup intent</p>
+
+  <div class="fr">
+    <div class="fld"><label>Platform</label><select id="fPlatform"><option value="">Semua</option><option value="x">X</option><option value="ig">Instagram</option><option value="tiktok">TikTok</option></select></div>
+    <div class="fld"><label>Rentang</label><select id="fRange"><option value="all">Semua</option><option value="7d">7 hari</option><option value="30d">30 hari</option><option value="90d">90 hari</option></select></div>
+    <div class="fld"><label>Min. jumlah</label><input type="number" id="fMin" value="2" min="1" max="50"></div>
+    <div class="fld"><label>Tampilkan</label><select id="fFocus"><option value="gap">Hanya celah (belum ada intent)</option><option value="all">Semua klaster</option></select></div>
+    <div class="fld"><label>Kemiripan semantik</label><select id="fSem"><option value="1">Aktif</option><option value="">Nonaktif</option></select></div>
+    <button class="btn" id="btnGo">Terapkan</button>
+  </div>
+
+  <div class="sumrow" id="summary"></div>
+  <div id="list"><div class="empty">Memuat…</div></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $=s=>document.querySelector(s);
+async function jget(u){const r=await fetch(u);return r.json();}
+function esc(s){return (s||'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+function qs(){const p=new URLSearchParams();
+  if($('#fPlatform').value)p.set('platform',$('#fPlatform').value);
+  p.set('range',$('#fRange').value);p.set('min_count',$('#fMin').value||'2');
+  p.set('focus',$('#fFocus').value);p.set('semantic',$('#fSem').value?'1':'0');
+  p.set('limit','200');return p.toString();}
+$('#btnGo').onclick=load;
+
+function sc(l,v,cls){return `<div class="sc ${cls||''}"><div class="l">${l}</div><div class="v">${v}</div></div>`;}
+
+async function load(){
+  $('#list').innerHTML='<div class="empty">Memuat…</div>';$('#summary').innerHTML='';
+  const d=await jget('/api/sosmed/knowledge-gap?'+qs());
+  if(!d.ok){$('#list').innerHTML='<div class="empty">Gagal memuat data.</div>';return;}
+  const r=d.ringkasan||{};
+  const src=r.knowledge_source||{};
+  $('#summary').innerHTML=[
+    sc('Total klaster',r.total_klaster||0),
+    sc('Celah pengetahuan',r.klaster_gap||0,(r.klaster_gap>0?'bad':'good')),
+    sc('Total pertanyaan',r.total_pertanyaan||0),
+    sc('Tanpa intent',r.pertanyaan_tanpa_intent||0,(r.pertanyaan_tanpa_intent>0?'warn':'good')),
+    sc('Cakupan intent',(r.pct_tercakup!=null?r.pct_tercakup+'%':'–'),((r.pct_tercakup||0)>=80?'good':'warn')),
+  ].join('');
+  const cl=d.clusters||[];
+  if(!cl.length){$('#list').innerHTML='<div class="empty">Tidak ada klaster untuk filter ini. Coba turunkan “Min. jumlah” atau pilih “Semua klaster”.</div>';return;}
+  $('#list').innerHTML=cl.map(c=>{
+    const gap=c.gap;
+    const kw=(c.keywords||[]).map(k=>`<span class="tag">${esc(k)}</span>`).join('');
+    const ex=(c.contoh||[]).slice(0,3).map(t=>`<div class="q">• ${esc(t)}</div>`).join('');
+    let draf='';
+    if(c.draf_jawaban){draf=`<div class="draf"><div class="h">Draf jawaban ${c.draf_dari==='balasan_resmi'?'(dari balasan resmi)':''}</div><div class="b">${esc(c.draf_jawaban)}</div>${c.draf_dari?`<div class="src">Sumber: ${esc(c.draf_dari)}</div>`:''}</div>`;}
+    let intents='';
+    if(!gap&&c.intents&&c.intents.length){intents=`<div class="intents">Tercakup intent: <b>${c.intents.map(esc).join(', ')}</b>${c.semantik?' (kecocokan semantik)':''}</div>`;}
+    return `<div class="gap ${gap?'isgap':'covered'}">
+      <div class="top">
+        <div><div class="tt">${esc(c.topik||'Umum')}</div>
+          <div class="meta">${c.jumlah} pertanyaan · ${c.terjawab||0} terjawab · ${c.belum_terjawab||0} belum · engagement ${c.engagement||0}${c.sumber?' · '+esc(c.sumber):''}</div></div>
+        <div style="text-align:right;"><div class="cnt">${c.jumlah}×</div><span class="pill ${gap?'gapp':'covp'}">${gap?'Belum ada intent':'Tercakup'}</span></div>
+      </div>
+      <div class="kw">${kw}</div>
+      ${ex?`<div class="ex">${ex}</div>`:''}
+      ${intents}
+      ${draf}
+    </div>`;
+  }).join('');
+}
+load();
+</script>
+{% endblock %}
