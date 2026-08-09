@@ -91,7 +91,7 @@ def _route_action(method, path):
     if path == "/users" or path.startswith("/api/users"):
         return "admin"
     if (path.startswith("/api/sosmed/import") or path.startswith("/api/sosmed/pull")
-            or path == "/api/sosmed/purge"):
+            or path == "/api/sosmed/purge" or path == "/api/sosmed/repair"):
         return "ingest"
     if path == "/api/sosmed/status" or path == "/api/sosmed/topik":
         return "edit"
@@ -119,7 +119,8 @@ def _route_area(path):
     if path == "/awe" or path.startswith("/awe/") or path.startswith("/api/awe"):
         return "awe"
     if (path == "/sosmed/kelola" or path.startswith("/api/sosmed/import")
-            or path.startswith("/api/sosmed/pull") or path == "/api/sosmed/purge"):
+            or path.startswith("/api/sosmed/pull") or path == "/api/sosmed/purge"
+            or path == "/api/sosmed/repair"):
         return "awe_manage"
     if path == "/sosmed" or path.startswith("/sosmed/") or path.startswith("/api/sosmed"):
         return "common"
