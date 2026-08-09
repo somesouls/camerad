@@ -5,20 +5,22 @@ Meniru pola avaya_db.py: hanya STDLIB (sqlite3, json, dll.), punya smoke test
 bawaan (`python3 sosmed_db.py` -> cetak SOSMED_DB_SMOKE_OK), dan dipakai oleh
 sosmed_routes.py + collector platform (sosmed_x.py, dst.).
 
-Ruang lingkup Fase 1 (MVP):
-  - Skema penyimpanan item sosmed + pairing pertanyaan/jawaban (Q&A).
-  - Klasifikasi topik memakai ULANG taksonomi jenis layanan dari avaya_db
-    (satu sumber kebenaran), plus deteksi sentimen sederhana berbasis leksikon.
-  - Query untuk Inbox, Detail thread, Coverage & SLA, Analytics, dan
-    kandidat FAQ/Deflection.
-  - Ingest dari impor manual (CSV/JSON hasil ekspor) maupun dari collector API.
+Fokus rework (Agustus 2026): perbaikan "merajut" Q&A yang sadar-thread.
+  Versi lama menyalahi thread berbalas-balas: pertanyaan ASLI (root non-resmi)
+  ter-tag 'mention', dan balasan SUSULAN customer (mis. menjawab klarifikasi
+  admin) ikut tercatat sebagai 'pertanyaan' baru. Versi ini merekonstruksi
+  pohon balasan per conversation lalu:
+    - Root non-resmi / non-resmi yang membalas sesama customer -> 'pertanyaan'.
+    - Non-resmi yang membalas akun RESMI -> 'susulan' (bukan pertanyaan baru).
+    - Semua item akun resmi -> 'balasan_resmi'.
+    - Sebuah 'pertanyaan' berstatus 'terjawab' bila ADA balasan resmi di mana
+      pun DI BAWAHNYA pada pohon balasan (bukan sekadar in_reply_to langsung),
+      sehingga admin yang membalas node berbeda tetap terhitung menjawab.
 
-Catatan X API (free tier):
-  Free tier X API v2 sangat terbatas (mayoritas hanya tulis/posting + info akun
-  sendiri; baca mentions/replies/search umumnya butuh tier Basic+). Karena itu
-  modul ini TIDAK bergantung pada endpoint berbayar: data bisa masuk lewat
-  impor manual, dan collector (sosmed_x.py) dirancang "capability-aware" — ambil
-  yang tersedia di tier saat ini, dan otomatis lebih lengkap saat tier dinaikkan.
+Klasifikasi topik memakai ULANG taksonomi jenis layanan dari avaya_db (satu
+sumber kebenaran); sentimen sederhana berbasis leksikon. Semua query menyaring
+pertanyaan lewat item_type='pertanyaan' (bukan sekadar is_official=0) agar
+susulan/komentar tidak mengotori Coverage/SLA/FAQ.
 """
 import os
 import re
@@ -34,7 +36,9 @@ except Exception:            # pragma: no cover - fallback bila belum ada
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 PLATFORMS = ("x", "ig", "tiktok")
-ITEM_TYPES = ("pertanyaan", "balasan_resmi", "mention", "komentar", "dm", "quote")
+# 'susulan' = balasan lanjutan customer kepada akun resmi (bukan pertanyaan baru).
+ITEM_TYPES = ("pertanyaan", "balasan_resmi", "susulan", "mention",
+              "komentar", "dm", "quote")
 STATUSES = ("belum_terjawab", "terjawab", "pending", "diabaikan")
 
 
@@ -137,6 +141,7 @@ _ITEM_COLS = [
     ("status", "status TEXT DEFAULT 'belum_terjawab'"),
     ("answered_by", "answered_by TEXT"),
     ("answered_at", "answered_at TEXT"),
+    ("answer_text", "answer_text TEXT"),
     ("response_time_s", "response_time_s INTEGER"),
     ("like_count", "like_count INTEGER DEFAULT 0"),
     ("reply_count", "reply_count INTEGER DEFAULT 0"),
@@ -178,6 +183,7 @@ def init_db(conn):
             status TEXT DEFAULT 'belum_terjawab',
             answered_by TEXT,
             answered_at TEXT,
+            answer_text TEXT,
             response_time_s INTEGER,
             like_count INTEGER DEFAULT 0,
             reply_count INTEGER DEFAULT 0,
@@ -194,6 +200,7 @@ def init_db(conn):
     cur.execute("CREATE INDEX IF NOT EXISTS ix_sm_conv "
                 "ON sosmed_items(platform, conversation_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS ix_sm_created ON sosmed_items(created_at)")
+    cur.execute("CREATE INDEX IF NOT EXISTS ix_sm_type ON sosmed_items(item_type)")
     cur.execute("""
         CREATE TABLE IF NOT EXISTS sosmed_batches (
             batch_id TEXT PRIMARY KEY,
@@ -305,7 +312,11 @@ def _norm_platform(p):
 
 
 def _norm_item(raw, default_platform=None):
-    """Ubah dict mentah (dari ekspor/API) jadi baris ternormalisasi."""
+    """Ubah dict mentah (dari ekspor/API) jadi baris ternormalisasi.
+
+    CATATAN: item_type di sini hanya PROVISIONAL. Nilai final ditetapkan
+    _pair_conversation() yang melihat seluruh pohon balasan (lihat modul docstring).
+    """
     d = raw if isinstance(raw, dict) else {}
     platform = _norm_platform(_g(d, "platform", default=default_platform or "x"))
     ext = str(_g(d, "external_id", "id", "id_str", "tweet_id", "comment_id", default="")).strip()
@@ -325,14 +336,10 @@ def _norm_item(raw, default_platform=None):
     is_official = 1 if (str(_g(d, "is_official", default="")).lower() in ("1", "true", "ya", "yes")
                         or (handle and handle.lower() in off_set)) else 0
 
+    # item_type provisional (bisa dari sumber; kalau tidak, tebakan awal).
     itype = str(_g(d, "item_type", "type", default="")).strip().lower()
     if itype not in ITEM_TYPES:
-        if is_official and reply_to:
-            itype = "balasan_resmi"
-        elif reply_to:
-            itype = "pertanyaan"
-        else:
-            itype = "mention" if platform == "x" else "komentar"
+        itype = "balasan_resmi" if is_official else "pertanyaan"
 
     def _int(*keys):
         try:
@@ -395,9 +402,10 @@ def ingest_items(conn, items, default_platform=None, source="import",
         cols = list(row.keys()) + ["batch_id", "fetched_at"]
         vals = [row[c] for c in row.keys()] + [batch_id, now]
         if exists:
-            # update konten & metrik (jangan timpa status pairing di sini)
+            # update konten & metrik (jangan timpa status/pairing di sini;
+            # item_type & status final diset oleh _pair_conversation).
             setcols = [c for c in row.keys()
-                       if c not in ("platform", "external_id", "status")]
+                       if c not in ("platform", "external_id", "status", "item_type")]
             cur.execute(
                 "UPDATE sosmed_items SET %s WHERE platform=? AND external_id=?"
                 % ", ".join("%s=?" % c for c in setcols),
@@ -410,7 +418,7 @@ def ingest_items(conn, items, default_platform=None, source="import",
             n_new += 1
     conn.commit()
 
-    # Pairing Q&A untuk conversation yang tersentuh
+    # Pairing Q&A (sadar-thread) untuk conversation yang tersentuh
     for (plat, conv) in touched_convs.keys():
         _pair_conversation(conn, plat, conv)
     conn.commit()
@@ -435,43 +443,81 @@ def ingest_items(conn, items, default_platform=None, source="import",
 
 
 def _pair_conversation(conn, platform, conv):
-    """Pasangkan pertanyaan customer dgn balasan resmi dalam satu conversation.
-    Set status/answered_by/answered_at/response_time_s pada item pertanyaan."""
+    """Rekonstruksi pohon balasan satu conversation lalu tetapkan item_type &
+    status Q&A yang benar (lihat modul docstring).
+
+    Aturan item_type:
+      - is_official                              -> 'balasan_resmi'
+      - non-resmi membalas item RESMI            -> 'susulan'
+      - selain itu (root / balas sesama customer)-> 'pertanyaan'
+    Aturan status untuk 'pertanyaan':
+      - 'terjawab' bila ADA balasan resmi sebagai keturunan pada pohon balasan
+        (menelusuri in_reply_to ke atas dari tiap balasan resmi). Ambil balasan
+        resmi paling awal sebagai jawaban (answered_by/at, answer_text, RT).
+      - status 'diabaikan' (keputusan manual) dihormati, tidak ditimpa.
+    """
     rows = conn.execute(
-        "SELECT id,external_id,in_reply_to_id,is_official,created_at,author_handle,status "
-        "FROM sosmed_items WHERE platform=? AND conversation_id=?",
+        "SELECT id,external_id,in_reply_to_id,is_official,created_at,author_handle,"
+        "text,item_type,status FROM sosmed_items "
+        "WHERE platform=? AND conversation_id=?",
         (platform, conv)).fetchall()
     if not rows:
         return
     by_ext = {r["external_id"]: r for r in rows if r["external_id"]}
-    officials = [r for r in rows if r["is_official"] == 1]
 
-    # Untuk tiap balasan resmi yg membalas item tertentu -> tandai item itu terjawab
-    answered = {}  # question_ext -> (official_row)
-    for off in officials:
-        tgt = off["in_reply_to_id"]
-        if tgt and tgt in by_ext and by_ext[tgt]["is_official"] != 1:
-            prev = answered.get(tgt)
-            # ambil balasan resmi paling awal
-            if prev is None or _lt(off["created_at"], prev["created_at"]):
-                answered[tgt] = off
+    def _final_type(r):
+        if r["is_official"] == 1:
+            return "balasan_resmi"
+        tgt = by_ext.get(r["in_reply_to_id"] or "")
+        if r["in_reply_to_id"] and tgt is not None and tgt["is_official"] == 1:
+            return "susulan"
+        return "pertanyaan"
+
+    # Jawaban: telusuri ancestor dari tiap balasan resmi; tandai pertanyaan
+    # leluhur sebagai terjawab oleh balasan resmi paling awal.
+    answer_of = {}   # question_ext -> official row
+    for off in [r for r in rows if r["is_official"] == 1]:
+        cur_node = by_ext.get(off["in_reply_to_id"] or "")
+        seen = set()
+        while cur_node is not None and cur_node["external_id"] not in seen:
+            seen.add(cur_node["external_id"])
+            if cur_node["is_official"] != 1 and _final_type(cur_node) == "pertanyaan":
+                prev = answer_of.get(cur_node["external_id"])
+                if prev is None or _lt(off["created_at"], prev["created_at"]):
+                    answer_of[cur_node["external_id"]] = off
+            cur_node = by_ext.get(cur_node["in_reply_to_id"] or "")
 
     for r in rows:
+        ftype = _final_type(r)
         if r["is_official"] == 1:
+            conn.execute(
+                "UPDATE sosmed_items SET item_type='balasan_resmi', status='terjawab' "
+                "WHERE id=?", (r["id"],))
             continue
+        if ftype == "susulan":
+            # bukan pertanyaan; bersihkan jejak pairing lama bila ada.
+            conn.execute(
+                "UPDATE sosmed_items SET item_type='susulan', status='pending',"
+                "answered_by=NULL,answered_at=NULL,answer_text=NULL,response_time_s=NULL "
+                "WHERE id=?", (r["id"],))
+            continue
+        # pertanyaan
         if r["status"] == "diabaikan":
-            continue  # keputusan manual dihormati
-        off = answered.get(r["external_id"])
+            conn.execute("UPDATE sosmed_items SET item_type='pertanyaan' WHERE id=?",
+                         (r["id"],))
+            continue
+        off = answer_of.get(r["external_id"])
         if off is not None:
             rt = _resp_seconds(r["created_at"], off["created_at"])
             conn.execute(
-                "UPDATE sosmed_items SET status='terjawab',answered_by=?,answered_at=?,"
-                "response_time_s=? WHERE id=?",
-                (off["author_handle"], off["created_at"], rt, r["id"]))
+                "UPDATE sosmed_items SET item_type='pertanyaan',status='terjawab',"
+                "answered_by=?,answered_at=?,answer_text=?,response_time_s=? WHERE id=?",
+                (off["author_handle"], off["created_at"], off["text"], rt, r["id"]))
         else:
-            if r["status"] not in ("pending",):
-                conn.execute("UPDATE sosmed_items SET status='belum_terjawab' WHERE id=?",
-                             (r["id"],))
+            conn.execute(
+                "UPDATE sosmed_items SET item_type='pertanyaan',status='belum_terjawab',"
+                "answered_by=NULL,answered_at=NULL,answer_text=NULL,response_time_s=NULL "
+                "WHERE id=?", (r["id"],))
 
 
 def _lt(a, b):
@@ -486,6 +532,19 @@ def _resp_seconds(q_created, a_created):
     if dq and da:
         return max(0, int((da - dq).total_seconds()))
     return None
+
+
+def repair_all_pairing(conn):
+    """Jalankan ulang pairing sadar-thread untuk SEMUA conversation yang ada.
+    Berguna sekali jalan setelah upgrade untuk memperbaiki data lama."""
+    convs = conn.execute(
+        "SELECT DISTINCT platform, conversation_id FROM sosmed_items").fetchall()
+    n = 0
+    for r in convs:
+        _pair_conversation(conn, r[0], r[1])
+        n += 1
+    conn.commit()
+    return {"ok": True, "conversations": n}
 
 
 def set_status(conn, item_id, status):
@@ -522,7 +581,7 @@ def resolve_range(preset):
 
 
 # ---------------------------------------------------------------------------
-# Query: Inbox / Daftar Q&A
+# Query: Q&A (dulu Inbox / Daftar Q&A)
 # ---------------------------------------------------------------------------
 def list_items(conn, platform="", range_="all", start="", end="", topik="",
                status="", sentiment="", item_type="", handle="", q="",
@@ -554,7 +613,7 @@ def list_items(conn, platform="", range_="all", start="", end="", topik="",
         where.append("(text LIKE ? OR author_name LIKE ? OR author_handle LIKE ?)")
         params += ["%" + q + "%"] * 3
     if only_questions:
-        where.append("is_official=0")
+        where.append("item_type='pertanyaan'")
     sql = ("SELECT * FROM sosmed_items WHERE " + " AND ".join(where)
            + " ORDER BY datetime(created_at) DESC LIMIT ?")
     params.append(int(limit))
@@ -590,10 +649,10 @@ def get_item(conn, item_id):
 
 
 # ---------------------------------------------------------------------------
-# Coverage & SLA
+# SLA & Analitik: Coverage & SLA
 # ---------------------------------------------------------------------------
-def coverage_sla(conn, platform="", range_="all", start="", end=""):
-    where = ["is_official=0"]
+def _qfilter(platform, range_, start, end, base="item_type='pertanyaan'"):
+    where = [base]
     params = []
     if platform:
         where.append("platform=?"); params.append(_norm_platform(platform))
@@ -603,7 +662,11 @@ def coverage_sla(conn, platform="", range_="all", start="", end=""):
         where.append("substr(created_at,1,10)>=?"); params.append(s)
     if e:
         where.append("substr(created_at,1,10)<=?"); params.append(e)
-    w = " AND ".join(where)
+    return " AND ".join(where), params
+
+
+def coverage_sla(conn, platform="", range_="all", start="", end=""):
+    w, params = _qfilter(platform, range_, start, end)
     total = conn.execute("SELECT COUNT(*) FROM sosmed_items WHERE " + w, params).fetchone()[0]
     answered = conn.execute(
         "SELECT COUNT(*) FROM sosmed_items WHERE " + w + " AND status='terjawab'",
@@ -640,107 +703,53 @@ def _median(xs):
 
 
 # ---------------------------------------------------------------------------
-# Analytics
+# SLA & Analitik: Analytics
 # ---------------------------------------------------------------------------
 def analytics(conn, platform="", range_="all", start="", end=""):
-    where = ["1=1"]
-    params = []
-    if platform:
-        where.append("platform=?"); params.append(_norm_platform(platform))
-    rng = (range_ or "all").lower()
-    s, e = ((start or None), (end or start or None)) if rng == "custom" else resolve_range(rng)
-    if s:
-        where.append("substr(created_at,1,10)>=?"); params.append(s)
-    if e:
-        where.append("substr(created_at,1,10)<=?"); params.append(e)
-    w = " AND ".join(where)
+    # by_day mencakup semua item (volume percakapan), sisanya fokus pertanyaan.
+    wall, pall = _qfilter(platform, range_, start, end, base="1=1")
+    wq, pq = _qfilter(platform, range_, start, end)
     by_day = [{"day": r[0], "n": r[1]} for r in conn.execute(
-        "SELECT substr(created_at,1,10) d, COUNT(*) FROM sosmed_items WHERE " + w
-        + " AND created_at!='' GROUP BY d ORDER BY d", params).fetchall()]
+        "SELECT substr(created_at,1,10) d, COUNT(*) FROM sosmed_items WHERE " + wall
+        + " AND created_at!='' GROUP BY d ORDER BY d", pall).fetchall()]
     by_topik = [{"topik": r[0] or "(tidak terklasifikasi)", "n": r[1]} for r in conn.execute(
-        "SELECT topik, COUNT(*) c FROM sosmed_items WHERE " + w
-        + " AND is_official=0 GROUP BY topik ORDER BY c DESC", params).fetchall()]
+        "SELECT topik, COUNT(*) c FROM sosmed_items WHERE " + wq
+        + " GROUP BY topik ORDER BY c DESC", pq).fetchall()]
     by_sent = [{"sentiment": r[0] or "netral", "n": r[1]} for r in conn.execute(
-        "SELECT sentiment, COUNT(*) c FROM sosmed_items WHERE " + w
-        + " AND is_official=0 GROUP BY sentiment ORDER BY c DESC", params).fetchall()]
+        "SELECT sentiment, COUNT(*) c FROM sosmed_items WHERE " + wq
+        + " GROUP BY sentiment ORDER BY c DESC", pq).fetchall()]
     by_platform = [{"platform": r[0], "n": r[1]} for r in conn.execute(
-        "SELECT platform, COUNT(*) c FROM sosmed_items WHERE " + w
-        + " GROUP BY platform ORDER BY c DESC", params).fetchall()]
+        "SELECT platform, COUNT(*) c FROM sosmed_items WHERE " + wall
+        + " GROUP BY platform ORDER BY c DESC", pall).fetchall()]
     return {"ok": True, "by_day": by_day, "by_topik": by_topik,
             "by_sentiment": by_sent, "by_platform": by_platform}
 
 
 # ---------------------------------------------------------------------------
-# FAQ / Deflection insight (kandidat FAQ dari pertanyaan berulang)
+# Pasangan Q&A (pertanyaan root + draf jawaban resmi) — seed FAQ / knowledge
 # ---------------------------------------------------------------------------
-_STOP = set("""yang dan di ke dari untuk pada dengan atau ini itu ada apa
-bagaimana gimana kenapa mengapa kah min admin kak pak bu mohon tolong ya
-nya saya aku kami kita mau ingin bisa tidak gak ga nggak sudah belum juga
-kalau jika saja lagi kok dong sih the a an is to of for""".split())
-
-
-def _keywords(text, k=6):
-    if not text:
-        return []
-    words = re.findall(r"[a-zA-Z]{3,}", text.lower())
-    freq = {}
-    for w in words:
-        if w in _STOP:
-            continue
-        freq[w] = freq.get(w, 0) + 1
-    return [w for w, _ in sorted(freq.items(), key=lambda x: -x[1])[:k]]
-
-
-def faq_candidates(conn, platform="", range_="all", start="", end="",
-                   only_unanswered=False, min_count=2, limit=50):
-    """Klaster pertanyaan customer per topik -> kandidat FAQ.
-    Fokus KPI: pertanyaan berulang & yang belum terjawab (deflection gap)."""
-    where = ["is_official=0"]
-    params = []
-    if platform:
-        where.append("platform=?"); params.append(_norm_platform(platform))
-    rng = (range_ or "all").lower()
-    s, e = ((start or None), (end or start or None)) if rng == "custom" else resolve_range(rng)
-    if s:
-        where.append("substr(created_at,1,10)>=?"); params.append(s)
-    if e:
-        where.append("substr(created_at,1,10)<=?"); params.append(e)
-    if only_unanswered:
-        where.append("status='belum_terjawab'")
-    w = " AND ".join(where)
+def faq_pairs(conn, platform="", range_="all", start="", end="",
+              only_answered=False, limit=1000):
+    """Kembalikan daftar pasangan {pertanyaan, jawaban_draf, ...} dari tiap
+    'pertanyaan'. jawaban_draf = balasan resmi (answer_text) bila terjawab.
+    Inti bahan FAQ & deteksi gap pengetahuan."""
+    w, params = _qfilter(platform, range_, start, end)
+    if only_answered:
+        w += " AND status='terjawab'"
     rows = conn.execute(
-        "SELECT topik,text,status,response_time_s,external_id,answered_by "
-        "FROM sosmed_items WHERE " + w, params).fetchall()
-    clusters = {}
-    for r in rows:
-        key = r["topik"] or "(lainnya)"
-        c = clusters.setdefault(key, {"topik": key, "count": 0, "unanswered": 0,
-                                      "samples": [], "kw": {}, "rts": []})
-        c["count"] += 1
-        if r["status"] == "belum_terjawab":
-            c["unanswered"] += 1
-        if r["response_time_s"] is not None:
-            c["rts"].append(r["response_time_s"])
-        if len(c["samples"]) < 3 and r["text"]:
-            c["samples"].append(r["text"][:220])
-        for kw in _keywords(r["text"]):
-            c["kw"][kw] = c["kw"].get(kw, 0) + 1
+        "SELECT id,platform,conversation_id,external_id,permalink,author_handle,"
+        "created_at,text,topik,sentiment,status,answered_by,answered_at,answer_text,"
+        "response_time_s,like_count,reply_count,repost_count "
+        "FROM sosmed_items WHERE " + w
+        + " ORDER BY datetime(created_at) DESC LIMIT ?",
+        params + [int(limit)]).fetchall()
     out = []
-    for c in clusters.values():
-        if c["count"] < min_count:
-            continue
-        top_kw = [k for k, _ in sorted(c["kw"].items(), key=lambda x: -x[1])[:8]]
-        out.append({
-            "topik": c["topik"], "count": c["count"],
-            "unanswered": c["unanswered"],
-            "deflection_gap": round(100.0 * c["unanswered"] / c["count"], 1),
-            "avg_response_s": round(sum(c["rts"]) / len(c["rts"])) if c["rts"] else None,
-            "keywords": top_kw, "samples": c["samples"],
-        })
-    # prioritas: paling sering & gap terbesar
-    out.sort(key=lambda x: (x["count"], x["unanswered"]), reverse=True)
-    return {"ok": True, "clusters": out[:limit],
-            "sla_minutes": sla_minutes()}
+    for r in rows:
+        d = dict(r)
+        d["pertanyaan"] = d.get("text") or ""
+        d["jawaban_draf"] = d.get("answer_text") or ""
+        out.append(d)
+    return {"ok": True, "pairs": out, "total": len(out)}
 
 
 # ---------------------------------------------------------------------------
@@ -754,8 +763,8 @@ def list_batches(conn, limit=100):
 
 def stats(conn):
     total = conn.execute("SELECT COUNT(*) FROM sosmed_items").fetchone()[0]
-    q = conn.execute("SELECT COUNT(*) FROM sosmed_items WHERE is_official=0").fetchone()[0]
-    ans = conn.execute("SELECT COUNT(*) FROM sosmed_items WHERE is_official=0 "
+    q = conn.execute("SELECT COUNT(*) FROM sosmed_items WHERE item_type='pertanyaan'").fetchone()[0]
+    ans = conn.execute("SELECT COUNT(*) FROM sosmed_items WHERE item_type='pertanyaan' "
                        "AND status='terjawab'").fetchone()[0]
     plats = [dict(platform=r[0], n=r[1]) for r in conn.execute(
         "SELECT platform, COUNT(*) FROM sosmed_items GROUP BY platform").fetchall()]
@@ -781,6 +790,7 @@ if __name__ == "__main__":
     c = init_db(connect())
 
     sample = [
+        # Thread c1: pertanyaan root -> balasan resmi (terjawab 25 mnt)
         {"platform": "x", "id": "1001", "conversation_id": "c1",
          "author_handle": "wajibpajak", "created_at": "2026-08-04T10:00:00Z",
          "text": "min saya lupa EFIN gimana cara resetnya? ribet banget"},
@@ -788,66 +798,101 @@ if __name__ == "__main__":
          "in_reply_to_id": "1001", "author_handle": "kring_pajak",
          "created_at": "2026-08-04T10:25:00Z",
          "text": "Halo, silakan hubungi Kring Pajak 1500200 untuk reset EFIN. Terima kasih"},
+        # Thread c2: pertanyaan root belum terjawab
         {"platform": "x", "id": "1003", "conversation_id": "c2",
          "author_handle": "orangpajak", "created_at": "2026-08-04T11:00:00Z",
          "text": "cara ganti email yang terdaftar di akun pajak dong min"},
+        # Thread c3: pertanyaan root belum terjawab
         {"platform": "x", "id": "1004", "conversation_id": "c3",
          "author_handle": "marahwp", "created_at": "2026-08-04T12:00:00Z",
          "text": "lapor SPT tahunan error terus, kecewa banget lama"},
+        # Thread c4 (MULTI-TURN): root -> admin klarifikasi -> customer SUSULAN
+        #   -> admin jawab akhir membalas node susulan (beda node dari root).
+        {"platform": "x", "id": "2001", "conversation_id": "c4",
+         "author_handle": "budi", "created_at": "2026-08-06T09:00:00Z",
+         "text": "min mau tanya soal pajak jual tanaman hias kena berapa?"},
+        {"platform": "x", "id": "2002", "conversation_id": "c4", "in_reply_to_id": "2001",
+         "author_handle": "kring_pajak", "created_at": "2026-08-06T09:10:00Z",
+         "text": "Hai Kak, mohon dijelaskan lebih lanjut nominal transaksinya."},
+        {"platform": "x", "id": "2003", "conversation_id": "c4", "in_reply_to_id": "2002",
+         "author_handle": "budi", "created_at": "2026-08-06T09:20:00Z",
+         "text": "nominalnya sekitar 5 juta min"},
+        {"platform": "x", "id": "2004", "conversation_id": "c4", "in_reply_to_id": "2003",
+         "author_handle": "kring_pajak", "created_at": "2026-08-06T09:30:00Z",
+         "text": "Baik Kak, atas transaksi tersebut dikenakan PPh final sesuai ketentuan."},
+        # ig1: pertanyaan root belum terjawab (topik Lupa EFIN, utk klaster FAQ)
         {"platform": "ig", "id": "ig1", "conversation_id": "cig",
          "author_handle": "netizen", "created_at": "2026-08-05T09:00:00Z",
          "text": "lupa efin lagi nih, tolong bantu"},
     ]
     r = ingest_items(c, sample, source="import")
-    assert r["ok"] and r["n_new"] == 5, r
+    assert r["ok"] and r["n_new"] == 9, r
     assert set(r["platforms"]) == {"x", "ig"}, r
 
-    # klasifikasi topik
+    # klasifikasi topik & sentimen
     it = get_item(c, 1)
     assert it["topik"] == "Lupa EFIN", it["topik"]
     assert it["sentiment"] == "negatif", it["sentiment"]
 
-    # pairing Q&A: item 1001 terjawab oleh kring_pajak dalam 25 menit
+    # pairing: 1001 pertanyaan terjawab dalam 25 menit + answer_text tersimpan
+    assert it["item_type"] == "pertanyaan", it["item_type"]
     assert it["status"] == "terjawab", it["status"]
     assert it["answered_by"] == "kring_pajak", it["answered_by"]
     assert it["response_time_s"] == 25 * 60, it["response_time_s"]
+    assert it["answer_text"].startswith("Halo"), it["answer_text"]
 
     # ganti email -> Perubahan Data, belum terjawab
     it3 = get_item(c, 3)
     assert it3["topik"] == "Perubahan Data", it3["topik"]
-    assert it3["status"] == "belum_terjawab", it3["status"]
+    assert it3["item_type"] == "pertanyaan" and it3["status"] == "belum_terjawab", it3
 
-    # inbox filter
+    # MULTI-TURN c4: root 2001 = pertanyaan TERJAWAB (admin jawab node berbeda),
+    #   2003 = susulan (bukan pertanyaan), 2002/2004 = balasan_resmi.
+    root = get_item(c, 5)
+    assert root["external_id"] == "2001", root["external_id"]
+    assert root["item_type"] == "pertanyaan" and root["status"] == "terjawab", root
+    assert root["response_time_s"] == 10 * 60, root["response_time_s"]  # jawaban resmi paling awal
+    sus = get_item(c, 7)
+    assert sus["external_id"] == "2003" and sus["item_type"] == "susulan", sus
+    off2 = get_item(c, 6)
+    assert off2["item_type"] == "balasan_resmi", off2
+
+    # daftar pertanyaan: 1001,1003,1004,2001,ig1 = 5 (susulan TIDAK termasuk)
     lst = list_items(c, only_questions=True)
-    assert lst["total"] == 4, lst["total"]  # 4 pertanyaan customer (bukan balasan resmi)
+    assert lst["total"] == 5, lst["total"]
     lst_x = list_items(c, platform="x", topik="Lupa EFIN", only_questions=True)
     assert lst_x["total"] == 1, lst_x["total"]
 
-    # thread
-    th = get_thread(c, "x", "c1")
-    assert th and th["n"] == 2, th
+    # thread multi-turn utuh
+    th = get_thread(c, "x", "c4")
+    assert th and th["n"] == 4, th
 
-    # coverage & SLA
+    # coverage & SLA: 5 pertanyaan, 2 terjawab (1001, 2001)
     cov = coverage_sla(c)
-    assert cov["total"] == 4 and cov["answered"] == 1, cov
-    assert cov["within_sla"] == 1, cov  # 25 mnt <= 60 mnt
+    assert cov["total"] == 5 and cov["answered"] == 2, cov
+    assert cov["within_sla"] == 2, cov  # 25 & 10 mnt <= 60 mnt
 
     # analytics
     an = analytics(c)
     topik_names = {x["topik"] for x in an["by_topik"]}
     assert "Lupa EFIN" in topik_names, an["by_topik"]
 
-    # FAQ candidates: Lupa EFIN muncul 2x (x + ig)
-    faq = faq_candidates(c, min_count=2)
-    efin = [x for x in faq["clusters"] if x["topik"] == "Lupa EFIN"]
-    assert efin and efin[0]["count"] == 2, faq["clusters"]
+    # faq_pairs: pertanyaan terjawab membawa draf jawaban
+    fp = faq_pairs(c, only_answered=True)
+    assert fp["total"] == 2, fp["total"]
+    assert all(p["jawaban_draf"] for p in fp["pairs"]), fp["pairs"]
 
-    # idempotensi: ingest ulang tidak menambah baris
+    # idempotensi: ingest ulang tidak menambah baris & item_type stabil
     r2 = ingest_items(c, sample, source="import")
-    assert r2["n_new"] == 0 and r2["n_dup"] == 5, r2
+    assert r2["n_new"] == 0 and r2["n_dup"] == 9, r2
+    assert get_item(c, 7)["item_type"] == "susulan", "item_type harus stabil"
+
+    # repair_all_pairing aman dijalankan ulang
+    rep = repair_all_pairing(c)
+    assert rep["ok"], rep
 
     st = stats(c)
-    assert st["total"] == 5 and st["questions"] == 4 and st["answered"] == 1, st
+    assert st["total"] == 9 and st["questions"] == 5 and st["answered"] == 2, st
 
     c.close()
     print("SOSMED_DB_SMOKE_OK")
