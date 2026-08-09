@@ -404,9 +404,9 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
         
         {% if can_sosmed %}
         <div class="sec-label" style="margin-top:14px;">Sosmed</div>
-        <a class="tool-side{% if active_page == 'sosmed_inbox' %} active{% endif %}" href="/sosmed">
+        <a class="tool-side{% if active_page == 'sosmed_qna' %} active{% endif %}" href="/sosmed">
           <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
-          <b>Inbox &amp; Q&amp;A</b>
+          <b>Q&amp;A</b>
         </a>
         {% if can_sosmed_manage %}
         <a class="tool-side{% if active_page == 'sosmed_kelola' %} active{% endif %}" href="/sosmed/kelola">
@@ -414,17 +414,13 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <b>Kelola Data Sosmed</b>
         </a>
         {% endif %}
-        <a class="tool-side{% if active_page == 'sosmed_coverage' %} active{% endif %}" href="/sosmed/coverage">
-          <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
-          <b>Coverage &amp; SLA</b>
-        </a>
-        <a class="tool-side{% if active_page == 'sosmed_analytics' %} active{% endif %}" href="/sosmed/analytics">
+        <a class="tool-side{% if active_page == 'sosmed_sla' %} active{% endif %}" href="/sosmed/sla">
           <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div>
-          <b>Analitik Sosmed</b>
+          <b>SLA &amp; Analitik</b>
         </a>
-        <a class="tool-side{% if active_page == 'sosmed_faq' %} active{% endif %}" href="/sosmed/faq">
+        <a class="tool-side{% if active_page == 'sosmed_deflection' %} active{% endif %}" href="/sosmed/deflection">
           <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-          <b>FAQ &amp; Deflection</b>
+          <b>Coverage &amp; Deflection</b>
         </a>
         {% endif %}
         <div class="sec-label" style="margin-top:14px;">Umum</div>
