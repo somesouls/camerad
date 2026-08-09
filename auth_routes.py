@@ -29,6 +29,11 @@ def register(app):
     async def users_page(request: Request):
         return render_page(request, "users.html", "users")
 
+    @app.get("/profil")
+    async def profil_page(request: Request):
+        # Halaman "Akun Saya" untuk semua peran (ganti sandi + foto avatar).
+        return render_page(request, "profil.html", "profil")
+
     @app.post("/api/login")
     async def api_login(request: Request):
         try:
@@ -84,6 +89,73 @@ def register(app):
         resp = RedirectResponse("/login", status_code=302)
         resp.delete_cookie("session", path="/")
         return resp
+
+    @app.get("/api/profil")
+    async def api_profil_me(request: Request):
+        me = getattr(request.state, "user", None) or {}
+        if not me.get("id"):
+            return JSONResponse({"ok": False, "error": "Sesi tidak valid."}, status_code=401)
+        return JSONResponse({
+            "ok": True,
+            "user": {
+                "username": me.get("username"),
+                "nama": me.get("nama", ""),
+                "role": me.get("role"),
+                "role_label": usr.role_label(me.get("role")),
+                "avatar": me.get("avatar", "") or "",
+            },
+        })
+
+    @app.post("/api/profil/password")
+    async def api_profil_password(request: Request):
+        me = getattr(request.state, "user", None) or {}
+        if not me.get("id"):
+            return JSONResponse({"ok": False, "error": "Sesi tidak valid."}, status_code=401)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        old_pw = (body.get("old_password") or "") if isinstance(body, dict) else ""
+        new_pw = (body.get("new_password") or "") if isinstance(body, dict) else ""
+
+        def _run():
+            c = usr.connect()
+            try:
+                usr.init_db(c)
+                return usr.change_own_password(c, int(me["id"]), old_pw, new_pw)
+            finally:
+                c.close()
+
+        try:
+            return JSONResponse(await run_in_threadpool(_run))
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    @app.post("/api/profil/avatar")
+    async def api_profil_avatar(request: Request):
+        me = getattr(request.state, "user", None) or {}
+        if not me.get("id"):
+            return JSONResponse({"ok": False, "error": "Sesi tidak valid."}, status_code=401)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        avatar = body.get("avatar") if isinstance(body, dict) else ""
+        if avatar is None:
+            avatar = ""
+
+        def _run():
+            c = usr.connect()
+            try:
+                usr.init_db(c)
+                return usr.set_avatar(c, int(me["id"]), avatar)
+            finally:
+                c.close()
+
+        try:
+            return JSONResponse(await run_in_threadpool(_run))
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
 
     @app.get("/api/users")
     async def api_users_list(request: Request):
