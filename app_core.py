@@ -84,7 +84,7 @@ def render_page(request, template_name, active_page="", extra=None):
     return _TEMPLATES.TemplateResponse(request, template_name, ctx)
 
 
-_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico"}
+_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico", "/credit"}
 
 
 def _route_action(method, path):
