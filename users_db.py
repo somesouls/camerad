@@ -52,6 +52,13 @@ def init_db(conn):
         " created_at TEXT, expires_at REAL, last_seen TEXT)"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sess_user ON sessions(user_id)")
+    # Migrasi: kolom avatar (data URL) untuk foto profil
+    try:
+        _cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+        if "avatar" not in _cols:
+            conn.execute("ALTER TABLE users ADD COLUMN avatar TEXT DEFAULT ''")
+    except Exception:
+        pass
     conn.commit()
     return conn
 
@@ -167,6 +174,39 @@ def set_password(conn, uid, new_password):
     return {"ok": True}
 
 
+def change_own_password(conn, uid, old_password, new_password):
+    """Ganti sandi mandiri: wajib verifikasi sandi lama dulu."""
+    row = get_user_by_id(conn, uid)
+    if not row:
+        return {"ok": False, "error": "User tidak ditemukan."}
+    if not verify_password(old_password, row["pass_hash"], row["pass_salt"], row["iterations"]):
+        return {"ok": False, "error": "Sandi lama salah."}
+    if not new_password or len(new_password) < 6:
+        return {"ok": False, "error": "Sandi baru minimal 6 karakter."}
+    h, salt, it = hash_password(new_password)
+    conn.execute(
+        "UPDATE users SET pass_hash=?, pass_salt=?, iterations=?, updated_at=? WHERE id=?",
+        (h, salt, it, _now(), row["id"]),
+    )
+    conn.commit()
+    return {"ok": True}
+
+
+def set_avatar(conn, uid, avatar):
+    """Simpan avatar sebagai data URL (image/*). String kosong = hapus foto."""
+    row = get_user_by_id(conn, uid)
+    if not row:
+        return {"ok": False, "error": "User tidak ditemukan."}
+    av = avatar or ""
+    if av and not av.startswith("data:image/"):
+        return {"ok": False, "error": "Format gambar tidak valid."}
+    if len(av) > 1_500_000:
+        return {"ok": False, "error": "Ukuran gambar terlalu besar (maks ~1 MB)."}
+    conn.execute("UPDATE users SET avatar=?, updated_at=? WHERE id=?", (av, _now(), row["id"]))
+    conn.commit()
+    return {"ok": True, "avatar": av}
+
+
 def delete_user(conn, uid):
     row = get_user_by_id(conn, uid)
     if not row:
@@ -268,6 +308,7 @@ _AREA_ROLES = {
     "awe_manage": {"admin", "analis"},
     "assess":     {"admin", "assessor"},
     "common":     {"admin", "analis", "assessor", "viewer"},
+    "account":    {"admin", "analis", "assessor", "viewer"},
     "users":      {"admin"},
 }
 
@@ -278,4 +319,3 @@ def role_label(role):
 
 def area_allowed(role, area):
     return (role or "") in _AREA_ROLES.get(area or "", set())
-
