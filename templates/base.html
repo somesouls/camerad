@@ -109,6 +109,11 @@ body {
 .side-scroll::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 4px; }
 
 .sec-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); padding: 16px 8px 8px; }
+.sec-label.acc-toggle { display: flex; align-items: center; justify-content: space-between; cursor: pointer; user-select: none; border-radius: 8px; transition: color 0.2s; }
+.sec-label.acc-toggle:hover { color: var(--text-main); }
+.acc-chev { display: inline-flex; opacity: 0.6; transition: transform 0.2s; }
+.acc-chev svg { width: 12px; height: 12px; }
+.sec-label.acc-collapsed .acc-chev { transform: rotate(-90deg); }
 
 .tool-side { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 10px; color: var(--text-main); text-decoration: none; transition: 0.2s; border: 1px solid transparent; }
 .tool-side:hover { background: var(--panel-border); border-color: var(--accent-glow); transform: translateX(3px); }
@@ -551,6 +556,46 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
     var nb = document.getElementById('newBtn');
     if (nb) nb.addEventListener('click', function(){ localStorage.removeItem(LS_ACTIVE); window.location.href = '/'; });
     renderHist();
+  }
+
+  // ---- Accordion section (lipat + ingat status) & memori posisi scroll ----
+  var scrollBox = document.querySelector('.side-scroll');
+  if (scrollBox) {
+    var CHEV = '<span class="acc-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></span>';
+    var secLabels = Array.prototype.slice.call(scrollBox.querySelectorAll('.sec-label'));
+    secLabels.forEach(function(label){
+      var items = [];
+      var el = label.nextElementSibling;
+      while (el && !el.classList.contains('sec-label')) { items.push(el); el = el.nextElementSibling; }
+      if (!items.length) return;
+      var key = 'acc_' + (label.textContent || '').trim();
+      label.classList.add('acc-toggle');
+      label.setAttribute('role', 'button');
+      label.insertAdjacentHTML('beforeend', CHEV);
+      var collapsed = localStorage.getItem(key) === '1';
+      var apply = function(){
+        items.forEach(function(it){ it.style.display = collapsed ? 'none' : ''; });
+        label.classList.toggle('acc-collapsed', collapsed);
+      };
+      apply();
+      label.addEventListener('click', function(){
+        collapsed = !collapsed;
+        localStorage.setItem(key, collapsed ? '1' : '0');
+        apply();
+      });
+    });
+
+    // Pulihkan posisi scroll antar-navigasi; jika belum ada, gulir ke menu aktif.
+    var SC_KEY = 'sidebarScrollTop';
+    var savedTop = sessionStorage.getItem(SC_KEY);
+    if (savedTop !== null) {
+      scrollBox.scrollTop = parseInt(savedTop, 10) || 0;
+    } else {
+      var act = scrollBox.querySelector('.tool-side.active');
+      if (act && act.scrollIntoView) act.scrollIntoView({ block: 'center' });
+    }
+    scrollBox.addEventListener('scroll', function(){ sessionStorage.setItem(SC_KEY, scrollBox.scrollTop); });
+    window.addEventListener('beforeunload', function(){ sessionStorage.setItem(SC_KEY, scrollBox.scrollTop); });
   }
 })();
 </script>
