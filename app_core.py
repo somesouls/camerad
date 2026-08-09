@@ -66,6 +66,8 @@ def _page_user_ctx(request):
         "user_role": role_lbl,
         "user_role_key": role_key,
         "user_avatar": avatar,
+        "user_avatar_img": (user.get("avatar") if user else "") or "",
+        "user_username": (user.get("username") if user else "") or "",
         "can_dialogflow": usr.area_allowed(role_key, "dialogflow"),
         "can_awe": usr.area_allowed(role_key, "awe"),
         "can_awe_manage": usr.area_allowed(role_key, "awe_manage"),
@@ -107,6 +109,8 @@ def _route_action(method, path):
 
 
 def _route_area(path):
+    if path == "/profil" or path.startswith("/api/profil"):
+        return "account"
     if path == "/users" or path.startswith("/api/users"):
         return "users"
     if (path == "/awe/kelola" or path.startswith("/api/awe/pull")
