@@ -47,13 +47,19 @@
     </div>
     <div class="atp-sub">
       Unggah ZIP <i>“Database Intent Dialogflow”</i> (output Step 3/13) atau langsung file xlsx
-      Training Phrase berkolom <code>ID</code> &amp; <code>Training Phrase</code>.
+      Training Phrase berkolom <code>ID</code> &amp; <code>Training Phrase</code>, atau <b>gunakan data terakhir dari Analisis Dialogflow</b>.
     </div>
     <div style="height:12px"></div>
     <div class="atp-row">
       <div class="atp-field" style="flex:1;min-width:260px;">
         <label>File ZIP / xlsx</label>
-        <input class="atp-file" type="file" id="atpFile" accept=".zip,.xlsx">
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input class="atp-file" type="file" id="atpFile" accept=".zip,.xlsx" style="flex:1;">
+          <label style="display:flex; align-items:center; gap:4px; font-weight:normal; cursor:pointer;">
+            <input type="checkbox" id="useLatest" value="1" checked>
+            Gunakan Data Terakhir (Step 3/13)
+          </label>
+        </div>
       </div>
       <div class="atp-field">
         <label title="Ambang cosine untuk konflik antar intent">Ambang Konflik</label>
@@ -114,6 +120,14 @@
     });
   });
 
+  var useLatestCb = document.getElementById('useLatest');
+  var atpFile = document.getElementById('atpFile');
+  function updateFileInput() {
+      atpFile.disabled = useLatestCb.checked;
+  }
+  useLatestCb.addEventListener('change', updateFileInput);
+  updateFileInput(); // init
+
   function fill(res){
     document.getElementById('stIntents').textContent=res.n_intents||0;
     document.getElementById('stPhrases').textContent=res.n_phrases||0;
@@ -136,10 +150,13 @@
   }
 
   document.getElementById('atpRun').addEventListener('click', function(){
-    var f=document.getElementById('atpFile').files[0];
-    if(!f){ showMsg('Pilih file dulu.','err'); return; }
+    var useLatest = useLatestCb.checked;
+    var f=atpFile.files[0];
+    if(!useLatest && !f){ showMsg('Pilih file dulu atau centang Gunakan Data Terakhir.','err'); return; }
+    
     var fd=new FormData();
-    fd.append('file', f);
+    if(f) fd.append('file', f);
+    if(useLatest) fd.append('use_latest', '1');
     fd.append('min_cross', document.getElementById('minCross').value||'0.85');
     fd.append('min_dup', document.getElementById('minDup').value||'0.97');
     var btn=this; btn.disabled=true; document.body.classList.add('atp-loading');
