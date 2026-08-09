@@ -91,12 +91,17 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
     </div>
   </div>
 
-  <!-- Riwayat batch -->
+  <!-- Perbaikan data + Riwayat batch -->
   <div class="sm-card" style="margin-top:16px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
       <h3 style="margin:0;">Riwayat Impor / Tarik</h3>
-      <button class="sm-btn danger" id="btnPurge">Kosongkan semua data</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="sm-btn ghost" id="btnRepair">Perbaiki pemasangan Q&amp;A</button>
+        <button class="sm-btn danger" id="btnPurge">Kosongkan semua data</button>
+      </div>
     </div>
+    <p class="sm-note">“Perbaiki pemasangan Q&amp;A” menjalankan ulang perajutan pertanyaan–jawaban sadar-thread untuk seluruh data lama. Gunakan sekali setelah pembaruan sistem bila ada tweet jawaban yang keliru tercatat sebagai pertanyaan. Aman dijalankan berulang.</p>
+    <div class="sm-out" id="repairOut"></div>
     <table class="sm-tb"><thead><tr><th>Waktu</th><th>Platform</th><th>Sumber</th><th>Rentang</th><th>Baru</th><th>Total</th><th>Oleh</th></tr></thead>
     <tbody id="batchBody"><tr><td colspan="7" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
   </div>
@@ -155,6 +160,13 @@ $('#btnPaste').onclick=async()=>{
   $('#btnPaste').disabled=false;
   if(data.ok){out($('#impOut'),true,`Impor: ${data.n_new} baru, ${data.n_dup} pembaruan, ${data.n_skip} dilewati.`);loadStats();}
   else out($('#impOut'),false,data.error||'Gagal impor.');
+};
+$('#btnRepair').onclick=async()=>{
+  if(!confirm('Jalankan perbaikan pemasangan Q&A untuk SEMUA data? Aman dijalankan berulang.'))return;
+  $('#btnRepair').disabled=true;out($('#repairOut'),true,'Memperbaiki…');
+  const {data}=await jpost('/api/sosmed/repair',{});$('#btnRepair').disabled=false;
+  if(data.ok){out($('#repairOut'),true,`Selesai: ${data.conversations} percakapan dirajut ulang.`);loadStats();}
+  else out($('#repairOut'),false,data.error||'Gagal memperbaiki.');
 };
 $('#btnPurge').onclick=async()=>{
   if(!confirm('Hapus SEMUA data sosmed? Tindakan ini tidak bisa dibatalkan.'))return;
