@@ -148,34 +148,70 @@ def _read_training_rows(xlsx_bytes):
     return out
 
 
-def audit_phrases(rows, min_cross=DEF_MIN_CROSS, min_dup=DEF_MIN_DUP,
-                  top=MAX_PAIRS, chunk=CHUNK, encode_fn=None):
-    """Inti algoritma. rows = list[(intent, phrase)]. encode_fn injectable untuk
-    pengujian (default: SBERT). Semua embedding diasumsikan ter-normalisasi
-    sehingga cosine = dot product."""
-    if np is None:
-        raise Exception("numpy tidak tersedia di server.")
-    # Dedup pasangan (intent, phrase) identik.
-    seen = set()
-    uniq = []
-    for intent, phrase in rows:
-        key = (intent, phrase)
-        if key in seen:
-            continue
-        seen.add(key)
-        uniq.append((intent, phrase))
-    if len(uniq) > MAX_PHRASES:
-        raise Exception("Terlalu banyak training phrase (%d > %d). Pecah per kategori dulu."
-                        % (len(uniq), MAX_PHRASES))
+def _category_of(intent):
+    """Tentukan kategori sebuah intent untuk pemecahan batch.
+
+    Nama intent Dialogflow lazim berpola hierarki (mis. "PPh - Tarif",
+    "PPN.Faktur", "layanan/registrasi"). Ambil segmen pertama sebagai kategori.
+    Bila tak ada pemisah, pakai nama intent apa adanya.
+    """
+    s = (intent or "").strip()
+    if not s:
+        return "(tanpa kategori)"
+    for sep in (" - ", " / ", "/", "|", ".", "_"):
+        if sep in s:
+            head = s.split(sep, 1)[0].strip()
+            if head:
+                return head
+    return s
+
+
+def _batch_by_category(uniq, max_phrases):
+    """Pecah daftar (intent, phrase) menjadi beberapa batch <= max_phrases.
+
+    Frasa dari satu intent SELALU utuh dalam satu batch (agar deteksi duplikat
+    dalam-intent tidak terpotong). Intent diurutkan per kategori supaya intent
+    sekategori cenderung berada di batch yang sama (deteksi konflik antar-intent
+    tetap berjalan di dalam batch). Batch diisi lintas-kategori sampai mendekati
+    max_phrases agar tidak boros batch untuk kategori kecil.
+    """
+    by_intent = {}
+    order = []
+    for intent, phrase in uniq:
+        if intent not in by_intent:
+            by_intent[intent] = []
+            order.append(intent)
+        by_intent[intent].append((intent, phrase))
+    order.sort(key=lambda it: (_category_of(it), it))
+    batches = []
+    cur = []
+    for intent in order:
+        rows_i = by_intent[intent]
+        if cur and (len(cur) + len(rows_i) > max_phrases):
+            batches.append(cur)
+            cur = []
+        cur.extend(rows_i)
+        if len(cur) >= max_phrases:
+            batches.append(cur)
+            cur = []
+    if cur:
+        batches.append(cur)
+    return batches
+
+
+def _score_pairs(uniq, min_cross, min_dup, chunk, encode_fn):
+    """Pemindaian pasangan inti atas satu batch (intent, phrase) yang sudah unik.
+
+    Semua embedding diasumsikan ternormalisasi sehingga cosine = dot product.
+    Return (cross_raw, dup_raw):
+      cross_raw = list[(score, intent_a, phrase_a, intent_b, phrase_b)]
+      dup_raw   = list[(score, intent, phrase_a, phrase_b)]
+    """
     n = len(uniq)
+    if n < 2:
+        return [], []
     intents = [x[0] for x in uniq]
     phrases = [x[1] for x in uniq]
-    if n < 2:
-        return {"ok": True, "n_intents": len(set(intents)), "n_phrases": n,
-                "min_cross": min_cross, "min_dup": min_dup,
-                "cross_pairs": [], "intent_conflicts": [], "dupes": [],
-                "note": "Terlalu sedikit frasa untuk diaudit."}
-
     enc = encode_fn or _default_encode
     emb = enc(phrases)
     if emb is None:
@@ -184,8 +220,8 @@ def audit_phrases(rows, min_cross=DEF_MIN_CROSS, min_dup=DEF_MIN_DUP,
     emb = np.asarray(emb, dtype="float32")
 
     cross_seen = set()
-    cross_pairs = []
-    dupes = []
+    cross_raw = []
+    dup_raw = []
     intent_arr = np.array(intents, dtype=object)
 
     for a in range(0, n, chunk):
@@ -204,30 +240,69 @@ def audit_phrases(rows, min_cross=DEF_MIN_CROSS, min_dup=DEF_MIN_DUP,
                 if key in cross_seen:
                     continue
                 cross_seen.add(key)
-                cross_pairs.append((float(srow[j]), i, j))
+                cross_raw.append((float(srow[j]), intents[i], phrases[i],
+                                  intents[j], phrases[j]))
             # --- duplikat dalam intent (intent sama, >= min_dup) ---
             dup_mask = same & (srow >= min_dup)
             for j in np.nonzero(dup_mask)[0]:
                 j = int(j)
                 if j <= i:
                     continue
-                dupes.append((float(srow[j]), i, j))
+                dup_raw.append((float(srow[j]), intents[i], phrases[i], phrases[j]))
+    return cross_raw, dup_raw
 
-    cross_pairs.sort(key=lambda t: t[0], reverse=True)
-    dupes.sort(key=lambda t: t[0], reverse=True)
-    truncated = len(cross_pairs) > top
-    cross_pairs = cross_pairs[:top]
 
-    cross_out = [{"intent_a": intents[i], "phrase_a": phrases[i],
-                  "intent_b": intents[j], "phrase_b": phrases[j],
-                  "score": round(s, 4)} for s, i, j in cross_pairs]
-    dup_out = [{"intent": intents[i], "phrase_a": phrases[i],
-                "phrase_b": phrases[j], "score": round(s, 4)} for s, i, j in dupes[:top]]
+def audit_phrases(rows, min_cross=DEF_MIN_CROSS, min_dup=DEF_MIN_DUP,
+                  top=MAX_PAIRS, chunk=CHUNK, encode_fn=None):
+    """Inti algoritma. rows = list[(intent, phrase)]. encode_fn injectable untuk
+    pengujian (default: SBERT).
 
-    # Agregasi per pasangan intent.
+    Bila jumlah frasa unik melebihi MAX_PHRASES, data dipecah per kategori
+    menjadi beberapa batch (lihat _batch_by_category) lalu hasilnya digabung —
+    menggantikan error lama "Terlalu banyak training phrase". Konsekuensinya,
+    konflik yang kebetulan jatuh di batch berbeda tidak dibandingkan; ini
+    trade-off yang disengaja agar audit tetap muat di memori/CPU.
+    """
+    if np is None:
+        raise Exception("numpy tidak tersedia di server.")
+    # Dedup pasangan (intent, phrase) identik.
+    seen = set()
+    uniq = []
+    for intent, phrase in rows:
+        key = (intent, phrase)
+        if key in seen:
+            continue
+        seen.add(key)
+        uniq.append((intent, phrase))
+    n = len(uniq)
+    intents_all = [x[0] for x in uniq]
+    if n < 2:
+        return {"ok": True, "n_intents": len(set(intents_all)), "n_phrases": n,
+                "min_cross": min_cross, "min_dup": min_dup,
+                "cross_pairs": [], "intent_conflicts": [], "dupes": [],
+                "note": "Terlalu sedikit frasa untuk diaudit."}
+
+    # Pecah per kategori bila melebihi ambang; selain itu proses sekaligus.
+    if n > MAX_PHRASES:
+        batches = _batch_by_category(uniq, MAX_PHRASES)
+    else:
+        batches = [uniq]
+    batched = len(batches) > 1
+
+    cross_raw = []
+    dup_raw = []
+    for batch in batches:
+        c, d = _score_pairs(batch, min_cross, min_dup, chunk, encode_fn)
+        cross_raw.extend(c)
+        dup_raw.extend(d)
+
+    cross_raw.sort(key=lambda t: t[0], reverse=True)
+    dup_raw.sort(key=lambda t: t[0], reverse=True)
+    truncated = len(cross_raw) > top
+
+    # Agregasi per pasangan intent (dari seluruh konflik sebelum truncation).
     agg = {}
-    for s, i, j in cross_pairs:
-        ia, ib = intents[i], intents[j]
+    for s, ia, pa, ib, pb in cross_raw:
         pk = (ia, ib) if ia <= ib else (ib, ia)
         cur = agg.get(pk)
         if cur is None:
@@ -241,10 +316,23 @@ def audit_phrases(rows, min_cross=DEF_MIN_CROSS, min_dup=DEF_MIN_DUP,
                         for k, v in agg.items()]
     intent_conflicts.sort(key=lambda d: (d["count"], d["max_score"]), reverse=True)
 
-    return {"ok": True, "n_intents": len(set(intents)), "n_phrases": n,
-            "min_cross": min_cross, "min_dup": min_dup, "truncated": truncated,
-            "cross_pairs": cross_out, "intent_conflicts": intent_conflicts,
-            "dupes": dup_out}
+    cross_out = [{"intent_a": ia, "phrase_a": pa, "intent_b": ib,
+                  "phrase_b": pb, "score": round(s, 4)}
+                 for s, ia, pa, ib, pb in cross_raw[:top]]
+    dup_out = [{"intent": ia, "phrase_a": pa, "phrase_b": pb,
+                "score": round(s, 4)} for s, ia, pa, pb in dup_raw[:top]]
+
+    result = {"ok": True, "n_intents": len(set(intents_all)), "n_phrases": n,
+              "min_cross": min_cross, "min_dup": min_dup, "truncated": truncated,
+              "cross_pairs": cross_out, "intent_conflicts": intent_conflicts,
+              "dupes": dup_out}
+    if batched:
+        result["batched"] = True
+        result["n_batches"] = len(batches)
+        result["note"] = ("Data besar (%d frasa, %d intent) dipecah per kategori "
+                          "menjadi %d batch; konflik lintas-batch tidak dibandingkan."
+                          % (n, len(set(intents_all)), len(batches)))
+    return result
 
 
 def build_report_xlsx(result):
@@ -378,16 +466,6 @@ async def audit_tp_page(request: Request):
     return render_page(request, "audit_tp.html", "audit_tp")
 
 
-async def pipeline_page(request: Request):
-    """Halaman "Pipeline Otomatis" (orkestrasi Step 1-11 dengan checkpoint manual).
-
-    Berbagi run (localStorage 'dfp_run') dan backend /tools?action=stepN dengan
-    halaman Analisis Dialogflow, sehingga tidak menambah endpoint proses baru.
-    Titik pemeriksaan manual (Step 6/9/11) dibuka di halaman Analisis Dialogflow.
-    """
-    return render_page(request, "pipeline_auto.html", "pipeline")
-
-
 def _to_float(v, default):
     try:
         return float(v)
@@ -444,5 +522,4 @@ def register(app):
     app.add_api_route("/audit-tp", audit_tp_page, methods=["GET"])
     app.add_api_route("/api/audit-tp/run", api_audit_run, methods=["POST"])
     app.add_api_route("/api/audit-tp/refresh", api_audit_refresh, methods=["POST"])
-    app.add_api_route("/pipeline", pipeline_page, methods=["GET"])
     _start_catalog_scheduler()
