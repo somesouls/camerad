@@ -34,6 +34,31 @@ except Exception:
 import openpyxl
 
 
+def find_latest_step3_zip():
+    from app_core import CONFIG
+    import pipeline_routes
+    runs_dir = CONFIG.get("runs_dir", "")
+    if not runs_dir or not os.path.isdir(runs_dir):
+        return None
+    latest_run = None
+    latest_time = ""
+    latest_zip = None
+    try:
+        for run_id in os.listdir(runs_dir):
+            state = pipeline_routes.load_state(CONFIG, run_id)
+            if not state:
+                continue
+            step3 = state.get("steps", {}).get("3")
+            if step3 and step3.get("file") and step3.get("status") == "Selesai":
+                at = step3.get("at", "")
+                if at > latest_time:
+                    latest_time = at
+                    latest_run = run_id
+                    latest_zip = os.path.join(runs_dir, run_id, step3.get("file"))
+    except Exception:
+        pass
+    return latest_zip
+
 # ---------------------------------------------------------------------------
 # Ambang default (bisa diubah dari form)
 # ---------------------------------------------------------------------------
@@ -252,10 +277,22 @@ def _to_float(v, default):
 
 async def api_audit_run(request: Request):
     form = await request.form()
-    up = form.get("file")
-    if up is None or not hasattr(up, "read"):
-        return JSONResponse({"ok": False, "error": "Unggah file ZIP/xlsx training phrase dulu."})
-    data = await up.read()
+    
+    use_latest = (form.get("use_latest") == "1")
+    data = None
+    
+    if use_latest:
+        zip_path = find_latest_step3_zip()
+        if not zip_path or not os.path.isfile(zip_path):
+            return JSONResponse({"ok": False, "error": "Tidak ditemukan data Step 3/13 terakhir. Harap unggah file atau jalankan Step 3 di Analisis Dialogflow."})
+        with open(zip_path, "rb") as f:
+            data = f.read()
+    else:
+        up = form.get("file")
+        if up is None or not hasattr(up, "read"):
+            return JSONResponse({"ok": False, "error": "Unggah file ZIP/xlsx training phrase atau centang Gunakan Data Terakhir."})
+        data = await up.read()
+
     min_cross = _to_float(form.get("min_cross"), DEF_MIN_CROSS)
     min_dup = _to_float(form.get("min_dup"), DEF_MIN_DUP)
 
