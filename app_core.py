@@ -111,6 +111,8 @@ def _route_action(method, path):
 def _route_area(path):
     if path == "/profil" or path.startswith("/api/profil"):
         return "account"
+    if path == "/rag" or path.startswith("/api/rag"):
+        return "common"
     if path == "/users" or path.startswith("/api/users"):
         return "users"
     if (path == "/awe/kelola" or path.startswith("/api/awe/pull")
