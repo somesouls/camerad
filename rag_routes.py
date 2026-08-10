@@ -2,11 +2,12 @@
 """rag_routes.py — Menu RAG (Pilot) "Agent Kring Pajak".
 
 Satu kolom chat yang HANYA menjawab berdasarkan TIGA basis data internal:
-  1. Training Phrase & Intent  (intentmap_db: Peta Intent + Katalog, + SBERT)
+  1. Training Phrase & Intent  (intentmap_db: Katalog Intent -> jawaban resmi
+                                'jawaban_cuplikan' + Peta Intent sebagai panduan)
   2. Percakapan AWE            (avaya_db: transkrip layanan Kring Pajak)
   3. Data Sosmed              (sosmed_db: pasangan Q&A + balasan resmi)
 
-Tidak memakai pengetahuan umum / web. Bila jawaban tidak ada di konteks ->
+Tidak memakai pengetahuan umum / web. Bila tidak ada konteks relevan ->
 kalimat fallback. LLM dipanggil via llm_client.chat (provider di .env).
 
 Daftarkan dengan:  import rag_routes; rag_routes.register(app)
@@ -35,10 +36,6 @@ try:
     import sosmed_db as sdb
 except Exception:            # pragma: no cover
     sdb = None
-try:
-    import knowledge_semantic as ksem
-except Exception:            # pragma: no cover
-    ksem = None
 
 
 # ===========================================================================
@@ -56,35 +53,38 @@ FALLBACK_ANSWER = (
 SYSTEM_PROMPT = (
     "PERAN\n"
     "Kamu adalah Agent Kring Pajak - asisten informasi layanan perpajakan "
-    "resmi. Layani wajib pajak dengan ramah, formal, sopan, dan normatif, "
-    "layaknya petugas Kring Pajak profesional.\n\n"
+    "resmi. Bantu wajib pajak dengan bahasa Indonesia yang ramah, formal, "
+    "sopan, dan normatif, layaknya petugas Kring Pajak profesional.\n\n"
+    "TUGAS\n"
+    "Jawab pertanyaan pengguna dengan MEMANFAATKAN \"KONTEKS INTERNAL\" di "
+    "bawah. Konteks berisi jawaban resmi intent, cuplikan jawaban petugas "
+    "(Percakapan AWE), dan balasan resmi media sosial (Data Sosmed). Rangkai "
+    "jawaban yang jelas dan runut dari informasi yang relevan pada konteks - "
+    "kamu boleh menyarikan, menggabungkan, dan merapikan kalimat selama tidak "
+    "mengubah maksud atau menambah fakta baru.\n\n"
     "SUMBER JAWABAN (WAJIB)\n"
-    "Jawab HANYA berdasarkan \"KONTEKS INTERNAL\" di bawah, yang bersumber dari "
-    "tiga basis data internal: (1) Training Phrase & Intent, (2) Percakapan "
-    "AWE, (3) Data Sosmed. DILARANG KERAS memakai pengetahuan umum, asumsi, "
-    "ingatan model, atau sumber eksternal/web. Jangan mengarang, menebak, "
-    "menambah, atau melengkapi hal yang tidak ada dalam konteks.\n\n"
+    "Gunakan HANYA informasi dari konteks internal. DILARANG memakai "
+    "pengetahuan umum, sumber eksternal/web, atau mengarang fakta, angka, "
+    "tautan, maupun prosedur yang tidak ada di konteks. Jika konteks hanya "
+    "memuat garis besar/cakupan, sampaikan garis besar itu dengan jujur lalu "
+    "arahkan menghubungi Kring Pajak 1500200 untuk detail lebih lanjut.\n\n"
     "BILA TIDAK ADA DI DATA\n"
-    "Jika jawaban tidak ada atau tidak memadai dalam konteks, JANGAN "
-    "mengarang. Balas PERSIS dengan kalimat berikut, tanpa tambahan apa pun:\n"
-    "\"{fallback}\"\n\n"
+    "HANYA jika di konteks TIDAK ADA satu pun informasi yang relevan dengan "
+    "pertanyaan, balas PERSIS dengan kalimat berikut tanpa tambahan apa pun:\n"
+    "\"{fallback}\"\n"
+    "Jangan gunakan kalimat fallback bila ada informasi relevan pada konteks, "
+    "walau hanya sebagian.\n\n"
     "GAYA & BATASAN\n"
-    "- Normatif: bahasa Indonesia baku, formal, sesuai ketentuan; tanpa opini "
-    "pribadi.\n"
-    "- Netral & tanpa penghakiman: jangan menghakimi, menyalahkan, atau "
-    "menggurui; tetap empatik dan objektif.\n"
+    "- Normatif: bahasa Indonesia baku dan formal; tanpa opini pribadi.\n"
+    "- Netral & tanpa penghakiman: jangan menghakimi atau menggurui; empatik "
+    "dan objektif.\n"
     "- Tanpa politik/SARA: tolak dengan sopan pertanyaan di luar ranah "
     "perpajakan dan arahkan kembali ke topik perpajakan.\n"
-    "- Jangan memberi nasihat hukum/keuangan pribadi di luar data; untuk kasus "
-    "spesifik arahkan menghubungi Kring Pajak 1500200 atau kantor pajak bila "
-    "konteks mendukung.\n"
     "- Lindungi data pribadi; jangan meminta atau menampilkan data sensitif "
     "tanpa perlu.\n"
-    "- Ringkas, jelas, dan langkah demi langkah bila prosedural.\n\n"
-    "CARA MEMAKAI KONTEKS\n"
-    "Prioritaskan balasan resmi/terverifikasi (AWE dan Sosmed) serta intent "
-    "yang paling relevan. Bila konteks saling bertentangan, pilih yang paling "
-    "resmi dan mutakhir; bila tetap ragu, gunakan kalimat fallback."
+    "- Ringkas, jelas, dan sajikan langkah demi langkah bila prosedural.\n"
+    "- Prioritaskan jawaban resmi/terverifikasi; bila konteks saling "
+    "bertentangan, pilih yang paling resmi dan mutakhir."
 )
 # ===========================================================================
 
@@ -114,23 +114,16 @@ def _clip(s, n=600):
     return (s[:n].rstrip() + "\u2026") if len(s) > n else s
 
 
-def _merge_entries(primary, extra, limit=5):
-    out, seen = [], set()
-    for x in list(primary or []) + list(extra or []):
-        if not isinstance(x, dict):
-            continue
-        key = x.get("id") or x.get("intent") or id(x)
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(x)
-        if len(out) >= limit:
-            break
-    return out
+def _json_list(v):
+    try:
+        x = json.loads(v) if v else []
+        return x if isinstance(x, list) else []
+    except Exception:
+        return []
 
 
 # --------------------------------------------------------------------------
-# Sumber 1: Training Phrase & Intent (Dialogflow)
+# Sumber 1: Training Phrase & Intent (Katalog jawaban resmi + Peta Intent)
 # --------------------------------------------------------------------------
 def _ctx_dialogflow(q):
     if imdb is None:
@@ -139,49 +132,76 @@ def _ctx_dialogflow(q):
         c = imdb.init_db(imdb.connect())
     except Exception:
         return "", []
-    m, mc, t1, t2 = [], [], "", ""
+    blocks, sources = [], []
+    toks = _tokens(q, k=12)
     try:
         try:
             imdb.init_catalog(c)
         except Exception:
             pass
+        # (1) Jawaban resmi dari Katalog Intent (kolom jawaban_cuplikan).
+        cat_rows = []
+        if toks:
+            try:
+                cat_rows = c.execute(
+                    "SELECT intent, deskripsi_maksud, deskripsi_cakupan, "
+                    "jawaban_cuplikan, training_phrase_contoh FROM intentmap_catalog "
+                    "WHERE COALESCE(sumber_status,'aktif')!='hilang' "
+                    "AND COALESCE(soft_deleted,0)=0"
+                ).fetchall()
+            except Exception:
+                cat_rows = []
+        scored = []
+        for r in cat_rows:
+            d = dict(r)
+            tps = _json_list(d.get("training_phrase_contoh"))
+            iname = str(d.get("intent") or "")
+            hay = " ".join([
+                iname, str(d.get("deskripsi_maksud") or ""),
+                str(d.get("deskripsi_cakupan") or ""),
+                str(d.get("jawaban_cuplikan") or ""),
+                " ".join(str(x) for x in tps),
+            ]).lower()
+            score = sum(hay.count(t) for t in toks)
+            score += 2 * sum(1 for t in toks if t in iname.lower())
+            if score > 0:
+                scored.append((score, d))
+        scored.sort(key=lambda x: -x[0])
+        for score, d in scored[:4]:
+            intent = str(d.get("intent") or "")
+            ans = (d.get("jawaban_cuplikan") or "").strip()
+            desc = (d.get("deskripsi_cakupan") or d.get("deskripsi_maksud") or "").strip()
+            piece = "Intent: " + intent
+            if ans:
+                piece += "\nJawaban resmi: " + _clip(ans, 700)
+            elif desc:
+                piece += "\nCakupan/keterangan: " + _clip(desc, 500)
+            else:
+                continue
+            blocks.append(piece)
+            sources.append({"sumber": "Training Phrase & Intent", "judul": intent, "ref": ""})
+        # (2) Kebijakan pemetaan analis (Peta Intent) sebagai panduan tambahan.
         try:
-            m = imdb.match(c, q, limit=4) or []
+            m = imdb.match(c, q, limit=3) or []
         except Exception:
             m = []
-        try:
-            mc = imdb.match_catalog(c, q, limit=4) or []
-        except Exception:
-            mc = []
-        sem = {}
-        if ksem is not None:
+        if m:
             try:
-                if ksem.is_available():
-                    sem = ksem.semantic_match(q, per_lib_limit=3) or {}
+                t_pol = imdb.build_context_text(m)
             except Exception:
-                sem = {}
-        m = _merge_entries(m, sem.get("intentmap"))
-        mc = _merge_entries(mc, sem.get("katalog"))
-        try:
-            t1 = imdb.build_context_text(m) if m else ""
-        except Exception:
-            t1 = ""
-        try:
-            t2 = imdb.build_catalog_context_text(mc) if mc else ""
-        except Exception:
-            t2 = ""
+                t_pol = ""
+            if t_pol and t_pol.strip():
+                blocks.append(t_pol)
+                for e in m:
+                    nm = e.get("intent") if isinstance(e, dict) else None
+                    if nm and not any(s["judul"] == nm for s in sources):
+                        sources.append({"sumber": "Training Phrase & Intent", "judul": nm, "ref": ""})
     finally:
         try:
             c.close()
         except Exception:
             pass
-    sources = []
-    for e in list(m or []) + list(mc or []):
-        nm = e.get("intent") if isinstance(e, dict) else None
-        if nm and not any(s["judul"] == nm for s in sources):
-            sources.append({"sumber": "Training Phrase & Intent", "judul": nm, "ref": ""})
-    body = "\n\n".join([t for t in (t1, t2) if t and t.strip()])
-    return body, sources
+    return "\n\n".join(blocks), sources
 
 
 # --------------------------------------------------------------------------
@@ -296,7 +316,7 @@ def _ctx_sosmed(q, limit=3):
     return "\n\n".join(blocks), sources
 
 
-def _build_context(q, max_chars=6000):
+def _build_context(q, max_chars=6500):
     parts = []
     t1, s1 = _ctx_dialogflow(q)
     t2, s2 = _ctx_awe(q)
@@ -334,7 +354,7 @@ def answer_rag(question, history=None):
     msgs.append({"role": "user", "content": pii_mask.mask_text(q)})
     try:
         answer = llm_client.chat(msgs, system=pii_mask.mask_text(system),
-                                 max_new_tokens=800, temperature=0.2)
+                                 max_new_tokens=800, temperature=0.3)
     except Exception as e:
         return {"ok": False, "error": str(e)}
     return {"ok": True, "answer": (answer or FALLBACK_ANSWER),
