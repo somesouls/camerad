@@ -159,6 +159,10 @@ sosmed_routes.register(app)
 import sosmed_ingest
 sosmed_ingest.register(app)
 
+# --- Menu RAG (Pilot) "Agent Kring Pajak": chat berbasis 3 basis data internal ---
+import rag_routes
+rag_routes.register(app)
+
 import studio_routes
 studio_routes.register(
     app,
