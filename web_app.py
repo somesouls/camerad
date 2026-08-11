@@ -163,6 +163,11 @@ sosmed_ingest.register(app)
 import rag_routes
 rag_routes.register(app)
 
+# --- Menu Peraturan (sumber resource #5): kelola basis data peraturan perpajakan
+#     (migrasi dari repositori jakai). Dipakai juga sebagai sumber grounding RAG. ---
+import peraturan_routes
+peraturan_routes.register(app)
+
 import studio_routes
 studio_routes.register(
     app,
