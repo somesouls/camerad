@@ -17,6 +17,14 @@ unduhan TKB DJP berikut menghasilkan kunci sama:
 Selain itu `source_id` diambil dari pola 'id=<hash>' pada nama berkas, sehingga
 induk & lampiran berbagi source_id (memudahkan pengelolaan status per peraturan).
 
+== Link asli (source_url) ==
+Nama berkas SEBENARNYA adalah URL halaman peraturan di TKB intranet yang sudah
+disanitasi ('://'->'___', '/'->'_', '?'->'_'). `_url_dari_nama` merekonstruksi
+URL asli itu sehingga peraturan bisa dibuka kembali lewat tautannya (memuat id).
+Contoh:
+    https___tkb-djp_tkb_engine_peraturan_view_hasil.php_id=1b61...
+ -> https://tkb-djp/tkb/engine/peraturan/view/hasil.php?id=1b61...
+
 == Konvensi subfolder (opsional, sebagai petunjuk jenis) ==
     aturan/uu/  -> UU   aturan/pp/  -> PP   aturan/pmk/ -> PMK
     aturan/perpu/ perpres/ perdjp(->PER)/ kmk/ kep/ se/
@@ -51,6 +59,9 @@ _JENIS_VALID = set(_JENIS_DIR.values())
 # Cocokkan id=<hash> pada nama berkas/URL TKB DJP, mis.
 #   https___tkb-djp..._id=1b6171ff276542bd344c1600aaca6165.pdf
 _RE_SOURCE_ID = re.compile(r"id[=_\-]([0-9a-fA-F]{8,})")
+
+# Nama berkas berupa URL yang disanitasi diawali 'https___' / 'http___'.
+_RE_SCHEME = re.compile(r"^(https?)___")
 
 
 def kategori_dari_path(root, path):
@@ -87,6 +98,38 @@ def _source_id(path):
     return _key_dari_nama(path)
 
 
+def _url_dari_nama(path):
+    """Rekonstruksi URL asli TKB dari nama berkas (yang memang berupa URL).
+
+    Nama unduhan = URL yang disanitasi: '://' -> '___', '/' -> '_', '?' -> '_'
+    (karakter '=' dan '.' dipertahankan). Akhiran '_lampiran' dibuang agar
+    lampiran menunjuk ke halaman peraturan induknya. Kembalikan '' bila pola
+    tak dikenali (mis. HTML tempelan manual tanpa nama-URL).
+
+        https___tkb-djp_tkb_engine_peraturan_view_hasil.php_id=1b61...
+     -> https://tkb-djp/tkb/engine/peraturan/view/hasil.php?id=1b61...
+    """
+    name = os.path.splitext(os.path.basename(path))[0]
+    if name.endswith("_lampiran"):
+        name = name[: -len("_lampiran")]
+    if "://" in name:                         # sudah berupa URL utuh
+        return name
+    m = _RE_SCHEME.match(name)
+    if not m:
+        return ""
+    scheme = m.group(1)
+    rest = name[len(scheme) + 3:]             # buang 'scheme___'
+    qsep = rest.find("_id=")                   # '?' menjadi '_' tepat sebelum 'id='
+    if qsep >= 0:
+        path_part, query = rest[:qsep], rest[qsep + 1:]
+    else:
+        path_part, query = rest, ""
+    url = "%s://%s" % (scheme, path_part.replace("_", "/"))
+    if query:
+        url += "?" + query
+    return url
+
+
 def _iter_files(root):
     """Semua berkas (bukan hanya HTML/PDF) supaya format lain ikut ditriase."""
     for dirpath, _dirs, files in os.walk(root):
@@ -106,7 +149,7 @@ def _uniq_id(base, dipakai):
     return rid
 
 
-def _baris_lampiran(meta, teks, nama, rel, sid, dipakai):
+def _baris_lampiran(meta, teks, nama, rel, sid, url, dipakai):
     """Baris peraturan_unit untuk sebuah LAMPIRAN, tertaut ke peraturan induk."""
     kekuatan = getattr(tkb_djp, "_KEKUATAN", {}).get(meta.jenis_peraturan, 50)
     rid = _uniq_id("%s-lampiran" % meta.base_id, dipakai)
@@ -125,13 +168,13 @@ def _baris_lampiran(meta, teks, nama, rel, sid, dipakai):
         "valid_from": meta.valid_from,
         "kekuatan_hukum": kekuatan,
         "can_cite": 1,
-        "source_url": meta.source_url,
+        "source_url": url or meta.source_url,
         "source_file": rel,
         "source_id": sid,
     }
 
 
-def _baris_mandiri(info, jenis_hint, nama, rel, sid, dipakai, lampiran=False):
+def _baris_mandiri(info, jenis_hint, nama, rel, sid, url, dipakai, lampiran=False):
     """Baris peraturan_unit untuk lampiran/dokumen TANPA induk (disimpan mandiri)."""
     dasar = info.nomor_teks or os.path.splitext(nama)[0]
     rid = _uniq_id(tkb_djp.slugify(dasar) or "dok", dipakai)
@@ -146,6 +189,7 @@ def _baris_mandiri(info, jenis_hint, nama, rel, sid, dipakai, lampiran=False):
                      else "(dokumen mandiri - tanpa struktur Pasal)",
         "status": "berlaku",
         "can_cite": 1,
+        "source_url": url or None,
         "source_file": rel,
         "source_id": sid,
     }
@@ -198,6 +242,7 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
         for path, rel, kat, info, err in items:
             nama = os.path.basename(path)
             sid = _source_id(path)
+            url = _url_dari_nama(path)
             row = {"file": rel, "source_id": sid, "kategori": "peraturan",
                    "jenis": (kat if kat in _JENIS_VALID else ""), "tipe": "",
                    "nomor": "", "n_unit": 0, "status": "", "catatan": ""}
@@ -228,6 +273,8 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
                     r["id"] = _uniq_id(r.get("id") or (meta.base_id + "-x"), ids_pakai)
                     r["source_file"] = rel
                     r["source_id"] = sid
+                    if url:
+                        r["source_url"] = url
                     if ingest:
                         peraturan_db.upsert_peraturan(r, conn=conn)
                 ringkas["peraturan"] += 1
@@ -266,7 +313,7 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
                     log.append(row)
                     continue
                 if induk is not None:
-                    r = _baris_lampiran(induk, teks, nama, rel, sid, ids_pakai)
+                    r = _baris_lampiran(induk, teks, nama, rel, sid, url, ids_pakai)
                     if ingest:
                         peraturan_db.upsert_peraturan(r, conn=conn)
                     ringkas["lampiran"] += 1
@@ -277,7 +324,7 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
                 else:
                     is_lamp = info.tipe == "lampiran_html"
                     r = _baris_mandiri(info, (kat if kat in _JENIS_VALID else ""),
-                                       nama, rel, sid, ids_pakai, lampiran=is_lamp)
+                                       nama, rel, sid, url, ids_pakai, lampiran=is_lamp)
                     if ingest:
                         peraturan_db.upsert_peraturan(r, conn=conn)
                     if is_lamp:
