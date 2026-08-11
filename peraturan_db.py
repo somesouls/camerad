@@ -365,6 +365,36 @@ def get_peraturan(id_, conn=None):
             conn.close()
 
 
+def induk_info(source_id, conn=None):
+    """Identitas peraturan INDUK dari DB berdasarkan source_id.
+
+    Dipakai batch untuk menautkan lampiran yang diproses pada run TERPISAH
+    (mis. folder khusus OCR) ke peraturan induk yang SUDAH lebih dulu diimpor,
+    tanpa perlu induk HTML ikut di folder yang sama. Baris non-lampiran (dan
+    yang punya pasal) diprioritaskan sebagai perwakilan identitas. Kembalikan
+    dict ringkas (termasuk status_terkait/history_terkait yang sudah berupa
+    JSON string siap pakai) atau None bila tak ada.
+    """
+    if not source_id:
+        return None
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        r = conn.execute(
+            "SELECT id, jenis_peraturan, nomor, tahun, judul, valid_from, status, "
+            "       status_terkait, history_terkait, source_url "
+            "FROM peraturan_unit WHERE source_id = ? "
+            "ORDER BY (CASE WHEN lampiran IS NULL OR TRIM(lampiran)='' THEN 0 ELSE 1 END), "
+            "         (CASE WHEN pasal IS NOT NULL AND TRIM(pasal)<>'' THEN 0 ELSE 1 END) "
+            "LIMIT 1",
+            (source_id,),
+        ).fetchone()
+        return dict(r) if r else None
+    finally:
+        if own:
+            conn.close()
+
+
 def _is_lampiran(u):
     return bool((u.get("lampiran") or "").strip()) and not (u.get("pasal") or "").strip()
 
