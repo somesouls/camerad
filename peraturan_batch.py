@@ -54,6 +54,15 @@ menjadi tautan absolut memakai URL asli peraturan induk, lalu disimpan sebagai
 JSON pada kolom status_terkait / history_terkait. Dengan demikian menjalankan
 ulang proses folder sekaligus MEMPERBAIKI status & melengkapi relasinya.
 
+== Pemantauan progres (agar OCR tidak tampak 'diam') ==
+Proses batch bisa lama, terutama saat OCR. Agar bisa dipantau:
+  * Terminal: fungsi OCR (peraturan_files) mencetak progres per berkas & per
+    halaman; loop batch mencetak heartbeat 'klasifikasi i/total' berkala.
+  * UI: jalankan lewat `proses_async` (dipakai route) yang berjalan di thread
+    latar sambil memperbarui state global; UI mem-poll `get_progress()` lewat
+    endpoint /api/peraturan/batch-progress. State memuat fase, berkas i/total,
+    jumlah berkas yang menjalani OCR + halaman berjalan, dan ringkasan akhir.
+
 == Konvensi subfolder (opsional, sebagai petunjuk jenis) ==
     aturan/uu/  -> UU   aturan/pp/  -> PP   aturan/pmk/ -> PMK
     aturan/perpu/ perpres/ perdjp(->PER)/ kmk/ kep/ se/
@@ -73,6 +82,8 @@ tersedia, PDF/gambar scan langsung di-OCR saat impor; bila tidak, hanya ditandai
 """
 import os
 import re
+import threading
+import time
 
 import peraturan_files as F
 import peraturan_parser as tkb_djp
@@ -91,6 +102,84 @@ _RE_SOURCE_ID = re.compile(r"id[=_\-]([0-9a-fA-F]{8,})")
 
 # Nama berkas berupa URL yang disanitasi diawali 'https___' / 'http___'.
 _RE_SCHEME = re.compile(r"^(https?)___")
+
+
+def _log(msg):
+    """Cetak heartbeat batch ke terminal (flush agar langsung terlihat)."""
+    try:
+        print("[peraturan][batch] " + msg, flush=True)
+    except Exception:
+        pass
+
+
+# --------------------------------------------------------------- state progres
+# State global dibaca UI lewat get_progress() (endpoint batch-progress).
+_PROG_LOCK = threading.Lock()
+_THREAD = None
+
+
+def _progress_awal(root="", file_total=0, ocr_kandidat=0, do_ocr=False):
+    return {
+        "running": True,
+        "phase": "mulai",          # mulai|klasifikasi|susun|selesai|gagal
+        "root": root,
+        "do_ocr": bool(do_ocr),
+        "file_idx": 0,
+        "file_total": int(file_total),
+        "current": "",
+        "ocr_total_kandidat": int(ocr_kandidat),   # perkiraan (semua PDF/gambar)
+        "ocr_proses": 0,                            # berkas yang benar-benar di-OCR
+        "ocr_ok": 0,                                # OCR yang menghasilkan teks
+        "ocr_page": "",                             # halaman berjalan, mis '3/12'
+        "ringkas": {},
+        "started_at": time.time(),
+        "updated_at": time.time(),
+        "done": False,
+        "ok": None,
+        "error": "",
+    }
+
+
+_PROGRESS = {"running": False, "phase": "", "done": True, "ok": None,
+             "file_idx": 0, "file_total": 0, "ocr_proses": 0, "ringkas": {}}
+
+
+def reset_progress(root="", file_total=0, ocr_kandidat=0, do_ocr=False):
+    with _PROG_LOCK:
+        _PROGRESS.clear()
+        _PROGRESS.update(_progress_awal(root, file_total, ocr_kandidat, do_ocr))
+
+
+def _prog(**kw):
+    with _PROG_LOCK:
+        _PROGRESS.update(kw)
+        _PROGRESS["updated_at"] = time.time()
+
+
+def get_progress():
+    """Snapshot state progres (aman untuk diserialisasi ke JSON)."""
+    with _PROG_LOCK:
+        return dict(_PROGRESS)
+
+
+def is_running():
+    with _PROG_LOCK:
+        return bool(_PROGRESS.get("running"))
+
+
+def _on_files_progress(event, data):
+    """Callback dari peraturan_files saat OCR berjalan -> perbarui state."""
+    with _PROG_LOCK:
+        if event in ("ocr_pdf_start", "ocr_image_start"):
+            _PROGRESS["ocr_proses"] = _PROGRESS.get("ocr_proses", 0) + 1
+            _PROGRESS["ocr_page"] = ""
+        elif event == "ocr_page":
+            _PROGRESS["ocr_page"] = "%s/%s" % (data.get("i"), data.get("n"))
+        elif event in ("ocr_pdf_done", "ocr_image_done"):
+            if (data.get("chars") or 0) > 0:
+                _PROGRESS["ocr_ok"] = _PROGRESS.get("ocr_ok", 0) + 1
+            _PROGRESS["ocr_page"] = ""
+        _PROGRESS["updated_at"] = time.time()
 
 
 def kategori_dari_path(root, path):
@@ -278,8 +367,13 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
     per_ayat : pecah unit per-ayat (default per-pasal).
     do_ocr   : OCR PDF/gambar scan (butuh tesseract+poppler); bila False ditandai.
     ingest   : bila True tulis ke DB; bila False hanya triase (uji coba).
+
+    Selama berjalan, state progres global diperbarui (lihat get_progress) dan
+    heartbeat dicetak ke terminal.
     """
     if not root or not os.path.isdir(root):
+        _prog(running=False, done=True, ok=False, phase="gagal",
+              error="Folder tidak ditemukan: %s" % root)
         return {"ok": False, "error": "Folder tidak ditemukan: %s" % root, "log": []}
 
     own = conn is None
@@ -298,15 +392,28 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
         except Exception:
             return None
 
+    F.set_progress_cb(_on_files_progress)
     try:
+        files = list(_iter_files(root))
+        total = len(files)
+        ocr_kandidat = sum(
+            1 for p in files
+            if p.lower().endswith(".pdf") or p.lower().endswith(F.IMG_EXT)
+        )
+        reset_progress(root=root, file_total=total, ocr_kandidat=ocr_kandidat, do_ocr=do_ocr)
+        _log("mulai: %s | berkas=%d | kandidat OCR=%d | ocr=%s | ingest=%s"
+             % (root, total, ocr_kandidat, do_ocr, ingest))
+
         # ---------- Fase 1: klasifikasi semua berkas + parse peraturan HTML ----------
+        _prog(phase="klasifikasi")
         items = []          # (path, rel, kat, info, err)
         parsed = {}         # path -> (meta, rows) ; meta None => gagal parse (rows=pesan)
         induk_by_key = {}   # key nama -> meta induk
 
-        for path in _iter_files(root):
+        for idx, path in enumerate(files, start=1):
             ringkas["file"] += 1
             rel = os.path.relpath(path, root)
+            _prog(file_idx=idx, current=rel)
             kat = kategori_dari_path(root, path)
             try:
                 info = F.classify(path, do_ocr=do_ocr)
@@ -323,8 +430,13 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
                     induk_by_key[_key_dari_nama(path)] = meta
                 except Exception as e:
                     parsed[path] = (None, str(e))
+            if idx % 25 == 0 or idx == total:
+                snap = get_progress()
+                _log("klasifikasi %d/%d | OCR diproses=%d/%d"
+                     % (idx, total, snap.get("ocr_proses", 0), ocr_kandidat))
 
         # ---------- Fase 2: susun keluaran ----------
+        _prog(phase="susun")
         for path, rel, kat, info, err in items:
             nama = os.path.basename(path)
             sid = _source_id(path)
@@ -479,7 +591,39 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
             except Exception:
                 pass
 
+        _prog(phase="selesai", ringkas=dict(ringkas), running=False, done=True, ok=True)
+        _log("selesai: %s" % ringkas)
         return {"ok": True, "ringkas": ringkas, "log": log}
+    except Exception as e:
+        _prog(phase="gagal", ringkas=dict(ringkas), running=False, done=True,
+              ok=False, error=str(e)[:400])
+        _log("GAGAL: %s" % str(e)[:200])
+        return {"ok": False, "error": str(e), "ringkas": ringkas, "log": log}
     finally:
+        F.set_progress_cb(None)
         if own:
             conn.close()
+
+
+def proses_async(root, per_ayat=False, do_ocr=False, ingest=True):
+    """Jalankan proses(...) di thread latar agar UI bisa mem-poll get_progress().
+
+    Kembalikan segera: {ok, started} atau {ok:false, error/running}. Hanya satu
+    batch boleh berjalan pada satu waktu.
+    """
+    global _THREAD
+    if not root or not os.path.isdir(root):
+        return {"ok": False, "error": "Folder tidak ditemukan: %s" % root}
+    with _PROG_LOCK:
+        if _PROGRESS.get("running"):
+            return {"ok": False, "running": True,
+                    "error": "Batch masih berjalan. Tunggu hingga selesai."}
+    # Tandai running lebih awal supaya polling langsung mendapati status berjalan.
+    reset_progress(root=root, file_total=0, ocr_kandidat=0, do_ocr=do_ocr)
+
+    def _run():
+        proses(root, per_ayat=per_ayat, do_ocr=do_ocr, ingest=ingest)
+
+    _THREAD = threading.Thread(target=_run, name="peraturan-batch", daemon=True)
+    _THREAD.start()
+    return {"ok": True, "started": True}
