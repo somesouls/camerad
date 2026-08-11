@@ -75,6 +75,7 @@ def _page_user_ctx(request):
         "can_users": usr.area_allowed(role_key, "users"),
         "can_sosmed": usr.area_allowed(role_key, "common"),
         "can_sosmed_manage": usr.area_allowed(role_key, "awe_manage"),
+        "can_peraturan": usr.area_allowed(role_key, "peraturan"),
     }
 
 
@@ -103,6 +104,12 @@ def _route_action(method, path):
         return "approve"
     if path == "/api/ingest" or path == "/api/ingest-upload":
         return "ingest"
+    # Impor/proses batch/status pada menu Peraturan diperlakukan sebagai 'ingest';
+    # save/delete di bawah sudah tertangani aturan generik berikutnya.
+    if path in ("/api/peraturan/import-html", "/api/peraturan/import-jsonl",
+                "/api/peraturan/batch", "/api/peraturan/reindex",
+                "/api/peraturan/status"):
+        return "ingest"
     if path.endswith("/save") or path.endswith("/delete"):
         return "edit"
     return "read"
@@ -113,6 +120,8 @@ def _route_area(path):
         return "account"
     if path == "/rag" or path.startswith("/api/rag"):
         return "common"
+    if path == "/peraturan" or path.startswith("/api/peraturan"):
+        return "peraturan"
     if path == "/users" or path.startswith("/api/users"):
         return "users"
     if (path == "/awe/kelola" or path.startswith("/api/awe/pull")
