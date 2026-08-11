@@ -435,6 +435,15 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <b>Coverage &amp; Deflection</b>
         </a>
         {% endif %}
+
+        {% if can_peraturan %}
+        <div class="sec-label" style="margin-top:14px;">Peraturan</div>
+        <a class="tool-side{% if active_page == 'peraturan' %} active{% endif %}" href="/peraturan">
+          <div class="ic c-red"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l9-3 9 3-9 3-9-3z"/><path d="M12 9v12"/><path d="M5 10v6c0 1 3 3 7 3s7-2 7-3v-6"/></svg></div>
+          <b>Basis Data Peraturan</b>
+        </a>
+        {% endif %}
+
         <div class="sec-label" style="margin-top:14px;">Umum</div>
         <a class="tool-side{% if active_page == 'studio' %} active{% endif %}" href="/studio">
           <div class="ic c-purple"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></div>
