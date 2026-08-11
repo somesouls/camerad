@@ -366,7 +366,7 @@ def list_peraturan_grouped(q="", jenis="", status="", lampiran="",
             "SUM(CASE WHEN lampiran IS NOT NULL AND TRIM(lampiran)<>'' "
             "    THEN 1 ELSE 0 END) AS n_lampiran, "
             "MIN(status) AS status, MIN(judul) AS judul, "
-            "MIN(source_id) AS source_id "
+            "MIN(source_id) AS source_id, MAX(source_url) AS source_url "
             "FROM peraturan_unit " + wsql + " "
             "GROUP BY jenis_peraturan, nomor " + having
         )
