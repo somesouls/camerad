@@ -17,6 +17,13 @@ unduhan TKB DJP berikut menghasilkan kunci sama:
 Selain itu `source_id` diambil dari pola 'id=<hash>' pada nama berkas, sehingga
 induk & lampiran berbagi source_id (memudahkan pengelolaan status per peraturan).
 
+Fallback induk dari DB: bila induk HTML TIDAK ikut pada run yang sama (mis. Anda
+sengaja memisahkan lampiran scan ke folder khusus OCR), lampiran yang punya teks
+akan dicocokkan ke peraturan induk yang SUDAH diimpor lewat `source_id`
+(peraturan_db.induk_info). Jadi lampiran itu tetap menempel ke induknya, bukan
+tersimpan sebagai 'mandiri'. Bila di DB pun tak ada induk ber-source_id sama,
+barulah disimpan mandiri.
+
 == Link asli (source_url) ==
 Nama berkas SEBENARNYA adalah URL halaman peraturan di TKB intranet yang sudah
 disanitasi ('://'->'___', '/'->'_', '?'->'_'). `_url_dari_nama` merekonstruksi
@@ -27,12 +34,16 @@ hasil rekonstruksi dinormalkan ke bentuk publik itu. Contoh:
     https___tkb-djp_tkb_engine_peraturan_view_hasil.php_id=0845...
  -> https://tkb-djp/tkb/engine/peraturan/view.php?id=0845...
 
-== Cakupan folder ==
+== Cakupan folder & penamaan subfolder ==
 Seluruh isi folder ditelusuri REKURSIF (os.walk), jadi cukup arahkan ke folder
 induk (mis. .../aturan) untuk memproses semua subfolder sekaligus. Subfolder
-tingkat-1 (uu/pp/pmk/...) HANYA dipakai sebagai petunjuk jenis bila ada; berkas
-yang langsung berada di folder induk tetap diproses, dengan jenis dideteksi dari
-isi HTML.
+tingkat-1 HANYA dipakai sebagai PETUNJUK jenis bila namanya termasuk daftar
+yang dikenali (uu/pp/pmk/perpu/perpres/perdjp/perdirjen/per/kmk/kep/se). Nama
+folder DI LUAR daftar itu (mis. 'ocr', 'scan', 'sisa') DIABAIKAN sebagai
+petunjuk -> tidak akan menghasilkan 'jenis peraturan' baru; jenis tetap diambil
+dari isi HTML (untuk peraturan) atau diwarisi dari induk (untuk lampiran). Jadi
+aman menamai folder bebas seperti 'ocr'. Berkas yang langsung berada di folder
+induk pun tetap diproses.
 
 == Status & relasi peraturan ==
 Parser (peraturan_parser) membaca status terkini dari HTML (berlaku/diubah/
@@ -206,6 +217,40 @@ def _baris_lampiran(meta, teks, nama, rel, sid, url, dipakai):
     }
 
 
+def _baris_lampiran_db(dbinfo, teks, nama, rel, sid, url, dipakai):
+    """Seperti _baris_lampiran, tetapi identitas induk diambil dari DB
+    (peraturan_db.induk_info) berdasarkan source_id. Dipakai saat lampiran
+    diproses pada run TERPISAH (mis. folder khusus OCR) sementara induk HTML
+    tidak ikut di folder itu. Nilai status_terkait/history_terkait dari DB
+    sudah berupa JSON string siap pakai, jadi dibawa apa adanya.
+    """
+    jenis = dbinfo.get("jenis_peraturan")
+    kekuatan = getattr(tkb_djp, "_KEKUATAN", {}).get(jenis, 50)
+    base = dbinfo.get("id") or sid or "unit"
+    rid = _uniq_id("%s-lampiran" % base, dipakai)
+    return {
+        "id": rid,
+        "jenis_peraturan": jenis,
+        "nomor": dbinfo.get("nomor"),
+        "tahun": dbinfo.get("tahun"),
+        "judul": dbinfo.get("judul"),
+        "pasal": None,
+        "ayat": None,
+        "lampiran": nama,
+        "isi": (teks or "")[:20000],
+        "hierarchy": ("%s %s > Lampiran" % (jenis or "", dbinfo.get("nomor") or "")).strip(),
+        "status": dbinfo.get("status") or "berlaku",
+        "valid_from": dbinfo.get("valid_from"),
+        "kekuatan_hukum": kekuatan,
+        "can_cite": 1,
+        "source_url": url or dbinfo.get("source_url"),
+        "source_file": rel,
+        "source_id": sid,
+        "status_terkait": dbinfo.get("status_terkait"),
+        "history_terkait": dbinfo.get("history_terkait"),
+    }
+
+
 def _baris_mandiri(info, jenis_hint, nama, rel, sid, url, dipakai, lampiran=False):
     """Baris peraturan_unit untuk lampiran/dokumen TANPA induk (disimpan mandiri)."""
     dasar = info.nomor_teks or os.path.splitext(nama)[0]
@@ -243,6 +288,15 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
     ringkas = {"file": 0, "peraturan": 0, "unit": 0, "lampiran": 0,
                "perlu_ocr": 0, "perlu_perhatian": 0, "gagal": 0, "lewati": 0}
     ids_pakai = set()
+
+    def _induk_db(sid):
+        """Cari induk di DB berdasarkan source_id (hanya saat ingest)."""
+        if not (ingest and sid):
+            return None
+        try:
+            return peraturan_db.induk_info(sid, conn=conn)
+        except Exception:
+            return None
 
     try:
         # ---------- Fase 1: klasifikasi semua berkas + parse peraturan HTML ----------
@@ -332,13 +386,21 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
             # scan tanpa lapisan teks (OCR tak jalan / tak tersedia)
             if info.tipe in ("pdf_scan", "image_scan"):
                 ringkas["perlu_ocr"] += 1
-                row["kategori"] = "lampiran" if induk is not None else "dokumen"
+                dbinduk = _induk_db(sid) if induk is None else None
                 if induk is not None:
+                    row["kategori"] = "lampiran"
                     row.update(jenis=induk.jenis_peraturan, nomor=induk.nomor,
                                status="perlu_ocr",
                                catatan="lampiran (scan) dari %s %s; aktifkan OCR"
                                        % (induk.jenis_peraturan, induk.nomor))
+                elif dbinduk is not None:
+                    row["kategori"] = "lampiran"
+                    row.update(jenis=dbinduk.get("jenis_peraturan"), nomor=dbinduk.get("nomor"),
+                               status="perlu_ocr",
+                               catatan="lampiran (scan) dari %s %s (induk dari DB); aktifkan OCR"
+                                       % (dbinduk.get("jenis_peraturan") or "", dbinduk.get("nomor") or ""))
                 else:
+                    row["kategori"] = "dokumen"
                     row.update(status="perlu_ocr",
                                catatan=(info.catatan or ("%d hal tanpa lapisan teks; aktifkan OCR"
                                                          % (info.n_halaman or 0))))
@@ -363,20 +425,34 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
                     row.update(kategori="lampiran", jenis=induk.jenis_peraturan,
                                nomor=induk.nomor, n_unit=1, status="ok",
                                catatan="lampiran -> %s %s" % (induk.jenis_peraturan, induk.nomor))
-                else:
-                    is_lamp = info.tipe == "lampiran_html"
-                    r = _baris_mandiri(info, (kat if kat in _JENIS_VALID else ""),
-                                       nama, rel, sid, url, ids_pakai, lampiran=is_lamp)
+                    log.append(row)
+                    continue
+                dbinduk = _induk_db(sid)
+                if dbinduk is not None:
+                    r = _baris_lampiran_db(dbinduk, teks, nama, rel, sid, url, ids_pakai)
                     if ingest:
                         peraturan_db.upsert_peraturan(r, conn=conn)
-                    if is_lamp:
-                        ringkas["lampiran"] += 1
-                    else:
-                        ringkas["peraturan"] += 1
+                    ringkas["lampiran"] += 1
                     ringkas["unit"] += 1
-                    row.update(kategori="lampiran" if is_lamp else "dokumen",
-                               nomor=info.nomor_teks, n_unit=1, status="mandiri",
-                               catatan="tanpa induk; disimpan mandiri")
+                    row.update(kategori="lampiran", jenis=dbinduk.get("jenis_peraturan"),
+                               nomor=dbinduk.get("nomor"), n_unit=1, status="ok",
+                               catatan="lampiran -> %s %s (induk dari DB)"
+                                       % (dbinduk.get("jenis_peraturan") or "", dbinduk.get("nomor") or ""))
+                    log.append(row)
+                    continue
+                is_lamp = info.tipe == "lampiran_html"
+                r = _baris_mandiri(info, (kat if kat in _JENIS_VALID else ""),
+                                   nama, rel, sid, url, ids_pakai, lampiran=is_lamp)
+                if ingest:
+                    peraturan_db.upsert_peraturan(r, conn=conn)
+                if is_lamp:
+                    ringkas["lampiran"] += 1
+                else:
+                    ringkas["peraturan"] += 1
+                ringkas["unit"] += 1
+                row.update(kategori="lampiran" if is_lamp else "dokumen",
+                           nomor=info.nomor_teks, n_unit=1, status="mandiri",
+                           catatan="tanpa induk; disimpan mandiri")
                 log.append(row)
                 continue
 
