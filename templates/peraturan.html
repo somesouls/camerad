@@ -57,6 +57,12 @@ table.tbl tr:hover td { background:var(--panel-border); }
 .unit { border-bottom:1px solid var(--panel-border); padding:10px 0; }
 .unit .uh { font-size:12px; color:var(--text-muted); margin-bottom:3px; }
 .unit .ui { font-size:13.5px; line-height:1.55; }
+/* ---- relasi peraturan (status/history) di modal ---- */
+.relbox { border:1px solid var(--panel-border); border-radius:10px; padding:10px 12px; margin-bottom:10px; background:var(--bg-base); }
+.relbox .rh { font-size:12px; font-weight:700; color:var(--text-muted); margin-bottom:6px; }
+.relbox ul { margin:0; padding-left:18px; }
+.relbox li { margin:3px 0; font-size:13px; line-height:1.5; }
+.relbox .tg { color:var(--text-muted); font-size:12px; }
 /* ---- log impor: tabel rapi (fixed layout, anti melebar) ---- */
 .tbl-wrap { width:100%; overflow-x:auto; margin-top:6px; }
 table.logtbl { table-layout:fixed; }
@@ -361,14 +367,35 @@ table.logtbl .c-cat { width:20%; font-size:12px; }
   var mbd=document.getElementById('mbd');
   document.getElementById('mClose').addEventListener('click',function(){ mbd.classList.remove('show'); });
   mbd.addEventListener('click',function(e){ if(e.target===mbd) mbd.classList.remove('show'); });
+
+  // Render satu kotak relasi peraturan (status_terkait / history_terkait).
+  function relBlock(title, jsonstr){
+    if(!jsonstr) return '';
+    var arr; try{ arr=JSON.parse(jsonstr); }catch(e){ return ''; }
+    if(!arr || !arr.length) return '';
+    var h='<div class="relbox"><div class="rh">'+esc(title)+' ('+arr.length+')</div><ul>';
+    arr.forEach(function(it){
+      var tg = it.tanggal ? ('<span class="tg">['+esc(it.tanggal)+'] </span>') : '';
+      var nm = esc(it.nomor || it.deskripsi || it.judul || '(tanpa nomor)');
+      var jd = it.judul ? (' — '+esc((it.judul||'').slice(0,140))) : '';
+      var label = it.link ? ('<a class="link" href="'+esc(it.link)+'" target="_blank" rel="noopener">'+nm+'</a>') : ('<b>'+nm+'</b>');
+      h+='<li>'+tg+label+jd+'</li>';
+    });
+    return h+'</ul></div>';
+  }
+
   function lihat(key){
     document.getElementById('mTitle').textContent=key.jenis+' '+key.nomor;
     document.getElementById('mBody').innerHTML='<div class="muted">Memuat…</div>';
     mbd.classList.add('show');
     post('/api/peraturan/get',{nomor:key.nomor,jenis:key.jenis}).then(function(j){
       if(!j||!j.ok){ document.getElementById('mBody').innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
-      var src=(j.units[0]&&j.units[0].source_url)||'';
-      var h= src ? ('<div class="muted" style="margin-bottom:10px;">Sumber asli: <a class="link" href="'+esc(src)+'" target="_blank" rel="noopener">'+esc(src)+'</a></div>') : '';
+      var u0=(j.units&&j.units[0])||{};
+      var h='';
+      h+='<div class="muted" style="margin-bottom:8px;">Status saat ini: <span class="pill '+esc(u0.status||'berlaku')+'">'+esc(u0.status||'berlaku')+'</span></div>';
+      if(u0.source_url){ h+='<div class="muted" style="margin-bottom:10px;">Sumber asli: <a class="link" href="'+esc(u0.source_url)+'" target="_blank" rel="noopener">'+esc(u0.source_url)+'</a></div>'; }
+      h+=relBlock('Diubah/dicabut oleh (peraturan terbaru)', u0.status_terkait);
+      h+=relBlock('Historis — peraturan sebelumnya', u0.history_terkait);
       j.units.forEach(function(u){
         var head = u.hierarchy || ((u.pasal?('Pasal '+u.pasal):'')+(u.ayat?(' ayat ('+u.ayat+')'):'')) || (u.lampiran?('Lampiran: '+u.lampiran):'Unit');
         h+='<div class="unit"><div class="uh">'+esc(head)+'</div><div class="ui">'+esc(u.isi||'')+'</div></div>';
