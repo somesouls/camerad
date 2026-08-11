@@ -50,6 +50,16 @@ table.tbl tr:hover td { background:var(--panel-border); }
 .tab { border:1px solid var(--panel-border); background:transparent; color:var(--text-muted); border-radius:9px; padding:7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
 .tab.active { background:var(--accent-glow); border-color:var(--accent); color:var(--accent); }
 .hide { display:none; }
+/* ---- progres batch (live) ---- */
+.prog { margin-top:12px; border:1px solid var(--panel-border); border-radius:10px; padding:12px 14px; background:var(--bg-base); }
+.prog .pl { display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; }
+.prog .spin { width:13px; height:13px; border:2px solid var(--panel-border); border-top-color:var(--accent); border-radius:50%; display:inline-block; animation:perspin .8s linear infinite; }
+@keyframes perspin { to { transform:rotate(360deg); } }
+.prog .bar { height:7px; border-radius:999px; background:var(--panel-border); margin:9px 0 7px; overflow:hidden; }
+.prog .bar > i { display:block; height:100%; background:var(--accent); width:0%; transition:width .3s; }
+.prog .meta { font-size:12px; color:var(--text-muted); line-height:1.5; }
+.prog .cur { font-size:11px; color:var(--text-muted); margin-top:4px; word-break:break-all; }
+.prog .ocr { font-size:12px; font-weight:600; color:var(--c-orange-txt); }
 .modal-bd { position:fixed; inset:0; background:rgba(0,0,0,.6); backdrop-filter:blur(4px); z-index:80; display:none; align-items:center; justify-content:center; padding:20px; }
 .modal-bd.show { display:flex; }
 .modal { background:var(--bg-grad-1); border:1px solid var(--panel-border); border-radius:16px; max-width:760px; width:100%; max-height:85vh; overflow:auto; padding:22px 24px; box-shadow:var(--shadow-float); }
@@ -141,7 +151,7 @@ table.logtbl .c-cat { width:20%; font-size:12px; }
     </div>
 
     <div id="t_batch" class="tabpane hide">
-      <p class="sub" style="margin-top:14px;">Proses satu folder di server berisi berkas HTML/PDF peraturan. Subfolder (uu/pp/pmk/perdjp/…) dipakai sebagai petunjuk jenis. OCR memerlukan Tesseract (‘ind’) &amp; Poppler.</p>
+      <p class="sub" style="margin-top:14px;">Proses satu folder di server berisi berkas HTML/PDF peraturan. Subfolder (uu/pp/pmk/perdjp/…) dipakai sebagai petunjuk jenis. OCR memerlukan Tesseract (‘ind’) &amp; Poppler. Setelah dimulai, progres tampil langsung di bawah (termasuk kemajuan OCR); terminal server juga mencetak log per berkas &amp; per halaman.</p>
       <div class="row">
         <input class="inp" id="b_root" style="flex:1; min-width:300px;" placeholder="contoh: C:\\Users\\USER\\chatbot\\pipeline_lokal\\aturan">
       </div>
@@ -281,22 +291,76 @@ table.logtbl .c-cat { width:20%; font-size:12px; }
     });
   });
 
-  // ---- batch ----
+  // ---- batch (mulai + polling progres langsung) ----
   var bBtn=document.getElementById('bBtn');
+  var bPoll=null;
+  var FASE={ mulai:'Menyiapkan berkas', klasifikasi:'Membaca & OCR', susun:'Menyimpan ke basis data', selesai:'Selesai', gagal:'Gagal' };
+  function stopPoll(){ if(bPoll){ clearInterval(bPoll); bPoll=null; } }
+  function renderProg(p){
+    var pct = p.file_total ? Math.floor((p.file_idx/p.file_total)*100) : (p.phase==='selesai'?100:0);
+    var fase = FASE[p.phase] || p.phase || 'Memproses';
+    var h='<div class="prog">';
+    h+='<div class="pl">'+(p.done?'':'<span class="spin"></span>')+'<span>'+esc(fase)+'</span></div>';
+    h+='<div class="bar"><i style="width:'+pct+'%"></i></div>';
+    var meta='';
+    if(p.file_total){ meta+='Berkas '+(p.file_idx||0)+'/'+p.file_total+' ('+pct+'%)'; }
+    else { meta+='Menyiapkan daftar berkas…'; }
+    h+='<div class="meta">'+esc(meta)+'</div>';
+    if(p.do_ocr){
+      var o='OCR — berkas diproses '+(p.ocr_proses||0)+(p.ocr_total_kandidat?(' / ±'+p.ocr_total_kandidat+' kandidat'):'')+(p.ocr_ok?(' · berhasil '+p.ocr_ok):'');
+      if(p.ocr_page){ o+=' · halaman '+esc(p.ocr_page); }
+      h+='<div class="ocr">'+esc(o)+'</div>';
+    }
+    if(p.current && !p.done){ h+='<div class="cur">'+esc(p.current)+'</div>'; }
+    h+='</div>';
+    return h;
+  }
+  function ringkasHTML(r){
+    r=r||{};
+    return '<div class="res ok">Selesai. Berkas: '+(r.file||0)+' · Peraturan: '+(r.peraturan||0)+' · Unit: '+(r.unit||0)+' · Lampiran: '+(r.lampiran||0)+' · Perlu OCR: '+(r.perlu_ocr||0)+' · Perlu perhatian: '+(r.perlu_perhatian||0)+' · Gagal: '+(r.gagal||0)+' · Lewati: '+(r.lewati||0)+'</div>';
+  }
+  function pollProg(box){
+    getj('/api/peraturan/batch-progress').then(function(j){
+      if(!j||!j.ok||!j.progress){ return; }
+      var p=j.progress;
+      if(!p.done){ box.innerHTML=renderProg(p); return; }
+      // selesai / gagal
+      stopPoll(); busy(bBtn,false);
+      if(p.ok===false || p.phase==='gagal'){
+        box.innerHTML=renderProg(p)+'<div class="res err">'+esc(p.error||'Batch gagal.')+'</div>';
+      } else {
+        box.innerHTML=renderProg(p)+ringkasHTML(p.ringkas);
+      }
+      loadStats(); loadList(); loadLog();
+    }).catch(function(){ /* jaringan sesaat; polling berikutnya coba lagi */ });
+  }
   bBtn.addEventListener('click',function(){
     var root=document.getElementById('b_root').value.trim();
     var box=document.getElementById('bRes');
     if(!root){ box.innerHTML='<div class="res err">Isi path folder dulu.</div>'; return; }
     busy(bBtn,true,'Memproses…');
-    box.innerHTML='<div class="muted" style="margin-top:10px;">Memproses folder, mohon tunggu…</div>';
+    box.innerHTML='<div class="prog"><div class="pl"><span class="spin"></span><span>Memulai…</span></div></div>';
     post('/api/peraturan/batch',{root:root,per_ayat:document.getElementById('b_ayat').checked,do_ocr:document.getElementById('b_ocr').checked,ingest:!document.getElementById('b_dry').checked}).then(function(j){
-      busy(bBtn,false);
-      if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
-      var r=j.ringkas||{};
-      box.innerHTML='<div class="res ok">Selesai. Berkas: '+(r.file||0)+' · Peraturan: '+(r.peraturan||0)+' · Unit: '+(r.unit||0)+' · Lampiran: '+(r.lampiran||0)+' · Perlu OCR: '+(r.perlu_ocr||0)+' · Perlu perhatian: '+(r.perlu_perhatian||0)+' · Gagal: '+(r.gagal||0)+' · Lewati: '+(r.lewati||0)+'</div>';
-      loadStats(); loadList(); loadLog();
-    });
+      // Diterima bila mulai (started) ATAU sudah ada batch berjalan (running).
+      if(!j || (!j.started && !j.running)){
+        busy(bBtn,false);
+        box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal memulai batch.')+'</div>';
+        return;
+      }
+      stopPoll();
+      bPoll=setInterval(function(){ pollProg(box); }, 1500);
+      pollProg(box);
+    }).catch(function(e){ busy(bBtn,false); box.innerHTML='<div class="res err">'+esc(String(e))+'</div>'; });
   });
+  // Bila halaman dibuka saat batch masih berjalan (mis. setelah refresh), lanjutkan pantau.
+  getj('/api/peraturan/batch-progress').then(function(j){
+    if(j&&j.ok&&j.progress&&j.progress.running){
+      document.querySelector('.tab[data-t="batch"]').click();
+      busy(bBtn,true,'Memproses…');
+      stopPoll(); bPoll=setInterval(function(){ pollProg(document.getElementById('bRes')); }, 1500);
+      pollProg(document.getElementById('bRes'));
+    }
+  }).catch(function(){});
 
   // ---- reindex ----
   var rBtn=document.getElementById('rBtn');
