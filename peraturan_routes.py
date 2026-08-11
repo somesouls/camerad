@@ -11,11 +11,16 @@ dari repositori jakai). Menyediakan:
   * POST /api/peraturan/status          -> ubah status berlaku/dicabut/diubah
   * POST /api/peraturan/import-html     -> impor 1 halaman HTML TKB DJP
   * POST /api/peraturan/import-jsonl    -> impor baris JSONL (peraturan_unit)
-  * POST /api/peraturan/batch           -> impor massal folder (+OCR opsional)
+  * POST /api/peraturan/batch           -> impor massal folder di LATAR (+OCR opsional)
+  * GET  /api/peraturan/batch-progress  -> pantau progres batch/OCR berjalan
   * POST /api/peraturan/reindex         -> hitung ulang embedding e5
   * GET  /api/peraturan/stats           -> ringkasan angka
   * GET  /api/peraturan/impor-log       -> log triase impor
   * POST /api/peraturan/search          -> uji retrieval hybrid
+
+Catatan batch: /batch kini MEMULAI proses di thread latar & langsung kembali
+({ok, started}); UI mem-poll /batch-progress (fase, berkas i/total, OCR yang
+sedang diproses + halaman berjalan, ringkasan akhir) agar OCR bisa dipantau.
 
 Akses dibatasi admin lewat _route_area di app_core (area 'peraturan').
 Daftarkan dengan:  import peraturan_routes; peraturan_routes.register(app)
@@ -211,6 +216,11 @@ async def api_import_jsonl(request: Request):
 
 
 async def api_batch(request: Request):
+    """Mulai batch folder di thread latar & kembali segera.
+
+    Kembalikan {ok, started} bila berhasil dimulai, atau {ok:false, running}
+    bila sudah ada batch berjalan. Pantau kemajuan lewat /batch-progress.
+    """
     b = await _body(request)
     root = (b.get("root") or "").strip()
     if not root:
@@ -219,9 +229,20 @@ async def api_batch(request: Request):
         return JSONResponse({"ok": False, "error": "Modul batch tidak tersedia."})
     try:
         res = await run_in_threadpool(
-            pbatch.proses, root, bool(b.get("per_ayat")),
+            pbatch.proses_async, root, bool(b.get("per_ayat")),
             bool(b.get("do_ocr")), bool(b.get("ingest", True)))
         return JSONResponse(res)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_batch_progress(request: Request):
+    """Snapshot progres batch berjalan/terakhir (untuk polling UI)."""
+    if pbatch is None:
+        return JSONResponse({"ok": False, "error": "Modul batch tidak tersedia."})
+    try:
+        prog = await run_in_threadpool(pbatch.get_progress)
+        return JSONResponse({"ok": True, "progress": prog})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
@@ -279,6 +300,7 @@ def register(app):
     app.add_api_route("/api/peraturan/import-html", api_import_html, methods=["POST"])
     app.add_api_route("/api/peraturan/import-jsonl", api_import_jsonl, methods=["POST"])
     app.add_api_route("/api/peraturan/batch", api_batch, methods=["POST"])
+    app.add_api_route("/api/peraturan/batch-progress", api_batch_progress, methods=["GET"])
     app.add_api_route("/api/peraturan/reindex", api_reindex, methods=["POST"])
     app.add_api_route("/api/peraturan/stats", api_stats, methods=["GET"])
     app.add_api_route("/api/peraturan/impor-log", api_impor_log, methods=["GET"])
