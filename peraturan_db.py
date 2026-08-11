@@ -14,6 +14,12 @@ app/index.py). Perbedaan utama vs jakai:
   * Gagal-anggun: bila FTS5 tak tersedia -> LIKE; bila embedding tak tersedia ->
     FTS/LIKE saja.
 
+Kolom relasi status (diisi parser dari HTML TKB):
+  * status_terkait  : JSON daftar peraturan TERBARU yang mengubah/mencabut
+    (dari kotak legenda_status), urut dari atas. Tiap item memuat tanggal,
+    nomor, judul, deskripsi, source_id (ID peraturan), href, dan link absolut.
+  * history_terkait : JSON daftar peraturan SEBELUMNYA (dari legenda_history).
+
 Pola koneksi mengikuti modul *_db.py camerad lain (sqlite3 + WAL).
 """
 import os
@@ -36,10 +42,17 @@ PERATURAN_KOLOM = [
     "paragraf", "pasal", "ayat", "huruf", "angka", "lampiran", "isi",
     "hierarchy", "reference", "status", "valid_from", "valid_to",
     "dicabut_oleh", "diubah_oleh", "jenis_perubahan", "target_pasal",
+    "status_terkait", "history_terkait",
     "kekuatan_hukum", "can_cite", "source_url", "source_file", "source_id",
 ]
 
 _INT_FIELDS = ("tahun", "kekuatan_hukum", "can_cite")
+
+# Kolom tambahan (untuk migrasi DB lama lewat ALTER TABLE ADD COLUMN).
+_KOLOM_TAMBAHAN = (
+    ("status_terkait", "TEXT"),
+    ("history_terkait", "TEXT"),
+)
 
 IMPOR_KOLOM = [
     "file", "source_id", "kategori", "tipe", "jenis", "nomor",
@@ -82,6 +95,20 @@ def _fts_available(conn):
     return _HAS_FTS
 
 
+def _migrasi_kolom(conn):
+    """Tambah kolom baru pada peraturan_unit bila DB dibuat versi lama."""
+    try:
+        ada = {r[1] for r in conn.execute("PRAGMA table_info(peraturan_unit)").fetchall()}
+    except Exception:
+        return
+    for nama, tipe in _KOLOM_TAMBAHAN:
+        if nama not in ada:
+            try:
+                conn.execute("ALTER TABLE peraturan_unit ADD COLUMN %s %s" % (nama, tipe))
+            except Exception:
+                pass
+
+
 def init_db(conn):
     conn.executescript(
         """
@@ -109,6 +136,8 @@ def init_db(conn):
             diubah_oleh     TEXT,
             jenis_perubahan TEXT,
             target_pasal    TEXT,
+            status_terkait  TEXT,
+            history_terkait TEXT,
             kekuatan_hukum  INTEGER,
             can_cite        INTEGER DEFAULT 1,
             source_url      TEXT,
@@ -141,6 +170,7 @@ def init_db(conn):
         );
         """
     )
+    _migrasi_kolom(conn)
     if _fts_available(conn):
         try:
             conn.execute(
