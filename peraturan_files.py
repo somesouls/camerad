@@ -1,13 +1,17 @@
 # -*- coding: utf-8 -*-
 """Deteksi jenis file & ekstraksi teks untuk impor massal folder aturan/.
 
-Port dari jakai (app/parsers/files.py). Menangani:
-  * HTML peraturan  -> ditangani parser peraturan_parser (dideteksi di sini)
-  * HTML lampiran   -> teks polos + nomor induk
-  * PDF             -> teks (bila ada lapisan teks) atau perlu OCR (scan)
+Port dari jakai (app/parsers/files.py) + adaptasi camerad. Menangani:
+  * HTML peraturan   -> ditangani parser peraturan_parser (dideteksi di sini)
+  * HTML lampiran    -> teks polos + nomor induk (termasuk berkas '..._lampiran'
+                        TANPA ekstensi, sesuai penamaan unduhan TKB DJP)
+  * PDF              -> teks (bila ada lapisan teks) atau perlu OCR (scan)
+  * Gambar           -> OCR (jpg/png/tif/bmp/webp/gif)
+  * ZIP/arsip & lain -> ditandai 'arsip'/'unknown' untuk perhatian manual
 
 PyMuPDF (fitz) dipakai bila ada; jatuh ke pdftotext (poppler). OCR (tesseract)
-OPSIONAL: bila biner tesseract tak ada, file scan hanya DITANDAI 'perlu_ocr'.
+OPSIONAL: bila biner tesseract tak ada, berkas scan/gambar hanya DITANDAI
+(perlu_ocr) tanpa menggagalkan proses.
 """
 from __future__ import annotations
 
@@ -27,12 +31,20 @@ import peraturan_parser as tkb_djp
 # Ambang minimal karakter "berarti" per halaman agar PDF dianggap ada teks.
 MIN_CHAR_PER_HAL = 80
 
+# Ekstensi gambar yang bisa di-OCR.
+IMG_EXT = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp", ".gif")
+# Arsip: perlu diekstrak manual dulu.
+ARSIP_EXT = (".zip", ".rar", ".7z", ".tar", ".gz")
+# Berkas sistem yang diabaikan.
+SKIP_NAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
+
 
 @dataclass
 class FileInfo:
     path: str
     kategori: str = ""
-    tipe: str = "unknown"       # regulation_html | lampiran_html | pdf_text | pdf_scan | unknown
+    tipe: str = "unknown"       # regulation_html | lampiran_html | pdf_text |
+                                # pdf_scan | image_text | image_scan | arsip | unknown
     teks: str = ""
     nomor_teks: str = ""
     n_halaman: int = 0
@@ -60,6 +72,14 @@ def _cari_nomor(teks: str) -> str:
 
 def is_html(path: str) -> bool:
     return path.lower().endswith((".html", ".htm"))
+
+
+def _is_lampiran_ekstensi_kosong(path: str) -> bool:
+    """True untuk berkas lampiran HTML yang diunduh TANPA ekstensi, mis.
+    'https___..._id=<hash>_lampiran'."""
+    base = os.path.basename(path).lower()
+    root, ext = os.path.splitext(base)
+    return base.endswith("_lampiran") and ext == ""
 
 
 def looks_like_lampiran(path: str, html: str = "") -> bool:
@@ -114,7 +134,7 @@ def has_tesseract() -> bool:
 
 
 def ocr_pdf(path: str, lang: str = "ind", dpi: int = 300, max_hal: int = 30) -> str:
-    """OCR PDF scan -> teks. Perlu biner tesseract + data bahasa 'ind'.
+    """OCR PDF scan -> teks. Perlu biner tesseract + data bahasa 'ind' + poppler.
 
     Aman dipanggil tanpa tesseract: mengembalikan string kosong.
     """
@@ -141,6 +161,28 @@ def ocr_pdf(path: str, lang: str = "ind", dpi: int = 300, max_hal: int = 30) -> 
     return "\n".join(hasil)
 
 
+def ocr_image(path: str, lang: str = "ind") -> str:
+    """OCR satu berkas gambar -> teks. Perlu tesseract + data bahasa 'ind'."""
+    if not has_tesseract():
+        return ""
+    try:
+        import pytesseract
+        from PIL import Image
+    except Exception:
+        return ""
+    try:
+        img = Image.open(path)
+    except Exception:
+        return ""
+    try:
+        return pytesseract.image_to_string(img, lang=lang)
+    except Exception:
+        try:
+            return pytesseract.image_to_string(img)
+        except Exception:
+            return ""
+
+
 def extract_pdf(path: str, do_ocr: bool = False):
     """Kembalikan (teks, n_halaman, perlu_ocr)."""
     teks, n = "", 0
@@ -161,10 +203,29 @@ def extract_pdf(path: str, do_ocr: bool = False):
     return _clean(teks), n, True
 
 
+def extract_image(path: str, do_ocr: bool = False):
+    """Kembalikan (teks, perlu_ocr) untuk berkas gambar.
+
+    Gambar tidak punya lapisan teks, jadi teks hanya diperoleh via OCR.
+    """
+    if do_ocr:
+        teks = ocr_image(path)
+        if len(re.sub(r"\s+", "", teks)) >= 20:
+            return _clean(teks), False
+    return "", True
+
+
 def classify(path: str, do_ocr: bool = False) -> FileInfo:
     info = FileInfo(path=path)
     low = path.lower()
-    if is_html(low):
+    base = os.path.basename(low)
+
+    if base in SKIP_NAMES:
+        info.tipe, info.catatan = "unknown", "berkas sistem (diabaikan)"
+        return info
+
+    # 1) HTML peraturan / lampiran (termasuk '..._lampiran' TANPA ekstensi)
+    if is_html(low) or _is_lampiran_ekstensi_kosong(low):
         try:
             html = open(path, encoding="utf-8", errors="replace").read()
         except Exception as e:  # pragma: no cover
@@ -176,11 +237,32 @@ def classify(path: str, do_ocr: bool = False) -> FileInfo:
             info.tipe = "lampiran_html"
             info.teks, info.nomor_teks = extract_lampiran_html(html)
         return info
+
+    # 2) PDF
     if low.endswith(".pdf"):
         teks, n, perlu = extract_pdf(path, do_ocr=do_ocr)
         info.teks, info.n_halaman, info.perlu_ocr = teks, n, perlu
         info.nomor_teks = _cari_nomor(teks)
         info.tipe = "pdf_scan" if perlu else "pdf_text"
         return info
-    info.catatan = "ekstensi tidak didukung"
+
+    # 3) Gambar -> OCR
+    if low.endswith(IMG_EXT):
+        teks, perlu = extract_image(path, do_ocr=do_ocr)
+        info.teks, info.perlu_ocr = teks, perlu
+        info.nomor_teks = _cari_nomor(teks)
+        info.tipe = "image_scan" if perlu else "image_text"
+        if perlu and not has_tesseract():
+            info.catatan = "gambar; OCR belum aktif (butuh tesseract 'ind')"
+        return info
+
+    # 4) Arsip -> ekstrak manual
+    if low.endswith(ARSIP_EXT):
+        info.tipe = "arsip"
+        info.catatan = "arsip (zip/rar/7z) - ekstrak manual lalu impor ulang isinya"
+        return info
+
+    # 5) Format lain -> perhatian manual
+    info.tipe = "unknown"
+    info.catatan = "format belum didukung - perlu perhatian manual"
     return info
