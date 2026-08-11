@@ -9,9 +9,22 @@ Port dari jakai (app/parsers/files.py) + adaptasi camerad. Menangani:
   * Gambar           -> OCR (jpg/png/tif/bmp/webp/gif)
   * ZIP/arsip & lain -> ditandai 'arsip'/'unknown' untuk perhatian manual
 
-PyMuPDF (fitz) dipakai bila ada; jatuh ke pdftotext (poppler). OCR (tesseract)
-OPSIONAL: bila biner tesseract tak ada, berkas scan/gambar hanya DITANDAI
-(perlu_ocr) tanpa menggagalkan proses.
+PyMuPDF (fitz) dipakai bila ada; jatuh ke pdftotext (poppler).
+
+OCR (OPSIONAL) butuh PROGRAM tingkat sistem, bukan sekadar paket pip:
+  * Tesseract-OCR + data bahasa 'ind'  (mesin OCR)
+  * Poppler                            (dipakai pdf2image untuk render PDF)
+`pip install -r requirements.txt` hanya memasang pembungkus Python
+(pytesseract, pdf2image, pillow); TANPA kedua program di atas OCR tidak jalan
+dan berkas scan tetap ditandai 'perlu_ocr'.
+
+Bila program terpasang tapi tidak ada di PATH, tunjuk lokasinya lewat env:
+  * PERATURAN_TESSERACT_CMD = path lengkap ke tesseract.exe
+  * PERATURAN_POPPLER_PATH  = folder 'bin' Poppler (berisi pdftoppm)
+  * PERATURAN_OCR_LANG      = bahasa OCR (default 'ind')
+
+Bila biner tak ada, berkas scan/gambar hanya DITANDAI (perlu_ocr) tanpa
+menggagalkan proses.
 
 Catatan MuPDF: sebagian PDF punya content-stream dengan token tak sah (mis.
 operator 'q'/'Q' tertulis dobel jadi 'qq'/'QQ'). MuPDF akan MELEWATI token itu
@@ -43,6 +56,24 @@ IMG_EXT = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp", ".gif")
 ARSIP_EXT = (".zip", ".rar", ".7z", ".tar", ".gz")
 # Berkas sistem yang diabaikan.
 SKIP_NAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
+
+
+def _ocr_lang() -> str:
+    return os.environ.get("PERATURAN_OCR_LANG") or "ind"
+
+
+def _poppler_path():
+    p = os.environ.get("PERATURAN_POPPLER_PATH")
+    return p if p else None
+
+
+def _tesseract_cmd():
+    """Lokasi biner tesseract: dari env PERATURAN_TESSERACT_CMD bila ada &
+    valid, jika tidak cari di PATH."""
+    c = os.environ.get("PERATURAN_TESSERACT_CMD")
+    if c and os.path.isfile(c):
+        return c
+    return shutil.which("tesseract")
 
 
 @dataclass
@@ -157,23 +188,41 @@ def _pdf_text_poppler(path: str):
 
 
 def has_tesseract() -> bool:
-    return shutil.which("tesseract") is not None
+    return _tesseract_cmd() is not None
 
 
-def ocr_pdf(path: str, lang: str = "ind", dpi: int = 300, max_hal: int = 30) -> str:
-    """OCR PDF scan -> teks. Perlu biner tesseract + data bahasa 'ind' + poppler.
-
-    Aman dipanggil tanpa tesseract: mengembalikan string kosong.
-    """
-    if not has_tesseract():
-        return ""
+def _set_tess_cmd():
+    """Arahkan pytesseract ke biner yang benar (env atau PATH). Kembalikan
+    modul pytesseract, atau None bila tak tersedia."""
+    cmd = _tesseract_cmd()
+    if not cmd:
+        return None
     try:
         import pytesseract
+    except Exception:
+        return None
+    try:
+        pytesseract.pytesseract.tesseract_cmd = cmd
+    except Exception:
+        pass
+    return pytesseract
+
+
+def ocr_pdf(path: str, lang: str = None, dpi: int = 300, max_hal: int = 30) -> str:
+    """OCR PDF scan -> teks. Perlu biner tesseract + data bahasa 'ind' + poppler.
+
+    Aman dipanggil tanpa tesseract/poppler: mengembalikan string kosong.
+    """
+    pytesseract = _set_tess_cmd()
+    if pytesseract is None:
+        return ""
+    try:
         from pdf2image import convert_from_path
     except Exception:
         return ""
+    lang = lang or _ocr_lang()
     try:
-        images = convert_from_path(path, dpi=dpi)
+        images = convert_from_path(path, dpi=dpi, poppler_path=_poppler_path())
     except Exception:
         return ""
     hasil = []
@@ -188,15 +237,16 @@ def ocr_pdf(path: str, lang: str = "ind", dpi: int = 300, max_hal: int = 30) -> 
     return "\n".join(hasil)
 
 
-def ocr_image(path: str, lang: str = "ind") -> str:
+def ocr_image(path: str, lang: str = None) -> str:
     """OCR satu berkas gambar -> teks. Perlu tesseract + data bahasa 'ind'."""
-    if not has_tesseract():
+    pytesseract = _set_tess_cmd()
+    if pytesseract is None:
         return ""
     try:
-        import pytesseract
         from PIL import Image
     except Exception:
         return ""
+    lang = lang or _ocr_lang()
     try:
         img = Image.open(path)
     except Exception:
@@ -271,6 +321,8 @@ def classify(path: str, do_ocr: bool = False) -> FileInfo:
         info.teks, info.n_halaman, info.perlu_ocr = teks, n, perlu
         info.nomor_teks = _cari_nomor(teks)
         info.tipe = "pdf_scan" if perlu else "pdf_text"
+        if perlu and do_ocr and not has_tesseract():
+            info.catatan = "PDF scan; OCR belum aktif (pasang Tesseract 'ind' + Poppler)"
         return info
 
     # 3) Gambar -> OCR
