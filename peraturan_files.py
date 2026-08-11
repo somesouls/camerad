@@ -12,6 +12,12 @@ Port dari jakai (app/parsers/files.py) + adaptasi camerad. Menangani:
 PyMuPDF (fitz) dipakai bila ada; jatuh ke pdftotext (poppler). OCR (tesseract)
 OPSIONAL: bila biner tesseract tak ada, berkas scan/gambar hanya DITANDAI
 (perlu_ocr) tanpa menggagalkan proses.
+
+Catatan MuPDF: sebagian PDF punya content-stream dengan token tak sah (mis.
+operator 'q'/'Q' tertulis dobel jadi 'qq'/'QQ'). MuPDF akan MELEWATI token itu
+dan tetap mengekstrak teks, tetapi mencetak peringatan 'syntax error: unknown
+keyword' ke stderr. Peringatan itu non-fatal dan hanya bikin konsol berisik,
+jadi ditekan lewat fitz.TOOLS.mupdf_display_errors(False).
 """
 from __future__ import annotations
 
@@ -107,8 +113,29 @@ def extract_lampiran_html(html: str):
     return teks, _cari_nomor(teks)
 
 
-def _pdf_text_fitz(path: str):
+_MUPDF_SENYAP = False
+
+
+def _fitz():
+    """Impor PyMuPDF sekali & bungkam peringatan MuPDF (non-fatal) ke stderr.
+
+    Peringatan seperti "syntax error: unknown keyword: 'qq'/'QQ'" berasal dari
+    content-stream PDF yang tidak sepenuhnya standar; MuPDF melewati token itu
+    dan teks tetap terekstrak. Kita hanya menekan spam peringatannya.
+    """
+    global _MUPDF_SENYAP
     import fitz  # PyMuPDF
+    if not _MUPDF_SENYAP:
+        try:
+            fitz.TOOLS.mupdf_display_errors(False)
+        except Exception:
+            pass
+        _MUPDF_SENYAP = True
+    return fitz
+
+
+def _pdf_text_fitz(path: str):
+    fitz = _fitz()
     doc = fitz.open(path)
     parts = [pg.get_text("text") for pg in doc]
     n = doc.page_count
