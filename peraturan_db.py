@@ -20,6 +20,14 @@ Kolom relasi status (diisi parser dari HTML TKB):
     nomor, judul, deskripsi, source_id (ID peraturan), href, dan link absolut.
   * history_terkait : JSON daftar peraturan SEBELUMNYA (dari legenda_history).
 
+Konkurensi (mencegah 'database is locked'):
+  SQLite hanya mengizinkan SATU penulis pada satu waktu. Proses batch menahan
+  transaksi tulis selama meng-embed tiap baris (e5 di CPU bisa lambat), jadi
+  koneksi lain yang menulis bisa menunggu. Karena itu koneksi memakai WAL
+  (pembaca tak memblok penulis), busy_timeout 30 dtk, dan synchronous=NORMAL
+  agar commit lebih ringan sehingga jendela kunci lebih pendek. Hindari juga
+  menjalankan dua tugas tulis berat sekaligus (mis. batch + reindex bersamaan).
+
 Pola koneksi mengikuti modul *_db.py camerad lain (sqlite3 + WAL).
 """
 import os
@@ -36,6 +44,9 @@ except Exception:
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 RRF_K = 60
+
+# Detik menunggu bila DB sedang dikunci penulis lain sebelum menyerah.
+_BUSY_TIMEOUT_MS = 30000
 
 PERATURAN_KOLOM = [
     "id", "jenis_peraturan", "nomor", "tahun", "judul", "bab", "bagian",
@@ -72,10 +83,14 @@ def default_db_path():
 
 
 def connect(db_path=None):
-    conn = sqlite3.connect(db_path or default_db_path())
+    # timeout= memberi lapisan tunggu di sisi driver; busy_timeout menjaga di
+    # sisi engine SQLite. Keduanya diset agar penulis bersabar saat DB terkunci
+    # penulis lain (mis. saat batch berjalan) alih-alih langsung 'database is locked'.
+    conn = sqlite3.connect(db_path or default_db_path(), timeout=_BUSY_TIMEOUT_MS / 1000.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=8000;")
+    conn.execute("PRAGMA synchronous=NORMAL;")
+    conn.execute("PRAGMA busy_timeout=%d;" % _BUSY_TIMEOUT_MS)
     return conn
 
 
@@ -109,7 +124,21 @@ def _migrasi_kolom(conn):
                 pass
 
 
-def init_db(conn):
+# Cache 'sudah init' per path DB supaya tiap connect() dari request UI tidak
+# menjalankan ulang DDL (executescript) yang mengambil write-lock tak perlu ->
+# ikut mengurangi kemungkinan 'database is locked' saat batch berjalan.
+_INIT_DONE = set()
+
+
+def init_db(conn, force=False):
+    key = None
+    try:
+        r = conn.execute("PRAGMA database_list").fetchone()
+        key = r[2] if r else None
+    except Exception:
+        key = None
+    if not force and key and key in _INIT_DONE:
+        return conn
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS peraturan_unit (
@@ -181,6 +210,8 @@ def init_db(conn):
         except Exception:
             pass
     conn.commit()
+    if key:
+        _INIT_DONE.add(key)
     return conn
 
 
