@@ -57,6 +57,25 @@ table.tbl tr:hover td { background:var(--panel-border); }
 .unit { border-bottom:1px solid var(--panel-border); padding:10px 0; }
 .unit .uh { font-size:12px; color:var(--text-muted); margin-bottom:3px; }
 .unit .ui { font-size:13.5px; line-height:1.55; }
+/* ---- log impor: tabel rapi (fixed layout, anti melebar) ---- */
+.tbl-wrap { width:100%; overflow-x:auto; margin-top:6px; }
+table.logtbl { table-layout:fixed; }
+table.logtbl th, table.logtbl td { word-break:break-word; overflow-wrap:anywhere; white-space:normal; }
+table.logtbl td.c-file { font-size:12px; color:var(--text-muted); }
+table.logtbl .c-file { width:30%; }
+table.logtbl .c-tipe { width:11%; }
+table.logtbl .c-jenis { width:8%; }
+table.logtbl .c-nomor { width:13%; }
+table.logtbl .c-unit { width:6%; text-align:center; }
+table.logtbl .c-status { width:12%; }
+table.logtbl .c-cat { width:20%; font-size:12px; }
+.st { display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+.st.ok { background:var(--c-green); color:var(--c-green-txt); }
+.st.mandiri { background:var(--c-blue); color:var(--c-blue-txt); }
+.st.kosong { background:var(--panel-border); color:var(--text-muted); }
+.st.perlu_ocr { background:var(--c-orange); color:var(--c-orange-txt); }
+.st.perlu_perhatian { background:var(--c-orange); color:var(--c-orange-txt); }
+.st.gagal { background:var(--c-red); color:var(--c-red-txt); }
 </style>{% endblock %}
 {% block content %}
 <div class="per-wrap">
@@ -136,9 +155,26 @@ table.tbl tr:hover td { background:var(--panel-border); }
     <p class="sub">Hitung ulang embedding e5 untuk seluruh unit. Jalankan setelah impor besar atau bila status semantik baru diaktifkan. Proses ini bisa memakan waktu.</p>
     <div class="row">
       <button class="btn ghost" id="rBtn">Reindex embedding</button>
-      <button class="btn ghost" id="logBtn">Muat log impor</button>
     </div>
     <div id="rRes"></div>
+  </div>
+
+  <!-- Log impor / triase -->
+  <div class="panel">
+    <h3>Log impor &amp; triase</h3>
+    <p class="sub">Rekap hasil batch terakhir per berkas. Saring berdasarkan status untuk memilah cepat berkas yang dilewati, perlu OCR, atau perlu perhatian manual.</p>
+    <div class="row">
+      <select class="inp" id="logStatus">
+        <option value="">Semua status</option>
+        <option value="ok">OK — tersimpan</option>
+        <option value="mandiri">Mandiri — tanpa induk</option>
+        <option value="kosong">Kosong — dilewati</option>
+        <option value="perlu_ocr">Perlu OCR</option>
+        <option value="perlu_perhatian">Perlu perhatian</option>
+        <option value="gagal">Gagal</option>
+      </select>
+      <button class="btn ghost" id="logBtn">Muat log impor</button>
+    </div>
     <div id="logRes"></div>
   </div>
 
@@ -251,8 +287,8 @@ table.tbl tr:hover td { background:var(--panel-border); }
       busy(bBtn,false);
       if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
       var r=j.ringkas||{};
-      box.innerHTML='<div class="res ok">Selesai. Berkas: '+(r.file||0)+' · Peraturan: '+(r.peraturan||0)+' · Unit: '+(r.unit||0)+' · Lampiran: '+(r.lampiran||0)+' · Perlu OCR: '+(r.perlu_ocr||0)+' · Gagal: '+(r.gagal||0)+' · Lewati: '+(r.lewati||0)+'</div>';
-      loadStats(); loadList();
+      box.innerHTML='<div class="res ok">Selesai. Berkas: '+(r.file||0)+' · Peraturan: '+(r.peraturan||0)+' · Unit: '+(r.unit||0)+' · Lampiran: '+(r.lampiran||0)+' · Perlu OCR: '+(r.perlu_ocr||0)+' · Perlu perhatian: '+(r.perlu_perhatian||0)+' · Gagal: '+(r.gagal||0)+' · Lewati: '+(r.lewati||0)+'</div>';
+      loadStats(); loadList(); loadLog();
     });
   });
 
@@ -271,18 +307,25 @@ table.tbl tr:hover td { background:var(--panel-border); }
 
   // ---- log impor ----
   var logBtn=document.getElementById('logBtn');
-  logBtn.addEventListener('click',function(){
+  function loadLog(){
     var box=document.getElementById('logRes');
+    var st=document.getElementById('logStatus').value;
     busy(logBtn,true,'Memuat…');
-    getj('/api/peraturan/impor-log').then(function(j){
+    getj('/api/peraturan/impor-log?status='+encodeURIComponent(st)).then(function(j){
       busy(logBtn,false);
       if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
-      if(!j.rows.length){ box.innerHTML='<div class="muted" style="margin-top:10px;">Belum ada log impor.</div>'; return; }
-      var h='<table class="tbl"><thead><tr><th>Berkas</th><th>Tipe</th><th>Jenis</th><th>Nomor</th><th>Unit</th><th>Status</th><th>Catatan</th></tr></thead><tbody>';
-      j.rows.forEach(function(r){ h+='<tr><td>'+esc(r.file)+'</td><td>'+esc(r.tipe||'')+'</td><td>'+esc(r.jenis||'')+'</td><td>'+esc(r.nomor||'')+'</td><td>'+(r.n_unit||0)+'</td><td>'+esc(r.status||'')+'</td><td class="muted">'+esc(r.catatan||'')+'</td></tr>'; });
-      box.innerHTML=h+'</tbody></table>';
+      if(!j.rows.length){ box.innerHTML='<div class="muted" style="margin-top:10px;">'+(st?('Tidak ada berkas berstatus “'+esc(st)+'”.'):'Belum ada log impor. Jalankan batch (tanpa mode uji coba) lebih dulu.')+'</div>'; return; }
+      var h='<div class="muted" style="margin:10px 0 2px;">'+j.total+' berkas'+(st?(' · status “'+esc(st)+'”'):'')+'</div>';
+      h+='<div class="tbl-wrap"><table class="tbl logtbl"><thead><tr><th class="c-file">Berkas</th><th class="c-tipe">Tipe</th><th class="c-jenis">Jenis</th><th class="c-nomor">Nomor</th><th class="c-unit">Unit</th><th class="c-status">Status</th><th class="c-cat">Catatan</th></tr></thead><tbody>';
+      j.rows.forEach(function(r){
+        var s=String(r.status||'');
+        h+='<tr><td class="c-file" title="'+esc(r.file)+'">'+esc(r.file)+'</td><td class="c-tipe">'+esc(r.tipe||'')+'</td><td class="c-jenis">'+esc(r.jenis||'')+'</td><td class="c-nomor">'+esc(r.nomor||'')+'</td><td class="c-unit">'+(r.n_unit||0)+'</td><td class="c-status"><span class="st '+esc(s)+'">'+esc(s||'-')+'</span></td><td class="c-cat muted">'+esc(r.catatan||'')+'</td></tr>';
+      });
+      box.innerHTML=h+'</tbody></table></div>';
     });
-  });
+  }
+  logBtn.addEventListener('click', loadLog);
+  document.getElementById('logStatus').addEventListener('change', loadLog);
 
   // ---- daftar ----
   function loadList(){
