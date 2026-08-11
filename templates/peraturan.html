@@ -336,7 +336,8 @@ table.logtbl .c-cat { width:20%; font-size:12px; }
       var h='<div class="muted" style="margin-bottom:6px;">'+j.total+' peraturan</div><table class="tbl"><thead><tr><th>Jenis</th><th>Nomor</th><th>Judul</th><th>Th</th><th>Unit</th><th>Lampiran</th><th>Status</th><th></th></tr></thead><tbody>';
       j.items.forEach(function(r){
         var key=JSON.stringify({jenis:r.jenis_peraturan,nomor:r.nomor});
-        h+='<tr><td><span class="jns">'+esc(r.jenis_peraturan||'-')+'</span></td><td>'+esc(r.nomor||'')+'</td><td>'+esc((r.judul||'').slice(0,90))+'</td><td>'+esc(r.tahun||'')+'</td><td>'+(r.n_unit||0)+'</td><td>'+(r.n_lampiran||0)+'</td><td><span class="pill '+esc(r.status||'berlaku')+'">'+esc(r.status||'berlaku')+'</span></td><td style="white-space:nowrap;"><a class="link" data-lihat=\''+esc(key)+'\'>Lihat</a> · <a class="link" data-cabut=\''+esc(key)+'\'>Cabut</a> · <a class="link" data-hapus=\''+esc(key)+'\' style="color:var(--c-red-txt)">Hapus</a></td></tr>';
+        var src = r.source_url ? (' · <a class="link" href="'+esc(r.source_url)+'" target="_blank" rel="noopener">Sumber</a>') : '';
+        h+='<tr><td><span class="jns">'+esc(r.jenis_peraturan||'-')+'</span></td><td>'+esc(r.nomor||'')+'</td><td>'+esc((r.judul||'').slice(0,90))+'</td><td>'+esc(r.tahun||'')+'</td><td>'+(r.n_unit||0)+'</td><td>'+(r.n_lampiran||0)+'</td><td><span class="pill '+esc(r.status||'berlaku')+'">'+esc(r.status||'berlaku')+'</span></td><td style="white-space:nowrap;"><a class="link" data-lihat=\''+esc(key)+'\'>Lihat</a>'+src+' · <a class="link" data-cabut=\''+esc(key)+'\'>Cabut</a> · <a class="link" data-hapus=\''+esc(key)+'\' style="color:var(--c-red-txt)">Hapus</a></td></tr>';
       });
       box.innerHTML=h+'</tbody></table>';
       Array.prototype.forEach.call(box.querySelectorAll('[data-lihat]'),function(a){ a.addEventListener('click',function(){ lihat(JSON.parse(a.getAttribute('data-lihat'))); }); });
@@ -366,7 +367,8 @@ table.logtbl .c-cat { width:20%; font-size:12px; }
     mbd.classList.add('show');
     post('/api/peraturan/get',{nomor:key.nomor,jenis:key.jenis}).then(function(j){
       if(!j||!j.ok){ document.getElementById('mBody').innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
-      var h='';
+      var src=(j.units[0]&&j.units[0].source_url)||'';
+      var h= src ? ('<div class="muted" style="margin-bottom:10px;">Sumber asli: <a class="link" href="'+esc(src)+'" target="_blank" rel="noopener">'+esc(src)+'</a></div>') : '';
       j.units.forEach(function(u){
         var head = u.hierarchy || ((u.pasal?('Pasal '+u.pasal):'')+(u.ayat?(' ayat ('+u.ayat+')'):'')) || (u.lampiran?('Lampiran: '+u.lampiran):'Unit');
         h+='<div class="unit"><div class="uh">'+esc(head)+'</div><div class="ui">'+esc(u.isi||'')+'</div></div>';
