@@ -26,6 +26,15 @@ Bila program terpasang tapi tidak ada di PATH, tunjuk lokasinya lewat env:
 Bila biner tak ada, berkas scan/gambar hanya DITANDAI (perlu_ocr) tanpa
 menggagalkan proses.
 
+== Pemantauan OCR ==
+Karena OCR bisa lama & tampak 'diam', fungsi OCR mencetak progres ke terminal
+(stdout, flush) per berkas dan per halaman, mis:
+    [peraturan][ocr] mulai OCR PDF: <berkas> (12 hal)
+    [peraturan][ocr]   <berkas> hal 3/12
+    [peraturan][ocr] selesai OCR PDF: <berkas> -> 5123 karakter
+Selain itu ada hook callback opsional (set_progress_cb) yang dipakai
+peraturan_batch untuk menampilkan progres yang sama di UI.
+
 Catatan MuPDF: sebagian PDF punya content-stream dengan token tak sah (mis.
 operator 'q'/'Q' tertulis dobel jadi 'qq'/'QQ'). MuPDF akan MELEWATI token itu
 dan tetap mengekstrak teks, tetapi mencetak peringatan 'syntax error: unknown
@@ -56,6 +65,40 @@ IMG_EXT = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp", ".gif")
 ARSIP_EXT = (".zip", ".rar", ".7z", ".tar", ".gz")
 # Berkas sistem yang diabaikan.
 SKIP_NAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
+
+
+def _log(msg):
+    """Cetak progres ke terminal (flush agar langsung terlihat saat berjalan)."""
+    try:
+        print("[peraturan][ocr] " + msg, flush=True)
+    except Exception:
+        pass
+
+
+# Hook progres OPSIONAL: di-set oleh peraturan_batch supaya kemajuan OCR bisa
+# ikut tampil di UI. Bentuk: cb(event: str, data: dict). Tidak memengaruhi hasil
+# bila tidak diset.
+_PROGRESS_CB = None
+
+
+def set_progress_cb(cb):
+    """Pasang/lepas callback progres OCR (None untuk melepas)."""
+    global _PROGRESS_CB
+    _PROGRESS_CB = cb
+
+
+def _emit(event, **data):
+    cb = _PROGRESS_CB
+    if cb is None:
+        return
+    try:
+        cb(event, data)
+    except Exception:
+        pass
+
+
+def _n_nonspace(teks):
+    return len(re.sub(r"\s+", "", teks or ""))
 
 
 def _ocr_lang() -> str:
@@ -212,21 +255,29 @@ def ocr_pdf(path: str, lang: str = None, dpi: int = 300, max_hal: int = 30) -> s
     """OCR PDF scan -> teks. Perlu biner tesseract + data bahasa 'ind' + poppler.
 
     Aman dipanggil tanpa tesseract/poppler: mengembalikan string kosong.
+    Mencetak progres per halaman ke terminal + memancarkan event progres.
     """
+    base = os.path.basename(path)
     pytesseract = _set_tess_cmd()
     if pytesseract is None:
+        _log("OCR PDF dilewati (tesseract tak ditemukan): %s" % base)
         return ""
     try:
         from pdf2image import convert_from_path
     except Exception:
+        _log("OCR PDF dilewati (pdf2image belum terpasang): %s" % base)
         return ""
     lang = lang or _ocr_lang()
     try:
         images = convert_from_path(path, dpi=dpi, poppler_path=_poppler_path())
-    except Exception:
+    except Exception as e:
+        _log("OCR PDF gagal render (Poppler?): %s (%s)" % (base, str(e)[:140]))
         return ""
+    total = min(len(images), max_hal)
+    _log("mulai OCR PDF: %s (%d hal)" % (base, total))
+    _emit("ocr_pdf_start", path=path, pages=total)
     hasil = []
-    for img in images[:max_hal]:
+    for i, img in enumerate(images[:max_hal], start=1):
         try:
             hasil.append(pytesseract.image_to_string(img, lang=lang))
         except Exception:
@@ -234,13 +285,20 @@ def ocr_pdf(path: str, lang: str = None, dpi: int = 300, max_hal: int = 30) -> s
                 hasil.append(pytesseract.image_to_string(img))
             except Exception:
                 pass
-    return "\n".join(hasil)
+        _log("  %s hal %d/%d" % (base, i, total))
+        _emit("ocr_page", path=path, i=i, n=total)
+    teks = "\n".join(hasil)
+    _log("selesai OCR PDF: %s -> %d karakter" % (base, _n_nonspace(teks)))
+    _emit("ocr_pdf_done", path=path, chars=_n_nonspace(teks))
+    return teks
 
 
 def ocr_image(path: str, lang: str = None) -> str:
     """OCR satu berkas gambar -> teks. Perlu tesseract + data bahasa 'ind'."""
+    base = os.path.basename(path)
     pytesseract = _set_tess_cmd()
     if pytesseract is None:
+        _log("OCR gambar dilewati (tesseract tak ditemukan): %s" % base)
         return ""
     try:
         from PIL import Image
@@ -251,13 +309,18 @@ def ocr_image(path: str, lang: str = None) -> str:
         img = Image.open(path)
     except Exception:
         return ""
+    _log("mulai OCR gambar: %s" % base)
+    _emit("ocr_image_start", path=path)
     try:
-        return pytesseract.image_to_string(img, lang=lang)
+        teks = pytesseract.image_to_string(img, lang=lang)
     except Exception:
         try:
-            return pytesseract.image_to_string(img)
+            teks = pytesseract.image_to_string(img)
         except Exception:
-            return ""
+            teks = ""
+    _log("selesai OCR gambar: %s -> %d karakter" % (base, _n_nonspace(teks)))
+    _emit("ocr_image_done", path=path, chars=_n_nonspace(teks))
+    return teks
 
 
 def extract_pdf(path: str, do_ocr: bool = False):
