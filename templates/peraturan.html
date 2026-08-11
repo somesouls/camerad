@@ -1,0 +1,338 @@
+{% extends "base.html" %}
+{% block title %}Peraturan — Basis Data Peraturan Perpajakan{% endblock %}
+{% block head %}<style>
+.per-wrap { padding:20px 32px 60px; max-width:1180px; margin:0 auto; }
+.per-h { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; flex-wrap:wrap; margin-bottom:4px; }
+.per-h h1 { font-size:24px; font-weight:800; letter-spacing:-.02em; margin:0; }
+.per-h p { color:var(--text-muted); font-size:13.5px; margin:6px 0 0; max-width:720px; line-height:1.55; }
+.per-embed { display:inline-flex; align-items:center; gap:8px; font-size:12px; font-weight:600; border-radius:999px; padding:6px 12px; border:1px solid var(--panel-border); }
+.per-embed.on { color:var(--c-green-txt); background:var(--c-green); }
+.per-embed.off { color:var(--c-orange-txt); background:var(--c-orange); }
+.cards { display:grid; grid-template-columns:repeat(5,1fr); gap:12px; margin:20px 0 8px; }
+.card { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:14px; padding:14px 16px; }
+.card .n { font-size:24px; font-weight:800; letter-spacing:-.02em; }
+.card .l { font-size:12px; color:var(--text-muted); margin-top:2px; }
+@media(max-width:900px){ .cards{ grid-template-columns:repeat(2,1fr);} }
+.panel { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:16px; padding:18px 20px; margin-top:18px; }
+.panel h3 { margin:0 0 4px; font-size:15px; font-weight:700; }
+.panel .sub { color:var(--text-muted); font-size:12.5px; margin:0 0 14px; line-height:1.5; }
+.row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+.inp, select.inp, textarea.inp { border:1px solid var(--panel-border); background:var(--bg-base); color:var(--text-main); border-radius:10px; padding:9px 12px; font-size:13.5px; font-family:inherit; outline:none; transition:.2s; }
+.inp:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-glow); }
+textarea.inp { width:100%; resize:vertical; min-height:110px; line-height:1.5; }
+.btn { border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:10px; padding:9px 16px; font-size:13.5px; font-weight:600; cursor:pointer; transition:.2s; }
+.btn:hover { background:var(--accent-hover); }
+.btn.ghost { background:transparent; color:var(--text-main); border-color:var(--panel-border); }
+.btn.ghost:hover { border-color:var(--accent); color:var(--accent); }
+.btn.danger { background:transparent; color:var(--c-red-txt); border-color:var(--c-red); }
+.btn.danger:hover { background:var(--c-red); }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+.chk { display:inline-flex; align-items:center; gap:7px; font-size:13px; color:var(--text-main); cursor:pointer; }
+table.tbl { width:100%; border-collapse:collapse; margin-top:6px; font-size:13px; }
+table.tbl th, table.tbl td { text-align:left; padding:9px 10px; border-bottom:1px solid var(--panel-border); vertical-align:top; }
+table.tbl th { font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); }
+table.tbl tr:hover td { background:var(--panel-border); }
+.pill { display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:999px; }
+.pill.berlaku { background:var(--c-green); color:var(--c-green-txt); }
+.pill.dicabut { background:var(--c-red); color:var(--c-red-txt); }
+.pill.diubah { background:var(--c-orange); color:var(--c-orange-txt); }
+.jns { display:inline-block; font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px; background:var(--c-blue); color:var(--c-blue-txt); }
+.muted { color:var(--text-muted); font-size:12.5px; }
+.res { margin-top:12px; font-size:13px; }
+.res.err { color:var(--c-red-txt); }
+.res.ok { color:var(--c-green-txt); }
+.hasil { border:1px solid var(--panel-border); border-radius:10px; padding:11px 13px; margin-top:9px; background:var(--bg-base); }
+.hasil .hh { font-size:12px; color:var(--text-muted); margin-bottom:3px; }
+.hasil .ht { font-size:13.5px; line-height:1.55; }
+.link { color:var(--accent); cursor:pointer; text-decoration:none; }
+.link:hover { text-decoration:underline; }
+.tabbar { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+.tab { border:1px solid var(--panel-border); background:transparent; color:var(--text-muted); border-radius:9px; padding:7px 14px; font-size:13px; font-weight:600; cursor:pointer; }
+.tab.active { background:var(--accent-glow); border-color:var(--accent); color:var(--accent); }
+.hide { display:none; }
+.modal-bd { position:fixed; inset:0; background:rgba(0,0,0,.6); backdrop-filter:blur(4px); z-index:80; display:none; align-items:center; justify-content:center; padding:20px; }
+.modal-bd.show { display:flex; }
+.modal { background:var(--bg-grad-1); border:1px solid var(--panel-border); border-radius:16px; max-width:760px; width:100%; max-height:85vh; overflow:auto; padding:22px 24px; box-shadow:var(--shadow-float); }
+.modal h3 { margin:0 0 10px; }
+.unit { border-bottom:1px solid var(--panel-border); padding:10px 0; }
+.unit .uh { font-size:12px; color:var(--text-muted); margin-bottom:3px; }
+.unit .ui { font-size:13.5px; line-height:1.55; }
+</style>{% endblock %}
+{% block content %}
+<div class="per-wrap">
+  <div class="per-h">
+    <div>
+      <h1>Peraturan Perpajakan</h1>
+      <p>Sumber resource #5. Basis data pasal/ayat peraturan (UU, PP, PMK, PER DJP, SE, dll.) yang bisa dikelola dan menjadi rujukan Agent Kring Pajak. Pencarian memakai hybrid <b>FTS5 (kata kunci) + semantik e5</b> agar cocok untuk bahasa peraturan yang formal.</p>
+    </div>
+    {% if embed_aktif %}<span class="per-embed on" title="{{ model_id }}">● Semantik aktif (e5)</span>{% else %}<span class="per-embed off">○ Semantik nonaktif — mode FTS5</span>{% endif %}
+  </div>
+
+  <div class="cards" id="cards">
+    <div class="card"><div class="n" id="c_per">–</div><div class="l">Peraturan</div></div>
+    <div class="card"><div class="n" id="c_unit">–</div><div class="l">Unit (pasal/ayat)</div></div>
+    <div class="card"><div class="n" id="c_lamp">–</div><div class="l">Unit Lampiran</div></div>
+    <div class="card"><div class="n" id="c_vec">–</div><div class="l">Vektor terindeks</div></div>
+    <div class="card"><div class="n" id="c_ocr">–</div><div class="l">Perlu OCR</div></div>
+  </div>
+
+  <!-- Uji pencarian -->
+  <div class="panel">
+    <h3>Uji pencarian (retrieval)</h3>
+    <p class="sub">Ketik pertanyaan gaya pengguna untuk melihat pasal yang akan dirujuk RAG. Menggabungkan kata kunci (FTS5) dan makna (e5) dengan Reciprocal Rank Fusion.</p>
+    <div class="row">
+      <input class="inp" id="sq" style="flex:1; min-width:260px;" placeholder="mis. batas waktu lapor SPT tahunan orang pribadi">
+      <label class="chk"><input type="checkbox" id="s_all"> Semua status</label>
+      <button class="btn" id="sBtn">Cari</button>
+    </div>
+    <div id="sRes"></div>
+  </div>
+
+  <!-- Impor -->
+  <div class="panel">
+    <h3>Impor data</h3>
+    <div class="tabbar">
+      <button class="tab active" data-t="html">HTML TKB DJP</button>
+      <button class="tab" data-t="jsonl">JSONL</button>
+      <button class="tab" data-t="batch">Batch folder</button>
+    </div>
+
+    <div id="t_html" class="tabpane">
+      <p class="sub" style="margin-top:14px;">Tempel HTML satu halaman peraturan dari TKB DJP. Sistem memecahnya menjadi unit per-Pasal (atau per-ayat).</p>
+      <div class="row">
+        <select class="inp" id="h_jenis"><option value="">Deteksi jenis otomatis</option><option>UU</option><option>PERPU</option><option>PP</option><option>PERPRES</option><option>PMK</option><option>KMK</option><option value="PER">PER DJP</option><option>KEP</option><option>SE</option></select>
+        <label class="chk"><input type="checkbox" id="h_ayat"> Pecah per-ayat</label>
+      </div>
+      <textarea class="inp" id="h_html" style="margin-top:10px;" placeholder="Tempel kode HTML halaman peraturan di sini…"></textarea>
+      <div class="row" style="margin-top:10px;"><button class="btn" id="hBtn">Impor HTML</button></div>
+      <div id="hRes"></div>
+    </div>
+
+    <div id="t_jsonl" class="tabpane hide">
+      <p class="sub" style="margin-top:14px;">Tempel baris JSONL (satu objek per baris) sesuai kolom <code>peraturan_unit</code>. Wajib ada field <code>id</code>.</p>
+      <textarea class="inp" id="j_text" placeholder='{"id":"pmk-123-2024-p1","jenis_peraturan":"PMK","nomor":"123/PMK.03/2024","judul":"...","pasal":"1","isi":"...","status":"berlaku"}'></textarea>
+      <div class="row" style="margin-top:10px;"><button class="btn" id="jBtn">Impor JSONL</button></div>
+      <div id="jRes"></div>
+    </div>
+
+    <div id="t_batch" class="tabpane hide">
+      <p class="sub" style="margin-top:14px;">Proses satu folder di server berisi berkas HTML/PDF peraturan. Subfolder (uu/pp/pmk/perdjp/…) dipakai sebagai petunjuk jenis. OCR memerlukan Tesseract (‘ind’) &amp; Poppler.</p>
+      <div class="row">
+        <input class="inp" id="b_root" style="flex:1; min-width:300px;" placeholder="contoh: C:\\Users\\USER\\chatbot\\pipeline_lokal\\aturan">
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <label class="chk"><input type="checkbox" id="b_ayat"> Pecah per-ayat</label>
+        <label class="chk"><input type="checkbox" id="b_ocr"> Jalankan OCR untuk PDF scan</label>
+        <label class="chk"><input type="checkbox" id="b_dry"> Uji coba (tanpa simpan)</label>
+        <button class="btn" id="bBtn">Proses folder</button>
+      </div>
+      <div id="bRes"></div>
+    </div>
+  </div>
+
+  <!-- Perawatan indeks -->
+  <div class="panel">
+    <h3>Perawatan indeks semantik</h3>
+    <p class="sub">Hitung ulang embedding e5 untuk seluruh unit. Jalankan setelah impor besar atau bila status semantik baru diaktifkan. Proses ini bisa memakan waktu.</p>
+    <div class="row">
+      <button class="btn ghost" id="rBtn">Reindex embedding</button>
+      <button class="btn ghost" id="logBtn">Muat log impor</button>
+    </div>
+    <div id="rRes"></div>
+    <div id="logRes"></div>
+  </div>
+
+  <!-- Daftar -->
+  <div class="panel">
+    <h3>Daftar peraturan</h3>
+    <div class="row" style="margin-bottom:6px;">
+      <input class="inp" id="f_q" style="flex:1; min-width:220px;" placeholder="Cari nomor / judul…">
+      <select class="inp" id="f_jenis"><option value="">Semua jenis</option><option>UU</option><option>PERPU</option><option>PP</option><option>PERPRES</option><option>PMK</option><option>KMK</option><option value="PER">PER DJP</option><option>KEP</option><option>SE</option></select>
+      <select class="inp" id="f_status"><option value="">Semua status</option><option value="berlaku">Berlaku</option><option value="dicabut">Dicabut</option><option value="diubah">Diubah</option></select>
+      <button class="btn ghost" id="fBtn">Terapkan</button>
+    </div>
+    <div id="listRes"><div class="muted">Memuat…</div></div>
+  </div>
+</div>
+
+<div class="modal-bd" id="mbd"><div class="modal"><div style="display:flex; justify-content:space-between; align-items:center;"><h3 id="mTitle">Detail</h3><button class="btn ghost" id="mClose">Tutup</button></div><div id="mBody"></div></div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function post(url, body){ return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}).then(function(r){return r.json();}); }
+  function getj(url){ return fetch(url).then(function(r){return r.json();}); }
+  function busy(btn, on, label){ if(!btn) return; btn.disabled=on; if(on){ btn.dataset.lbl=btn.textContent; btn.textContent=label||'Memproses…'; } else if(btn.dataset.lbl){ btn.textContent=btn.dataset.lbl; } }
+
+  // ---- statistik ----
+  function loadStats(){
+    getj('/api/peraturan/stats').then(function(j){
+      if(!j || !j.ok) return;
+      document.getElementById('c_per').textContent = j.total_peraturan||0;
+      document.getElementById('c_unit').textContent = j.total_unit||0;
+      document.getElementById('c_lamp').textContent = j.total_lampiran_unit||0;
+      document.getElementById('c_vec').textContent = j.total_vec||0;
+      document.getElementById('c_ocr').textContent = (j.triase&&j.triase.perlu_ocr)||0;
+    });
+  }
+
+  // ---- uji cari ----
+  var sBtn=document.getElementById('sBtn');
+  function doSearch(){
+    var q=document.getElementById('sq').value.trim();
+    var box=document.getElementById('sRes');
+    if(!q){ box.innerHTML='<div class="res err">Isi kata kunci dulu.</div>'; return; }
+    var sl = document.getElementById('s_all').checked ? ['berlaku','dicabut','diubah'] : ['berlaku'];
+    busy(sBtn,true,'Mencari…');
+    post('/api/peraturan/search',{q:q,k:8,status_list:sl}).then(function(j){
+      busy(sBtn,false);
+      if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
+      if(!j.hasil.length){ box.innerHTML='<div class="res">Tidak ada hasil relevan.'+(j.embed_aktif?'':' (semantik nonaktif)')+'</div>'; return; }
+      var h='<div class="muted" style="margin-top:10px;">'+j.total+' hasil'+(j.embed_aktif?' · hybrid FTS5+e5':' · FTS5')+'</div>';
+      j.hasil.forEach(function(u){
+        h+='<div class="hasil"><div class="hh"><span class="jns">'+esc(u.jenis_peraturan||'-')+'</span> '+esc(u.nomor||'')+(u.pasal?(' · Pasal '+esc(u.pasal)):'')+(u.ayat?(' ayat ('+esc(u.ayat)+')'):'')+' · <span class="pill '+esc(u.status||'berlaku')+'">'+esc(u.status||'berlaku')+'</span> · skor '+(u.skor||0).toFixed(4)+'</div><div class="ht">'+esc((u.isi||'').slice(0,320))+((u.isi||'').length>320?'…':'')+'</div></div>';
+      });
+      box.innerHTML=h;
+    });
+  }
+  sBtn.addEventListener('click', doSearch);
+  document.getElementById('sq').addEventListener('keydown',function(e){ if(e.key==='Enter') doSearch(); });
+
+  // ---- tabs impor ----
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(t){
+    t.addEventListener('click',function(){
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'),function(x){x.classList.remove('active');});
+      t.classList.add('active');
+      ['html','jsonl','batch'].forEach(function(k){ document.getElementById('t_'+k).classList.toggle('hide', k!==t.dataset.t); });
+    });
+  });
+
+  // ---- impor html ----
+  var hBtn=document.getElementById('hBtn');
+  hBtn.addEventListener('click',function(){
+    var html=document.getElementById('h_html').value;
+    var box=document.getElementById('hRes');
+    if(!html.trim()){ box.innerHTML='<div class="res err">Tempel HTML dulu.</div>'; return; }
+    busy(hBtn,true,'Mengimpor…');
+    post('/api/peraturan/import-html',{html:html,per_ayat:document.getElementById('h_ayat').checked,jenis_hint:document.getElementById('h_jenis').value}).then(function(j){
+      busy(hBtn,false);
+      if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
+      box.innerHTML='<div class="res ok">Berhasil: '+esc(j.jenis)+' '+esc(j.nomor)+' — '+j.n_unit+' unit.</div>';
+      document.getElementById('h_html').value=''; loadStats(); loadList();
+    });
+  });
+
+  // ---- impor jsonl ----
+  var jBtn=document.getElementById('jBtn');
+  jBtn.addEventListener('click',function(){
+    var t=document.getElementById('j_text').value;
+    var box=document.getElementById('jRes');
+    if(!t.trim()){ box.innerHTML='<div class="res err">Tempel JSONL dulu.</div>'; return; }
+    busy(jBtn,true,'Mengimpor…');
+    post('/api/peraturan/import-jsonl',{jsonl:t}).then(function(j){
+      busy(jBtn,false);
+      if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
+      var h='<div class="res ok">Masuk '+j.masuk+' baris'+(j.gagal?(', gagal '+j.gagal):'')+'.</div>';
+      if(j.errors&&j.errors.length){ h+='<div class="muted">'+j.errors.map(esc).join('<br>')+'</div>'; }
+      box.innerHTML=h; loadStats(); loadList();
+    });
+  });
+
+  // ---- batch ----
+  var bBtn=document.getElementById('bBtn');
+  bBtn.addEventListener('click',function(){
+    var root=document.getElementById('b_root').value.trim();
+    var box=document.getElementById('bRes');
+    if(!root){ box.innerHTML='<div class="res err">Isi path folder dulu.</div>'; return; }
+    busy(bBtn,true,'Memproses…');
+    box.innerHTML='<div class="muted" style="margin-top:10px;">Memproses folder, mohon tunggu…</div>';
+    post('/api/peraturan/batch',{root:root,per_ayat:document.getElementById('b_ayat').checked,do_ocr:document.getElementById('b_ocr').checked,ingest:!document.getElementById('b_dry').checked}).then(function(j){
+      busy(bBtn,false);
+      if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
+      var r=j.ringkas||{};
+      box.innerHTML='<div class="res ok">Selesai. Berkas: '+(r.file||0)+' · Peraturan: '+(r.peraturan||0)+' · Unit: '+(r.unit||0)+' · Lampiran: '+(r.lampiran||0)+' · Perlu OCR: '+(r.perlu_ocr||0)+' · Gagal: '+(r.gagal||0)+' · Lewati: '+(r.lewati||0)+'</div>';
+      loadStats(); loadList();
+    });
+  });
+
+  // ---- reindex ----
+  var rBtn=document.getElementById('rBtn');
+  rBtn.addEventListener('click',function(){
+    var box=document.getElementById('rRes');
+    busy(rBtn,true,'Menghitung ulang…');
+    box.innerHTML='<div class="muted" style="margin-top:10px;">Menghitung embedding, mohon tunggu…</div>';
+    post('/api/peraturan/reindex',{}).then(function(j){
+      busy(rBtn,false);
+      if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
+      box.innerHTML='<div class="res ok">Reindex selesai: '+j.n+' unit.</div>'; loadStats();
+    });
+  });
+
+  // ---- log impor ----
+  var logBtn=document.getElementById('logBtn');
+  logBtn.addEventListener('click',function(){
+    var box=document.getElementById('logRes');
+    busy(logBtn,true,'Memuat…');
+    getj('/api/peraturan/impor-log').then(function(j){
+      busy(logBtn,false);
+      if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
+      if(!j.rows.length){ box.innerHTML='<div class="muted" style="margin-top:10px;">Belum ada log impor.</div>'; return; }
+      var h='<table class="tbl"><thead><tr><th>Berkas</th><th>Tipe</th><th>Jenis</th><th>Nomor</th><th>Unit</th><th>Status</th><th>Catatan</th></tr></thead><tbody>';
+      j.rows.forEach(function(r){ h+='<tr><td>'+esc(r.file)+'</td><td>'+esc(r.tipe||'')+'</td><td>'+esc(r.jenis||'')+'</td><td>'+esc(r.nomor||'')+'</td><td>'+(r.n_unit||0)+'</td><td>'+esc(r.status||'')+'</td><td class="muted">'+esc(r.catatan||'')+'</td></tr>'; });
+      box.innerHTML=h+'</tbody></table>';
+    });
+  });
+
+  // ---- daftar ----
+  function loadList(){
+    var box=document.getElementById('listRes');
+    post('/api/peraturan/list',{q:document.getElementById('f_q').value.trim(),jenis:document.getElementById('f_jenis').value,status:document.getElementById('f_status').value,limit:300}).then(function(j){
+      if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
+      if(!j.items.length){ box.innerHTML='<div class="muted">Belum ada data. Impor peraturan lewat panel di atas.</div>'; return; }
+      var h='<div class="muted" style="margin-bottom:6px;">'+j.total+' peraturan</div><table class="tbl"><thead><tr><th>Jenis</th><th>Nomor</th><th>Judul</th><th>Th</th><th>Unit</th><th>Lampiran</th><th>Status</th><th></th></tr></thead><tbody>';
+      j.items.forEach(function(r){
+        var key=JSON.stringify({jenis:r.jenis_peraturan,nomor:r.nomor});
+        h+='<tr><td><span class="jns">'+esc(r.jenis_peraturan||'-')+'</span></td><td>'+esc(r.nomor||'')+'</td><td>'+esc((r.judul||'').slice(0,90))+'</td><td>'+esc(r.tahun||'')+'</td><td>'+(r.n_unit||0)+'</td><td>'+(r.n_lampiran||0)+'</td><td><span class="pill '+esc(r.status||'berlaku')+'">'+esc(r.status||'berlaku')+'</span></td><td style="white-space:nowrap;"><a class="link" data-lihat=\''+esc(key)+'\'>Lihat</a> · <a class="link" data-cabut=\''+esc(key)+'\'>Cabut</a> · <a class="link" data-hapus=\''+esc(key)+'\' style="color:var(--c-red-txt)">Hapus</a></td></tr>';
+      });
+      box.innerHTML=h+'</tbody></table>';
+      Array.prototype.forEach.call(box.querySelectorAll('[data-lihat]'),function(a){ a.addEventListener('click',function(){ lihat(JSON.parse(a.getAttribute('data-lihat'))); }); });
+      Array.prototype.forEach.call(box.querySelectorAll('[data-cabut]'),function(a){ a.addEventListener('click',function(){ ubahStatus(JSON.parse(a.getAttribute('data-cabut')),'dicabut'); }); });
+      Array.prototype.forEach.call(box.querySelectorAll('[data-hapus]'),function(a){ a.addEventListener('click',function(){ hapus(JSON.parse(a.getAttribute('data-hapus'))); }); });
+    });
+  }
+  document.getElementById('fBtn').addEventListener('click', loadList);
+  document.getElementById('f_q').addEventListener('keydown',function(e){ if(e.key==='Enter') loadList(); });
+
+  function ubahStatus(key,status){
+    if(!confirm('Ubah status “'+key.nomor+'” menjadi '+status+'?')) return;
+    post('/api/peraturan/status',{status:status,keys:[key]}).then(function(j){ if(j&&j.ok){ loadList(); loadStats(); } else alert((j&&j.error)||'Gagal'); });
+  }
+  function hapus(key){
+    if(!confirm('Hapus seluruh unit peraturan “'+key.nomor+'”? Tindakan ini permanen.')) return;
+    post('/api/peraturan/delete',{keys:[key]}).then(function(j){ if(j&&j.ok){ loadList(); loadStats(); } else alert((j&&j.error)||'Gagal'); });
+  }
+
+  // ---- modal detail ----
+  var mbd=document.getElementById('mbd');
+  document.getElementById('mClose').addEventListener('click',function(){ mbd.classList.remove('show'); });
+  mbd.addEventListener('click',function(e){ if(e.target===mbd) mbd.classList.remove('show'); });
+  function lihat(key){
+    document.getElementById('mTitle').textContent=key.jenis+' '+key.nomor;
+    document.getElementById('mBody').innerHTML='<div class="muted">Memuat…</div>';
+    mbd.classList.add('show');
+    post('/api/peraturan/get',{nomor:key.nomor,jenis:key.jenis}).then(function(j){
+      if(!j||!j.ok){ document.getElementById('mBody').innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
+      var h='';
+      j.units.forEach(function(u){
+        var head = u.hierarchy || ((u.pasal?('Pasal '+u.pasal):'')+(u.ayat?(' ayat ('+u.ayat+')'):'')) || (u.lampiran?('Lampiran: '+u.lampiran):'Unit');
+        h+='<div class="unit"><div class="uh">'+esc(head)+'</div><div class="ui">'+esc(u.isi||'')+'</div></div>';
+      });
+      document.getElementById('mBody').innerHTML=h||'<div class="muted">Tidak ada unit.</div>';
+    });
+  }
+
+  loadStats(); loadList();
+})();
+</script>
+{% endblock %}
