@@ -310,6 +310,7 @@ _AREA_ROLES = {
     "common":     {"admin", "analis", "assessor", "viewer"},
     "account":    {"admin", "analis", "assessor", "viewer"},
     "users":      {"admin"},
+    "peraturan":  {"admin"},
 }
 
 
