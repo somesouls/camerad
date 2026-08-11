@@ -21,9 +21,18 @@ induk & lampiran berbagi source_id (memudahkan pengelolaan status per peraturan)
 Nama berkas SEBENARNYA adalah URL halaman peraturan di TKB intranet yang sudah
 disanitasi ('://'->'___', '/'->'_', '?'->'_'). `_url_dari_nama` merekonstruksi
 URL asli itu sehingga peraturan bisa dibuka kembali lewat tautannya (memuat id).
-Contoh:
-    https___tkb-djp_tkb_engine_peraturan_view_hasil.php_id=1b61...
- -> https://tkb-djp/tkb/engine/peraturan/view/hasil.php?id=1b61...
+Catatan: isi halaman diunduh dari endpoint render 'view/hasil.php', namun tautan
+publik yang dibuka pengguna adalah 'view.php' (tanpa segmen '/hasil'), jadi URL
+hasil rekonstruksi dinormalkan ke bentuk publik itu. Contoh:
+    https___tkb-djp_tkb_engine_peraturan_view_hasil.php_id=0845...
+ -> https://tkb-djp/tkb/engine/peraturan/view.php?id=0845...
+
+== Cakupan folder ==
+Seluruh isi folder ditelusuri REKURSIF (os.walk), jadi cukup arahkan ke folder
+induk (mis. .../aturan) untuk memproses semua subfolder sekaligus. Subfolder
+tingkat-1 (uu/pp/pmk/...) HANYA dipakai sebagai petunjuk jenis bila ada; berkas
+yang langsung berada di folder induk tetap diproses, dengan jenis dideteksi dari
+isi HTML.
 
 == Status & relasi peraturan ==
 Parser (peraturan_parser) membaca status terkini dari HTML (berlaku/diubah/
@@ -115,14 +124,16 @@ def _url_dari_nama(path):
     lampiran menunjuk ke halaman peraturan induknya. Kembalikan '' bila pola
     tak dikenali (mis. HTML tempelan manual tanpa nama-URL).
 
-        https___tkb-djp_tkb_engine_peraturan_view_hasil.php_id=1b61...
-     -> https://tkb-djp/tkb/engine/peraturan/view/hasil.php?id=1b61...
+    Endpoint render 'view/hasil.php' dinormalkan ke tautan publik 'view.php'
+    (tanpa '/hasil'):
+        https___tkb-djp_tkb_engine_peraturan_view_hasil.php_id=0845...
+     -> https://tkb-djp/tkb/engine/peraturan/view.php?id=0845...
     """
     name = os.path.splitext(os.path.basename(path))[0]
     if name.endswith("_lampiran"):
         name = name[: -len("_lampiran")]
     if "://" in name:                         # sudah berupa URL utuh
-        return name
+        return _normalkan_url(name)
     m = _RE_SCHEME.match(name)
     if not m:
         return ""
@@ -136,7 +147,12 @@ def _url_dari_nama(path):
     url = "%s://%s" % (scheme, path_part.replace("_", "/"))
     if query:
         url += "?" + query
-    return url
+    return _normalkan_url(url)
+
+
+def _normalkan_url(url):
+    """Samakan endpoint render TKB 'view/hasil.php' -> tautan publik 'view.php'."""
+    return url.replace("/view/hasil.php", "/view.php")
 
 
 def _iter_files(root):
