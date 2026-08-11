@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 """rag_routes.py — Menu RAG (Pilot) "Agent Kring Pajak".
 
-Satu kolom chat yang HANYA menjawab berdasarkan TIGA basis data internal:
+Satu kolom chat yang HANYA menjawab berdasarkan basis data internal:
   1. Training Phrase & Intent  (intentmap_db: Katalog Intent -> jawaban resmi
                                 'jawaban_cuplikan' + Peta Intent sebagai panduan)
   2. Percakapan AWE            (avaya_db: transkrip layanan Kring Pajak)
   3. Data Sosmed              (sosmed_db: pasangan Q&A + balasan resmi)
+  4. Peraturan               (peraturan_db: basis data peraturan perpajakan;
+                                pencarian hybrid FTS5 + semantik e5)
 
 Tidak memakai pengetahuan umum / web. Bila tidak ada konteks relevan ->
 kalimat fallback. LLM dipanggil via llm_client.chat (provider di .env).
@@ -36,6 +38,10 @@ try:
     import sosmed_db as sdb
 except Exception:            # pragma: no cover
     sdb = None
+try:
+    import peraturan_db as pdb
+except Exception:            # pragma: no cover
+    pdb = None
 
 
 # ===========================================================================
@@ -58,10 +64,13 @@ SYSTEM_PROMPT = (
     "TUGAS\n"
     "Jawab pertanyaan pengguna dengan MEMANFAATKAN \"KONTEKS INTERNAL\" di "
     "bawah. Konteks berisi jawaban resmi intent, cuplikan jawaban petugas "
-    "(Percakapan AWE), dan balasan resmi media sosial (Data Sosmed). Rangkai "
-    "jawaban yang jelas dan runut dari informasi yang relevan pada konteks - "
-    "kamu boleh menyarikan, menggabungkan, dan merapikan kalimat selama tidak "
-    "mengubah maksud atau menambah fakta baru.\n\n"
+    "(Percakapan AWE), balasan resmi media sosial (Data Sosmed), dan kutipan "
+    "peraturan perpajakan (Peraturan). Rangkai jawaban yang jelas dan runut "
+    "dari informasi yang relevan pada konteks - kamu boleh menyarikan, "
+    "menggabungkan, dan merapikan kalimat selama tidak mengubah maksud atau "
+    "menambah fakta baru. Bila menyampaikan ketentuan hukum, sebutkan dasar "
+    "peraturannya (mis. jenis, nomor, dan pasal) sesuai yang tertera pada "
+    "konteks Peraturan; jangan mengarang nomor atau pasal.\n\n"
     "SUMBER JAWABAN (WAJIB)\n"
     "Gunakan HANYA informasi dari konteks internal. DILARANG memakai "
     "pengetahuan umum, sumber eksternal/web, atau mengarang fakta, angka, "
@@ -316,18 +325,63 @@ def _ctx_sosmed(q, limit=3):
     return "\n\n".join(blocks), sources
 
 
+# --------------------------------------------------------------------------
+# Sumber 4: Peraturan (basis data peraturan perpajakan)
+# --------------------------------------------------------------------------
+def _ctx_peraturan(q, limit=4):
+    if pdb is None:
+        return "", []
+    try:
+        # Pencarian hybrid (FTS5 + semantik e5); hanya peraturan berstatus 'berlaku'.
+        rows = pdb.search(q, limit, ("berlaku",))
+    except Exception:
+        rows = []
+    blocks, sources = [], []
+    for r in rows:
+        try:
+            d = r if isinstance(r, dict) else dict(r)
+        except Exception:
+            continue
+        isi = str(d.get("isi") or "").strip()
+        if not isi:
+            continue
+        jenis = str(d.get("jenis_peraturan") or "").strip()
+        nomor = str(d.get("nomor") or "").strip()
+        tahun = str(d.get("tahun") or "").strip()
+        pasal = str(d.get("pasal") or "").strip()
+        judul = str(d.get("judul") or "").strip()
+        hierarchy = str(d.get("hierarchy") or "").strip()
+        reference = str(d.get("reference") or "").strip()
+        tajuk = " ".join(x for x in [jenis, nomor,
+                                     ("Tahun " + tahun) if tahun else ""] if x).strip()
+        head = tajuk or judul or "Peraturan"
+        if pasal:
+            head += " - Pasal " + pasal
+        piece = "Peraturan: " + head
+        if judul and judul.lower() not in head.lower():
+            piece += "\nTentang: " + _clip(judul, 200)
+        piece += "\nIsi: " + _clip(isi, 700)
+        blocks.append(piece)
+        sources.append({"sumber": "Peraturan", "judul": head,
+                        "ref": (reference or hierarchy)})
+    return "\n\n".join(blocks), sources
+
+
 def _build_context(q, max_chars=6500):
     parts = []
     t1, s1 = _ctx_dialogflow(q)
     t2, s2 = _ctx_awe(q)
     t3, s3 = _ctx_sosmed(q)
+    t4, s4 = _ctx_peraturan(q)
     if t1 and t1.strip():
         parts.append("### Sumber 1 - Training Phrase & Intent\n" + t1)
     if t2 and t2.strip():
         parts.append("### Sumber 2 - Percakapan AWE\n" + t2)
     if t3 and t3.strip():
         parts.append("### Sumber 3 - Data Sosmed\n" + t3)
-    sources = s1 + s2 + s3
+    if t4 and t4.strip():
+        parts.append("### Sumber 4 - Peraturan\n" + t4)
+    sources = s1 + s2 + s3 + s4
     body = "\n\n".join(parts)
     if max_chars and len(body) > max_chars:
         body = body[:max_chars].rstrip() + "\u2026"
