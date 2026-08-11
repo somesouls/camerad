@@ -18,14 +18,14 @@ google-auth>=2.30.0
 # Analisis lokal (SBERT / reranker / NLI / QA)
 transformers>=4.45.0
 accelerate>=0.34.0
-sentence-transformers
+sentence-transformers>=3.0
 sentencepiece
 rapidfuzz
 
 # Data
 openpyxl>=3.1.5
 pandas
-numpy
+numpy>=1.26
 
 # PyTorch: instal manual sesuai mesin Anda!
 # PENTING: JANGAN pakai 'torch' polos di server ber-GPU. pip default menarik
@@ -52,12 +52,21 @@ numpy
 # Templating base.html (Jinja2)
 jinja2>=3.1.0
 # Parser Dokumen PDF, Word, PPT & OCR (Tambahan v11)
-pypdf
-PyMuPDF
+pypdf>=4.0
+PyMuPDF>=1.24
 Pillow
-pytesseract
+pytesseract>=0.3.10
 python-docx
 python-pptx
+
+# --- Menu Peraturan (migrasi jakai): parser HTML peraturan + OCR batch + semantik e5 ---
+# Catatan: sentence-transformers, numpy, PyMuPDF, pypdf, pytesseract sudah tercantum di atas.
+# Pencarian hybrid FTS5 (bawaan sqlite) + embedding e5 (sentence-transformers);
+# vektor disimpan sebagai BLOB & cosine dihitung via numpy (tanpa sqlite-vec).
+beautifulsoup4>=4.12
+lxml>=5.0
+pdf2image>=1.17          # butuh Poppler terpasang di sistem (pdftoppm) untuk OCR PDF batch
+
 # --- PII Fase B (OPSIONAL: deteksi NAMA & LOKASI via NER Presidio) ---
 # Default engine tetap 'regex' (Fase A). Aktifkan Fase B dengan env: PII_ENGINE=presidio
 # Instal manual bila diperlukan (butuh koneksi internet):
