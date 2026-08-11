@@ -25,6 +25,15 @@ Contoh:
     https___tkb-djp_tkb_engine_peraturan_view_hasil.php_id=1b61...
  -> https://tkb-djp/tkb/engine/peraturan/view/hasil.php?id=1b61...
 
+== Status & relasi peraturan ==
+Parser (peraturan_parser) membaca status terkini dari HTML (berlaku/diubah/
+dicabut) berikut daftar peraturan terkait pada kotak legenda_status (pengubah/
+pencabut, peraturan TERBARU) dan legenda_history (peraturan SEBELUMNYA). Saat
+impor folder, tautan relatif di daftar itu (view.php?id=<hash>) di-resolve
+menjadi tautan absolut memakai URL asli peraturan induk, lalu disimpan sebagai
+JSON pada kolom status_terkait / history_terkait. Dengan demikian menjalankan
+ulang proses folder sekaligus MEMPERBAIKI status & melengkapi relasinya.
+
 == Konvensi subfolder (opsional, sebagai petunjuk jenis) ==
     aturan/uu/  -> UU   aturan/pp/  -> PP   aturan/pmk/ -> PMK
     aturan/perpu/ perpres/ perdjp(->PER)/ kmk/ kep/ se/
@@ -150,9 +159,14 @@ def _uniq_id(base, dipakai):
 
 
 def _baris_lampiran(meta, teks, nama, rel, sid, url, dipakai):
-    """Baris peraturan_unit untuk sebuah LAMPIRAN, tertaut ke peraturan induk."""
+    """Baris peraturan_unit untuk sebuah LAMPIRAN, tertaut ke peraturan induk.
+
+    Lampiran mewarisi status + relasi (status_terkait/history_terkait) dari
+    peraturan induknya, dengan tautan relasi di-resolve terhadap URL induk.
+    """
     kekuatan = getattr(tkb_djp, "_KEKUATAN", {}).get(meta.jenis_peraturan, 50)
     rid = _uniq_id("%s-lampiran" % meta.base_id, dipakai)
+    base_url = url or meta.source_url
     return {
         "id": rid,
         "jenis_peraturan": meta.jenis_peraturan,
@@ -164,13 +178,15 @@ def _baris_lampiran(meta, teks, nama, rel, sid, url, dipakai):
         "lampiran": nama,
         "isi": (teks or "")[:20000],
         "hierarchy": ("%s %s > Lampiran" % (meta.jenis_peraturan, meta.nomor)).strip(),
-        "status": "berlaku",
+        "status": getattr(meta, "status", "berlaku") or "berlaku",
         "valid_from": meta.valid_from,
         "kekuatan_hukum": kekuatan,
         "can_cite": 1,
         "source_url": url or meta.source_url,
         "source_file": rel,
         "source_id": sid,
+        "status_terkait": tkb_djp.related_json(getattr(meta, "status_terkait", []), base_url),
+        "history_terkait": tkb_djp.related_json(getattr(meta, "history_terkait", []), base_url),
     }
 
 
@@ -269,18 +285,28 @@ def proses(root, per_ayat=False, do_ocr=False, ingest=True, conn=None):
                                status="kosong", catatan="tak ada pasal terdeteksi")
                     log.append(row)
                     continue
+                st_json = tkb_djp.related_json(meta.status_terkait, url or meta.source_url)
+                hs_json = tkb_djp.related_json(meta.history_terkait, url or meta.source_url)
                 for r in rows:
                     r["id"] = _uniq_id(r.get("id") or (meta.base_id + "-x"), ids_pakai)
                     r["source_file"] = rel
                     r["source_id"] = sid
                     if url:
                         r["source_url"] = url
+                    # perbaiki status dari HTML + lengkapi relasi (tautan absolut)
+                    r["status"] = getattr(meta, "status", "berlaku") or "berlaku"
+                    r["status_terkait"] = st_json
+                    r["history_terkait"] = hs_json
                     if ingest:
                         peraturan_db.upsert_peraturan(r, conn=conn)
                 ringkas["peraturan"] += 1
                 ringkas["unit"] += len(rows)
+                catatan_status = "status: %s" % (getattr(meta, "status", "berlaku") or "berlaku")
+                n_rel = len(meta.status_terkait or []) + len(meta.history_terkait or [])
+                if n_rel:
+                    catatan_status += "; relasi: %d" % n_rel
                 row.update(jenis=meta.jenis_peraturan, nomor=meta.nomor,
-                           n_unit=len(rows), status="ok")
+                           n_unit=len(rows), status="ok", catatan=catatan_status)
                 log.append(row)
                 continue
 
