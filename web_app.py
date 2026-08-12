@@ -181,6 +181,13 @@ sosmed_ingest.register(app)
 import rag_routes
 rag_routes.register(app)
 
+# --- Menu Evaluasi RAG (poin 2): kumpulkan sampel pertanyaan asli (livechat +
+#     chatbot), jalankan uji keandalan (LLM-as-judge + hold-out AWE), dan
+#     dashboard metrik keandalan/halusinasi + validasi manusia. Khusus admin.
+#     Didaftarkan setelah rag_routes karena berbagi mesin & profil RAG. ---
+import eval_routes
+eval_routes.register(app)
+
 # --- Menu Peraturan (sumber resource #5): kelola basis data peraturan perpajakan
 #     (migrasi dari repositori jakai). Dipakai juga sebagai sumber grounding RAG. ---
 import peraturan_routes
