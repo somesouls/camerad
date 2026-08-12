@@ -139,6 +139,12 @@ pipeline_routes.register(app)
 #     WAJIB diimpor SETELAH pipeline_routes selesai dimuat. ---
 import step9_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Perbaikan Step 10 (Laporan LM & Pembaruan): monkey-patch pipeline_routes.step10_build
+#     agar memakai format baru (NAMA PENYUSUN + TGL Penyusunan) & menggabungkan
+#     baris TINDAK LANJUT dari Fallback (Step 6) + MKTA (Step 9).
+#     WAJIB diimpor SETELAH pipeline_routes selesai dimuat. ---
+import step10_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe_routes
 awe_routes.register(
     app,
