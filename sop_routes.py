@@ -17,9 +17,14 @@ Endpoint:
 
 Grup menu memakai area 'peraturan' (lihat app_core._route_area) sehingga hak
 akses admin yang sama berlaku; tak perlu peran baru.
+
+Catatan: setiap handler WAJIB menganotasi parameter sebagai `request: Request`.
+Tanpa anotasi itu, FastAPI (add_api_route) menganggap `request` sebagai query
+parameter wajib sehingga memunculkan error {\"loc\":[\"query\",\"request\"]}.
 """
 import json
 
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -33,7 +38,7 @@ except Exception:
     psem = None
 
 
-async def _body(request):
+async def _body(request: Request):
     try:
         raw = await request.body()
         if not raw:
@@ -48,7 +53,7 @@ async def _body(request):
 
 
 # ------------------------------------------------------------------- halaman
-async def page_sop(request):
+async def page_sop(request: Request):
     extra = {
         "embed_aktif": bool(psem.is_available()) if psem else False,
         "model_id": (psem.model_id() if psem else "") or "",
@@ -57,7 +62,7 @@ async def page_sop(request):
 
 
 # ----------------------------------------------------------------------- API
-async def api_list(request):
+async def api_list(request: Request):
     try:
         d = await _body(request)
         q = (d.get("q") or "").strip()
@@ -70,7 +75,7 @@ async def api_list(request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_get(request):
+async def api_get(request: Request):
     try:
         d = await _body(request)
         did = (d.get("dokumen_id") or "").strip()
@@ -82,7 +87,7 @@ async def api_get(request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_save(request):
+async def api_save(request: Request):
     try:
         d = await _body(request)
         if not d.get("id"):
@@ -93,7 +98,7 @@ async def api_save(request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_delete(request):
+async def api_delete(request: Request):
     try:
         d = await _body(request)
         did = (d.get("dokumen_id") or "").strip()
@@ -109,7 +114,7 @@ async def api_delete(request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_batch(request):
+async def api_batch(request: Request):
     try:
         d = await _body(request)
         root = (d.get("root") or "").strip()
@@ -126,14 +131,14 @@ async def api_batch(request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_batch_progress(request):
+async def api_batch_progress(request: Request):
     try:
         return JSONResponse({"ok": True, "progress": sbatch.get_progress()})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_audit(request):
+async def api_audit(request: Request):
     try:
         d = await _body(request)
         root = (d.get("root") or "").strip()
@@ -148,7 +153,7 @@ async def api_audit(request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_reindex(request):
+async def api_reindex(request: Request):
     try:
         res = await run_in_threadpool(sdb.reindex)
         return JSONResponse(res)
@@ -156,7 +161,7 @@ async def api_reindex(request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_search(request):
+async def api_search(request: Request):
     try:
         d = await _body(request)
         q = (d.get("q") or d.get("query") or "").strip()
@@ -169,7 +174,7 @@ async def api_search(request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_stats(request):
+async def api_stats(request: Request):
     try:
         res = await run_in_threadpool(sdb.stats)
         return JSONResponse({"ok": True, "stats": res})
@@ -177,7 +182,7 @@ async def api_stats(request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
-async def api_impor_log(request):
+async def api_impor_log(request: Request):
     try:
         status = request.query_params.get("status", "")
         limit = int(request.query_params.get("limit", "800"))
