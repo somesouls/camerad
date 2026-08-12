@@ -145,6 +145,13 @@ import step9_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     WAJIB diimpor SETELAH pipeline_routes selesai dimuat. ---
 import step10_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Poin #1 arsitektur RAG final — "successor-tracing" peraturan:
+#     monkey-patch rag_engine._ctx_peraturan agar bila kandidat termirip
+#     berstatus dicabut/diubah, mesin menelusuri peraturan pengganti yang
+#     berlaku dan menyisipkan catatan status hukum ke konteks. Patch mengimpor
+#     rag_engine sendiri & memperbarui _DISPATCH, jadi aman diimpor di sini. ---
+import rag_successor_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe_routes
 awe_routes.register(
     app,
