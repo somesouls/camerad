@@ -121,6 +121,11 @@ def _route_action(method, path):
 def _route_area(path):
     if path == "/profil" or path.startswith("/api/profil"):
         return "account"
+    # Playground RAG (uji sumber/prompt) + kelola profil = khusus admin.
+    # Ditaruh sebelum aturan /api/rag generik agar tidak jatuh ke 'common'.
+    if (path == "/rag-lab" or path.startswith("/api/rag/lab")
+            or path.startswith("/api/rag/profile")):
+        return "peraturan"
     if path == "/rag" or path.startswith("/api/rag"):
         return "common"
     if path == "/peraturan" or path.startswith("/api/peraturan"):
