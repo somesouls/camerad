@@ -1,24 +1,34 @@
 # -*- coding: utf-8 -*-
-"""step9_patch.py — Perbaikan Step 9 (step9_save) pipeline Analisis Dialogflow.
+"""step9_patch.py — Perbaikan Step 9 (step9_save + step9_load) pipeline Analisis Dialogflow.
 
-MASALAH (kumat):
+MASALAH A (SIMPAN — "Data edit tidak valid"):
 - Frontend (templates/tools.html -> saveStep9) mengirim `edits` sebagai OBJEK
   map {"<row>": "<Intent Seharusnya>"} berisi HANYA baris yang diedit.
 - Backend lama (pipeline_routes.step9_save) menolak apa pun yang bukan LIST
   sehingga SELALU melempar "Data edit tidak valid.".
-- Akibatnya sheet "Analisis MKTA" tak pernah ditulis, PUTUSAN/ALASAN dari Step 8
-  tak terbawa, dan laporan Step 10 rusak.
+
+MASALAH B (TAMPIL — tabel Step 9 kosong):
+- Frontend renderStep9() menyaring baris dengan `r.qa < ambang` (default 0.5)
+  dan membaca field `pertanyaan`, `seharusnya`, `kategori`, `df`, `nli`,
+  `prioritas`, `kandidat`.
+- Backend lama step9_load justru mengembalikan `user`, `skor`, `manual` (nama
+  beda). Akibatnya `r.qa` selalu undefined -> SEMUA baris tersaring keluar ->
+  tabel tampak kosong walau data sebenarnya termuat. Restart tak menolong
+  karena ini murni ketidakcocokan nama field.
 
 SOLUSI:
-- Ganti step9_save agar menerima DUA format (objek map & list objek),
-  memetakan nilai string -> kolom "Intent Seharusnya" (manual),
-  tetap membawa PUTUSAN/ALASAN dari sheet "QA Conf MKTA" (hasil Step 8),
-  serta mempertahankan koreksi lama utk baris yang tidak diedit.
+- step9_save: terima DUA format (objek map & list objek), petakan string ->
+  "Intent Seharusnya" (manual), tetap bawa PUTUSAN/ALASAN dari "QA Conf MKTA"
+  (hasil Step 8), pertahankan koreksi lama utk baris yg tak diedit.
+- step9_load: kembalikan field dengan nama yang DIBACA frontend
+  (qa, pertanyaan, seharusnya, df, nli, kategori, prioritas, kandidat) sambil
+  tetap menyertakan nama lama (user/skor/manual) utk kompatibilitas.
 
 PEMASANGAN: cukup `import step9_patch` SETELAH pipeline_routes selesai diimpor
 (lihat web_app.py). dispatch() memakai late-binding global sehingga otomatis
 memakai versi ini. File pipeline_routes.py TIDAK diubah.
 """
+import os
 import json
 import pipeline_routes as pr
 
@@ -147,7 +157,104 @@ def step9_save(cfg, ctx):
     return {"step": 9, "artifact": data, "baris": baris}
 
 
+def step9_load(cfg, ctx):
+    up = ctx.file("xlsx_file")
+    if up is not None:
+        b = up[0]
+        try:
+            with open(os.path.join(pr.run_dir(cfg, ctx.run), "step9_source.xlsx"), "wb") as f:
+                f.write(b)
+        except Exception:
+            pass
+    else:
+        b = pr.step9_base_bytes(cfg, ctx)
+    try:
+        threshold = float(ctx.P("threshold", "0.6"))
+    except Exception:
+        threshold = 0.6
+    wb = pr._wb_from_bytes(b)
+    if "QA Conf MKTA" not in wb.sheetnames:
+        raise Exception('Sheet "QA Conf MKTA" tidak ada.')
+    qa = pr.read_sheet(wb["QA Conf MKTA"])
+    H = qa["headers"]
+    col_id = pr._find_header(H, ["ID trace", "ID Trace", "IDtrace"])
+    col_user = pr._find_header(H, ["user phrase", "User Phrase", "Pertanyaan User"])
+    col_bot = pr._find_header(H, ["bot response", "Bot Response", "Jawaban Bot"])
+    col_intent = pr._find_header(H, ["intent name", "Intent Name", "Intent"])
+    col_score = pr._find_header(H, ["Skor Pemrosesan Bahasa"])
+    col_put = pr._find_header(H, ["PUTUSAN"])
+    col_alasan = pr._find_header(H, ["ALASAN", "Alasan"])
+    # Kolom tambahan (best-effort; mungkin tak ada di sheet, biarkan kosong).
+    col_df = pr._find_header(H, ["Skor Dialogflow", "Skor DF", "Skor Deteksi", "score", "Score"])
+    col_nli = pr._find_header(H, ["Skor NLI", "NLI", "nli"])
+    col_prio = pr._find_header(H, ["Prioritas", "Priority"])
+    col_kat = pr._find_header(H, ["Kategori Mesin", "Kategori", "Category"])
+    col_kand = pr._find_header(H, ["Kandidat", "Terdekat", "Intent Terdekat", "Kandidat Intent", "Intent Kandidat"])
+    col_llm_qa = pr._find_header(H, ["Intent Seharusnya (LLM)", "INTENT SEHARUSNYA", "Intent Seharusnya LLM"])
+    # Koreksi lama dari sheet Analisis MKTA (bila sudah pernah disimpan).
+    prior = {}
+    if "Analisis MKTA" in wb.sheetnames:
+        am = pr.read_sheet(wb["Analisis MKTA"])
+        AH = am["headers"]
+        p_id = pr._find_header(AH, ["ID trace", "ID Trace"])
+        p_user = pr._find_header(AH, ["user phrase", "User Phrase", "Pertanyaan User"])
+        p_llm = pr._find_header(AH, ["Intent Seharusnya (LLM)", "INTENT SEHARUSNYA"])
+        p_man = pr._find_header(AH, ["Intent Seharusnya", "Intent Seharusnya (Manual)"])
+        p_cat = pr._find_header(AH, ["Catatan", "CATATAN"])
+        for rn in sorted(am["rows"].keys()):
+            if rn == 1:
+                continue
+            cells = am["rows"][rn]
+            key = pr._sv(cells, p_id) + "||" + pr._sv(cells, p_user)
+            prior[key] = {
+                "llm": pr._sv(cells, p_llm),
+                "manual": pr._sv(cells, p_man),
+                "catatan": pr._sv(cells, p_cat),
+            }
+    rows = []
+    for rn in sorted(qa["rows"].keys()):
+        if rn == 1:
+            continue
+        cells = qa["rows"][rn]
+        sc = pr._sv(cells, col_score)
+        if not (pr._is_numeric(sc) and float(sc) < threshold):
+            continue
+        _id = pr._sv(cells, col_id)
+        user = pr._sv(cells, col_user)
+        key = _id + "||" + user
+        old = prior.get(key, {})
+        seharusnya = old.get("manual", "") or old.get("llm", "")
+        if (not seharusnya) and col_llm_qa:
+            seharusnya = pr._sv(cells, col_llm_qa)
+        rows.append({
+            "row": rn,
+            "id_trace": _id,
+            # nama field yang DIBACA frontend renderStep9()
+            "pertanyaan": user,
+            "qa": sc,
+            "df": pr._sv(cells, col_df),
+            "nli": pr._sv(cells, col_nli),
+            "prioritas": pr._sv(cells, col_prio),
+            "kategori": pr._sv(cells, col_kat),
+            "kandidat": pr._sv(cells, col_kand),
+            "seharusnya": seharusnya,
+            # nama lama (kompatibilitas mundur)
+            "user": user,
+            "skor": sc,
+            "manual": old.get("manual", ""),
+            # umum
+            "bot": pr._sv(cells, col_bot),
+            "intent": pr._sv(cells, col_intent),
+            "putusan": pr._sv(cells, col_put),
+            "alasan": pr._sv(cells, col_alasan),
+            "llm": old.get("llm", ""),
+            "catatan": old.get("catatan", ""),
+        })
+    return {"step": 9, "rows": rows, "total": len(rows)}
+
+
 # Terapkan monkey-patch: dispatch() di pipeline_routes memakai late-binding
-# terhadap global `step9_save`, jadi mengganti atribut modul sudah cukup.
+# terhadap global `step9_save`/`step9_load`, jadi mengganti atribut modul cukup.
 pr.step9_save = step9_save
-print("[step9_patch] step9_save diperbaiki (terima objek map + bawa data Step 8).", flush=True)
+pr.step9_load = step9_load
+print("[step9_patch] step9_save + step9_load diperbaiki (objek map, bawa data Step 8, samakan nama field frontend).", flush=True)
