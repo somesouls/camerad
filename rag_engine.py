@@ -1,0 +1,562 @@
+# -*- coding: utf-8 -*-
+"""rag_engine.py — Inti mesin RAG (pipeline 5 tahap + loop verifikasi).
+
+Tahap:
+  [0] Guardrail + PII masking (pii_mask)
+  [1] Router (rag_router) -> urutan prioritas sumber sesuai domain
+  [2] Retrieval per sumber (FTS5 + semantik e5 bila tersedia)
+  [3] Verifikasi kecukupan (LLM) -> eskalasi ambil Peraturan bila perlu (loop)
+  [4] Sintesis jawaban grounded (llm_client.chat, persona dari profil)
+  [5] Post-check -> fallback bila tak ada konteks
+
+Profil (persona/prompt/sumber) diambil dari rag_config_db. Dipakai oleh
+rag_routes.py untuk endpoint chat (produksi) dan playground admin (/rag-lab).
+"""
+import re
+import json
+
+import llm_client
+import pii_mask
+import rag_router
+import rag_config_db as rcfg
+
+try:
+    import intentmap_db as imdb
+except Exception:            # pragma: no cover
+    imdb = None
+try:
+    import avaya_db as avdb
+except Exception:            # pragma: no cover
+    avdb = None
+try:
+    import sosmed_db as sdb
+except Exception:            # pragma: no cover
+    sdb = None
+try:
+    import peraturan_db as pdb
+except Exception:            # pragma: no cover
+    pdb = None
+try:
+    import sop_db as sopdb
+except Exception:            # pragma: no cover
+    sopdb = None
+
+MAKS_KONTEKS = 6500
+
+_STOP = set("""yang dan di ke dari untuk pada dengan atau ini itu ada apa
+bagaimana gimana kenapa mengapa kah min admin kak pak bu mohon tolong ya nya
+saya aku kami kita mau ingin bisa tidak gak ga nggak sudah belum juga kalau
+jika saja lagi kok dong sih halo hai cara adalah akan tentang the a an is to of
+for kalo klo utk yg gmn dll dsb""".split())
+
+
+def _tokens(text, k=12):
+    if not text:
+        return []
+    out = []
+    for w in re.findall(r"[a-z0-9]{3,}", str(text).lower()):
+        if w in _STOP or w in out:
+            continue
+        out.append(w)
+        if len(out) >= k:
+            break
+    return out
+
+
+def _clip(s, n=600):
+    s = (s or "").strip()
+    return (s[:n].rstrip() + "\u2026") if len(s) > n else s
+
+
+def _json_list(v):
+    try:
+        x = json.loads(v) if v else []
+        return x if isinstance(x, list) else []
+    except Exception:
+        return []
+
+
+# ==========================================================================
+# Tahap 2 — Retrieval per sumber (identik dengan pilot; dipindah ke engine).
+# ==========================================================================
+def _ctx_dialogflow(q):
+    if imdb is None:
+        return "", []
+    try:
+        c = imdb.init_db(imdb.connect())
+    except Exception:
+        return "", []
+    blocks, sources = [], []
+    toks = _tokens(q, k=12)
+    try:
+        try:
+            imdb.init_catalog(c)
+        except Exception:
+            pass
+        cat_rows = []
+        if toks:
+            try:
+                cat_rows = c.execute(
+                    "SELECT intent, deskripsi_maksud, deskripsi_cakupan, "
+                    "jawaban_cuplikan, training_phrase_contoh FROM intentmap_catalog "
+                    "WHERE COALESCE(sumber_status,'aktif')!='hilang' "
+                    "AND COALESCE(soft_deleted,0)=0"
+                ).fetchall()
+            except Exception:
+                cat_rows = []
+        scored = []
+        for r in cat_rows:
+            d = dict(r)
+            tps = _json_list(d.get("training_phrase_contoh"))
+            iname = str(d.get("intent") or "")
+            hay = " ".join([
+                iname, str(d.get("deskripsi_maksud") or ""),
+                str(d.get("deskripsi_cakupan") or ""),
+                str(d.get("jawaban_cuplikan") or ""),
+                " ".join(str(x) for x in tps),
+            ]).lower()
+            score = sum(hay.count(t) for t in toks)
+            score += 2 * sum(1 for t in toks if t in iname.lower())
+            if score > 0:
+                scored.append((score, d))
+        scored.sort(key=lambda x: -x[0])
+        for score, d in scored[:4]:
+            intent = str(d.get("intent") or "")
+            ans = (d.get("jawaban_cuplikan") or "").strip()
+            desc = (d.get("deskripsi_cakupan") or d.get("deskripsi_maksud") or "").strip()
+            piece = "Intent: " + intent
+            if ans:
+                piece += "\nJawaban resmi: " + _clip(ans, 700)
+            elif desc:
+                piece += "\nCakupan/keterangan: " + _clip(desc, 500)
+            else:
+                continue
+            blocks.append(piece)
+            sources.append({"sumber": "Training Phrase & Intent", "judul": intent, "ref": ""})
+        try:
+            m = imdb.match(c, q, limit=3) or []
+        except Exception:
+            m = []
+        if m:
+            try:
+                t_pol = imdb.build_context_text(m)
+            except Exception:
+                t_pol = ""
+            if t_pol and t_pol.strip():
+                blocks.append(t_pol)
+                for e in m:
+                    nm = e.get("intent") if isinstance(e, dict) else None
+                    if nm and not any(s["judul"] == nm for s in sources):
+                        sources.append({"sumber": "Training Phrase & Intent", "judul": nm, "ref": ""})
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+    return "\n\n".join(blocks), sources
+
+
+def _ctx_awe(q, limit=3):
+    if avdb is None:
+        return "", []
+    toks = _tokens(q, k=10)
+    if not toks:
+        return "", []
+    try:
+        c = avdb.init_db(avdb.connect())
+    except Exception:
+        return "", []
+    try:
+        cond = ("(COALESCE(jenis_layanan,'') LIKE ? OR COALESCE(mapped_intent,'') "
+                "LIKE ? OR COALESCE(topik,'') LIKE ? OR COALESCE(transkrip_json,'') LIKE ?)")
+        where = " OR ".join([cond] * len(toks))
+        params = []
+        for t in toks:
+            params += ["%" + t + "%"] * 4
+        sql = ("SELECT sid,tanggal,customer,agent_name,mapped_intent,jenis_layanan,"
+               "topik,transkrip_json FROM awe_conversations "
+               "WHERE transkrip_json IS NOT NULL AND (" + where + ") LIMIT 400")
+        rows = c.execute(sql, params).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+    scored = []
+    for r in rows:
+        d = dict(r)
+        hay = " ".join([str(d.get("jenis_layanan") or ""), str(d.get("mapped_intent") or ""),
+                        str(d.get("topik") or ""), str(d.get("transkrip_json") or "")]).lower()
+        score = sum(hay.count(t) for t in toks)
+        if score > 0:
+            scored.append((score, d))
+    scored.sort(key=lambda x: -x[0])
+    blocks, sources = [], []
+    for score, d in scored[:limit]:
+        try:
+            tx = json.loads(d.get("transkrip_json") or "[]")
+        except Exception:
+            tx = []
+        cust, agent = [], []
+        for seg in tx:
+            if not isinstance(seg, dict):
+                continue
+            role = seg.get("role", "")
+            text = seg.get("text", "")
+            if not text:
+                continue
+            try:
+                is_agent = avdb._is_agent(role, text)
+            except Exception:
+                is_agent = False
+            (agent if is_agent else cust).append(str(text))
+        if not agent:
+            continue
+        label = d.get("jenis_layanan") or d.get("mapped_intent") or d.get("topik") or "Percakapan AWE"
+        blocks.append("Topik: %s\nPertanyaan pelanggan: %s\nJawaban petugas: %s"
+                      % (label, _clip(" ".join(cust), 300) or "-", _clip(" ".join(agent), 500)))
+        sources.append({"sumber": "Percakapan AWE", "judul": str(label),
+                        "ref": ("SID " + str(d.get("sid") or "")).strip()})
+    return "\n\n".join(blocks), sources
+
+
+def _ctx_sosmed(q, limit=3):
+    if sdb is None:
+        return "", []
+    toks = _tokens(q, k=10)
+    if not toks:
+        return "", []
+    try:
+        c = sdb.init_db(sdb.connect())
+    except Exception:
+        return "", []
+    try:
+        fp = sdb.faq_pairs(c, only_answered=True, limit=2000)
+        pairs = fp.get("pairs") or []
+    except Exception:
+        pairs = []
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+    scored = []
+    for p in pairs:
+        jawaban = (p.get("jawaban_draf") or "").strip()
+        if not jawaban:
+            continue
+        hay = ((p.get("pertanyaan") or "") + " " + str(p.get("topik") or "")).lower()
+        score = sum(hay.count(t) for t in toks)
+        if score > 0:
+            scored.append((score, p))
+    scored.sort(key=lambda x: -x[0])
+    blocks, sources = [], []
+    for score, p in scored[:limit]:
+        label = p.get("topik") or "Data Sosmed"
+        blocks.append("Topik: %s\nPertanyaan: %s\nJawaban resmi: %s"
+                      % (label, _clip(p.get("pertanyaan"), 300), _clip(p.get("jawaban_draf"), 500)))
+        sources.append({"sumber": "Data Sosmed", "judul": str(label),
+                        "ref": str(p.get("platform") or "").upper()})
+    return "\n\n".join(blocks), sources
+
+
+def _ctx_peraturan(q, limit=4):
+    if pdb is None:
+        return "", []
+    try:
+        rows = pdb.search(q, limit, ("berlaku",))
+    except Exception:
+        rows = []
+    blocks, sources = [], []
+    for r in rows:
+        try:
+            d = r if isinstance(r, dict) else dict(r)
+        except Exception:
+            continue
+        isi = str(d.get("isi") or "").strip()
+        if not isi:
+            continue
+        jenis = str(d.get("jenis_peraturan") or "").strip()
+        nomor = str(d.get("nomor") or "").strip()
+        tahun = str(d.get("tahun") or "").strip()
+        pasal = str(d.get("pasal") or "").strip()
+        judul = str(d.get("judul") or "").strip()
+        hierarchy = str(d.get("hierarchy") or "").strip()
+        reference = str(d.get("reference") or "").strip()
+        tajuk = " ".join(x for x in [jenis, nomor,
+                                     ("Tahun " + tahun) if tahun else ""] if x).strip()
+        head = tajuk or judul or "Peraturan"
+        if pasal:
+            head += " - Pasal " + pasal
+        piece = "Peraturan: " + head
+        if judul and judul.lower() not in head.lower():
+            piece += "\nTentang: " + _clip(judul, 200)
+        piece += "\nIsi: " + _clip(isi, 700)
+        blocks.append(piece)
+        sources.append({"sumber": "Peraturan", "judul": head,
+                        "ref": (reference or hierarchy)})
+    return "\n\n".join(blocks), sources
+
+
+def _ctx_sop(q, limit=4):
+    if sopdb is None:
+        return "", []
+    try:
+        rows = sopdb.search(q, limit, ("aktif",))
+    except Exception:
+        rows = []
+    blocks, sources = [], []
+    for r in rows:
+        try:
+            d = r if isinstance(r, dict) else dict(r)
+        except Exception:
+            continue
+        isi = str(d.get("isi") or "").strip()
+        if not isi:
+            continue
+        judul = str(d.get("judul") or "").strip()
+        kategori = str(d.get("kategori") or "").strip()
+        bagian = str(d.get("bagian") or "").strip()
+        head = judul or "SOP"
+        if kategori:
+            head = "%s (%s)" % (head, kategori)
+        piece = "Dokumen: " + head
+        if bagian:
+            piece += "\nBagian: " + _clip(bagian, 160)
+        piece += "\nIsi: " + _clip(isi, 700)
+        blocks.append(piece)
+        sources.append({"sumber": "SOP & Proses Bisnis", "judul": head,
+                        "ref": str(d.get("source_file") or "")})
+    return "\n\n".join(blocks), sources
+
+
+_DISPATCH = {
+    "intent": _ctx_dialogflow,
+    "awe": _ctx_awe,
+    "sosmed": _ctx_sosmed,
+    "peraturan": _ctx_peraturan,
+    "sop": _ctx_sop,
+}
+
+
+def _retrieve_one(key, q):
+    fn = _DISPATCH.get(key)
+    if not fn:
+        return "", []
+    try:
+        return fn(q)
+    except Exception:
+        return "", []
+
+
+# ==========================================================================
+# Sumber efektif, perakitan konteks, verifikasi, render prompt.
+# ==========================================================================
+def effective_sources(profile, override=None):
+    """Tentukan sumber yang boleh dipakai.
+
+    - override (dari playground): daftar centang admin -> dipakai apa adanya.
+    - kalau tidak ada override: pakai chip @sumber di prompt bila ada,
+      selain itu daftar 'sumber' pada profil.
+    """
+    valid = list(rcfg.SUMBER_VALID)
+    if override is not None:
+        base = [s for s in override if s in valid]
+    else:
+        chips = rcfg.chips_in_prompt(profile.get("system_prompt"))
+        base = [s for s in (chips or profile.get("sumber") or []) if s in valid]
+    return base or valid
+
+
+def _assemble(keys, cache, q):
+    parts, sources, n = [], [], 0
+    for key in keys:
+        if key not in cache:
+            cache[key] = _retrieve_one(key, q)
+        t, s = cache[key]
+        if t and t.strip():
+            n += 1
+            parts.append("### Sumber %d - %s\n%s" % (n, rcfg.SUMBER_LABEL.get(key, key), t))
+            sources.extend(s)
+    body = "\n\n".join(parts)
+    if MAKS_KONTEKS and len(body) > MAKS_KONTEKS:
+        body = body[:MAKS_KONTEKS].rstrip() + "\u2026"
+    return body, sources
+
+
+def _dedup_sources(sources):
+    seen, out = set(), []
+    for s in sources or []:
+        key = (s.get("sumber", ""), s.get("judul", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
+def _format_sumber(sources):
+    lines = []
+    for s in _dedup_sources(sources):
+        line = "- [%s] %s" % (s.get("sumber", ""), s.get("judul", ""))
+        ref = (s.get("ref") or "").strip()
+        if ref:
+            line += " (%s)" % ref
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _verify(q, context):
+    """Tahap 3: nilai kecukupan konteks. Fail-open (cukup=True) bila LLM error."""
+    try:
+        sys = (
+            "Anda penilai konteks RAG. Diberi PERTANYAAN dan KONTEKS. Nilai "
+            "apakah KONTEKS memuat cukup informasi untuk menjawab dengan benar. "
+            "Jawab HANYA JSON valid: "
+            '{"cukup":true/false,"butuh_peraturan":true/false,"alasan":"singkat"}. '
+            "'butuh_peraturan' true bila jawaban memerlukan dasar hukum/pasal "
+            "yang belum ada di konteks."
+        )
+        u = "PERTANYAAN:\n%s\n\nKONTEKS:\n%s" % (q, (context or "")[:4000])
+        out = llm_client.chat([{"role": "user", "content": u}], system=sys,
+                              max_new_tokens=120, temperature=0.0)
+        m = re.search(r"\{.*\}", out or "", re.S)
+        if m:
+            d = json.loads(m.group(0))
+            return {"cukup": bool(d.get("cukup")),
+                    "butuh_peraturan": bool(d.get("butuh_peraturan")),
+                    "alasan": str(d.get("alasan") or "")[:200]}
+    except Exception as e:
+        return {"cukup": True, "butuh_peraturan": False,
+                "alasan": "verifikasi dilewati: " + str(e)[:120]}
+    return {"cukup": True, "butuh_peraturan": False, "alasan": "format tak terbaca"}
+
+
+def _render_prompt(tmpl, context, sumber_txt, fallback):
+    t = tmpl or ""
+    blok = "=== KONTEKS INTERNAL ===\n" + context + "\n=== AKHIR KONTEKS INTERNAL ==="
+    if "{{konteks}}" in t:
+        t = t.replace("{{konteks}}", blok)
+    else:
+        t = t + "\n\n" + blok
+    if "{{sumber}}" in t:
+        t = t.replace("{{sumber}}", sumber_txt or "(tidak ada sumber)")
+    t = t.replace("{{fallback}}", fallback or "")
+    return t
+
+
+# ==========================================================================
+# Orkestrasi pipeline.
+# ==========================================================================
+def answer(question, profile, override=None, history=None, diagnostics=False):
+    q = (question or "").strip()
+    fallback = profile.get("fallback") or rcfg.FALLBACK_DEFAULT
+    if not q:
+        return {"ok": False, "error": "Pertanyaan kosong."}
+
+    diag = {"router": None, "retrieval": [], "verifikasi": [],
+            "sumber_dipakai": [], "eskalasi": []}
+
+    # [1] Router
+    allowed = effective_sources(profile, override)
+    r = rag_router.route(q, allowed)
+    diag["router"] = r
+    ordered = r["ordered"]
+
+    # Tunda Peraturan bila domain bukan hukum -> biar loop verifikasi yang
+    # memicu pencarian peraturan (persis skenario yang diminta).
+    maks_loop = int(profile.get("maks_loop") or 0)
+    defer = set()
+    if "peraturan" in ordered and r["domain"] in ("aplikasi", "umum") and maks_loop > 0:
+        defer.add("peraturan")
+    active = [s for s in ordered if s not in defer]
+
+    # [2] Retrieval awal
+    cache = {}
+    context, sources = _assemble(active, cache, q)
+
+    # [3] Verifikasi + eskalasi (loop maksimal maks_loop)
+    loops = 0
+    while loops < maks_loop:
+        if context.strip():
+            v = _verify(q, context)
+        else:
+            v = {"cukup": False, "butuh_peraturan": True, "alasan": "konteks kosong"}
+        diag["verifikasi"].append(dict(putaran=loops + 1, **v))
+        if v.get("cukup"):
+            break
+        added = False
+        if v.get("butuh_peraturan") and "peraturan" in defer:
+            defer.discard("peraturan")
+            active = [s for s in ordered if s not in defer]
+            context, sources = _assemble(active, cache, q)
+            diag["eskalasi"].append("putaran %d: tambah sumber Peraturan" % (loops + 1))
+            added = True
+        if not added:
+            break
+        loops += 1
+
+    # Diagnostik retrieval
+    for key in active:
+        t, s = cache.get(key, ("", []))
+        diag["retrieval"].append({
+            "sumber": key, "label": rcfg.SUMBER_LABEL.get(key, key),
+            "jumlah": len(s), "dipakai": bool((t or "").strip()),
+            "hits": [{"judul": x.get("judul", ""), "ref": x.get("ref", "")} for x in s[:5]],
+        })
+    diag["sumber_dipakai"] = [k for k in active if (cache.get(k, ("", []))[0] or "").strip()]
+
+    # [5] Post-check: tanpa konteks -> fallback
+    if not context.strip():
+        res = {"ok": True, "answer": fallback, "grounded": False,
+               "profil": profile.get("id"), "domain": r["domain"], "sources": []}
+        if diagnostics:
+            res["diagnostics"] = diag
+        return res
+
+    # [4] Sintesis grounded
+    sumber_txt = _format_sumber(sources)
+    system = _render_prompt(profile.get("system_prompt"), context, sumber_txt, fallback)
+    msgs = []
+    for h in (history or [])[-6:]:
+        if not isinstance(h, dict):
+            continue
+        role = (h.get("role") or "").lower()
+        content = (h.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            msgs.append({"role": role, "content": pii_mask.mask_text(content)})
+    msgs.append({"role": "user", "content": pii_mask.mask_text(q)})
+    try:
+        ans = llm_client.chat(msgs, system=pii_mask.mask_text(system),
+                              max_new_tokens=800, temperature=float(profile.get("suhu") or 0.3))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+    if not (ans or "").strip():
+        ans = fallback
+
+    res = {"ok": True, "answer": ans, "grounded": True,
+           "profil": profile.get("id"), "domain": r["domain"]}
+    if profile.get("tampil_sumber") or diagnostics:
+        res["sources"] = _dedup_sources(sources)
+    if diagnostics:
+        res["diagnostics"] = diag
+        res["prompt_final"] = system[:4000]
+    return res
+
+
+def jawab_chat(question, history=None, profil="chatbot"):
+    p = rcfg.get_profile(profil) or rcfg.get_profile("chatbot")
+    if not p:
+        return {"ok": False, "error": "Profil RAG belum tersedia."}
+    return answer(question, p, override=None, history=history, diagnostics=False)
+
+
+def jawab_lab(question, profil, sumber_override, history=None):
+    p = rcfg.get_profile(profil) or rcfg.get_profile("chatbot")
+    if not p:
+        return {"ok": False, "error": "Profil RAG belum tersedia."}
+    if sumber_override is not None and not isinstance(sumber_override, list):
+        sumber_override = None
+    return answer(question, p, override=sumber_override, history=history, diagnostics=True)
