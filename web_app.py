@@ -168,6 +168,11 @@ rag_routes.register(app)
 import peraturan_routes
 peraturan_routes.register(app)
 
+# --- Menu SOP/Proses Bisnis (sumber grounding RAG #6, tampil "Sumber 5"):
+#     ekstrak dokumen (pdf/pptx/docx/txt/html/gambar) -> disimpan permanen. ---
+import sop_routes
+sop_routes.register(app)
+
 import studio_routes
 studio_routes.register(
     app,
