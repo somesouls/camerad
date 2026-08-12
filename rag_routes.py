@@ -8,6 +8,8 @@ Satu kolom chat yang HANYA menjawab berdasarkan basis data internal:
   3. Data Sosmed              (sosmed_db: pasangan Q&A + balasan resmi)
   4. Peraturan               (peraturan_db: basis data peraturan perpajakan;
                                 pencarian hybrid FTS5 + semantik e5)
+  5. SOP & Proses Bisnis     (sop_db: dokumen SOP/proses bisnis hasil ekstraksi
+                                pdf/pptx/docx/txt/html; hybrid FTS5 + e5)
 
 Tidak memakai pengetahuan umum / web. Bila tidak ada konteks relevan ->
 kalimat fallback. LLM dipanggil via llm_client.chat (provider di .env).
@@ -42,6 +44,10 @@ try:
     import peraturan_db as pdb
 except Exception:            # pragma: no cover
     pdb = None
+try:
+    import sop_db as sopdb
+except Exception:            # pragma: no cover
+    sopdb = None
 
 
 # ===========================================================================
@@ -64,13 +70,16 @@ SYSTEM_PROMPT = (
     "TUGAS\n"
     "Jawab pertanyaan pengguna dengan MEMANFAATKAN \"KONTEKS INTERNAL\" di "
     "bawah. Konteks berisi jawaban resmi intent, cuplikan jawaban petugas "
-    "(Percakapan AWE), balasan resmi media sosial (Data Sosmed), dan kutipan "
-    "peraturan perpajakan (Peraturan). Rangkai jawaban yang jelas dan runut "
+    "(Percakapan AWE), balasan resmi media sosial (Data Sosmed), kutipan "
+    "peraturan perpajakan (Peraturan), serta prosedur baku dan alur proses "
+    "bisnis (SOP & Proses Bisnis). Rangkai jawaban yang jelas dan runut "
     "dari informasi yang relevan pada konteks - kamu boleh menyarikan, "
     "menggabungkan, dan merapikan kalimat selama tidak mengubah maksud atau "
     "menambah fakta baru. Bila menyampaikan ketentuan hukum, sebutkan dasar "
     "peraturannya (mis. jenis, nomor, dan pasal) sesuai yang tertera pada "
-    "konteks Peraturan; jangan mengarang nomor atau pasal.\n\n"
+    "konteks Peraturan; jangan mengarang nomor atau pasal. Bila menjelaskan "
+    "prosedur atau alur, ikuti langkah-langkah sesuai konteks SOP & Proses "
+    "Bisnis tanpa menambah langkah yang tidak tercantum.\n\n"
     "SUMBER JAWABAN (WAJIB)\n"
     "Gunakan HANYA informasi dari konteks internal. DILARANG memakai "
     "pengetahuan umum, sumber eksternal/web, atau mengarang fakta, angka, "
@@ -367,12 +376,49 @@ def _ctx_peraturan(q, limit=4):
     return "\n\n".join(blocks), sources
 
 
+# --------------------------------------------------------------------------
+# Sumber 5: SOP & Proses Bisnis (dokumen prosedur hasil ekstraksi)
+# --------------------------------------------------------------------------
+def _ctx_sop(q, limit=4):
+    if sopdb is None:
+        return "", []
+    try:
+        # Pencarian hybrid (FTS5 + semantik e5); hanya unit berstatus 'aktif'.
+        rows = sopdb.search(q, limit, ("aktif",))
+    except Exception:
+        rows = []
+    blocks, sources = [], []
+    for r in rows:
+        try:
+            d = r if isinstance(r, dict) else dict(r)
+        except Exception:
+            continue
+        isi = str(d.get("isi") or "").strip()
+        if not isi:
+            continue
+        judul = str(d.get("judul") or "").strip()
+        kategori = str(d.get("kategori") or "").strip()
+        bagian = str(d.get("bagian") or "").strip()
+        head = judul or "SOP"
+        if kategori:
+            head = "%s (%s)" % (head, kategori)
+        piece = "Dokumen: " + head
+        if bagian:
+            piece += "\nBagian: " + _clip(bagian, 160)
+        piece += "\nIsi: " + _clip(isi, 700)
+        blocks.append(piece)
+        sources.append({"sumber": "SOP & Proses Bisnis", "judul": head,
+                        "ref": str(d.get("source_file") or "")})
+    return "\n\n".join(blocks), sources
+
+
 def _build_context(q, max_chars=6500):
     parts = []
     t1, s1 = _ctx_dialogflow(q)
     t2, s2 = _ctx_awe(q)
     t3, s3 = _ctx_sosmed(q)
     t4, s4 = _ctx_peraturan(q)
+    t5, s5 = _ctx_sop(q)
     if t1 and t1.strip():
         parts.append("### Sumber 1 - Training Phrase & Intent\n" + t1)
     if t2 and t2.strip():
@@ -381,7 +427,9 @@ def _build_context(q, max_chars=6500):
         parts.append("### Sumber 3 - Data Sosmed\n" + t3)
     if t4 and t4.strip():
         parts.append("### Sumber 4 - Peraturan\n" + t4)
-    sources = s1 + s2 + s3 + s4
+    if t5 and t5.strip():
+        parts.append("### Sumber 5 - SOP & Proses Bisnis\n" + t5)
+    sources = s1 + s2 + s3 + s4 + s5
     body = "\n\n".join(parts)
     if max_chars and len(body) > max_chars:
         body = body[:max_chars].rstrip() + "\u2026"
