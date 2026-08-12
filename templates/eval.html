@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+{% block title %}Evaluasi RAG — Kumpulkan Sampel & Uji Keandalan{% endblock %}
+{% block content %}
+<style>
+.ev-wrap { max-width:1180px; margin:0 auto; width:100%; padding:6px 4px 40px; }
+.ev-head h1 { font-size:22px; color:var(--text-main); margin:0 0 4px; letter-spacing:-.02em; }
+.ev-head p { font-size:13px; color:var(--text-muted); margin:0 0 18px; line-height:1.6; }
+.card { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:16px; padding:16px 18px; margin-bottom:16px; }
+.card h3 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); margin:0 0 12px; }
+.row { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+.field label { display:block; font-size:12px; color:var(--text-muted); margin-bottom:5px; }
+select, input[type=text], input[type=number] { background:var(--bg-base); color:var(--text-main); border:1px solid var(--panel-border); border-radius:10px; padding:9px 12px; font-size:14px; outline:none; box-sizing:border-box; }
+select:focus, input:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-glow); }
+.btn { border:none; border-radius:10px; padding:9px 16px; font-size:13px; font-weight:600; cursor:pointer; transition:.15s; }
+.btn.primary { background:var(--accent); color:#fff; box-shadow:0 4px 14px var(--accent-glow); }
+.btn.primary:hover { background:var(--accent-hover); }
+.btn.ghost { background:transparent; color:var(--text-main); border:1px solid var(--panel-border); }
+.btn.ghost:hover { border-color:var(--accent); color:var(--accent); }
+.btn:disabled { opacity:.5; cursor:not-allowed; box-shadow:none; }
+.hint { font-size:11.5px; color:var(--text-muted); margin-top:6px; line-height:1.5; }
+.kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+@media (max-width:820px){ .kpi-grid { grid-template-columns:repeat(2,1fr); } }
+.kpi { background:var(--bg-base); border:1px solid var(--panel-border); border-radius:14px; padding:14px; }
+.kpi .v { font-size:26px; font-weight:800; color:var(--text-main); letter-spacing:-.02em; }
+.kpi .l { font-size:11.5px; color:var(--text-muted); margin-top:2px; }
+.kpi.ok .v { color:var(--c-green-txt); }
+.kpi.bad .v { color:var(--c-red-txt); }
+.bar { height:8px; border-radius:999px; background:var(--panel-border); overflow:hidden; margin-top:8px; }
+.bar > span { display:block; height:100%; background:var(--accent); }
+table { width:100%; border-collapse:collapse; font-size:12.5px; }
+th, td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--panel-border); vertical-align:top; }
+th { color:var(--text-muted); font-weight:600; }
+.tag { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:6px; }
+.tag.benar, .tag.abstain_benar { background:var(--c-green); color:var(--c-green-txt); }
+.tag.salah, .tag.abstain_salah { background:var(--c-blue); color:var(--c-blue-txt); }
+.tag.halusinasi { background:var(--c-red); color:var(--c-red-txt); }
+.mut { color:var(--text-muted); }
+.pill { display:inline-block; font-size:11px; border:1px solid var(--panel-border); border-radius:999px; padding:3px 10px; cursor:pointer; margin:2px 3px 0 0; }
+.pill:hover { border-color:var(--accent); color:var(--accent); }
+.qbox { font-size:12.5px; color:var(--text-main); margin:4px 0; line-height:1.5; }
+.small { font-size:11.5px; }
+details.fail > summary { cursor:pointer; }
+</style>
+<div class="ev-wrap">
+  <div class="ev-head">
+    <h1>✅ Evaluasi Keandalan Mesin RAG</h1>
+    <p>Uji jawaban mesin terhadap pertanyaan ASLI pengguna (live-chat &amp; chatbot). Keandalan = %(benar &amp; grounded) + %(abstain yang benar). Target siap luncur: <b>≥ 90%</b> dengan gerbang halusinasi <b>&lt; 3%</b>. Sampel live-chat memakai balasan agen sebagai <i>gold</i>; saat diuji, sumber percakapan AWE otomatis di-<i>hold-out</i> agar mesin tidak mencontek.</p>
+  </div>
+
+  <div class="card">
+    <h3>1 · Kumpulkan Sampel</h3>
+    <div class="row">
+      <div class="field"><label>Jml live-chat (gold = agen)</label><input type="number" id="nLive" value="300" min="0" style="width:150px"></div>
+      <div class="field"><label>Jml chatbot (coverage)</label><input type="number" id="nChat" value="200" min="0" style="width:150px"></div>
+      <label class="field small" style="align-self:center"><input type="checkbox" id="reset"> Kosongkan dulu</label>
+      <button class="btn primary" id="btnCollect">Kumpulkan</button>
+      <span class="hint" id="collectMsg"></span>
+    </div>
+    <div class="hint">Diambil terstratifikasi per jenis layanan / intent + dedup near-duplicate agar beragam. Karena sampel berasal dari data yang sudah ada, penilaian tetap dibandingkan ke gold dan memakai hold-out sumber untuk menghindari kebocoran.</div>
+    <div id="counts" class="hint" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>2 · Jalankan Evaluasi</h3>
+    <div class="row">
+      <div class="field"><label>Profil mesin</label><select id="profil"></select></div>
+      <div class="field"><label>Jenis sampel</label><select id="jenis"><option value="all">Semua</option><option value="livechat">Live-chat</option><option value="chatbot">Chatbot</option></select></div>
+      <div class="field"><label>Batasi (uji cepat, 0=semua)</label><input type="number" id="limit" value="30" min="0" style="width:150px"></div>
+      <label class="field small" style="align-self:center"><input type="checkbox" id="holdout" checked> Hold-out AWE</label>
+      <label class="field small" style="align-self:center"><input type="checkbox" id="judge" checked> Penilai LLM</label>
+      <button class="btn primary" id="btnRun">▶ Mulai</button>
+      <button class="btn ghost" id="btnStop" style="display:none;">Hentikan</button>
+    </div>
+    <div class="hint" id="runMsg"></div>
+    <div class="bar" id="progBar" style="display:none;"><span style="width:0%"></span></div>
+    <div class="hint">Catatan: tiap sampel memanggil LLM (jawab + nilai), jadi 500 sampel bisa memakan waktu lama. Gunakan \"Batasi\" untuk uji cepat, atau jalankan bertahap.</div>
+  </div>
+
+  <div class="card">
+    <h3>3 · Dashboard Keandalan <span class="mut small" id="runLbl"></span></h3>
+    <div id="dash"><div class="hint">Belum ada hasil. Jalankan evaluasi, lalu hasil termutakhir tampil di sini.</div></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var PROFILES = {{ profil_list|tojson }};
+  var VERDICTS = {{ verdicts|tojson }};
+  var GOOD = ['benar','abstain_benar'];
+  var $ = function(id){ return document.getElementById(id); };
+  function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  var curRun=null, poll=null;
+
+  var ps=$('profil');
+  (PROFILES||[]).forEach(function(p){ var o=document.createElement('option'); o.value=p.id; o.textContent=(p.nama||p.id)+' ('+p.id+')'; ps.appendChild(o); });
+  if(ps.querySelector('option[value=agent]')) ps.value='agent';
+
+  function loadSummary(){
+    fetch('/api/eval/summary').then(function(r){return r.json();}).then(function(j){
+      if(!j||!j.ok) return;
+      var c=j.counts||{};
+      $('counts').innerHTML='Sampel tersimpan: <b>'+(c.total||0)+'</b> (live-chat '+(c.livechat||0)+' · chatbot '+(c.chatbot||0)+')';
+    });
+    loadReport();
+  }
+
+  $('btnCollect').addEventListener('click', function(){
+    var b={ jenis:'all', n_live:parseInt($('nLive').value||'0',10), n_chat:parseInt($('nChat').value||'0',10), reset:$('reset').checked };
+    $('btnCollect').disabled=true; $('collectMsg').textContent='Mengumpulkan…';
+    fetch('/api/eval/collect',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})
+      .then(function(r){return r.json();}).then(function(j){
+        $('btnCollect').disabled=false;
+        if(j&&j.ok){ $('collectMsg').textContent='Selesai ✓'; loadSummary(); }
+        else { $('collectMsg').textContent='Gagal: '+((j&&j.error)||'?'); }
+      }).catch(function(){ $('btnCollect').disabled=false; $('collectMsg').textContent='Gagal terhubung.'; });
+  });
+
+  function setProgress(run){
+    if(!run) return;
+    var pct = run.n_total? Math.round(run.n_done/run.n_total*100):0;
+    $('progBar').style.display='block'; $('progBar').firstChild.style.width=pct+'%';
+    $('runMsg').textContent='Run '+run.id+' · '+run.status+' · '+run.n_done+'/'+run.n_total+' ('+pct+'%)'+(run.note?(' · '+run.note):'');
+    if(run.status==='running'){ $('btnStop').style.display=''; }
+    else { $('btnStop').style.display='none'; if(poll){clearInterval(poll); poll=null;} loadReport(); }
+  }
+
+  $('btnRun').addEventListener('click', function(){
+    var b={ profil:$('profil').value, jenis:$('jenis').value, limit:parseInt($('limit').value||'0',10), holdout:$('holdout').checked, judge:$('judge').checked };
+    $('btnRun').disabled=true; $('runMsg').textContent='Memulai…';
+    fetch('/api/eval/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})
+      .then(function(r){return r.json();}).then(function(j){
+        $('btnRun').disabled=false;
+        if(!j||!j.ok){ $('runMsg').textContent='Gagal: '+((j&&j.error)||'?'); return; }
+        curRun=j.run_id;
+        if(!j.n_total){ $('runMsg').textContent=j.note||'Tak ada sampel.'; return; }
+        $('runMsg').textContent='Berjalan… run '+curRun;
+        if(poll) clearInterval(poll);
+        poll=setInterval(function(){
+          fetch('/api/eval/status?run='+encodeURIComponent(curRun)).then(function(r){return r.json();}).then(function(s){ if(s&&s.ok&&s.run) setProgress(s.run); });
+        }, 2500);
+      }).catch(function(){ $('btnRun').disabled=false; $('runMsg').textContent='Gagal terhubung.'; });
+  });
+
+  $('btnStop').addEventListener('click', function(){
+    if(!curRun) return;
+    fetch('/api/eval/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run:curRun})});
+  });
+
+  function kpi(v,l,cls){ return '<div class="kpi '+(cls||'')+'"><div class="v">'+v+'</div><div class="l">'+l+'</div></div>'; }
+  function tagFor(v){ return '<span class="tag '+esc(v||'')+'">'+esc(v||'-')+'</span>'; }
+
+  function renderReport(j){
+    var d=$('dash');
+    if(!j||!j.ok||!j.run||!j.metrics){ d.innerHTML='<div class="hint">Belum ada hasil evaluasi.</div>'; $('runLbl').textContent=''; return; }
+    var m=j.metrics, run=j.run;
+    $('runLbl').textContent='· '+run.id+' · profil '+run.profil+' · '+run.n_done+'/'+run.n_total;
+    var okRel = m.keandalan>=90, okHall = m.halusinasi_rate<3;
+    var h='<div class="kpi-grid">';
+    h+=kpi(m.keandalan+'%','Keandalan (target ≥90%)', okRel?'ok':'bad');
+    h+=kpi(m.halusinasi_rate+'%','Halusinasi (gerbang <3%)', okHall?'ok':'bad');
+    h+=kpi(m.total,'Sampel dinilai');
+    h+=kpi((m.skor_rata!=null?m.skor_rata:'–'),'Skor rata penilai');
+    h+='</div>';
+    h+='<div class="hint" style="margin-top:8px;">'+(okRel&&okHall?'✅ Memenuhi ambang siap luncur.':'⚠️ Belum memenuhi ambang — lihat daftar kegagalan untuk kalibrasi.')+' Validasi manusia: '+m.human_validated+'/'+m.total+'.</div>';
+    h+='<div style="margin-top:14px;"><table><tr><th>Verdict</th><th>Jumlah</th></tr>';
+    VERDICTS.forEach(function(v){ h+='<tr><td>'+tagFor(v)+'</td><td>'+(m.counts[v]||0)+'</td></tr>'; });
+    h+='</table></div>';
+    function grp(title,obj){ var s='<div style="margin-top:14px;"><div class="hint" style="margin-bottom:4px;">'+title+'</div><table><tr><th>Kelompok</th><th>Total</th><th>Keandalan</th><th>Halusinasi</th></tr>'; Object.keys(obj).forEach(function(k){ var b=obj[k]; s+='<tr><td>'+esc(k)+'</td><td>'+b.total+'</td><td>'+b.keandalan+'%</td><td>'+b.halusinasi_rate+'%</td></tr>'; }); return s+'</table></div>'; }
+    h+=grp('Per jenis sampel', m.by_jenis||{});
+    h+=grp('Per domain (router)', m.by_domain||{});
+    var fails=(j.results||[]).filter(function(r){ return GOOD.indexOf(r.verdict_efektif)<0; });
+    h+='<details class="fail" style="margin-top:14px;" open><summary class="hint">Daftar kegagalan / perlu ditinjau ('+fails.length+')</summary>';
+    fails.slice(0,80).forEach(function(r){
+      h+='<div class="card" style="margin-top:10px;">';
+      h+='<div class="small mut">'+esc(r.jenis)+' · '+tagFor(r.verdict_efektif)+(r.judge_skor!=null?(' · skor '+r.judge_skor):'')+(r.domain?(' · '+esc(r.domain)):'')+(r.human_verdict?' · (validasi manusia)':'')+'</div>';
+      h+='<div class="qbox"><b>T:</b> '+esc(r.pertanyaan)+'</div>';
+      if(r.gold) h+='<div class="qbox mut"><b>Gold:</b> '+esc((r.gold||'').slice(0,400))+'</div>';
+      h+='<div class="qbox"><b>Mesin:</b> '+esc((r.answer||'').slice(0,500))+'</div>';
+      if(r.judge_alasan) h+='<div class="qbox small mut"><b>Penilai:</b> '+esc(r.judge_alasan)+'</div>';
+      h+='<div style="margin-top:6px;" class="small mut">Validasi manusia: ';
+      VERDICTS.forEach(function(v){ h+='<span class="pill" data-rid="'+r.id+'" data-v="'+v+'">'+v+'</span>'; });
+      h+='</div></div>';
+    });
+    h+='</details>';
+    d.innerHTML=h;
+    Array.prototype.forEach.call(d.querySelectorAll('.pill[data-rid]'), function(el){
+      el.addEventListener('click', function(){
+        fetch('/api/eval/human',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({result_id:parseInt(el.getAttribute('data-rid'),10), verdict:el.getAttribute('data-v')})})
+          .then(function(r){return r.json();}).then(function(){ loadReport(); });
+      });
+    });
+  }
+  function loadReport(){ fetch('/api/eval/report').then(function(r){return r.json();}).then(renderReport); }
+
+  loadSummary();
+})();
+</script>
+{% endblock %}
