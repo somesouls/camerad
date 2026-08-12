@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""peraturan_routes.py — Menu "Peraturan" (sumber resource #5).
+"""peraturan_routes.py — Menu \"Peraturan\" (sumber resource #5).
 
 Halaman admin untuk mengelola basis data peraturan perpajakan (hasil migrasi
 dari repositori jakai). Menyediakan:
@@ -13,6 +13,7 @@ dari repositori jakai). Menyediakan:
   * POST /api/peraturan/import-jsonl    -> impor baris JSONL (peraturan_unit)
   * POST /api/peraturan/batch           -> impor massal folder di LATAR (+OCR opsional)
   * GET  /api/peraturan/batch-progress  -> pantau progres batch/OCR berjalan
+  * POST /api/peraturan/audit           -> rekonsiliasi berkas folder vs DB (ada/belum)
   * POST /api/peraturan/reindex         -> hitung ulang embedding e5
   * GET  /api/peraturan/stats           -> ringkasan angka
   * GET  /api/peraturan/impor-log       -> log triase impor
@@ -21,6 +22,10 @@ dari repositori jakai). Menyediakan:
 Catatan batch: /batch kini MEMULAI proses di thread latar & langsung kembali
 ({ok, started}); UI mem-poll /batch-progress (fase, berkas i/total, OCR yang
 sedang diproses + halaman berjalan, ringkasan akhir) agar OCR bisa dipantau.
+
+Catatan audit: /audit menelusuri folder + subfolder lalu mencocokkan tiap
+berkas ke DB TANPA menulis apa pun; berguna untuk melacak berkas yang BELUM
+masuk basis data saat folder dianggap sudah lengkap.
 
 Akses dibatasi admin lewat _route_area di app_core (area 'peraturan').
 Daftarkan dengan:  import peraturan_routes; peraturan_routes.register(app)
@@ -247,6 +252,30 @@ async def api_batch_progress(request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
+async def api_audit(request: Request):
+    """Rekonsiliasi folder <-> DB: berkas mana yang sudah/belum masuk basis data.
+
+    Body: {root, status?('' | 'belum' | 'induk_ada' | 'ada' | 'abaikan'), limit?}.
+    Tidak menulis apa pun ke DB. Kembalikan ringkasan + daftar berkas.
+    """
+    b = await _body(request)
+    root = (b.get("root") or "").strip()
+    if not root:
+        return JSONResponse({"ok": False, "error": "Field 'root' (folder) kosong."})
+    if pbatch is None:
+        return JSONResponse({"ok": False, "error": "Modul batch tidak tersedia."})
+    status_filter = (b.get("status") or "").strip()
+    try:
+        limit = int(b.get("limit") or 5000)
+    except Exception:
+        limit = 5000
+    try:
+        res = await run_in_threadpool(pbatch.audit_folder, root, status_filter, limit)
+        return JSONResponse(res)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 async def api_reindex(request: Request):
     try:
         res = await run_in_threadpool(pdb.reindex)
@@ -301,6 +330,7 @@ def register(app):
     app.add_api_route("/api/peraturan/import-jsonl", api_import_jsonl, methods=["POST"])
     app.add_api_route("/api/peraturan/batch", api_batch, methods=["POST"])
     app.add_api_route("/api/peraturan/batch-progress", api_batch_progress, methods=["GET"])
+    app.add_api_route("/api/peraturan/audit", api_audit, methods=["POST"])
     app.add_api_route("/api/peraturan/reindex", api_reindex, methods=["POST"])
     app.add_api_route("/api/peraturan/stats", api_stats, methods=["GET"])
     app.add_api_route("/api/peraturan/impor-log", api_impor_log, methods=["GET"])
