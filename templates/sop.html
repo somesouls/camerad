@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+{% block title %}SOP & Proses Bisnis{% endblock %}
+
+{% block head %}
+<style>
+  .sop-wrap { max-width: 1100px; margin: 0 auto; padding: 8px 4px 60px; }
+  .sop-h { display:flex; align-items:center; gap:10px; margin: 6px 0 14px; }
+  .sop-h h1 { font-size: 20px; margin:0; }
+  .sop-sub { color:#6b7280; font-size:13px; margin: -6px 0 16px; }
+  .sop-card { background:#fff; border:1px solid #e5e7eb; border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+  .sop-card h2 { font-size:15px; margin:0 0 12px; display:flex; align-items:center; gap:8px; }
+  .sop-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(120px,1fr)); gap:10px; }
+  .sop-stat { background:#f9fafb; border:1px solid #eef0f3; border-radius:10px; padding:10px 12px; }
+  .sop-stat .n { font-size:20px; font-weight:700; }
+  .sop-stat .l { font-size:12px; color:#6b7280; }
+  .sop-row { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .sop-row > * { flex:0 0 auto; }
+  .sop-in { flex:1 1 260px; min-width:200px; padding:8px 10px; border:1px solid #d1d5db; border-radius:8px; font-size:13px; }
+  .sop-btn { padding:8px 14px; border:0; border-radius:8px; background:#2563eb; color:#fff; font-size:13px; cursor:pointer; }
+  .sop-btn.gray { background:#6b7280; }
+  .sop-btn.red { background:#dc2626; }
+  .sop-btn:disabled { opacity:.5; cursor:not-allowed; }
+  .sop-chk { display:flex; align-items:center; gap:6px; font-size:13px; color:#374151; }
+  .sop-prog { margin-top:12px; display:none; }
+  .sop-prog.on { display:block; }
+  .sop-bar { height:10px; background:#eef0f3; border-radius:999px; overflow:hidden; }
+  .sop-bar > i { display:block; height:100%; width:0; background:#2563eb; transition:width .3s; }
+  .sop-prog .meta { font-size:12px; color:#4b5563; margin-top:6px; }
+  .sop-ocr { font-size:12px; color:#b45309; margin-top:4px; }
+  table.sop-tb { width:100%; border-collapse:collapse; font-size:13px; }
+  table.sop-tb th, table.sop-tb td { text-align:left; padding:7px 8px; border-bottom:1px solid #eef0f3; vertical-align:top; }
+  table.sop-tb th { color:#6b7280; font-weight:600; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:999px; font-size:11px; font-weight:600; }
+  .pill.ada { background:#dcfce7; color:#166534; }
+  .pill.belum { background:#fee2e2; color:#991b1b; }
+  .pill.lawas { background:#fef9c3; color:#854d0e; }
+  .pill.abaikan { background:#f3f4f6; color:#6b7280; }
+  .pill.kat { background:#e0e7ff; color:#3730a3; }
+  .sop-note { font-size:12px; color:#6b7280; margin-top:8px; }
+  .sop-hit { border:1px solid #eef0f3; border-radius:8px; padding:8px 10px; margin-bottom:8px; }
+  .sop-hit .t { font-weight:600; font-size:13px; }
+  .sop-hit .m { font-size:11px; color:#6b7280; margin:2px 0 4px; }
+  .sop-hit .b { font-size:12px; color:#374151; white-space:pre-wrap; }
+  .muted { color:#9ca3af; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="sop-wrap">
+  <div class="sop-h">
+    <h1>📘 SOP &amp; Proses Bisnis</h1>
+  </div>
+  <div class="sop-sub">
+    Ekstrak dokumen (PDF/PPTX/DOCX/TXT/HTML/gambar) menjadi unit teks yang
+    disimpan permanen ke basis data dan dipakai mesin chat RAG sebagai
+    <b>Sumber 5</b>. Penamaan otomatis (aturan + AI bila perlu), pemotongan
+    per-bagian, dan OCR untuk berkas hasil pindai.
+  </div>
+
+  <!-- Ringkasan -->
+  <div class="sop-card">
+    <h2>📊 Ringkasan basis data</h2>
+    <div class="sop-grid" id="statGrid">
+      <div class="sop-stat"><div class="n" id="stDok">–</div><div class="l">Dokumen</div></div>
+      <div class="sop-stat"><div class="n" id="stUnit">–</div><div class="l">Unit (chunk)</div></div>
+      <div class="sop-stat"><div class="n" id="stVec">–</div><div class="l">Vektor e5</div></div>
+    </div>
+    <div class="sop-note" id="embedNote"></div>
+  </div>
+
+  <!-- Impor folder -->
+  <div class="sop-card">
+    <h2>📂 Impor folder</h2>
+    <div class="sop-row">
+      <input class="sop-in" id="impRoot" placeholder="contoh: C:\Users\USER\chatbot\pipeline_lokal\sop">
+    </div>
+    <div class="sop-row" style="margin-top:10px">
+      <label class="sop-chk"><input type="checkbox" id="impOcr"> OCR berkas pindai (butuh Tesseract 'ind' + Poppler)</label>
+      <label class="sop-chk"><input type="checkbox" id="impAi" checked> Penamaan dibantu AI bila judul kurang jelas</label>
+    </div>
+    <div class="sop-row" style="margin-top:10px">
+      <button class="sop-btn" id="btnImport">Mulai impor</button>
+      <button class="sop-btn gray" id="btnRefreshProg">Segarkan status</button>
+    </div>
+    <div class="sop-prog" id="progBox">
+      <div class="sop-bar"><i id="progFill"></i></div>
+      <div class="meta" id="progMeta"></div>
+      <div class="sop-ocr" id="progOcr"></div>
+    </div>
+    <div class="sop-note">
+      Berkas .ppt/.doc lama perlu dikonversi ke .pptx/.docx dulu. Impor ulang folder
+      yang sama akan menyegarkan (mengganti) unit dokumen terkait.
+    </div>
+  </div>
+
+  <!-- Audit / rekonsiliasi -->
+  <div class="sop-card">
+    <h2>🧾 Rekonsiliasi folder ↔ database</h2>
+    <div class="sop-row">
+      <input class="sop-in" id="audRoot" placeholder="folder yang sama untuk dicek cakupannya">
+      <select class="sop-in" id="audStatus" style="flex:0 0 160px">
+        <option value="">Semua status</option>
+        <option value="belum">Belum di database</option>
+        <option value="ada">Sudah di database</option>
+        <option value="lawas">Format lama</option>
+        <option value="abaikan">Diabaikan</option>
+      </select>
+      <button class="sop-btn gray" id="btnAudit">Periksa cakupan</button>
+    </div>
+    <div id="audRingkas" class="sop-note"></div>
+    <div id="audWrap" style="margin-top:8px; overflow:auto; max-height:360px"></div>
+  </div>
+
+  <!-- Uji retrieval -->
+  <div class="sop-card">
+    <h2>🔍 Uji pencarian (retrieval RAG)</h2>
+    <div class="sop-row">
+      <input class="sop-in" id="qTest" placeholder="contoh: alur pengajuan restitusi PPN">
+      <button class="sop-btn" id="btnTest">Cari</button>
+      <button class="sop-btn gray" id="btnReindex">Reindex embedding</button>
+    </div>
+    <div id="testWrap" style="margin-top:10px"></div>
+  </div>
+
+  <!-- Daftar dokumen -->
+  <div class="sop-card">
+    <h2>📚 Dokumen tersimpan</h2>
+    <div class="sop-row">
+      <input class="sop-in" id="listQ" placeholder="cari judul/isi...">
+      <select class="sop-in" id="listKat" style="flex:0 0 160px">
+        <option value="">Semua kategori</option>
+        <option value="SOP">SOP</option>
+        <option value="Proses Bisnis">Proses Bisnis</option>
+        <option value="Panduan">Panduan</option>
+        <option value="Lainnya">Lainnya</option>
+      </select>
+      <button class="sop-btn gray" id="btnList">Muat</button>
+    </div>
+    <div id="listWrap" style="margin-top:10px; overflow:auto"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const $ = (id) => document.getElementById(id);
+let progTimer = null;
+
+async function jpost(url, body) {
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body||{})});
+  return r.json();
+}
+async function jget(url) { const r = await fetch(url); return r.json(); }
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+async function loadStats(){
+  try {
+    const d = await jget('/api/sop/stats');
+    if(!d.ok) return;
+    const s = d.stats||{};
+    $('stDok').textContent = s.total_dokumen ?? 0;
+    $('stUnit').textContent = s.total_unit ?? 0;
+    $('stVec').textContent = s.total_vec ?? 0;
+    const kat = s.kategori||{};
+    const parts = Object.keys(kat).map(k=>`${esc(k)}: ${kat[k]}`);
+    $('embedNote').textContent = (parts.length? ('Kategori — '+parts.join(' · ')+'.  ') : '');
+  } catch(e){}
+}
+
+function renderProg(p){
+  const box = $('progBox');
+  const running = p && p.running;
+  box.classList.toggle('on', !!(p && (running || p.fase==='selesai' || p.fase==='error')));
+  const total = p.total||0, done = p.selesai||0;
+  const pct = total? Math.round(done*100/total) : (p.fase==='selesai'?100:0);
+  $('progFill').style.width = pct + '%';
+  let meta = '';
+  if(p.fase==='error'){ meta = '❌ ' + esc(p.error||'gagal'); }
+  else if(p.fase==='selesai'){ meta = '✅ ' + esc(p.pesan||'selesai'); }
+  else { meta = `${done}/${total} berkas · +${p.ditambah||0} dok · lewati ${p.dilewati||0} · gagal ${p.gagal||0} · perlu OCR ${p.perlu_ocr||0}`;
+         if(p.file) meta += ` — ${esc(p.file)}`; }
+  $('progMeta').textContent = meta;
+  const oc = p.ocr||{};
+  if(oc.event){
+    let t = 'OCR: ' + esc(oc.event);
+    if(oc.i && oc.n) t += ` (hal ${oc.i}/${oc.n})`;
+    if(oc.path) t += ' — ' + esc((''+oc.path).split(/[\\/]/).pop());
+    $('progOcr').textContent = t;
+  } else { $('progOcr').textContent=''; }
+}
+
+async function pollProg(){
+  const d = await jget('/api/sop/batch-progress');
+  if(d.ok){ renderProg(d.progress||{}); if(!(d.progress&&d.progress.running)){ stopPoll(); loadStats(); $('btnImport').disabled=false; } }
+}
+function startPoll(){ stopPoll(); progTimer = setInterval(pollProg, 1200); pollProg(); }
+function stopPoll(){ if(progTimer){ clearInterval(progTimer); progTimer=null; } }
+
+$('btnImport').onclick = async () => {
+  const root = $('impRoot').value.trim();
+  if(!root){ alert('Isi path folder dulu.'); return; }
+  $('btnImport').disabled = true;
+  const d = await jpost('/api/sop/batch', {root, do_ocr:$('impOcr').checked, ai_naming:$('impAi').checked});
+  if(!d.ok){ alert(d.error||'gagal memulai'); $('btnImport').disabled=false; return; }
+  startPoll();
+};
+$('btnRefreshProg').onclick = pollProg;
+
+$('btnAudit').onclick = async () => {
+  const root = $('audRoot').value.trim() || $('impRoot').value.trim();
+  if(!root){ alert('Isi path folder dulu.'); return; }
+  $('btnAudit').disabled = true;
+  $('audWrap').innerHTML = '<div class="muted">Memeriksa...</div>';
+  try {
+    const d = await jpost('/api/sop/audit', {root, status:$('audStatus').value, limit:5000});
+    if(!d.ok){ $('audWrap').innerHTML = '<div class="muted">'+esc(d.error||'gagal')+'</div>'; return; }
+    const r = d.ringkas||{};
+    $('audRingkas').innerHTML = `Total ${r.total||0} · <b>belum ${r.belum||0}</b> · ada ${r.ada||0} · lama ${r.lawas||0} · abaikan ${r.abaikan||0}. Menampilkan ${d.ditampilkan||0}.`;
+    const rows = d.rows||[];
+    let h = '<table class="sop-tb"><thead><tr><th>Status</th><th>Berkas</th><th>Tipe</th><th>Judul (jika ada)</th><th>Unit</th></tr></thead><tbody>';
+    for(const x of rows){
+      h += `<tr><td><span class="pill ${esc(x.status)}">${esc(x.status)}</span></td><td>${esc(x.file)}</td><td>${esc(x.tipe)}</td><td>${esc(x.judul||'')}</td><td>${x.n_unit||0}</td></tr>`;
+    }
+    h += '</tbody></table>';
+    if(!rows.length) h = '<div class="muted">Tidak ada baris untuk filter ini.</div>';
+    $('audWrap').innerHTML = h;
+  } finally { $('btnAudit').disabled = false; }
+};
+
+$('btnTest').onclick = async () => {
+  const q = $('qTest').value.trim();
+  if(!q) return;
+  $('testWrap').innerHTML = '<div class="muted">Mencari...</div>';
+  const d = await jpost('/api/sop/search', {q, k:8});
+  if(!d.ok){ $('testWrap').innerHTML = '<div class="muted">'+esc(d.error||'gagal')+'</div>'; return; }
+  const hits = d.hits||[];
+  if(!hits.length){ $('testWrap').innerHTML = '<div class="muted">Tidak ada hasil.</div>'; return; }
+  $('testWrap').innerHTML = hits.map(h=>{
+    const isi = (h.isi||'').slice(0,320);
+    return `<div class="sop-hit"><div class="t">${esc(h.judul||'(tanpa judul)')} <span class="pill kat">${esc(h.kategori||'')}</span></div><div class="m">${esc(h.bagian||'')} · skor ${(h.skor||0).toFixed(4)} · ${esc(h.source_file||'')}</div><div class="b">${esc(isi)}${(h.isi||'').length>320?'…':''}</div></div>`;
+  }).join('');
+};
+
+$('btnReindex').onclick = async () => {
+  if(!confirm('Hitung ulang embedding untuk semua unit? Bisa memakan waktu.')) return;
+  $('btnReindex').disabled = true;
+  const d = await jpost('/api/sop/reindex', {});
+  alert(d.ok? ('Reindex selesai: '+(d.n||0)+' unit.') : ('Gagal: '+(d.error||'')));
+  $('btnReindex').disabled = false;
+  loadStats();
+};
+
+async function loadList(){
+  $('listWrap').innerHTML = '<div class="muted">Memuat...</div>';
+  const d = await jpost('/api/sop/list', {q:$('listQ').value.trim(), kategori:$('listKat').value, limit:200});
+  if(!d.ok){ $('listWrap').innerHTML = '<div class="muted">'+esc(d.error||'gagal')+'</div>'; return; }
+  const items = d.items||[];
+  if(!items.length){ $('listWrap').innerHTML = '<div class="muted">Belum ada dokumen.</div>'; return; }
+  let h = `<div class="sop-note">Total ${d.total||items.length} dokumen.</div><table class="sop-tb"><thead><tr><th>Judul</th><th>Kategori</th><th>Tipe</th><th>Unit</th><th>Berkas</th><th></th></tr></thead><tbody>`;
+  for(const it of items){
+    h += `<tr><td>${esc(it.judul||'')}</td><td><span class="pill kat">${esc(it.kategori||'')}</span></td><td>${esc(it.sumber_tipe||'')}</td><td>${it.n_unit||0}</td><td class="muted">${esc(it.source_file||'')}</td><td><button class="sop-btn red" data-del="${esc(it.dokumen_id)}">Hapus</button></td></tr>`;
+  }
+  h += '</tbody></table>';
+  $('listWrap').innerHTML = h;
+  $('listWrap').querySelectorAll('button[data-del]').forEach(b=>{
+    b.onclick = async () => {
+      if(!confirm('Hapus dokumen ini beserta seluruh unitnya?')) return;
+      const d2 = await jpost('/api/sop/delete', {dokumen_id: b.getAttribute('data-del')});
+      if(d2.ok){ loadList(); loadStats(); } else alert(d2.error||'gagal');
+    };
+  });
+}
+$('btnList').onclick = loadList;
+
+// init
+loadStats();
+loadList();
+pollProg();
+</script>
+{% endblock %}
