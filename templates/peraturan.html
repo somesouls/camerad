@@ -92,6 +92,16 @@ table.logtbl .c-cat { width:20%; font-size:12px; }
 .st.perlu_ocr { background:var(--c-orange); color:var(--c-orange-txt); }
 .st.perlu_perhatian { background:var(--c-orange); color:var(--c-orange-txt); }
 .st.gagal { background:var(--c-red); color:var(--c-red-txt); }
+/* ---- rekonsiliasi folder <-> DB (audit) ---- */
+.st.ada { background:var(--c-green); color:var(--c-green-txt); }
+.st.induk_ada { background:var(--c-blue); color:var(--c-blue-txt); }
+.st.belum { background:var(--c-red); color:var(--c-red-txt); }
+.st.abaikan { background:var(--panel-border); color:var(--text-muted); }
+table.audtbl .a-file { width:26%; font-size:12px; }
+table.audtbl .a-kat { width:12%; }
+table.audtbl .a-per { width:28%; }
+table.audtbl .a-status { width:12%; }
+table.audtbl .a-cat { width:22%; font-size:12px; }
 </style>{% endblock %}
 {% block content %}
 <div class="per-wrap">
@@ -192,6 +202,26 @@ table.logtbl .c-cat { width:20%; font-size:12px; }
       <button class="btn ghost" id="logBtn">Muat log impor</button>
     </div>
     <div id="logRes"></div>
+  </div>
+
+  <!-- Rekonsiliasi folder <-> database -->
+  <div class="panel">
+    <h3>Rekonsiliasi folder ↔ database</h3>
+    <p class="sub">Telusuri seluruh berkas di folder &amp; subfolder lalu cocokkan dengan basis data untuk melacak berkas mana yang <b>belum masuk DB</b>. Tidak menulis apa pun ke database — hanya memeriksa cakupan. Cocok dijalankan setelah folder dianggap sudah lengkap. (Berbeda dari Log impor yang hanya mencatat hasil batch terakhir.)</p>
+    <div class="row">
+      <input class="inp" id="a_root" style="flex:1; min-width:300px;" placeholder="contoh: C:\\Users\\USER\\chatbot\\pipeline_lokal\\aturan">
+    </div>
+    <div class="row" style="margin-top:10px;">
+      <select class="inp" id="a_status">
+        <option value="belum">Belum ada di DB</option>
+        <option value="induk_ada">Induk ada, berkas belum</option>
+        <option value="">Semua berkas</option>
+        <option value="ada">Sudah ada di DB</option>
+        <option value="abaikan">Diabaikan (arsip/sistem)</option>
+      </select>
+      <button class="btn" id="aBtn">Periksa cakupan</button>
+    </div>
+    <div id="aRes"></div>
   </div>
 
   <!-- Daftar -->
@@ -396,6 +426,34 @@ table.logtbl .c-cat { width:20%; font-size:12px; }
   }
   logBtn.addEventListener('click', loadLog);
   document.getElementById('logStatus').addEventListener('change', loadLog);
+
+  // ---- rekonsiliasi folder <-> DB (audit cakupan) ----
+  var aBtn=document.getElementById('aBtn');
+  var AUD={ ada:'Ada di DB', belum:'Belum ada', induk_ada:'Induk ada', abaikan:'Diabaikan' };
+  function audBadge(s){ return '<span class="st '+esc(s)+'">'+esc(AUD[s]||s)+'</span>'; }
+  function loadAudit(){
+    var root=document.getElementById('a_root').value.trim() || document.getElementById('b_root').value.trim();
+    var box=document.getElementById('aRes');
+    if(!root){ box.innerHTML='<div class="res err">Isi path folder dulu.</div>'; return; }
+    var st=document.getElementById('a_status').value;
+    busy(aBtn,true,'Memeriksa…');
+    box.innerHTML='<div class="muted" style="margin-top:10px;">Menelusuri folder & mencocokkan dengan basis data…</div>';
+    post('/api/peraturan/audit',{root:root,status:st,limit:5000}).then(function(j){
+      busy(aBtn,false);
+      if(!j||!j.ok){ box.innerHTML='<div class="res err">'+esc((j&&j.error)||'Gagal')+'</div>'; return; }
+      var r=j.ringkas||{};
+      var h='<div class="muted" style="margin:10px 0 2px;">Total '+(r.total||0)+' berkas · <b style="color:var(--c-red-txt)">Belum ada '+(r.belum||0)+'</b> · Induk ada '+(r.induk_ada||0)+' · Sudah ada '+(r.ada||0)+' · Diabaikan '+(r.abaikan||0)+'</div>';
+      if(!j.rows.length){ box.innerHTML=h+'<div class="muted" style="margin-top:8px;">Tidak ada berkas pada filter ini.</div>'; return; }
+      h+='<div class="tbl-wrap"><table class="tbl logtbl audtbl"><thead><tr><th class="a-file">Nama berkas</th><th class="a-kat">Kategori</th><th class="a-per">Peraturan / Lampiran</th><th class="a-status">Status</th><th class="a-cat">Keterangan</th></tr></thead><tbody>';
+      j.rows.forEach(function(x){
+        var nm = (x.jenis||x.nomor) ? ((esc(x.jenis||'')+' '+esc(x.nomor||'')).trim()+(x.judul?(' — '+esc((x.judul||'').slice(0,70))):'')) : '<span class="muted">—</span>';
+        h+='<tr><td class="a-file" title="'+esc(x.file)+'">'+esc(x.nama||x.file)+'</td><td class="a-kat">'+esc(x.kategori||'')+(x.tipe?(' <span class="muted">('+esc(x.tipe)+')</span>'):'')+'</td><td class="a-per">'+nm+'</td><td class="a-status">'+audBadge(x.status)+'</td><td class="a-cat muted">'+esc(x.keterangan||'')+'</td></tr>';
+      });
+      box.innerHTML=h+'</tbody></table></div>'+(j.rows.length>=j.limit?('<div class="muted" style="margin-top:6px;">Ditampilkan '+j.limit+' baris pertama (batas tampil).</div>'):'');
+    }).catch(function(e){ busy(aBtn,false); box.innerHTML='<div class="res err">'+esc(String(e))+'</div>'; });
+  }
+  aBtn.addEventListener('click', loadAudit);
+  document.getElementById('a_status').addEventListener('change', loadAudit);
 
   // ---- daftar ----
   function loadList(){
