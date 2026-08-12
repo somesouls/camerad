@@ -63,6 +63,15 @@ Proses batch bisa lama, terutama saat OCR. Agar bisa dipantau:
     endpoint /api/peraturan/batch-progress. State memuat fase, berkas i/total,
     jumlah berkas yang menjalani OCR + halaman berjalan, dan ringkasan akhir.
 
+== Rekonsiliasi folder <-> DB (audit cakupan) ==
+`audit_folder` menelusuri folder + subfolder lalu mencocokkan tiap berkas ke
+basis data (lewat peraturan_db.list_sumber) TANPA menulis apa pun. Berguna saat
+folder dianggap sudah lengkap untuk melacak berkas mana yang BELUM masuk DB
+(tidak seperti log impor yang hanya menambah hitungan 'perlu OCR' saat gagal).
+Status per berkas: 'ada' (nama berkas cocok di DB), 'induk_ada' (induk
+ber-source_id sama sudah di DB tetapi berkas ini belum), 'belum' (sama sekali
+belum ada), atau 'abaikan' (arsip/berkas sistem yang tak diimpor langsung).
+
 == Konvensi subfolder (opsional, sebagai petunjuk jenis) ==
     aturan/uu/  -> UU   aturan/pp/  -> PP   aturan/pmk/ -> PMK
     aturan/perpu/ perpres/ perdjp(->PER)/ kmk/ kep/ se/
@@ -627,3 +636,126 @@ def proses_async(root, per_ayat=False, do_ocr=False, ingest=True):
     _THREAD = threading.Thread(target=_run, name="peraturan-batch", daemon=True)
     _THREAD.start()
     return {"ok": True, "started": True}
+
+
+# ------------------------------------------------------- rekonsiliasi (audit)
+def _tipe_hint(nama):
+    """Tebak kategori & tipe ringkas SEBUAH berkas dari nama/ekstensi saja
+    (tanpa membaca isi), untuk keperluan audit yang harus cepat.
+
+    Kembalikan (kategori, tipe): kategori in peraturan|lampiran|arsip|lain;
+    tipe = 'html'|'pdf'|'gambar'|'arsip'|'skip'|<ext>.
+    """
+    low = nama.lower()
+    ext = os.path.splitext(low)[1]
+    img = getattr(F, "IMG_EXT", (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"))
+    ars = getattr(F, "ARSIP_EXT", (".zip", ".rar", ".7z", ".tar", ".gz"))
+    skip = getattr(F, "SKIP_NAMES", set())
+    if low in skip:
+        return "lain", "skip"
+    if ext in (".html", ".htm"):
+        base = os.path.splitext(low)[0]
+        return ("lampiran", "html") if base.endswith("_lampiran") else ("peraturan", "html")
+    if ext == ".pdf":
+        return "lampiran", "pdf"
+    if ext in img:
+        return "lampiran", "gambar"
+    if ext in ars:
+        return "arsip", "arsip"
+    return "lain", (ext.lstrip(".") or "?")
+
+
+def audit_folder(root, status_filter="", limit=5000, conn=None):
+    """Rekonsiliasi folder <-> DB: telusuri folder + subfolder, cocokkan tiap
+    berkas ke basis data TANPA menulis apa pun. Berguna untuk melacak berkas
+    yang BELUM masuk DB saat folder dianggap sudah lengkap.
+
+    status_filter : '' (semua) | 'belum' | 'induk_ada' | 'ada' | 'abaikan'.
+    limit         : batas jumlah baris yang dikembalikan (ringkasan tetap penuh).
+
+    Cara cocok:
+      * 'ada'       : basename berkas cocok dengan source_file di DB.
+      * 'induk_ada' : basename tak cocok, tetapi source_id (id=<hash> pada nama)
+                      sudah ada di DB -> induk peraturan ada, berkas ini belum.
+      * 'belum'     : tak ada kecocokan sama sekali.
+      * 'abaikan'   : arsip (zip/rar/...) atau berkas sistem -> tak diimpor langsung.
+
+    Kembalikan {ok, ringkas:{total,ada,induk_ada,belum,abaikan}, rows[...],
+    ditampilkan, limit}. Tiap row: file(rel), nama, kategori, tipe, jenis,
+    nomor, judul, source_id, status, keterangan.
+    """
+    if not root or not os.path.isdir(root):
+        return {"ok": False, "error": "Folder tidak ditemukan: %s" % root}
+    own = conn is None
+    conn = conn or peraturan_db.init_db(peraturan_db.connect())
+    try:
+        # Peta sumber terindeks: per basename & per source_id.
+        by_file = {}
+        by_sid = {}
+        try:
+            for r in peraturan_db.list_sumber(conn=conn):
+                sf = r.get("source_file")
+                if sf:
+                    bn = os.path.basename(sf).lower()
+                    by_file.setdefault(bn, r)
+                sid = r.get("source_id")
+                if sid:
+                    cur = by_sid.get(sid)
+                    # Utamakan baris NON-lampiran sebagai perwakilan induk.
+                    if cur is None or (cur.get("is_lampiran") and not r.get("is_lampiran")):
+                        by_sid[sid] = r
+        except Exception as e:
+            return {"ok": False, "error": "Gagal membaca DB: %s" % str(e)[:200]}
+
+        ringkas = {"total": 0, "ada": 0, "induk_ada": 0, "belum": 0, "abaikan": 0}
+        rows = []
+        for path in _iter_files(root):
+            nama = os.path.basename(path)
+            rel = os.path.relpath(path, root)
+            low = nama.lower()
+            kategori, tipe = _tipe_hint(nama)
+            sid = _source_id(path)
+
+            jenis = nomor = judul = ""
+            dbrow = by_file.get(low)
+            if dbrow is not None:
+                status = "ada"
+                jenis = dbrow.get("jenis_peraturan") or ""
+                nomor = dbrow.get("nomor") or ""
+                judul = dbrow.get("judul") or ""
+                ket = "Tercatat di database"
+            else:
+                indb = by_sid.get(sid)
+                if indb is not None:
+                    status = "induk_ada"
+                    jenis = indb.get("jenis_peraturan") or ""
+                    nomor = indb.get("nomor") or ""
+                    judul = indb.get("judul") or ""
+                    ket = "Induk peraturan sudah di DB; berkas ini belum tercatat"
+                else:
+                    status = "belum"
+                    ket = "Belum ada di database"
+
+            # Arsip & berkas sistem: tandai 'abaikan' (kecuali memang sudah 'ada').
+            if tipe == "skip" and status != "ada":
+                status, ket = "abaikan", "Berkas sistem — dilewati"
+            elif kategori == "arsip" and status != "ada":
+                status, ket = "abaikan", "Arsip — ekstrak dulu, tidak diimpor langsung"
+
+            ringkas["total"] += 1
+            ringkas[status] = ringkas.get(status, 0) + 1
+            if (not status_filter) or status_filter == status:
+                if len(rows) < limit:
+                    rows.append({
+                        "file": rel, "nama": nama, "kategori": kategori, "tipe": tipe,
+                        "jenis": jenis, "nomor": nomor, "judul": judul,
+                        "source_id": sid, "status": status, "keterangan": ket,
+                    })
+        # Urutkan: berkas yang lebih perlu perhatian di atas.
+        prioritas = {"belum": 0, "induk_ada": 1, "abaikan": 2, "ada": 3}
+        rows.sort(key=lambda x: (prioritas.get(x["status"], 9), x["file"]))
+        return {"ok": True, "ringkas": ringkas, "rows": rows,
+                "ditampilkan": len(rows), "limit": limit}
+    finally:
+        if own:
+            conn.close()
