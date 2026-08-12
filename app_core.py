@@ -110,6 +110,9 @@ def _route_action(method, path):
                 "/api/peraturan/batch", "/api/peraturan/reindex",
                 "/api/peraturan/status"):
         return "ingest"
+    # Menu SOP/Proses Bisnis: impor folder, reindex, dan audit = 'ingest'.
+    if path in ("/api/sop/batch", "/api/sop/reindex", "/api/sop/audit"):
+        return "ingest"
     if path.endswith("/save") or path.endswith("/delete"):
         return "edit"
     return "read"
@@ -121,6 +124,9 @@ def _route_area(path):
     if path == "/rag" or path.startswith("/api/rag"):
         return "common"
     if path == "/peraturan" or path.startswith("/api/peraturan"):
+        return "peraturan"
+    # Menu SOP/Proses Bisnis memakai area akses yang sama dengan Peraturan.
+    if path == "/sop" or path.startswith("/api/sop"):
         return "peraturan"
     if path == "/users" or path.startswith("/api/users"):
         return "users"
