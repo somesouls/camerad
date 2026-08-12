@@ -395,6 +395,32 @@ def induk_info(source_id, conn=None):
             conn.close()
 
 
+def list_sumber(conn=None):
+    """Ringkasan sumber yang sudah terindeks: satu baris per (source_file, source_id).
+
+    Dipakai fitur rekonsiliasi/audit (peraturan_batch.audit_folder) untuk
+    mengecek berkas mana di folder yang SUDAH atau BELUM ada di DB. Kolom
+    is_lampiran menandai apakah baris berupa lampiran (1) atau bukan (0);
+    baris non-lampiran diutamakan sebagai perwakilan identitas induk.
+    """
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        rows = conn.execute(
+            "SELECT source_file, source_id, "
+            "MIN(jenis_peraturan) AS jenis_peraturan, MIN(nomor) AS nomor, "
+            "MIN(judul) AS judul, MIN(status) AS status, "
+            "MAX(CASE WHEN lampiran IS NOT NULL AND TRIM(lampiran)<>'' "
+            "    THEN 1 ELSE 0 END) AS is_lampiran "
+            "FROM peraturan_unit "
+            "GROUP BY source_file, source_id"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        if own:
+            conn.close()
+
+
 def _is_lampiran(u):
     return bool((u.get("lampiran") or "").strip()) and not (u.get("pasal") or "").strip()
 
