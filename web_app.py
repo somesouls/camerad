@@ -134,6 +134,11 @@ knowledge_routes.register(app)
 import pipeline_routes
 pipeline_routes.register(app)
 
+# --- Perbaikan Step 9 (Analisis Manual MKTA): monkey-patch pipeline_routes.step9_save
+#     agar menerima format edit dari frontend (objek map) & membawa data Step 8.
+#     WAJIB diimpor SETELAH pipeline_routes selesai dimuat. ---
+import step9_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe_routes
 awe_routes.register(
     app,
