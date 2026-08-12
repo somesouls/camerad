@@ -88,11 +88,11 @@ body {
 .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
 
 /* Perbaikan Logo: Hapus background gradient & shadow di sini */
-.logo { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; flex: none; }
-.logo svg { width: 20px; height: 20px; }
+.side .logo { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; flex: none; }
+.side .logo svg { width: 20px; height: 20px; }
 
-.brand b { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
-.brand span { display: block; font-size: 12px; color: var(--text-muted); }
+.side .brand b { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+.side .brand span { display: block; font-size: 12px; color: var(--text-muted); }
 
 /* Fix Tombol Chat Baru */
 .newbtn { 
@@ -130,7 +130,7 @@ body {
 .empty-hist { padding: 10px 12px; color: var(--text-muted); font-size: 13px; font-style: italic; }
 
 .side-foot { border-top: 1px solid var(--panel-border); padding: 14px 16px; font-size: 12.5px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; animation: pulse 2s infinite; }
+.side-foot .dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; box-shadow: 0 0 8px #10b981; animation: pulse 2s infinite; }
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(16,185,129,0.7); } 70% { box-shadow: 0 0 0 6px rgba(16,185,129,0); } 100% { box-shadow: 0 0 0 0 rgba(16,185,129,0); } }
 
 /* ---------- Main Content ---------- */
@@ -253,7 +253,7 @@ textarea#input::placeholder { color: var(--text-muted); }
   --brand:var(--accent); --green:var(--c-green-txt); --amber:var(--c-orange-txt);
   --red:var(--c-red-txt); --purple:var(--c-purple-txt);
   /* tools set */
-  --text2:var(--text-muted); --canvas:transparent; --soft:var(--panel-bg);
+  --text2:var(--text-muted); --canvas:var(--bg-grad-1); --soft:var(--panel-bg);
   --soft2:var(--panel-border); --border:var(--panel-border); --blue:var(--accent);
   --blue-soft:var(--c-blue); --green-soft:var(--c-green); --orange:var(--c-orange-txt);
   --orange-soft:var(--c-orange); --red-soft:var(--c-red); --shadow:var(--shadow-float);
@@ -267,10 +267,10 @@ textarea#input::placeholder { color: var(--text-muted); }
 .app{ display:block; min-height:100vh; }
 
 /* Perbaikan Logo (Bawah): Hapus background putih dan padding */
-.logo{ background: transparent !important; overflow:hidden; padding: 0; }
-.logo img{ width:100%; height:100%; object-fit:contain; display:block; }
+.side .logo{ background: transparent !important; overflow:hidden; padding: 0; }
+.side .logo img{ width:100%; height:100%; object-fit:contain; display:block; }
 
-.brand span{ line-height:1.35; }
+.side .brand span{ line-height:1.35; }
 .side-top{ position:relative; }
 .pin-btn{ position:absolute; top:16px; right:12px; width:28px; height:28px; border-radius:8px; border:1px solid var(--panel-border); background:transparent; color:var(--text-muted); display:flex; align-items:center; justify-content:center; cursor:pointer; z-index:3; transition:.2s; }
 .pin-btn:hover{ color:var(--accent); border-color:var(--accent); }
@@ -437,194 +437,4 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <b>SLA &amp; Analitik</b>
         </a>
         <a class="tool-side{% if active_page == 'sosmed_deflection' %} active{% endif %}" href="/sosmed/deflection">
-          <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></div>
-          <b>Coverage &amp; Deflection</b>
-        </a>
-        {% endif %}
-
-        {% if can_peraturan %}
-        <div class="sec-label" style="margin-top:14px;">Peraturan</div>
-        <a class="tool-side{% if active_page == 'peraturan' %} active{% endif %}" href="/peraturan">
-          <div class="ic c-red"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l9-3 9 3-9 3-9-3z"/><path d="M12 9v12"/><path d="M5 10v6c0 1 3 3 7 3s7-2 7-3v-6"/></svg></div>
-          <b>Basis Data Peraturan</b>
-        </a>
-        <a class="tool-side{% if active_page == 'sop' %} active{% endif %}" href="/sop">
-          <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M9 13h6M9 17h4"/></svg></div>
-          <b>SOP &amp; Proses Bisnis</b>
-        </a>
-        {% endif %}
-
-        <div class="sec-label" style="margin-top:14px;">Umum</div>
-        <a class="tool-side{% if active_page == 'studio' %} active{% endif %}" href="/studio">
-          <div class="ic c-purple"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></div>
-          <b>Studio Dokumen</b>
-        </a>
-
-        {% if can_users %}
-        <a class="tool-side{% if active_page == 'users' %} active{% endif %}" href="/users">
-          <div class="ic c-purple"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
-          <b>Pengguna &amp; Peran</b>
-        </a>
-        {% endif %}
-
-        <div class="sec-label" style="margin-top: 14px;">Riwayat Percakapan</div>
-        <div id="histList"></div>
-      </div>
-      
-      <div class="side-foot"><span class="dot"></span><span id="provChip">Engine Aktif</span><span style="margin-left:auto;font-size:10.5px;opacity:.7;">Build v13 &middot; Fase 1&ndash;5 + OCR + PII</span></div>
-    </aside>
-    <div class="backdrop" id="backdrop"></div>
-
-    <!-- Main -->
-    <main class="main">
-      <div class="topbar">
-        <div class="topbar-left">
-          <button class="menu-btn" id="menuBtn"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
-        </div>
-        
-        <div class="topbar-right">
-          <div class="user-info">
-            <b>{{ user_name }}</b>
-            <span>{{ user_role }}</span>
-          </div>
-          <a href="/profil" class="user-avatar" title="Akun Saya" style="text-decoration:none;">{% if user_avatar_img %}<img src="{{ user_avatar_img }}" alt="avatar">{% else %}{{ user_avatar }}{% endif %}</a>
-
-          <a href="/credit" class="action-btn" title="Kredit &amp; Penghargaan" style="text-decoration:none;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M8.21 13.89L7 22l5-3 5 3-1.21-8.11"/></svg>
-          </a>
-
-          <button class="action-btn theme-toggle" id="theme-btn" aria-label="Toggle Mode">
-            <svg class="icon-sun" width="18" height="18" viewBox="0 0 24 24"><path d="M12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3zm0-2V3M12 21v-4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
-            <svg class="icon-moon" width="18" height="18" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-          </button>
-          
-          <a href="/api/logout" class="action-btn btn-logout" title="Keluar" style="text-decoration: none;">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-          </a>
-        </div>
-      </div>
-      
-      {% block main %}
-      <div class="content-area">
-        <div class="content-inner">
-          {% block content %}{% endblock %}
-        </div>
-      </div>
-      {% endblock %}
-    </main>
-  </div>
-
-<script>
-(function(){
-  var root = document.documentElement;
-  var body = document.body;
-
-  // ---- Theme toggle ----
-  var saved = localStorage.getItem('theme') || 'dark';
-  if (saved === 'light') root.setAttribute('data-theme', 'light');
-  var tb = document.getElementById('theme-btn');
-  if (tb) tb.addEventListener('click', function(){
-    var c = root.getAttribute('data-theme') || 'dark';
-    var n = (c === 'dark') ? 'light' : 'dark';
-    root.setAttribute('data-theme', n);
-    localStorage.setItem('theme', n);
-  });
-
-  var side = document.getElementById('side');
-  var bd = document.getElementById('backdrop');
-  var mb = document.getElementById('menuBtn');
-  var pinBtn = document.getElementById('pinBtn');
-
-  // ---- Mobile drawer ----
-  function openSide(){ if (side) side.classList.add('open'); if (bd) bd.classList.add('show'); }
-  function closeSide(){ if (side) side.classList.remove('open'); if (bd) bd.classList.remove('show'); }
-  if (mb) mb.addEventListener('click', openSide);
-  if (bd) bd.addEventListener('click', closeSide);
-
-  // ---- Pin sidebar (desktop). Default = rail (mini) yang melebar saat hover;
-  //      dipin = tetap lebar & konten bergeser. Status disimpan di localStorage. ----
-  var pinned = localStorage.getItem('sidebarPinned') === '1';
-  if (pinned) body.classList.add('sidebar-pinned');
-  if (pinBtn) pinBtn.addEventListener('click', function(){
-    pinned = !pinned;
-    body.classList.toggle('sidebar-pinned', pinned);
-    localStorage.setItem('sidebarPinned', pinned ? '1' : '0');
-  });
-
-  // ---- Shared chat history in sidebar (runs on non-chat pages only) ----
-  var onChatPage = !!document.getElementById('stream');
-  if (!onChatPage) {
-    var LS_KEY = 'studio_chats', LS_ACTIVE = 'studio_active';
-    var esc = function(s){ return (s||'').replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); };
-    var load = function(){ try { return JSON.parse(localStorage.getItem(LS_KEY)) || []; } catch(e){ return []; } };
-    var save = function(a){ localStorage.setItem(LS_KEY, JSON.stringify(a)); };
-    var renderHist = function(){
-      var list = document.getElementById('histList'); if (!list) return;
-      var sessions = load(), activeId = localStorage.getItem(LS_ACTIVE) || null;
-      if (!sessions.length) { list.innerHTML = '<div class="empty-hist">Belum ada chat tersimpan.</div>'; return; }
-      list.innerHTML = '';
-      sessions.slice().sort(function(a,b){ return b.updated - a.updated; }).forEach(function(s){
-        var it = document.createElement('div');
-        it.className = 'chat-item' + (s.id === activeId ? ' active' : '');
-        it.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span class="t">' + esc(s.title || 'Percakapan Baru') + '</span><button class="del" title="Hapus"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>';
-        it.addEventListener('click', function(){ localStorage.setItem(LS_ACTIVE, s.id); window.location.href = '/'; });
-        it.querySelector('.del').addEventListener('click', function(e){
-          e.stopPropagation();
-          var arr = load().filter(function(x){ return x.id !== s.id; });
-          save(arr);
-          if ((localStorage.getItem(LS_ACTIVE) || null) === s.id) localStorage.removeItem(LS_ACTIVE);
-          renderHist();
-        });
-        list.appendChild(it);
-      });
-    };
-    var nb = document.getElementById('newBtn');
-    if (nb) nb.addEventListener('click', function(){ localStorage.removeItem(LS_ACTIVE); window.location.href = '/'; });
-    renderHist();
-  }
-
-  // ---- Accordion section (lipat + ingat status) & memori posisi scroll ----
-  var scrollBox = document.querySelector('.side-scroll');
-  if (scrollBox) {
-    var CHEV = '<span class="acc-chev"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg></span>';
-    var secLabels = Array.prototype.slice.call(scrollBox.querySelectorAll('.sec-label'));
-    secLabels.forEach(function(label){
-      var items = [];
-      var el = label.nextElementSibling;
-      while (el && !el.classList.contains('sec-label')) { items.push(el); el = el.nextElementSibling; }
-      if (!items.length) return;
-      var key = 'acc_' + (label.textContent || '').trim();
-      label.classList.add('acc-toggle');
-      label.setAttribute('role', 'button');
-      label.insertAdjacentHTML('beforeend', CHEV);
-      var collapsed = localStorage.getItem(key) === '1';
-      var apply = function(){
-        items.forEach(function(it){ it.style.display = collapsed ? 'none' : ''; });
-        label.classList.toggle('acc-collapsed', collapsed);
-      };
-      apply();
-      label.addEventListener('click', function(){
-        collapsed = !collapsed;
-        localStorage.setItem(key, collapsed ? '1' : '0');
-        apply();
-      });
-    });
-
-    // Pulihkan posisi scroll antar-navigasi; jika belum ada, gulir ke menu aktif.
-    var SC_KEY = 'sidebarScrollTop';
-    var savedTop = sessionStorage.getItem(SC_KEY);
-    if (savedTop !== null) {
-      scrollBox.scrollTop = parseInt(savedTop, 10) || 0;
-    } else {
-      var act = scrollBox.querySelector('.tool-side.active');
-      if (act && act.scrollIntoView) act.scrollIntoView({ block: 'center' });
-    }
-    scrollBox.addEventListener('scroll', function(){ sessionStorage.setItem(SC_KEY, scrollBox.scrollTop); });
-    window.addEventListener('beforeunload', function(){ sessionStorage.setItem(SC_KEY, scrollBox.scrollTop); });
-  }
-})();
-</script>
-{% block scripts %}{% endblock %}
-
-</body>
-</html>
+          <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2
