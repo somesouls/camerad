@@ -281,6 +281,10 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6M10 3v6.5L5 20a1 1 0 0 0 .9 1.5h12.2A1 1 0 0 0 19 20l-5-10.5V3"/><path d="M7.5 15h9"/></svg></div>
           <b>RAG Lab &middot; Uji Sumber</b>
         </a>
+        <a class="tool-side{% if active_page == 'rag_eval' %} active{% endif %}" href="/rag-eval">
+          <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg></div>
+          <b>Evaluasi RAG &middot; Kumpulkan Sampel</b>
+        </a>
         {% endif %}
         {% if can_dialogflow %}
         <div class="sec-label">Dialogflow</div>
