@@ -14,6 +14,7 @@ _CAP = {
     "analis": {"read", "edit", "approve", "ingest"},
     "assessor": {"read", "assess"},
     "viewer": {"read"},
+    "agent": {"read"},
 }
 
 
@@ -299,6 +300,7 @@ ROLE_LABEL = {
     "analis": "Analis",
     "assessor": "Assessor QA",
     "viewer": "Peninjau",
+    "agent": "Agent Kring Pajak",
 }
 
 # Area akses (di atas kapabilitas). Dipakai middleware & template menu.
@@ -308,7 +310,9 @@ _AREA_ROLES = {
     "awe_manage": {"admin", "analis"},
     "assess":     {"admin", "assessor"},
     "common":     {"admin", "analis", "assessor", "viewer"},
-    "account":    {"admin", "analis", "assessor", "viewer"},
+    # Kanal chat RAG Agent Kring Pajak + Studio Dokumen: semua peran termasuk 'agent'.
+    "chat":       {"admin", "analis", "assessor", "viewer", "agent"},
+    "account":    {"admin", "analis", "assessor", "viewer", "agent"},
     "users":      {"admin"},
     "peraturan":  {"admin"},
 }
