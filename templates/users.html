@@ -15,6 +15,7 @@ tr:last-child td { border-bottom:none; }
 .b-analis { background:var(--c-blue); color:var(--c-blue-txt); }
 .b-assessor { background:var(--c-purple); color:var(--c-purple-txt); }
 .b-viewer { background:var(--panel-border); color:var(--text-muted); }
+.b-agent { background:var(--c-green); color:var(--c-green-txt); }
 .uname { display:flex; align-items:center; gap:10px; }
 .uav { width:30px; height:30px; border-radius:50%; overflow:hidden; flex:none; background:linear-gradient(135deg, var(--accent), #8b5cf6); color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
 .uav img { width:100%; height:100%; object-fit:cover; display:block; }
@@ -55,6 +56,7 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
           <option value="assessor">assessor — lihat + Penilaian QA (AWE)</option>
           <option value="analis">analis — lihat, edit, setujui, ingest</option>
           <option value="admin">admin — semua + kelola user</option>
+          <option value="agent">agent — Agent Kring Pajak (hanya chat + profil)</option>
         </select>
       </div>
       <div class="fld"><label>Sandi (min. 6 karakter)</label><input id="fp" type="password" /></div>
@@ -97,6 +99,7 @@ function badge(role) {
   if (role === "admin") return '<span class="badge b-admin">admin</span>';
   if (role === "analis") return '<span class="badge b-analis">analis</span>';
   if (role === "assessor") return '<span class="badge b-assessor">assessor</span>';
+  if (role === "agent") return '<span class="badge b-agent">agent</span>';
   return '<span class="badge b-viewer">viewer</span>';
 }
 
