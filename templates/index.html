@@ -16,24 +16,51 @@ a.src-chip:hover { border-color:var(--accent); color:var(--accent); transform:tr
 .fb-btn.down.active { border-color:var(--c-red-txt); color:var(--c-red-txt); background:var(--c-red); }
 .fb-note { font-size:11.5px; color:var(--text-muted); }
 .lock-note { text-align:center; color:var(--c-orange-txt); font-size:12.5px; margin-top:10px; }
+
+.chat-layout { flex:1; display:flex; min-height:0; }
+.chat-col { flex:1; display:flex; flex-direction:column; min-width:0; }
+.source-side { width:320px; flex:none; border-left:1px solid var(--panel-border); background:var(--panel-bg); display:flex; flex-direction:column; }
+.ss-head { padding:16px 18px 12px; font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--text-muted); border-bottom:1px solid var(--panel-border); display:flex; align-items:center; gap:8px; }
+.ss-head svg { width:14px; height:14px; }
+.ss-body { flex:1; overflow-y:auto; padding:14px; }
+.ss-body::-webkit-scrollbar { width:5px; } .ss-body::-webkit-scrollbar-thumb { background:var(--panel-border); border-radius:4px; }
+.ss-empty { color:var(--text-muted); font-size:12.5px; text-align:center; padding:24px 10px; line-height:1.5; }
+.ss-card { display:block; border:1px solid var(--panel-border); border-radius:12px; padding:11px 12px; margin-bottom:10px; text-decoration:none; color:var(--text-main); transition:.15s; }
+a.ss-card:hover { border-color:var(--accent); transform:translateY(-1px); box-shadow:var(--shadow-sm); }
+.ss-card .s-top { display:flex; align-items:center; gap:7px; margin-bottom:6px; flex-wrap:wrap; }
+.ss-badge { font-size:10px; font-weight:700; padding:2px 7px; border-radius:6px; background:var(--c-purple); color:var(--c-purple-txt); }
+.ss-title { font-size:13px; font-weight:600; line-height:1.35; }
+.ss-ref { font-size:11.5px; color:var(--text-muted); margin-top:3px; }
+.ss-link { font-size:11px; color:var(--accent); margin-top:7px; display:flex; align-items:center; gap:5px; word-break:break-all; }
+.ss-link svg { width:12px; height:12px; flex:none; }
+.ss-card.preview { opacity:.75; }
+@media (min-width:1024px){ .msg .src-wrap { display:none; } }
+@media (max-width:1023px){ .source-side { display:none; } }
 </style>
 {% endblock %}
 {% block main %}
-      <div class="stream" id="stream">
-        <div class="stream-inner" id="streamInner"></div>
-      </div>
-      
-      <div class="composer">
-        <div class="composer-inner">
-          <div class="inputwrap">
-            <textarea id="input" rows="1" placeholder="Tanyakan seputar perpajakan (mis. cara reset EFIN, tarif PPh 21)..."></textarea>
-            <button class="sendbtn" id="sendBtn" title="Kirim Pesan">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
-            </button>
+      <div class="chat-layout">
+        <div class="chat-col">
+          <div class="stream" id="stream">
+            <div class="stream-inner" id="streamInner"></div>
           </div>
-          <div class="lock-note" id="lockNote" style="display:none;">Beri penilaian 👍 / 👎 pada jawaban terakhir sebelum bertanya lagi.</div>
-          <div class="hint">Jawaban dibuat AI berbasis basis pengetahuan perpajakan. Selalu verifikasi silang dengan sumber resmi.</div>
+          <div class="composer">
+            <div class="composer-inner">
+              <div class="inputwrap">
+                <textarea id="input" rows="1" placeholder="Tanyakan seputar perpajakan (mis. cara reset EFIN, tarif PPh 21)..."></textarea>
+                <button class="sendbtn" id="sendBtn" title="Kirim Pesan">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                </button>
+              </div>
+              <div class="lock-note" id="lockNote" style="display:none;">Beri penilaian 👍 / 👎 pada jawaban terakhir sebelum bertanya lagi.</div>
+              <div class="hint">Jawaban dibuat AI berbasis basis pengetahuan perpajakan. Selalu verifikasi silang dengan sumber resmi.</div>
+            </div>
+          </div>
         </div>
+        <aside class="source-side" id="sourceSide">
+          <div class="ss-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg> Sumber Rujukan</div>
+          <div class="ss-body" id="ssBody"><div class="ss-empty">Tautan sumber untuk jawaban akan tampil di sini. Hanya sumber yang relevan dengan jawaban terakhir yang ditampilkan.</div></div>
+        </aside>
       </div>
 {% endblock %}
 {% block scripts %}
@@ -79,6 +106,7 @@ a.src-chip:hover { border-color:var(--accent); color:var(--accent); transform:tr
   }
 
   const botAvatar='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 10 10H12V2z"/><path d="M12 12 2.1 7.1"/><path d="M12 12l9.9 4.9"/></svg>';
+  const linkIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
 
   function renderSidebar(){
     const list=el('histList');
@@ -100,11 +128,28 @@ a.src-chip:hover { border-color:var(--accent); color:var(--accent); transform:tr
       var label = '<span class="lbl">'+esc(s.sumber||'Sumber')+'</span> '+esc(s.judul||'');
       if(s.ref) label += ' <span style="opacity:.7">· '+esc(s.ref)+'</span>';
       if(s.url){
-        return '<a class="src-chip" href="'+esc(s.url)+'" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'+label+'</a>';
+        return '<a class="src-chip" href="'+esc(s.url)+'" target="_blank" rel="noopener">'+linkIcon+label+'</a>';
       }
       return '<span class="src-chip preview" title="Pratinjau · tanpa tautan">'+label+'</span>';
     }).join('');
     return '<div class="src-wrap">'+chips+'</div>';
+  }
+
+  function renderSources(sources){
+    var body=el('ssBody'); if(!body) return;
+    if(!sources || !sources.length){
+      body.innerHTML='<div class="ss-empty">Tautan sumber untuk jawaban akan tampil di sini. Hanya sumber yang relevan dengan jawaban terakhir yang ditampilkan.</div>';
+      return;
+    }
+    body.innerHTML = sources.map(function(s){
+      var badge='<span class="ss-badge">'+esc(s.sumber||'Sumber')+'</span>';
+      var ref = s.ref ? '<span class="ss-ref" style="margin:0">'+esc(s.ref)+'</span>' : '';
+      var title='<div class="ss-title">'+esc(s.judul||'(tanpa judul)')+'</div>';
+      if(s.url){
+        return '<a class="ss-card" href="'+esc(s.url)+'" target="_blank" rel="noopener"><div class="s-top">'+badge+ref+'</div>'+title+'<div class="ss-link">'+linkIcon+esc(s.url)+'</div></a>';
+      }
+      return '<div class="ss-card preview"><div class="s-top">'+badge+ref+'<span class="ss-ref" style="margin:0">pratinjau</span></div>'+title+'</div>';
+    }).join('');
   }
 
   function fbHtml(m, idx){
@@ -135,7 +180,6 @@ a.src-chip:hover { border-color:var(--accent); color:var(--accent); transform:tr
     const inner=el('streamInner');
     const s=active();
 
-    // STATE KOSONG (LANDING)
     if(!s || !s.messages.length){
       stream.classList.add('is-empty');
       var sub = 'Tanyakan hal seputar perpajakan. Jawaban dirujuk ke basis pengetahuan resmi lengkap dengan tautan sumbernya.';
@@ -145,15 +189,18 @@ a.src-chip:hover { border-color:var(--accent); color:var(--accent); transform:tr
           '<p class="welcome-sub">'+sub+'</p>'+
           landingGrid()+
         '</div>';
+      renderSources([]);
       updateLock();
       return;
     }
 
-    // STATE ADA CHAT
     stream.classList.remove('is-empty');
     inner.innerHTML='';
     s.messages.forEach((m,idx)=>inner.appendChild(msgRow(m, idx)));
     scrollBottom();
+    var lastSrc=[];
+    for(var i=s.messages.length-1;i>=0;i--){ var mm=s.messages[i]; if(mm.role==='assistant' && mm.sources && mm.sources.length){ lastSrc=mm.sources; break; } }
+    renderSources(lastSrc);
     updateLock();
   }
 
@@ -194,7 +241,6 @@ a.src-chip:hover { border-color:var(--accent); color:var(--accent); transform:tr
   function setSending(v){ sending=v; updateLock(); }
   function autoGrow(t){ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,180)+'px'; }
 
-  // Kunci input untuk peran agent hingga jawaban terakhir dinilai (👍/👎).
   function pendingFeedback(){
     if(!IS_AGENT) return false;
     var s=active(); if(!s) return false;
@@ -229,7 +275,6 @@ a.src-chip:hover { border-color:var(--accent); color:var(--accent); transform:tr
     const inp=el('input'); const text=inp.value.trim(); if(!text) return;
     const s=ensureSession(text);
 
-    // riwayat = pesan sebelum pertanyaan ini
     const history = s.messages.map(m=>({role:m.role, content:m.content}));
 
     s.messages.push({role:'user', content:text}); s.updated=Date.now();
