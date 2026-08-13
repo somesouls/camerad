@@ -258,7 +258,8 @@ def _ctx_sosmed(q, limit=3):
         blocks.append("Topik: %s\nPertanyaan: %s\nJawaban resmi: %s"
                       % (label, _clip(p.get("pertanyaan"), 300), _clip(p.get("jawaban_draf"), 500)))
         sources.append({"sumber": "Data Sosmed", "judul": str(label),
-                        "ref": str(p.get("platform") or "").upper()})
+                        "ref": str(p.get("platform") or "").upper(),
+                        "url": str(p.get("permalink") or "").strip()})
     return "\n\n".join(blocks), sources
 
 
@@ -296,7 +297,8 @@ def _ctx_peraturan(q, limit=4):
         piece += "\nIsi: " + _clip(isi, 700)
         blocks.append(piece)
         sources.append({"sumber": "Peraturan", "judul": head,
-                        "ref": (reference or hierarchy)})
+                        "ref": (reference or hierarchy),
+                        "url": str(d.get("source_url") or "").strip()})
     return "\n\n".join(blocks), sources
 
 
