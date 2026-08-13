@@ -222,6 +222,24 @@ def _ctx_awe(q, limit=3):
     return "\n\n".join(blocks), sources
 
 
+def _sosmed_url(p):
+    """Rangkai URL publik yang bisa diklik untuk item sosmed.
+
+    Utamakan permalink; bila kosong, rakit dari platform + handle + external_id
+    (mis. X/Twitter -> https://x.com/<handle>/status/<id>).
+    """
+    p = p or {}
+    permalink = str(p.get("permalink") or "").strip()
+    if permalink.startswith("http"):
+        return permalink
+    platform = str(p.get("platform") or "").strip().lower()
+    handle = str(p.get("author_handle") or "").strip().lstrip("@")
+    ext = str(p.get("external_id") or "").strip()
+    if platform in ("x", "twitter") and ext:
+        return "https://x.com/%s/status/%s" % (handle or "i", ext)
+    return permalink
+
+
 def _ctx_sosmed(q, limit=3):
     if sdb is None:
         return "", []
@@ -259,7 +277,7 @@ def _ctx_sosmed(q, limit=3):
                       % (label, _clip(p.get("pertanyaan"), 300), _clip(p.get("jawaban_draf"), 500)))
         sources.append({"sumber": "Data Sosmed", "judul": str(label),
                         "ref": str(p.get("platform") or "").upper(),
-                        "url": str(p.get("permalink") or "").strip()})
+                        "url": _sosmed_url(p)})
     return "\n\n".join(blocks), sources
 
 
