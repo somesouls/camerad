@@ -21,6 +21,7 @@ import eval_db
 import eval_judge
 import rag_engine
 import rag_config_db as rcfg
+import rag_calibration as _cal
 
 _LOCK = threading.Lock()
 _JOBS = {}   # run_id -> {"stop": bool, "thread": Thread}
@@ -40,13 +41,22 @@ def _sources_txt(sources):
     return "\n".join(out)
 
 
-def _run(run_id, profil, jenis, limit, holdout, judge):
+def run_samples(run_id, profil, jenis, limit, holdout, judge, min_cos=None):
+    """Inti SINKRON evaluasi satu run (dipakai thread _run & eval_sweep).
+
+    min_cos: ambang cosine aktif utk run ini (None = default env RAG_MIN_COS).
+    Di-set ke rag_calibration agar gerbang retrieval (rag_calibration_patch)
+    menyaring sesuai ambang selama run berjalan di thread ini.
+    """
+    with _LOCK:
+        _JOBS.setdefault(run_id, {"stop": False})
     conn = eval_db.init_db(eval_db.connect())
     profile = rcfg.get_profile(profil) or rcfg.get_profile("chatbot") or {}
     base_sumber = [s for s in (profile.get("sumber") or list(rcfg.SUMBER_VALID))
                    if s in rcfg.SUMBER_VALID] or list(rcfg.SUMBER_VALID)
     fb = _fallback_text(profile)
     try:
+        _cal.set_min_cos(min_cos)
         samples = eval_db.list_samples(conn, jenis if jenis != "all" else None, limit=limit)
         n = 0
         for smp in samples:
@@ -91,12 +101,17 @@ def _run(run_id, profil, jenis, limit, holdout, judge):
         eval_db.finish_run(conn, run_id, "error",
                            (str(e) + " | " + traceback.format_exc())[:400])
     finally:
+        _cal.reset_min_cos()
         try:
             conn.close()
         except Exception:
             pass
         with _LOCK:
             _JOBS.pop(run_id, None)
+
+
+def _run(run_id, profil, jenis, limit, holdout, judge):
+    run_samples(run_id, profil, jenis, limit, holdout, judge, min_cos=None)
 
 
 def start_eval(profil="agent", jenis="all", limit=None, holdout=True, judge=True):
