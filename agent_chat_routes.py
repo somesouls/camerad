@@ -13,12 +13,17 @@ Endpoint:
   POST /api/rag/feedback   -> simpan jempol naik/turun untuk sebuah jawaban
   GET  /api/rag/quota      -> (admin) lihat kuota harian agent & chatbot
   POST /api/rag/quota/save -> (admin) setel kuota harian
+  GET  /rag-agent          -> (admin) halaman konfigurasi mesin RAG profil agent
+  GET  /api/rag/logs       -> (admin) daftar log chat + feedback untuk review
 """
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+from app_core import render_page
+
 import rag_engine
+import rag_config_db as rcfg
 import agent_log_db as aldb
 
 
@@ -118,7 +123,37 @@ def register(app):
                              updated_by=username)
         return JSONResponse(res, status_code=(200 if res.get("ok") else 400))
 
+    async def page_rag_agent(request: Request):
+        return render_page(request, "rag_agent.html", "rag_agent", {
+            "sumber_valid": list(rcfg.SUMBER_VALID),
+            "sumber_label": rcfg.SUMBER_LABEL,
+        })
+
+    async def api_rag_logs(request: Request):
+        qp = request.query_params
+
+        def _int(v, dv):
+            try:
+                return int(v)
+            except Exception:
+                return dv
+
+        res = aldb.list_logs(
+            username=qp.get("q") or qp.get("username") or "",
+            feedback=qp.get("feedback") or "",
+            grounded=qp.get("grounded") or "",
+            domain=qp.get("domain") or "",
+            profil=qp.get("profil") or "agent",
+            range_=qp.get("range") or "all",
+            start=qp.get("start") or "",
+            end=qp.get("end") or "",
+            limit=_int(qp.get("limit"), 300),
+        )
+        return JSONResponse(res)
+
     app.add_api_route("/api/rag/agent", api_rag_agent, methods=["POST"])
     app.add_api_route("/api/rag/feedback", api_rag_feedback, methods=["POST"])
     app.add_api_route("/api/rag/quota", api_rag_quota, methods=["GET"])
     app.add_api_route("/api/rag/quota/save", api_rag_quota_save, methods=["POST"])
+    app.add_api_route("/rag-agent", page_rag_agent, methods=["GET"])
+    app.add_api_route("/api/rag/logs", api_rag_logs, methods=["GET"])

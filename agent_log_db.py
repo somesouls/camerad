@@ -203,3 +203,144 @@ def set_quota(target, maks_tanya=None, maks_token=None, updated_by=""):
             c.close()
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Review feedback: daftar log chat RAG (filter nama / jempol / grounded / dst.)
+# ---------------------------------------------------------------------------
+def _fmt_dt(dt):
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _range_utc(preset, start="", end=""):
+    """Rentang [lo, hi) UTC untuk preset hari kalender Asia/Jakarta."""
+    preset = (preset or "all").strip().lower()
+    now = datetime.now(timezone.utc)
+    today = (now + timedelta(hours=7)).date()
+
+    def day_start_utc(d):
+        midnight_jkt = datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+        return midnight_jkt - timedelta(hours=7)
+
+    if preset in ("", "all"):
+        return None, None
+    if preset == "custom":
+        from datetime import date as _date
+
+        def parse_d(s):
+            try:
+                y, m, d = [int(x) for x in str(s)[:10].split("-")]
+                return _date(y, m, d)
+            except Exception:
+                return None
+        ds = parse_d(start) or today
+        de = parse_d(end) or ds
+        return _fmt_dt(day_start_utc(ds)), _fmt_dt(day_start_utc(de) + timedelta(days=1))
+    days = {"today": 1, "7d": 7, "30d": 30, "90d": 90}.get(preset, 0)
+    if days <= 0:
+        return None, None
+    lo = day_start_utc(today - timedelta(days=days - 1))
+    hi = day_start_utc(today) + timedelta(days=1)
+    return _fmt_dt(lo), _fmt_dt(hi)
+
+
+def distinct_users(profil="agent"):
+    try:
+        c = _c()
+        try:
+            if profil:
+                rows = c.execute(
+                    "SELECT DISTINCT username FROM rag_chat_log "
+                    "WHERE username!='' AND profil=? ORDER BY username",
+                    (profil,)).fetchall()
+            else:
+                rows = c.execute(
+                    "SELECT DISTINCT username FROM rag_chat_log "
+                    "WHERE username!='' ORDER BY username").fetchall()
+            return [r["username"] for r in rows]
+        finally:
+            c.close()
+    except Exception:
+        return []
+
+
+def list_logs(username="", feedback="", grounded="", domain="", profil="agent",
+              range_="all", start="", end="", q="", limit=300):
+    """Daftar log chat RAG untuk review keandalan. Semua filter opsional.
+
+    - username/q : cocokkan sebagian nama pengguna (agent)
+    - feedback   : 'up' | 'down' | 'none' (belum dinilai) | '' (semua)
+    - grounded   : '1'/'grounded' | '0'/'fallback' | '' (semua)
+    - domain     : domain router (hukum/aplikasi/umum/...)
+    - range_     : all | today | 7d | 30d | 90d | custom (+start/end YYYY-MM-DD)
+    """
+    where = ["1=1"]
+    params = []
+    if profil:
+        where.append("profil=?"); params.append(profil)
+    name = (username or q or "").strip()
+    if name:
+        where.append("lower(username) LIKE ?"); params.append("%" + name.lower() + "%")
+    fb = (feedback or "").strip().lower()
+    if fb in ("up", "down"):
+        where.append("feedback=?"); params.append(fb)
+    elif fb in ("none", "kosong", "belum"):
+        where.append("(feedback IS NULL OR feedback='')")
+    g = str(grounded or "").strip().lower()
+    if g in ("1", "true", "grounded", "ya"):
+        where.append("grounded=1")
+    elif g in ("0", "false", "fallback", "tidak"):
+        where.append("grounded=0")
+    if domain:
+        where.append("domain=?"); params.append(domain)
+    lo, hi = _range_utc(range_, start, end)
+    if lo:
+        where.append("ts>=?"); params.append(lo)
+    if hi:
+        where.append("ts<?"); params.append(hi)
+    w = " AND ".join(where)
+    try:
+        lim = max(1, min(int(limit or 300), 2000))
+    except Exception:
+        lim = 300
+    try:
+        c = _c()
+        try:
+            rows = c.execute(
+                "SELECT id,ts,username,role,profil,question,answer,sources_json,"
+                "grounded,domain,feedback,feedback_at FROM rag_chat_log WHERE "
+                + w + " ORDER BY id DESC LIMIT ?", params + [lim]).fetchall()
+            logs = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d["sources"] = json.loads(d.pop("sources_json") or "[]")
+                except Exception:
+                    d.pop("sources_json", None)
+                    d["sources"] = []
+                d["grounded"] = bool(d.get("grounded"))
+                logs.append(d)
+            stats = {"up": 0, "down": 0, "none": 0, "total": 0}
+            for s in c.execute(
+                    "SELECT COALESCE(NULLIF(feedback,''),'none') fb, COUNT(*) n "
+                    "FROM rag_chat_log WHERE " + w + " GROUP BY fb", params).fetchall():
+                key = s["fb"] if s["fb"] in ("up", "down") else "none"
+                stats[key] = stats.get(key, 0) + int(s["n"])
+                stats["total"] += int(s["n"])
+            if profil:
+                drows = c.execute(
+                    "SELECT DISTINCT domain FROM rag_chat_log "
+                    "WHERE domain!='' AND profil=? ORDER BY domain", (profil,)).fetchall()
+            else:
+                drows = c.execute(
+                    "SELECT DISTINCT domain FROM rag_chat_log "
+                    "WHERE domain!='' ORDER BY domain").fetchall()
+            domains = [dr["domain"] for dr in drows]
+        finally:
+            c.close()
+        return {"ok": True, "logs": logs, "total": len(logs), "stats": stats,
+                "users": distinct_users(profil), "domains": domains}
+    except Exception as e:
+        return {"ok": False, "error": str(e), "logs": [],
+                "stats": {"up": 0, "down": 0, "none": 0, "total": 0},
+                "users": [], "domains": []}
