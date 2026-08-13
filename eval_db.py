@@ -69,7 +69,9 @@ def init_db(conn):
             n_done      INTEGER DEFAULT 0,
             started_at  TEXT,
             finished_at TEXT,
-            note        TEXT
+            note        TEXT,
+            sweep_id    TEXT,
+            min_cos     REAL
         );
 
         CREATE TABLE IF NOT EXISTS eval_result (
@@ -98,6 +100,12 @@ def init_db(conn):
         CREATE INDEX IF NOT EXISTS idx_er_verdict ON eval_result(judge_verdict);
         """
     )
+    # Migrasi non-destruktif: tambah kolom sweep (kalibrasi Point 3) bila DB lama.
+    _cols = [r[1] for r in conn.execute("PRAGMA table_info(eval_run)").fetchall()]
+    if "sweep_id" not in _cols:
+        conn.execute("ALTER TABLE eval_run ADD COLUMN sweep_id TEXT")
+    if "min_cos" not in _cols:
+        conn.execute("ALTER TABLE eval_run ADD COLUMN min_cos REAL")
     conn.commit()
     return conn
 
@@ -150,12 +158,13 @@ def clear_samples(conn, jenis=None):
 
 
 # ---- runs ----
-def create_run(conn, run_id, profil, jenis, params, n_total):
+def create_run(conn, run_id, profil, jenis, params, n_total, sweep_id=None, min_cos=None):
     conn.execute(
-        "INSERT INTO eval_run(id,profil,jenis,params,status,n_total,n_done,started_at) "
-        "VALUES(?,?,?,?,?,?,?,?)",
+        "INSERT INTO eval_run(id,profil,jenis,params,status,n_total,n_done,started_at,sweep_id,min_cos) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?)",
         (run_id, profil, jenis, json.dumps(params or {}, ensure_ascii=False),
-         "running", int(n_total), 0, _now()),
+         "running", int(n_total), 0, _now(), sweep_id,
+         (float(min_cos) if min_cos is not None else None)),
     )
     conn.commit()
 
@@ -185,6 +194,14 @@ def latest_run(conn, status="done"):
     r = conn.execute("SELECT * FROM eval_run WHERE status=? ORDER BY started_at DESC LIMIT 1",
                      (status,)).fetchone()
     return dict(r) if r else None
+
+
+def list_sweep(conn, sweep_id):
+    """Semua run milik satu sweep kalibrasi, urut ambang cosine menaik."""
+    rows = conn.execute(
+        "SELECT * FROM eval_run WHERE sweep_id=? ORDER BY min_cos", (sweep_id,)
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ---- results ----
