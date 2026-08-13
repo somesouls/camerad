@@ -54,6 +54,9 @@ textarea.prompt { min-height:230px; font-family:ui-monospace,SFMono-Regular,Menl
 .empty-r { color:var(--text-muted); font-size:13px; text-align:center; padding:30px 0; }
 .savebar { display:flex; gap:10px; align-items:center; margin-top:6px; }
 .saveok { font-size:12px; color:var(--c-green-txt); }
+.qrow { display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap; margin-bottom:10px; }
+.qrow .qf { flex:1; min-width:120px; }
+.qrow .qf label { display:block; font-size:11px; color:var(--text-muted); margin-bottom:4px; }
 </style>
 
 <div class="lab-wrap">
@@ -65,6 +68,13 @@ textarea.prompt { min-height:230px; font-family:ui-monospace,SFMono-Regular,Menl
   <div class="lab-grid">
     <!-- KIRI: konfigurasi -->
     <div>
+      <div class="card" id="quotaCard">
+        <h3>Kuota Harian (Admin)</h3>
+        <div id="quotaRows"><div class="empty-r">Memuat kuota…</div></div>
+        <span class="saveok" id="quotaMsg"></span>
+        <div class="hint">Batas pertanyaan/hari per kanal RAG. <b>RAG Agent</b> = chat profil Agent Kring Pajak (login peran agent). <b>Chatbot Dialogflow</b> = layanan Wajib Pajak. Kuota token (0 = nonaktif) untuk pembatasan berbasis token harian.</div>
+      </div>
+
       <div class="card">
         <h3>Profil AI</h3>
         <div class="field">
@@ -145,6 +155,28 @@ textarea.prompt { min-height:230px; font-family:ui-monospace,SFMono-Regular,Menl
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
 
+  // --- Kuota harian (admin) ---
+  var TARGET_LABEL = { agent:'RAG Agent (Agent Kring Pajak)', chatbot:'Chatbot Dialogflow (Wajib Pajak)' };
+  function renderQuota(list){
+    var box=$('quotaRows'); box.innerHTML='';
+    if(!list || !list.length){ box.innerHTML='<div class="empty-r">Belum ada data kuota.</div>'; return; }
+    list.forEach(function(q){
+      var wrap=document.createElement('div'); wrap.className='qrow';
+      wrap.innerHTML =
+        '<div class="qf" style="min-width:100%;"><b style="font-size:12.5px;color:var(--text-main);">'+esc(TARGET_LABEL[q.target]||q.target)+'</b></div>'+
+        '<div class="qf"><label>Maks pertanyaan/hari</label><input type="number" min="0" id="q_tanya_'+q.target+'" value="'+(q.maks_tanya||0)+'"></div>'+
+        '<div class="qf"><label>Maks token/hari (0=nonaktif)</label><input type="number" min="0" id="q_token_'+q.target+'" value="'+(q.maks_token||0)+'"></div>'+
+        '<button class="btn ghost" data-save-quota="'+q.target+'">Simpan</button>';
+      box.appendChild(wrap);
+    });
+  }
+  function loadQuota(){
+    fetch('/api/rag/quota').then(function(r){return r.json();}).then(function(j){
+      if(j && j.ok){ renderQuota(j.quota); }
+      else { $('quotaRows').innerHTML='<div class="empty-r">Gagal memuat kuota.</div>'; }
+    }).catch(function(){ $('quotaRows').innerHTML='<div class="empty-r">Gagal terhubung.</div>'; });
+  }
+
   // --- render daftar sumber (checkbox) ---
   var srcList = $('srcList');
   SRC_VALID.forEach(function(k){
@@ -173,6 +205,19 @@ textarea.prompt { min-height:230px; font-family:ui-monospace,SFMono-Regular,Menl
     var t=ev.target;
     if(t && t.classList && t.classList.contains('chip') && t.getAttribute('data-ins')){
       insertAtCursor(t.getAttribute('data-ins'));
+    }
+    if(t && t.getAttribute && t.getAttribute('data-save-quota')){
+      var tgt=t.getAttribute('data-save-quota');
+      var eT=$('q_tanya_'+tgt), eK=$('q_token_'+tgt);
+      var body={ target:tgt,
+        maks_tanya:parseInt((eT&&eT.value)||'0',10),
+        maks_token:parseInt((eK&&eK.value)||'0',10) };
+      $('quotaMsg').textContent='Menyimpan…';
+      fetch('/api/rag/quota/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+        .then(function(r){return r.json();}).then(function(j){
+          if(j&&j.ok){ $('quotaMsg').textContent='Kuota tersimpan ✓'; setTimeout(function(){$('quotaMsg').textContent='';},2500); }
+          else { $('quotaMsg').textContent='Gagal: '+((j&&j.error)||'?'); }
+        }).catch(function(){ $('quotaMsg').textContent='Gagal terhubung.'; });
     }
   });
 
@@ -229,7 +274,11 @@ textarea.prompt { min-height:230px; font-family:ui-monospace,SFMono-Regular,Menl
     html += '<div class="answer">'+esc(j.answer||'')+'</div>';
     if(j.sources && j.sources.length){
       html += '<div class="blk" style="border-top:1px dashed var(--panel-border);margin-top:12px;padding-top:10px;"><div class="lbl">Sumber</div>';
-      j.sources.forEach(function(s){ html += '<span class="src"><b>'+esc(s.sumber||'')+'</b> '+esc(s.judul||'')+(s.ref?(' · '+esc(s.ref)):'')+'</span>'; });
+      j.sources.forEach(function(s){
+        var inner = '<b>'+esc(s.sumber||'')+'</b> '+esc(s.judul||'')+(s.ref?(' · '+esc(s.ref)):'');
+        if(s.url){ html += '<a class="src" href="'+esc(s.url)+'" target="_blank" rel="noopener" style="text-decoration:none;">'+inner+'</a>'; }
+        else { html += '<span class="src">'+inner+'</span>'; }
+      });
       html += '</div>';
     }
     html += '<div class="diag">';
@@ -278,6 +327,7 @@ textarea.prompt { min-height:230px; font-family:ui-monospace,SFMono-Regular,Menl
   $('qTxt').addEventListener('keydown', function(e){ if(e.key==='Enter' && (e.ctrlKey||e.metaKey)){ e.preventDefault(); $('btnRun').click(); } });
 
   loadProfiles();
+  loadQuota();
 })();
 </script>
 {% endblock %}

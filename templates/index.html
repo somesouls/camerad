@@ -1,7 +1,24 @@
 {% extends "base.html" %}
-{% block title %}Camerad Studio - AI Assistant{% endblock %}
+{% block title %}Camerad Studio - Asisten Kring Pajak{% endblock %}
+{% block head %}
+<style>
+.src-wrap { display:flex; flex-wrap:wrap; gap:7px; margin-top:12px; }
+.src-chip { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--text-main); border:1px solid var(--panel-border); border-radius:999px; padding:4px 11px; text-decoration:none; transition:.15s; max-width:100%; }
+a.src-chip:hover { border-color:var(--accent); color:var(--accent); transform:translateY(-1px); }
+.src-chip .lbl { font-weight:700; color:var(--c-purple-txt); }
+.src-chip.preview { opacity:.7; cursor:default; }
+.src-chip svg { width:13px; height:13px; flex:none; }
+.fb-bar { display:flex; align-items:center; gap:8px; margin-top:12px; }
+.fb-btn { width:32px; height:32px; border-radius:9px; border:1px solid var(--panel-border); background:transparent; color:var(--text-muted); cursor:pointer; display:inline-flex; align-items:center; justify-content:center; transition:.15s; }
+.fb-btn:hover { border-color:var(--accent); color:var(--accent); }
+.fb-btn svg { width:16px; height:16px; }
+.fb-btn.up.active { border-color:var(--c-green-txt); color:var(--c-green-txt); background:var(--c-green); }
+.fb-btn.down.active { border-color:var(--c-red-txt); color:var(--c-red-txt); background:var(--c-red); }
+.fb-note { font-size:11.5px; color:var(--text-muted); }
+.lock-note { text-align:center; color:var(--c-orange-txt); font-size:12.5px; margin-top:10px; }
+</style>
+{% endblock %}
 {% block main %}
-<!-- Tambahkan class is-empty dinamis lewat JS -->
       <div class="stream" id="stream">
         <div class="stream-inner" id="streamInner"></div>
       </div>
@@ -9,19 +26,24 @@
       <div class="composer">
         <div class="composer-inner">
           <div class="inputwrap">
-            <textarea id="input" rows="1" placeholder="Tanyakan atau instruksikan sesuatu pada asisten..."></textarea>
+            <textarea id="input" rows="1" placeholder="Tanyakan seputar perpajakan (mis. cara reset EFIN, tarif PPh 21)..."></textarea>
             <button class="sendbtn" id="sendBtn" title="Kirim Pesan">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
             </button>
           </div>
-          <div class="hint">Model AI dapat melakukan kesalahan. Pastikan verifikasi silang data kebijakan internal.</div>
+          <div class="lock-note" id="lockNote" style="display:none;">Beri penilaian 👍 / 👎 pada jawaban terakhir sebelum bertanya lagi.</div>
+          <div class="hint">Jawaban dibuat AI berbasis basis pengetahuan perpajakan. Selalu verifikasi silang dengan sumber resmi.</div>
         </div>
       </div>
 {% endblock %}
 {% block scripts %}
 <script>
 
-  // --- CHAT LOGIC ---
+  // --- KONFIG PERAN ---
+  const IS_AGENT = {{ 'true' if is_agent else 'false' }};
+  const USER_INITIAL = {{ user_avatar|tojson }};
+
+  // --- CHAT LOGIC (Chat RAG Agent Kring Pajak) ---
   const LS_KEY='studio_chats', LS_ACTIVE='studio_active';
   let sessions=loadSessions();
   let activeId=localStorage.getItem(LS_ACTIVE)||null;
@@ -72,71 +94,87 @@
     });
   }
 
+  function srcChipsHtml(sources){
+    if(!sources || !sources.length) return '';
+    var chips = sources.map(function(s){
+      var label = '<span class="lbl">'+esc(s.sumber||'Sumber')+'</span> '+esc(s.judul||'');
+      if(s.ref) label += ' <span style="opacity:.7">· '+esc(s.ref)+'</span>';
+      if(s.url){
+        return '<a class="src-chip" href="'+esc(s.url)+'" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>'+label+'</a>';
+      }
+      return '<span class="src-chip preview" title="Pratinjau · tanpa tautan">'+label+'</span>';
+    }).join('');
+    return '<div class="src-wrap">'+chips+'</div>';
+  }
+
+  function fbHtml(m, idx){
+    if(m.role!=='assistant' || !m.log_id) return '';
+    var up = m.feedback==='up' ? ' active' : '';
+    var down = m.feedback==='down' ? ' active' : '';
+    return '<div class="fb-bar">'+
+      '<button class="fb-btn up'+up+'" data-idx="'+idx+'" data-rating="up" title="Jawaban akurat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg></button>'+
+      '<button class="fb-btn down'+down+'" data-idx="'+idx+'" data-rating="down" title="Jawaban keliru / kurang tepat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg></button>'+
+      '<span class="fb-note">'+(m.feedback ? 'Terima kasih atas penilaian Anda.' : 'Apakah jawaban ini akurat?')+'</span>'+
+      '</div>';
+  }
+
+  function landingGrid(){
+    if(IS_AGENT) return '';
+    return '<div class="tools-grid">'+
+      '<a class="tool-card-compact" href="/dashboard"><div class="ic-wrap c-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div><div class="text-wrap"><b>Dashboard Analitik</b><span>Pantauan performa.</span></div></a>'+
+      '<a class="tool-card-compact" href="/data"><div class="ic-wrap c-green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div><div class="text-wrap"><b>Kelola Data</b><span>Dataset & sinkronisasi.</span></div></a>'+
+      '<a class="tool-card-compact" href="/glossary"><div class="ic-wrap c-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div><div class="text-wrap"><b>Glosarium Pajak</b><span>Istilah khusus.</span></div></a>'+
+      '<a class="tool-card-compact" href="/disambig"><div class="ic-wrap c-red"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6M4 6v12"/></svg></div><div class="text-wrap"><b>Disambiguasi</b><span>Routing frasa.</span></div></a>'+
+      '<a class="tool-card-compact" href="/intentmap"><div class="ic-wrap c-purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></div><div class="text-wrap"><b>Peta Intent</b><span>Maksud dan aturan.</span></div></a>'+
+      '<a class="tool-card-compact" href="/tools"><div class="ic-wrap c-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div><div class="text-wrap"><b>Analisis Dialogflow</b><span>Alur Avaya & fallback.</span></div></a>'+
+      '</div>';
+  }
+
   function renderChat(){
     const stream=el('stream');
-    const inner=el('streamInner'); 
+    const inner=el('streamInner');
     const s=active();
-    
-    // STATE KOSONG (LANDING PAGE - NOTION STYLE)
+
+    // STATE KOSONG (LANDING)
     if(!s || !s.messages.length){
-      stream.classList.add('is-empty'); // Center layout
-      
-      inner.innerHTML=`
-        <div class="hero-wrapper">
-          <h1 class="welcome-text">${getGreeting()}, Rekan.</h1>
-          <p class="welcome-sub">Apa yang ingin Anda kerjakan atau tanyakan hari ini?</p>
-          
-          <div class="tools-grid">
-            <a class="tool-card-compact" href="/dashboard">
-              <div class="ic-wrap c-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div>
-              <div class="text-wrap"><b>Dashboard Analitik</b><span>Pantauan performa.</span></div>
-            </a>
-            <a class="tool-card-compact" href="/data">
-              <div class="ic-wrap c-green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
-              <div class="text-wrap"><b>Kelola Data</b><span>Dataset & sinkronisasi.</span></div>
-            </a>
-            <a class="tool-card-compact" href="/glossary">
-              <div class="ic-wrap c-orange"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div>
-              <div class="text-wrap"><b>Glosarium Pajak</b><span>Istilah khusus.</span></div>
-            </a>
-            <a class="tool-card-compact" href="/disambig">
-              <div class="ic-wrap c-red"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6M4 6v12"/></svg></div>
-              <div class="text-wrap"><b>Disambiguasi</b><span>Routing frasa.</span></div>
-            </a>
-            <a class="tool-card-compact" href="/intentmap">
-              <div class="ic-wrap c-purple"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></div>
-              <div class="text-wrap"><b>Peta Intent</b><span>Maksud dan aturan.</span></div>
-            </a>
-            <a class="tool-card-compact" href="/tools">
-              <div class="ic-wrap c-blue"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
-              <div class="text-wrap"><b>Analisis Dialogflow</b><span>Alur Avaya & fallback.</span></div>
-            </a>
-          </div>
-        </div>
-      `;
+      stream.classList.add('is-empty');
+      var sub = 'Tanyakan hal seputar perpajakan. Jawaban dirujuk ke basis pengetahuan resmi lengkap dengan tautan sumbernya.';
+      inner.innerHTML =
+        '<div class="hero-wrapper">'+
+          '<h1 class="welcome-text">'+getGreeting()+', Rekan.</h1>'+
+          '<p class="welcome-sub">'+sub+'</p>'+
+          landingGrid()+
+        '</div>';
+      updateLock();
       return;
     }
-    
+
     // STATE ADA CHAT
     stream.classList.remove('is-empty');
     inner.innerHTML='';
-    s.messages.forEach(m=>inner.appendChild(msgRow(m.role, m.content)));
+    s.messages.forEach((m,idx)=>inner.appendChild(msgRow(m, idx)));
     scrollBottom();
+    updateLock();
   }
 
-  function msgRow(role, content){
+  function msgRow(m, idx){
+    const role=m.role;
     const row=document.createElement('div');
     row.className='msg '+(role==='user'?'user':'bot');
-    const av=role==='user'?'<div class="avatar">S</div>':'<div class="avatar">'+botAvatar+'</div>';
-    const name=role==='user'?'Anda':'Asisten Camerad';
-    row.innerHTML=av+'<div class="bubble"><div class="role">'+name+'</div><div class="body">'+mdLite(content)+'</div></div>';
+    const av=role==='user'
+      ? '<div class="avatar">'+esc((USER_INITIAL||'S').charAt(0))+'</div>'
+      : '<div class="avatar">'+botAvatar+'</div>';
+    const name=role==='user'?'Anda':'Asisten Kring Pajak';
+    var extra='';
+    if(role==='assistant'){ extra = srcChipsHtml(m.sources) + fbHtml(m, idx); }
+    row.innerHTML=av+'<div class="bubble"><div class="role">'+name+'</div><div class="body">'+mdLite(m.content)+'</div>'+extra+'</div>';
     return row;
   }
 
   function addTyping(){
     const inner=el('streamInner');
     const row=document.createElement('div'); row.className='msg bot';
-    row.innerHTML='<div class="avatar">'+botAvatar+'</div><div class="bubble"><div class="role">Asisten Camerad</div><div class="body"><div class="typing"><i></i><i></i><i></i></div></div></div>';
+    row.innerHTML='<div class="avatar">'+botAvatar+'</div><div class="bubble"><div class="role">Asisten Kring Pajak</div><div class="body"><div class="typing"><i></i><i></i><i></i></div></div></div>';
     inner.appendChild(row); scrollBottom(); return row;
   }
 
@@ -153,55 +191,94 @@
     return s;
   }
 
-  function setSending(v){ sending=v; el('sendBtn').disabled=v; }
+  function setSending(v){ sending=v; updateLock(); }
   function autoGrow(t){ t.style.height='auto'; t.style.height=Math.min(t.scrollHeight,180)+'px'; }
+
+  // Kunci input untuk peran agent hingga jawaban terakhir dinilai (👍/👎).
+  function pendingFeedback(){
+    if(!IS_AGENT) return false;
+    var s=active(); if(!s) return false;
+    for(var i=s.messages.length-1;i>=0;i--){
+      var m=s.messages[i];
+      if(m.role==='assistant'){ return !!m.log_id && !m.feedback; }
+    }
+    return false;
+  }
+  function updateLock(){
+    var pend=pendingFeedback();
+    var locked = sending || pend;
+    var inp=el('input'), sb=el('sendBtn'), ln=el('lockNote');
+    if(inp) inp.disabled = locked;
+    if(sb) sb.disabled = locked;
+    if(ln) ln.style.display = (pend && !sending) ? 'block' : 'none';
+  }
+
+  async function sendFeedback(idx, rating){
+    var s=active(); if(!s) return;
+    var m=s.messages[idx]; if(!m || !m.log_id) return;
+    if(m.feedback===rating) return;
+    m.feedback=rating; saveSessions(); renderChat();
+    try{
+      await fetch('/api/rag/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({log_id:m.log_id, rating:rating})});
+    }catch(e){ /* diamkan; penilaian sudah tersimpan lokal */ }
+  }
 
   async function send(){
     if(sending) return;
+    if(pendingFeedback()) return;
     const inp=el('input'); const text=inp.value.trim(); if(!text) return;
     const s=ensureSession(text);
-    
+
+    // riwayat = pesan sebelum pertanyaan ini
+    const history = s.messages.map(m=>({role:m.role, content:m.content}));
+
     s.messages.push({role:'user', content:text}); s.updated=Date.now();
     if(s.messages.filter(m=>m.role==='user').length===1) s.title=text.slice(0,40);
-    
+
     saveSessions(); inp.value=''; autoGrow(inp); renderSidebar(); renderChat();
-    
+
     const typing = addTyping();
     setSending(true);
-    
+
     try{
-          const r = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              messages: s.messages.map(m => ({ role: m.role, content: m.content }))
-            })
-          });
-          
-          const data = await r.json();
-          typing.remove();
-          
-          s.messages.push({
-            role: 'assistant', 
-            content: (data && data.ok) ? (data.reply || '(kosong)') : ('\u26A0 ' + ((data && data.error) || ('HTTP ' + r.status)))
-          });
-          
-          s.updated = Date.now(); 
-          saveSessions(); 
-          renderChat(); 
-          renderSidebar(); 
-          setSending(false); 
-          el('input').focus();
-          
-        }catch(e){ 
-          typing.remove();
-          s.messages.push({role:'assistant', content:'\u26A0 Gagal menghubungi server: ' + e.message}); 
-          s.updated = Date.now(); 
-          saveSessions(); 
-          renderChat(); 
-          renderSidebar(); 
-          setSending(false);
-        }
+      const r = await fetch('/api/rag/agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: text, history: history })
+      });
+      const data = await r.json();
+      typing.remove();
+
+      if(r.status===429 || (data && data.limit)){
+        s.messages.push({ role:'assistant', content:'\u26A0 '+((data&&data.error)||'Kuota pertanyaan harian Anda sudah habis.') });
+      } else if(data && data.ok){
+        s.messages.push({
+          role:'assistant',
+          content:(data.answer||'(kosong)'),
+          sources:(data.sources||[]),
+          log_id:(data.log_id||null),
+          feedback:null
+        });
+      } else {
+        s.messages.push({ role:'assistant', content:'\u26A0 '+((data&&data.error)||('HTTP '+r.status)) });
+      }
+
+      s.updated = Date.now();
+      saveSessions();
+      renderChat();
+      renderSidebar();
+      setSending(false);
+      if(!pendingFeedback()) el('input').focus();
+
+    }catch(e){
+      typing.remove();
+      s.messages.push({role:'assistant', content:'\u26A0 Gagal menghubungi server: ' + e.message});
+      s.updated = Date.now();
+      saveSessions();
+      renderChat();
+      renderSidebar();
+      setSending(false);
+    }
   }
 
   function openSide(){ el('side').classList.add('open'); el('backdrop').classList.add('show'); }
@@ -211,6 +288,10 @@
   el('sendBtn').onclick=send;
   el('menuBtn').onclick=openSide;
   el('backdrop').onclick=closeSide;
+  el('streamInner').addEventListener('click', function(ev){
+    var b = ev.target.closest ? ev.target.closest('.fb-btn') : null;
+    if(b){ sendFeedback(parseInt(b.getAttribute('data-idx'),10), b.getAttribute('data-rating')); }
+  });
   const inp=el('input');
   inp.addEventListener('input',()=>autoGrow(inp));
   inp.addEventListener('keydown',e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); send(); } });
