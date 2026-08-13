@@ -375,19 +375,23 @@ def _retrieve_one(key, q):
 # Sumber efektif, perakitan konteks, verifikasi, render prompt.
 # ==========================================================================
 def effective_sources(profile, override=None):
-    """Tentukan sumber yang boleh dipakai.
+    """Tentukan sumber yang boleh dipakai mesin retrieval.
 
-    - override (dari playground): daftar centang admin -> dipakai apa adanya.
-    - kalau tidak ada override: pakai chip @sumber di prompt bila ada,
-      selain itu daftar 'sumber' pada profil.
+    - override (dari playground /rag-lab): daftar centang admin -> dipakai apa
+      adanya.
+    - produksi (chat): daftar 'sumber' (checkbox pada halaman "RAG Agent -
+      Konfigurasi") BERSIFAT OTORITATIF. Sumber yang TIDAK dicentang tidak akan
+      dipanggil maupun dikutip.
+
+    Catatan perbaikan: dulu chip @sumber di dalam prompt (mis. "@intent")
+    menimpa pilihan checkbox sehingga sumber yang sudah di-uncheck tetap
+    terpakai. Sekarang chip pada prompt murni panduan naratif untuk LLM dan
+    TIDAK lagi menentukan sumber retrieval.
     """
     valid = list(rcfg.SUMBER_VALID)
     if override is not None:
-        base = [s for s in override if s in valid]
-    else:
-        chips = rcfg.chips_in_prompt(profile.get("system_prompt"))
-        base = [s for s in (chips or profile.get("sumber") or []) if s in valid]
-    return base or valid
+        return [s for s in override if s in valid]
+    return [s for s in (profile.get("sumber") or []) if s in valid]
 
 
 def _assemble(keys, cache, q):
@@ -483,7 +487,10 @@ def answer(question, profile, override=None, history=None, diagnostics=False):
     allowed = effective_sources(profile, override)
     r = rag_router.route(q, allowed)
     diag["router"] = r
-    ordered = r["ordered"]
+    # Jaga-jaga: kunci urutan router agar tidak pernah keluar dari daftar sumber
+    # yang diizinkan (checkbox). Ini menjamin sumber yang di-uncheck benar-benar
+    # tidak dipakai, apa pun keluaran router.
+    ordered = [s for s in r["ordered"] if s in allowed]
 
     # Tunda Peraturan bila domain bukan hukum -> biar loop verifikasi yang
     # memicu pencarian peraturan (persis skenario yang diminta).
