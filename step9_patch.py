@@ -12,9 +12,18 @@ MASALAH B (TAMPIL — tabel Step 9 kosong):
   dan membaca field `pertanyaan`, `seharusnya`, `kategori`, `df`, `nli`,
   `prioritas`, `kandidat`.
 - Backend lama step9_load justru mengembalikan `user`, `skor`, `manual` (nama
-  beda). Akibatnya `r.qa` selalu undefined -> SEMUA baris tersaring keluar ->
-  tabel tampak kosong walau data sebenarnya termuat. Restart tak menolong
-  karena ini murni ketidakcocokan nama field.
+  beda). Akibatnya `r.qa` selalu undefined -> SEMUA baris tersaring keluar.
+
+MASALAH C (AMBANG — baru): step9_load/step9_save dulu default ke 0.6 sehingga
+data yang tampil di Step 9 TIDAK mengikuti ambang yang dipilih analis di Step 8
+(mis. analis pilih <0.7 tapi Step 9 cuma tampil <0.6). Kini bila form TIDAK
+mengirim `threshold`, ambang DIWARISI dari ringkasan Step 8 (state.steps.8.summary
+.threshold). step9_load juga MENGEMBALIKAN `threshold` agar frontend bisa menyetel
+nilai default filter (#f9qa) sesuai pilihan analis.
+
+MASALAH D (ID trace kosong — baru): kolom "ID trace" pada sheet Analisis MKTA
+sering kosong karena `session_id` di log memang kosong. Kini bila kosong, dipakai
+`insertId` (id rekaman Google Logging) sebagai ID trace.
 
 SOLUSI:
 - step9_save: terima DUA format (objek map & list objek), petakan string ->
@@ -33,6 +42,39 @@ import json
 import pipeline_routes as pr
 
 
+def _step8_threshold(cfg, ctx):
+    """Ambang yang dipakai analis di Step 8 (dibaca dari ringkasan state Step 8)."""
+    try:
+        state = pr.load_state(cfg, ctx.run)
+        s8 = state["steps"].get("8") or {}
+        sm = s8.get("summary") or {}
+        t = sm.get("threshold")
+        if t is not None and str(t) != "":
+            return float(t)
+    except Exception:
+        pass
+    return 0.6
+
+
+def _resolve_threshold(cfg, ctx):
+    """Pakai threshold eksplisit dari form bila ada; jika tidak, warisi dari Step 8."""
+    raw = (ctx.P("threshold", "") or "").strip()
+    if raw != "":
+        try:
+            return float(raw)
+        except Exception:
+            pass
+    return _step8_threshold(cfg, ctx)
+
+
+def _rid(cells, col_id, col_ins):
+    """ID trace = id rekaman. Bila 'ID trace' (session_id) kosong, pakai insertId."""
+    v = pr._sv(cells, col_id).strip()
+    if v == "" and col_ins:
+        v = pr._sv(cells, col_ins).strip()
+    return v
+
+
 def step9_save(cfg, ctx):
     edits_raw = ctx.P("edits", "")
     try:
@@ -42,7 +84,6 @@ def step9_save(cfg, ctx):
     # Terima DUA format kiriman frontend:
     #  - objek map {"<row>": "<Intent Seharusnya>"}  (format tools.html saat ini)
     #  - list objek [{row, llm, manual|seharusnya, catatan}]  (kompatibel mundur)
-    # Nilai None = "jangan ubah / pakai nilai lama".
     edit_map = {}
     if isinstance(edits, dict):
         for k, v in edits.items():
@@ -73,10 +114,7 @@ def step9_save(cfg, ctx):
             }
     else:
         raise Exception("Data edit tidak valid.")
-    try:
-        threshold = float(ctx.P("threshold", "0.6"))
-    except Exception:
-        threshold = 0.6
+    threshold = _resolve_threshold(cfg, ctx)
     b = pr.step9_base_bytes(cfg, ctx)
     wb = pr._wb_from_bytes(b)
     if "QA Conf MKTA" not in wb.sheetnames:
@@ -94,7 +132,6 @@ def step9_save(cfg, ctx):
     col_lang = pr._find_header(H, ["lang", "Lang"])
     col_ins = pr._find_header(H, ["insertId", "InsertId", "InserId"])
     col_scr = pr._find_header(H, ["score", "Score"])
-    # Usulan intent dari LLM (bila backend Step 8 menuliskannya ke QA Conf MKTA).
     col_llm_qa = pr._find_header(H, ["Intent Seharusnya (LLM)", "INTENT SEHARUSNYA", "Intent Seharusnya LLM"])
     # Pertahankan koreksi lama (LLM/Manual/Catatan) utk baris yg TIDAK diedit.
     prior = {}
@@ -128,8 +165,11 @@ def step9_save(cfg, ctx):
         sc = pr._sv(cells, col_score)
         if not (pr._is_numeric(sc) and float(sc) < threshold):
             continue
-        key = pr._sv(cells, col_id) + "||" + pr._sv(cells, col_user)
+        rid = _rid(cells, col_id, col_ins)
+        key = rid + "||" + pr._sv(cells, col_user)
         old = prior.get(key, {})
+        if not old:
+            old = prior.get(pr._sv(cells, col_id) + "||" + pr._sv(cells, col_user), {})
         llm = old.get("llm", "")
         manual = old.get("manual", "")
         catatan = old.get("catatan", "")
@@ -144,7 +184,7 @@ def step9_save(cfg, ctx):
             if e.get("catatan") is not None:
                 catatan = e.get("catatan")
         aoa.append([
-            pr._sv(cells, col_id), pr._sv(cells, col_user), pr._sv(cells, col_bot), pr._sv(cells, col_intent),
+            rid, pr._sv(cells, col_user), pr._sv(cells, col_bot), pr._sv(cells, col_intent),
             (float(sc) if pr._is_numeric(sc) else sc), pr._sv(cells, col_put), pr._sv(cells, col_alasan),
             llm, manual, catatan, pr._sv(cells, col_waktu), pr._sv(cells, col_lang),
             pr._sv(cells, col_ins), pr._sv(cells, col_scr),
@@ -168,30 +208,26 @@ def step9_load(cfg, ctx):
             pass
     else:
         b = pr.step9_base_bytes(cfg, ctx)
-    try:
-        threshold = float(ctx.P("threshold", "0.6"))
-    except Exception:
-        threshold = 0.6
+    threshold = _resolve_threshold(cfg, ctx)
     wb = pr._wb_from_bytes(b)
     if "QA Conf MKTA" not in wb.sheetnames:
         raise Exception('Sheet "QA Conf MKTA" tidak ada.')
     qa = pr.read_sheet(wb["QA Conf MKTA"])
     H = qa["headers"]
     col_id = pr._find_header(H, ["ID trace", "ID Trace", "IDtrace"])
+    col_ins = pr._find_header(H, ["insertId", "InsertId", "InserId"])
     col_user = pr._find_header(H, ["user phrase", "User Phrase", "Pertanyaan User"])
     col_bot = pr._find_header(H, ["bot response", "Bot Response", "Jawaban Bot"])
     col_intent = pr._find_header(H, ["intent name", "Intent Name", "Intent"])
     col_score = pr._find_header(H, ["Skor Pemrosesan Bahasa"])
     col_put = pr._find_header(H, ["PUTUSAN"])
     col_alasan = pr._find_header(H, ["ALASAN", "Alasan"])
-    # Kolom tambahan (best-effort; mungkin tak ada di sheet, biarkan kosong).
     col_df = pr._find_header(H, ["Skor Dialogflow", "Skor DF", "Skor Deteksi", "score", "Score"])
     col_nli = pr._find_header(H, ["Skor NLI", "NLI", "nli"])
     col_prio = pr._find_header(H, ["Prioritas", "Priority"])
     col_kat = pr._find_header(H, ["Kategori Mesin", "Kategori", "Category"])
     col_kand = pr._find_header(H, ["Kandidat", "Terdekat", "Intent Terdekat", "Kandidat Intent", "Intent Kandidat"])
     col_llm_qa = pr._find_header(H, ["Intent Seharusnya (LLM)", "INTENT SEHARUSNYA", "Intent Seharusnya LLM"])
-    # Koreksi lama dari sheet Analisis MKTA (bila sudah pernah disimpan).
     prior = {}
     if "Analisis MKTA" in wb.sheetnames:
         am = pr.read_sheet(wb["Analisis MKTA"])
@@ -219,17 +255,17 @@ def step9_load(cfg, ctx):
         sc = pr._sv(cells, col_score)
         if not (pr._is_numeric(sc) and float(sc) < threshold):
             continue
-        _id = pr._sv(cells, col_id)
+        _id = _rid(cells, col_id, col_ins)
         user = pr._sv(cells, col_user)
-        key = _id + "||" + user
-        old = prior.get(key, {})
+        old = prior.get(_id + "||" + user, {})
+        if not old:
+            old = prior.get(pr._sv(cells, col_id) + "||" + user, {})
         seharusnya = old.get("manual", "") or old.get("llm", "")
         if (not seharusnya) and col_llm_qa:
             seharusnya = pr._sv(cells, col_llm_qa)
         rows.append({
             "row": rn,
             "id_trace": _id,
-            # nama field yang DIBACA frontend renderStep9()
             "pertanyaan": user,
             "qa": sc,
             "df": pr._sv(cells, col_df),
@@ -238,11 +274,9 @@ def step9_load(cfg, ctx):
             "kategori": pr._sv(cells, col_kat),
             "kandidat": pr._sv(cells, col_kand),
             "seharusnya": seharusnya,
-            # nama lama (kompatibilitas mundur)
             "user": user,
             "skor": sc,
             "manual": old.get("manual", ""),
-            # umum
             "bot": pr._sv(cells, col_bot),
             "intent": pr._sv(cells, col_intent),
             "putusan": pr._sv(cells, col_put),
@@ -250,11 +284,11 @@ def step9_load(cfg, ctx):
             "llm": old.get("llm", ""),
             "catatan": old.get("catatan", ""),
         })
-    return {"step": 9, "rows": rows, "total": len(rows)}
+    return {"step": 9, "rows": rows, "total": len(rows), "threshold": threshold}
 
 
 # Terapkan monkey-patch: dispatch() di pipeline_routes memakai late-binding
 # terhadap global `step9_save`/`step9_load`, jadi mengganti atribut modul cukup.
 pr.step9_save = step9_save
 pr.step9_load = step9_load
-print("[step9_patch] step9_save + step9_load diperbaiki (objek map, bawa data Step 8, samakan nama field frontend).", flush=True)
+print("[step9_patch] step9_save + step9_load diperbaiki (objek map, warisi ambang Step 8, ID trace<-insertId, samakan nama field frontend).", flush=True)
