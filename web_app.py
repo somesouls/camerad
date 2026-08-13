@@ -187,6 +187,13 @@ rag_routes.register(app)
 import agent_chat_routes
 agent_chat_routes.register(app)
 
+# --- Webhook Dialogflow ES (Point 5): endpoint fulfillment chatbot Kring Pajak
+#     dengan fast-path + deadline guard ~4,5 dtk, plus menu admin "Webhook
+#     Chatbot" untuk mengatur token/profil/deadline/fallback. Memakai mesin RAG
+#     (rag_engine) & app_core.render_page, jadi didaftarkan setelah rag_routes. ---
+import df_webhook_routes
+df_webhook_routes.register(app)
+
 # --- Menu Evaluasi RAG (poin 2): kumpulkan sampel pertanyaan asli (livechat +
 #     chatbot), jalankan uji keandalan (LLM-as-judge + hold-out AWE), dan
 #     dashboard metrik keandalan/halusinasi + validasi manusia. Khusus admin.
