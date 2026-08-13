@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}Webhook Chatbot · Camerad Studio{% endblock %}
+{% block head %}
+<style>
+.dfw-wrap{ max-width:960px; margin:0 auto; padding:8px 28px 60px; }
+.dfw-head h1{ font-size:24px; font-weight:800; letter-spacing:-.02em; margin:6px 0 4px; }
+.dfw-head p{ color:var(--text-muted); margin:0 0 20px; font-size:14px; }
+.card{ background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:16px; padding:18px 20px; margin-bottom:18px; }
+.card h3{ font-size:15px; font-weight:700; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+.card .sub{ color:var(--text-muted); font-size:12.5px; margin:0 0 14px; }
+.field{ margin-bottom:14px; }
+.field label{ display:block; font-size:12.5px; font-weight:600; color:var(--text-muted); margin-bottom:6px; }
+.field input[type=number], .field input[type=text], .field textarea, .field select{ width:100%; background:var(--bg-base); border:1px solid var(--panel-border); color:var(--text-main); border-radius:10px; padding:10px 12px; font-family:inherit; font-size:14px; outline:none; box-sizing:border-box; }
+.field textarea{ resize:vertical; min-height:90px; line-height:1.5; }
+.field input:focus, .field textarea:focus, .field select:focus{ border-color:var(--accent); }
+.row2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.btn{ border:1px solid var(--panel-border); background:transparent; color:var(--text-main); border-radius:10px; padding:10px 18px; font-size:14px; font-weight:600; cursor:pointer; transition:.15s; }
+.btn:hover{ border-color:var(--accent); color:var(--accent); }
+.btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+.btn.primary:hover{ background:var(--accent-hover); color:#fff; }
+.btn.sm{ padding:8px 12px; font-size:12.5px; white-space:nowrap; }
+.savebar{ display:flex; align-items:center; gap:14px; margin:2px 0 26px; }
+.saveok{ font-size:13px; color:var(--c-green-txt); }
+.saveerr{ font-size:13px; color:var(--c-red-txt); }
+.hint{ font-size:11.5px; color:var(--text-muted); margin-top:6px; }
+.mono{ font-family:ui-monospace,Menlo,Consolas,monospace; font-size:13px; word-break:break-all; }
+.iobox{ display:flex; gap:8px; align-items:center; }
+.iobox input{ flex:1; }
+.toggle{ display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13.5px; color:var(--text-main); }
+.toggle input{ width:16px; height:16px; accent-color:var(--accent); }
+.pill{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px; display:inline-block; }
+.pill.on{ background:var(--c-green); color:var(--c-green-txt); }
+.pill.off{ background:var(--c-orange); color:var(--c-orange-txt); }
+.steps{ font-size:13px; color:var(--text-muted); line-height:1.7; padding-left:18px; margin:0; }
+.steps code{ background:var(--bg-base); border:1px solid var(--panel-border); border-radius:6px; padding:1px 6px; font-size:12px; }
+.testout{ margin-top:12px; border:1px solid var(--panel-border); border-radius:12px; padding:12px 14px; font-size:13px; display:none; line-height:1.6; }
+.testout .meta{ color:var(--text-muted); font-size:12px; margin-bottom:8px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="dfw-wrap">
+  <div class="dfw-head">
+    <h1>🔌 Webhook Chatbot — Dialogflow ES</h1>
+    <p>Hubungkan ChatBot Dialogflow ES (Wajib Pajak) ke mesin RAG internal. Endpoint fulfillment ini menjawab pertanyaan dengan grounding ke basis pengetahuan, dilengkapi <b>fast-path deadline guard</b> agar balasan tidak pernah melewati batas ~5 detik Dialogflow ES.</p>
+  </div>
+
+  <div class="card">
+    <h3>🔗 Endpoint Fulfillment <span id="stPill" class="pill off">nonaktif</span></h3>
+    <div class="sub">Salin URL &amp; token ini ke Dialogflow ES → Fulfillment → Webhook.</div>
+    <div class="field">
+      <label>Webhook URL (HTTPS)</label>
+      <div class="iobox"><input type="text" id="whUrl" class="mono" readonly><button class="btn sm" id="btnCopyUrl">Salin</button></div>
+    </div>
+    <div class="field">
+      <label>Token rahasia (kirim sebagai header <code>X-Camerad-Token</code>)</label>
+      <div class="iobox"><input type="text" id="whTok" class="mono" readonly><button class="btn sm" id="btnCopyTok">Salin</button><button class="btn sm" id="btnRotate">Ganti</button></div>
+      <div class="hint">Token juga bisa dikirim lewat query <code>?token=...</code> bila header tidak memungkinkan. Menekan “Ganti” membatalkan token lama.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>⚙️ Pengaturan</h3>
+    <div class="field"><label class="toggle"><input type="checkbox" id="cAktif"> Aktifkan webhook</label></div>
+    <div class="row2">
+      <div class="field"><label>Profil mesin RAG</label><select id="cProfil"></select></div>
+      <div class="field"><label>Deadline guard (milidetik)</label><input type="number" id="cDeadline" min="500" max="15000" step="100"></div>
+    </div>
+    <div class="field"><label class="toggle"><input type="checkbox" id="cRiwayat"> Ingat konteks percakapan per sesi</label></div>
+    <div class="field" id="turnWrap"><label>Jumlah giliran yang diingat</label><input type="number" id="cTurn" min="0" max="10" step="1"></div>
+    <div class="field"><label>Kalimat fallback (dibalas saat lewat deadline / gagal)</label><textarea id="cFallback"></textarea></div>
+    <div class="hint">Dialogflow ES memutus webhook pada ~5 dtk. Deadline guard 4500 ms memberi ruang balasan fallback yang sopan bila jawaban belum siap. Untuk pertanyaan berat, pengguna menerima fallback dan bisa mengulang.</div>
+  </div>
+
+  <div class="savebar">
+    <button class="btn primary" id="btnSave">Simpan Pengaturan</button>
+    <span id="saveMsg"></span>
+  </div>
+
+  <div class="card">
+    <h3>🧪 Uji Fast-Path</h3>
+    <div class="sub">Kirim pertanyaan langsung ke mesin (tanpa Dialogflow) untuk melihat jawaban &amp; waktu proses terhadap deadline.</div>
+    <div class="field"><label>Pertanyaan uji</label><input type="text" id="tQ" placeholder="mis. Bagaimana cara daftar NPWP orang pribadi?"></div>
+    <button class="btn" id="btnTest">Jalankan Uji</button>
+    <div class="testout" id="testOut"></div>
+  </div>
+
+  <div class="card">
+    <h3>📘 Cara memasang di Dialogflow ES</h3>
+    <ol class="steps">
+      <li>Buka Dialogflow ES → <b>Fulfillment</b>, aktifkan <b>Webhook</b>.</li>
+      <li>Tempel <b>Webhook URL</b> di atas ke kolom <code>URL</code>.</li>
+      <li>Tambahkan header: <code>X-Camerad-Token</code> = token di atas.</li>
+      <li>Simpan. Lalu pada intent yang ingin dijawab RAG (mis. <b>Default Fallback Intent</b>), aktifkan <b>Enable webhook call for this intent</b>.</li>
+      <li>Uji di simulator Dialogflow. Jawaban datang dari mesin RAG, atau kalimat fallback bila melewati deadline.</li>
+    </ol>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var el=function(id){return document.getElementById(id);};
+  function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  var WEBHOOK_URL='';
+
+  function renderProfil(opts, sel){
+    el('cProfil').innerHTML=opts.map(function(k){ return '<option value="'+esc(k)+'">'+esc(k)+'</option>'; }).join('');
+    if(sel){ el('cProfil').value=sel; }
+  }
+  function fillProfil(sel){
+    fetch('/api/rag/profiles').then(function(r){return r.json();}).then(function(d){
+      var list=(d&&d.profil)||[];
+      var opts=list.length?list.map(function(p){return p.id;}):['chatbot','agent'];
+      renderProfil(opts, sel);
+    }).catch(function(){ renderProfil(['chatbot','agent'], sel); });
+  }
+
+  function syncPill(){
+    var on=el('cAktif').checked; var p=el('stPill');
+    p.textContent=on?'aktif':'nonaktif'; p.className='pill '+(on?'on':'off');
+  }
+  function syncTurn(){ el('turnWrap').style.display=el('cRiwayat').checked?'block':'none'; }
+
+  function applyCfg(d){
+    var c=(d&&d.config)||{};
+    WEBHOOK_URL=(d&&d.webhook_url)||'';
+    el('whUrl').value=WEBHOOK_URL;
+    el('whTok').value=c.token||'';
+    el('cAktif').checked=!!c.aktif;
+    el('cDeadline').value=(c.deadline_ms!=null?c.deadline_ms:4500);
+    el('cRiwayat').checked=!!c.pakai_riwayat;
+    el('cTurn').value=(c.riwayat_turn!=null?c.riwayat_turn:3);
+    el('cFallback').value=c.fallback||'';
+    fillProfil(c.profil||'chatbot');
+    syncPill(); syncTurn();
+  }
+
+  function load(){
+    fetch('/api/df/webhook/config').then(function(r){return r.json();}).then(applyCfg).catch(function(){});
+  }
+
+  function copyVal(inp, btn){
+    inp.select();
+    try{ document.execCommand('copy'); }catch(e){}
+    if(navigator.clipboard){ navigator.clipboard.writeText(inp.value).catch(function(){}); }
+    var old=btn.textContent; btn.textContent='Tersalin'; setTimeout(function(){ btn.textContent=old; },1500);
+  }
+
+  function save(){
+    var msg=el('saveMsg'); msg.textContent='Menyimpan…'; msg.className='';
+    var body={ aktif:el('cAktif').checked?1:0, profil:el('cProfil').value,
+      deadline_ms:parseInt(el('cDeadline').value||'4500',10),
+      pakai_riwayat:el('cRiwayat').checked?1:0,
+      riwayat_turn:parseInt(el('cTurn').value||'3',10),
+      fallback:el('cFallback').value };
+    fetch('/api/df/webhook/config/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d&&d.ok){ applyCfg(d); msg.textContent='✔ Tersimpan.'; msg.className='saveok';
+          setTimeout(function(){ if(msg.className==='saveok'){msg.textContent='';} },4000); }
+        else { msg.textContent='✖ Gagal: '+esc((d&&d.error)||''); msg.className='saveerr'; }
+      }).catch(function(e){ msg.textContent='✖ Gagal: '+esc(e.message); msg.className='saveerr'; });
+  }
+
+  function rotate(){
+    if(!confirm('Ganti token? Token lama akan langsung tidak berlaku dan pengaturan di Dialogflow harus diperbarui.')) return;
+    fetch('/api/df/webhook/config/rotate',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok){ applyCfg(d); }
+    }).catch(function(){});
+  }
+
+  function runTest(){
+    var q=el('tQ').value.trim(); var out=el('testOut');
+    if(!q){ return; }
+    out.style.display='block'; out.innerHTML='<div class="meta">Memproses…</div>';
+    fetch('/api/df/webhook/test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(!(d&&d.ok)){ out.innerHTML='<div class="meta saveerr">Gagal: '+esc((d&&d.error)||'')+'</div>'; return; }
+        var status = d.used_fallback ? (d.timed_out?'⏱️ Lewat deadline → fallback':'⚠️ Fallback') : '✅ Terjawab';
+        out.innerHTML='<div class="meta">'+status+' · '+d.elapsed_s+' dtk / deadline '+d.deadline_s+' dtk'+(d.error?(' · '+esc(d.error)):'')+'</div><div>'+esc(d.answer||'').replace(/\n/g,'<br>')+'</div>';
+      }).catch(function(e){ out.innerHTML='<div class="meta saveerr">Gagal: '+esc(e.message)+'</div>'; });
+  }
+
+  el('btnCopyUrl').onclick=function(){ copyVal(el('whUrl'), this); };
+  el('btnCopyTok').onclick=function(){ copyVal(el('whTok'), this); };
+  el('btnRotate').onclick=rotate;
+  el('btnSave').onclick=save;
+  el('btnTest').onclick=runTest;
+  el('cAktif').addEventListener('change',syncPill);
+  el('cRiwayat').addEventListener('change',syncTurn);
+  el('tQ').addEventListener('keydown',function(e){ if(e.key==='Enter'){ runTest(); } });
+
+  load();
+})();
+</script>
+{% endblock %}
