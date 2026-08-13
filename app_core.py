@@ -76,6 +76,10 @@ def _page_user_ctx(request):
         "can_sosmed": usr.area_allowed(role_key, "common"),
         "can_sosmed_manage": usr.area_allowed(role_key, "awe_manage"),
         "can_peraturan": usr.area_allowed(role_key, "peraturan"),
+        # Kanal chat RAG Agent Kring Pajak (semua peran, termasuk 'agent').
+        "can_chat": usr.area_allowed(role_key, "chat"),
+        # Peran 'agent' hanya boleh chat + profil (menu lain disembunyikan).
+        "is_agent": role_key == "agent",
     }
 
 
@@ -126,11 +130,17 @@ def _route_area(path):
     # tidak jatuh ke aturan 'common' di bawah. Ditaruh paling awal.
     if path == "/rag-eval" or path.startswith("/api/eval"):
         return "peraturan"
-    # Playground RAG (uji sumber/prompt) + kelola profil = khusus admin.
-    # Ditaruh sebelum aturan /api/rag generik agar tidak jatuh ke 'common'.
+    # Playground RAG (uji sumber/prompt) + kelola profil + kuota harian =
+    # khusus admin. Ditaruh sebelum aturan /api/rag generik agar tidak jatuh
+    # ke 'common'.
     if (path == "/rag-lab" or path.startswith("/api/rag/lab")
-            or path.startswith("/api/rag/profile")):
+            or path.startswith("/api/rag/profile")
+            or path.startswith("/api/rag/quota")):
         return "peraturan"
+    # Chat RAG Agent Kring Pajak (semua peran, termasuk 'agent') + feedback jempol.
+    if (path.startswith("/api/rag/agent")
+            or path.startswith("/api/rag/feedback")):
+        return "chat"
     if path == "/rag" or path.startswith("/api/rag"):
         return "common"
     if path == "/peraturan" or path.startswith("/api/peraturan"):
@@ -155,9 +165,12 @@ def _route_area(path):
         return "awe_manage"
     if path == "/sosmed" or path.startswith("/sosmed/") or path.startswith("/api/sosmed"):
         return "common"
-    if (path == "/" or path == "/studio" or path.startswith("/api/ask")
-            or path.startswith("/api/config") or path.startswith("/api/chat")
-            or path.startswith("/api/studio")):
+    # Halaman utama (chat RAG), Studio Dokumen, & API Studio = area 'chat' agar
+    # peran 'agent' bisa mengaksesnya; sisa API generik tetap 'common'.
+    if path == "/" or path == "/studio" or path.startswith("/api/studio"):
+        return "chat"
+    if (path.startswith("/api/ask") or path.startswith("/api/config")
+            or path.startswith("/api/chat")):
         return "common"
     return "dialogflow"
 

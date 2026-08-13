@@ -181,6 +181,12 @@ sosmed_ingest.register(app)
 import rag_routes
 rag_routes.register(app)
 
+# --- Chat RAG "Agent Kring Pajak" (halaman utama "/" untuk SEMUA peran) +
+#     feedback jempol + log keandalan + kuota harian admin. Berbagi mesin RAG
+#     (rag_engine) & profil 'agent', jadi didaftarkan setelah rag_routes. ---
+import agent_chat_routes
+agent_chat_routes.register(app)
+
 # --- Menu Evaluasi RAG (poin 2): kumpulkan sampel pertanyaan asli (livechat +
 #     chatbot), jalankan uji keandalan (LLM-as-judge + hold-out AWE), dan
 #     dashboard metrik keandalan/halusinasi + validasi manusia. Khusus admin.

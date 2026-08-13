@@ -55,6 +55,7 @@ def _ctx_peraturan_tracing(q, limit=4):
         judul = str(d.get("judul") or "").strip()
         hierarchy = str(d.get("hierarchy") or "").strip()
         reference = str(d.get("reference") or "").strip()
+        source_url = str(d.get("source_url") or "").strip()
         tajuk = " ".join(x for x in [jenis, nomor,
                                      ("Tahun " + tahun) if tahun else ""] if x).strip()
         head = tajuk or judul or "Peraturan"
@@ -70,7 +71,8 @@ def _ctx_peraturan_tracing(q, limit=4):
         piece += "\nIsi: " + _clip(isi, 700)
         blocks.append(piece)
         sources.append({"sumber": "Peraturan", "judul": head,
-                        "ref": (reference or hierarchy)})
+                        "ref": (reference or hierarchy),
+                        "url": source_url})
 
     # (1) Konteks utama: hanya BERLAKU (perilaku aman lama).
     try:
