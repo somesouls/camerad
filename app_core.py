@@ -91,7 +91,9 @@ def render_page(request, template_name, active_page="", extra=None):
     return _TEMPLATES.TemplateResponse(request, template_name, ctx)
 
 
-_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico", "/credit"}
+# /api/df/webhook = endpoint fulfillment Dialogflow ES (dipanggil server Google),
+# jadi harus publik; keamanannya dijaga oleh token rahasia di df_webhook_routes.
+_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico", "/credit", "/api/df/webhook"}
 
 
 def _route_action(method, path):
@@ -123,6 +125,11 @@ def _route_action(method, path):
 
 
 def _route_area(path):
+    # Menu "Webhook Chatbot" (Dialogflow ES) = khusus admin. Endpoint publik
+    # /api/df/webhook (fulfillment) sudah ada di _PUBLIC_PATHS; halaman + API
+    # konfigurasi (/df-webhook, /api/df/webhook/...) diperlakukan 'peraturan'.
+    if path == "/df-webhook" or path.startswith("/api/df/webhook/"):
+        return "peraturan"
     if path == "/profil" or path.startswith("/api/profil"):
         return "account"
     # Menu Evaluasi RAG (kumpulkan sampel + uji keandalan) = khusus admin.
