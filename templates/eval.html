@@ -77,6 +77,20 @@ details.fail > summary { cursor:pointer; }
   </div>
 
   <div class="card">
+    <h3>2b · Kalibrasi Otomatis (Sweep Threshold)</h3>
+    <div class="row">
+      <div class="field"><label>Daftar ambang cosine (pisah dgn "/")</label><input type="text" id="swThr" value="0,30/0,35/0,40/0,45/0,50/0,55" style="width:320px"></div>
+      <button class="btn primary" id="btnSweep">▶ Mulai Sweep</button>
+      <button class="btn ghost" id="btnSweepStop" style="display:none;">Hentikan</button>
+      <span class="hint" id="sweepMsg"></span>
+    </div>
+    <div class="hint">Menjalankan baseline yang SAMA berkali-kali (satu run per ambang) memakai parameter Profil / Jenis / Batasi / Hold-out / Penilai dari kartu di atas. Koma = desimal (mis. 0,40). Berurutan, jadi perkiraan waktu ≈ jumlah ambang × durasi 1 run.</div>
+    <div class="bar" id="sweepBar" style="display:none;"><span style="width:0%"></span></div>
+    <div id="sweepReco" class="hint" style="margin-top:8px;"></div>
+    <div id="sweepTable" style="margin-top:10px;"></div>
+  </div>
+
+  <div class="card">
     <h3>3 · Dashboard Keandalan <span class="mut small" id="runLbl"></span></h3>
     <div id="dash"><div class="hint">Belum ada hasil. Jalankan evaluasi, lalu hasil termutakhir tampil di sini.</div></div>
   </div>
@@ -192,6 +206,63 @@ details.fail > summary { cursor:pointer; }
     });
   }
   function loadReport(){ fetch('/api/eval/report').then(function(r){return r.json();}).then(renderReport); }
+
+  var curSweep=null, spoll=null;
+  function fmtPct(x){ return (x==null?'–':x+'%'); }
+  function renderSweep(j){
+    if(!j||!j.ok){ $('sweepMsg').textContent='Gagal: '+((j&&j.error)||'?'); return; }
+    var rows=j.rows||[];
+    var pct=j.total_run? Math.round(j.selesai/j.total_run*100):0;
+    $('sweepBar').style.display='block'; $('sweepBar').firstChild.style.width=pct+'%';
+    $('sweepMsg').textContent='Sweep '+j.sweep_id+' · '+j.selesai+'/'+j.total_run+' run selesai'+(j.berjalan?' · berjalan…':' · selesai');
+    var h='<table><tr><th>Ambang cosine</th><th>Status</th><th>Progres</th><th>Keandalan</th><th>Halusinasi</th><th>Abstain benar</th><th>Sampel</th></tr>';
+    rows.forEach(function(r){
+      var m=r.metrics||{};
+      var reco=(j.rekomendasi&&j.rekomendasi.min_cos===r.min_cos);
+      h+='<tr'+(reco?' style="font-weight:700;"':'')+'>';
+      h+='<td>'+(r.min_cos!=null?r.min_cos:'–')+(reco?' ★':'')+'</td>';
+      h+='<td>'+esc(r.status||'')+'</td>';
+      h+='<td>'+(r.n_done||0)+'/'+(r.n_total||0)+'</td>';
+      h+='<td>'+fmtPct(m.keandalan)+'</td>';
+      h+='<td>'+fmtPct(m.halusinasi_rate)+'</td>';
+      h+='<td>'+((m.counts&&m.counts.abstain_benar)||0)+'</td>';
+      h+='<td>'+(m.total||0)+'</td>';
+      h+='</tr>';
+    });
+    h+='</table>';
+    $('sweepTable').innerHTML=h;
+    var rc=j.rekomendasi;
+    if(rc){
+      $('sweepReco').innerHTML='💡 <b>Rekomendasi ambang:</b> min_cos = '+rc.min_cos+' → keandalan '+rc.keandalan+'%, halusinasi '+rc.halusinasi_rate+'% '+(rc.lolos_gerbang?'(lolos gerbang &lt;3%)':'(belum ada yang lolos gerbang &lt;3% — dipilih halusinasi terendah)')+'. Terapkan dgn set env RAG_MIN_COS='+rc.min_cos+' lalu restart backend.';
+    } else {
+      $('sweepReco').textContent='';
+    }
+    if(!j.berjalan){ if(spoll){clearInterval(spoll); spoll=null;} $('btnSweepStop').style.display='none'; $('btnSweep').disabled=false; }
+  }
+  function pollSweep(){
+    if(!curSweep) return;
+    fetch('/api/eval/sweep/status?sweep='+encodeURIComponent(curSweep)).then(function(r){return r.json();}).then(renderSweep);
+  }
+  $('btnSweep').addEventListener('click', function(){
+    var b={ profil:$('profil').value, jenis:$('jenis').value, limit:parseInt($('limit').value||'0',10), holdout:$('holdout').checked, judge:$('judge').checked, thresholds:$('swThr').value };
+    $('btnSweep').disabled=true; $('sweepMsg').textContent='Memulai sweep…'; $('sweepReco').textContent=''; $('sweepTable').innerHTML='';
+    fetch('/api/eval/sweep',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)})
+      .then(function(r){return r.json();}).then(function(j){
+        if(!j||!j.ok){ $('btnSweep').disabled=false; $('sweepMsg').textContent='Gagal: '+((j&&j.error)||'?'); return; }
+        curSweep=j.sweep_id;
+        if(!j.n_total){ $('btnSweep').disabled=false; $('sweepMsg').textContent=j.note||'Tak ada sampel.'; return; }
+        $('sweepMsg').textContent='Berjalan… sweep '+curSweep+' ('+(j.n_runs||0)+' ambang × '+j.n_total+' sampel)';
+        $('btnSweepStop').style.display='';
+        if(spoll) clearInterval(spoll);
+        spoll=setInterval(pollSweep, 3000);
+        pollSweep();
+      }).catch(function(){ $('btnSweep').disabled=false; $('sweepMsg').textContent='Gagal terhubung.'; });
+  });
+  $('btnSweepStop').addEventListener('click', function(){
+    if(!curSweep) return;
+    fetch('/api/eval/sweep/stop',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({sweep:curSweep})});
+    $('sweepMsg').textContent='Menghentikan…';
+  });
 
   loadSummary();
 })();
