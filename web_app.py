@@ -152,6 +152,14 @@ import step10_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     rag_engine sendiri & memperbarui _DISPATCH, jadi aman diimpor di sini. ---
 import rag_successor_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Point 3 (kalibrasi ambang cosine): aktifkan gerbang retrieval berbasis
+#     ambang cosine (rag_calibration_patch) — menyaring pasal peraturan & sumber
+#     intent yang kemiripan semantiknya di bawah ambang aktif (min_cos). Ambang
+#     produksi dari env RAG_MIN_COS (0 = mati); sweep /rag-eval men-set per-run.
+#     Fail-open bila model/vektor tak tersedia. WAJIB setelah rag_successor_patch
+#     agar ikut membungkus dispatch peraturan versi successor. ---
+import rag_calibration_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe_routes
 awe_routes.register(
     app,
