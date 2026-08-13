@@ -1453,4 +1453,521 @@ def step6_load(cfg, ctx):
         ins = _sv(cells, a_ins).strip()
         pert = _sv(cells, a_q)
         cat = _sv(cells, a_cat)
-        intent = _sv(cells
+        intent = _sv(cells, a_intent)
+        if pert == "" and intent == "" and ins == "":
+            continue
+        match = llm_by_ins.get(ins) if (ins != "" and ins in llm_by_ins) else (llm_by_order[order] if order < len(llm_by_order) else None)
+        opts = match["options"] if match else []
+        skor = conf = ""
+        for o in opts:
+            if o["id"] == intent:
+                skor = o["skor"]
+                conf = o["conf"]
+                break
+        out.append({"row": rn, "pertanyaan": pert, "catatan": cat, "intent": intent, "skor": skor, "conf": conf, "options": opts})
+        order += 1
+    return {"step": 6, "rows": out, "total": len(out)}
+
+
+def step6_save(cfg, ctx):
+    edits_raw = ctx.P("edits", "")
+    try:
+        edits = json.loads(edits_raw)
+    except Exception:
+        edits = None
+    if not isinstance(edits, list):
+        raise Exception("Data edit tidak valid.")
+    src_path = os.path.join(run_dir(cfg, ctx.run), "step6_source.xlsx")
+    if not os.path.isfile(src_path):
+        with open(src_path, "wb") as f:
+            f.write(step6_source_bytes(cfg, ctx))
+    with open(src_path, "rb") as f:
+        src_bytes = f.read()
+    wb = load_workbook(io.BytesIO(src_bytes))
+    if "Analisis Fallback" not in wb.sheetnames:
+        raise Exception('Sheet "Analisis Fallback" tidak ada.')
+    ws = wb["Analisis Fallback"]
+    H = sheet_headers(ws)
+    col_intent = H.get("Intent Judgement LLM")
+    col_isi = H.get("Isi Intent")
+    if not col_intent:
+        raise Exception('Kolom "Intent Judgement LLM" tidak ada di sheet.')
+    changed = 0
+    for e in edits:
+        try:
+            rn = int(e.get("row"))
+        except Exception:
+            continue
+        if rn < 2:
+            continue
+        intent = e.get("intent", "")
+        ws.cell(row=rn, column=col_intent, value=(intent if intent != "" else None))
+        if col_isi and "isi" in e:
+            isi = e.get("isi", "")
+            ws.cell(row=rn, column=col_isi, value=(isi if isi != "" else None))
+        changed += 1
+    bio = io.BytesIO()
+    wb.save(bio)
+    out_bytes = bio.getvalue()
+    summary = {"status": "Selesai", "baris_diperbarui": changed, "catatan": "Koreksi manual disimpan ke sheet Analisis Fallback."}
+    data = save_artifact(cfg, ctx.run, 6, "xlsx", out_bytes, "hasil_crosscheck_manual.xlsx", summary)
+    # perbarui juga step6_source agar konsisten utk load berikutnya
+    with open(os.path.join(run_dir(cfg, ctx.run), "step6_source.xlsx"), "wb") as f:
+        f.write(out_bytes)
+    return {"step": 6, "artifact": data}
+
+
+# =============================================================
+# STEP 8 — Putusan LLM MKTA (QA Conf < threshold -> Qwen)
+# =============================================================
+def step8_base_bytes(cfg, ctx, prefer_step8=True):
+    state = load_state(cfg, ctx.run)
+    if prefer_step8:
+        s8 = state["steps"].get("8")
+        if s8 and s8.get("file"):
+            p = os.path.join(run_dir(cfg, ctx.run), s8["file"])
+            if os.path.isfile(p):
+                with open(p, "rb") as f:
+                    return f.read()
+    src_path = os.path.join(run_dir(cfg, ctx.run), "step8_source.xlsx")
+    if os.path.isfile(src_path):
+        with open(src_path, "rb") as f:
+            return f.read()
+    s7 = state["steps"].get("7")
+    if not s7 or not s7.get("file"):
+        raise Exception("Hasil Step 7 belum ada. Jalankan Step 7 dulu.")
+    p = os.path.join(run_dir(cfg, ctx.run), s7["file"])
+    if not os.path.isfile(p):
+        raise Exception("File hasil Step 7 hilang dari server.")
+    with open(p, "rb") as f:
+        return f.read()
+
+
+def verdict_stats(xlsx_bytes, threshold):
+    wb = _wb_from_bytes(xlsx_bytes)
+    if "QA Conf MKTA" not in wb.sheetnames:
+        return {"filled": 0, "remaining": 0, "total_below": 0}
+    sh = read_sheet(wb["QA Conf MKTA"])
+    H = sh["headers"]
+    col_score = _find_header(H, ["Skor Pemrosesan Bahasa"])
+    col_put = _find_header(H, ["PUTUSAN"])
+    filled = remaining = total_below = 0
+    for rn in sorted(sh["rows"].keys()):
+        if rn == 1:
+            continue
+        cells = sh["rows"][rn]
+        sc = _sv(cells, col_score)
+        put = _sv(cells, col_put).strip()
+        if col_put and put != "":
+            filled += 1
+        if _is_numeric(sc) and float(sc) < threshold:
+            total_below += 1
+            if put == "":
+                remaining += 1
+    return {"filled": filled, "remaining": remaining, "total_below": total_below}
+
+
+def step8_load(cfg, ctx):
+    up = ctx.file("xlsx_file")
+    if up is not None:
+        b = up[0]
+        with open(os.path.join(run_dir(cfg, ctx.run), "step8_source.xlsx"), "wb") as f:
+            f.write(b)
+    else:
+        b = step8_base_bytes(cfg, ctx, prefer_step8=False)
+    wb = _wb_from_bytes(b)
+    if "QA Conf MKTA" not in wb.sheetnames:
+        raise Exception('Sheet "QA Conf MKTA" tidak ada. Pastikan memakai hasil Step 7.')
+    sh = read_sheet(wb["QA Conf MKTA"])
+    H = sh["headers"]
+    col_score = _find_header(H, ["Skor Pemrosesan Bahasa"])
+    if not col_score:
+        raise Exception('Kolom "Skor Pemrosesan Bahasa" tidak ada.')
+    scores = []
+    for rn in sorted(sh["rows"].keys()):
+        if rn == 1:
+            continue
+        sc = _sv(sh["rows"][rn], col_score)
+        if _is_numeric(sc):
+            scores.append(float(sc))
+    counts = []
+    th = 0.4
+    while th <= 0.8 + 1e-9:
+        c = sum(1 for s in scores if s < th)
+        counts.append({"th": round(th, 2), "count": c})
+        th += 0.05
+    return {"step": 8, "mode": "auto", "total": len(scores), "counts": counts}
+
+
+def step8_run(cfg, ctx):
+    raw_base = (ctx.P("ngrok_url") or "").strip()
+    endpoint = api_endpoint(cfg, raw_base, "/api/mkta-verdict")
+    if not cfg["force_local_api"] and raw_base != "":
+        save_ngrok(cfg, ctx.run, raw_base)
+    try:
+        threshold = float(ctx.P("threshold", "0.6"))
+    except Exception:
+        threshold = 0.6
+    if threshold < 0.4:
+        threshold = 0.4
+    if threshold > 0.8:
+        threshold = 0.8
+    limit = cfg["mkta_chunk"]
+    base_bytes = step8_base_bytes(cfg, ctx, prefer_step8=True)
+    prev = verdict_stats(base_bytes, threshold)
+    result, hdrs = curl_multipart(cfg, endpoint, {"file": (base_bytes, "mkta.xlsx")},
+                                  {"threshold": str(threshold), "limit": str(limit)})
+    after = verdict_stats(result, threshold)
+    processed = after["filled"] - prev["filled"]
+    if processed < 0:
+        processed = 0
+    if processed == 0 and hdrs.get("x-processed") is not None:
+        try:
+            processed = int(hdrs.get("x-processed"))
+        except Exception:
+            pass
+    remaining = after["remaining"]
+    done = remaining <= 0
+    summary = {
+        "status": "Selesai" if done else "Sebagian (lanjutkan lagi)",
+        "threshold": threshold, "diproses_batch_ini": processed,
+        "sisa_belum_diputus": remaining, "total_di_bawah_threshold": after["total_below"],
+        "chunk": limit,
+    }
+    data = save_artifact(cfg, ctx.run, 8, "xlsx", result, "hasil_putusan_mkta.xlsx", summary)
+    return {"step": 8, "artifact": data, "processed": processed, "remaining": remaining, "done": done}
+
+
+# =============================================================
+# STEP 9 — Analisis Manual MKTA (Isi Intent Seharusnya)
+# =============================================================
+def step9_base_bytes(cfg, ctx):
+    state = load_state(cfg, ctx.run)
+    s9 = state["steps"].get("9")
+    if s9 and s9.get("file"):
+        p = os.path.join(run_dir(cfg, ctx.run), s9["file"])
+        if os.path.isfile(p):
+            with open(p, "rb") as f:
+                return f.read()
+    s8 = state["steps"].get("8")
+    if not s8 or not s8.get("file"):
+        raise Exception("Hasil Step 8 belum ada. Jalankan Step 8 dulu.")
+    p = os.path.join(run_dir(cfg, ctx.run), s8["file"])
+    if not os.path.isfile(p):
+        raise Exception("File hasil Step 8 hilang dari server.")
+    with open(p, "rb") as f:
+        return f.read()
+
+
+def step9_load(cfg, ctx):
+    up = ctx.file("xlsx_file")
+    if up is not None:
+        b = up[0]
+        with open(os.path.join(run_dir(cfg, ctx.run), "step9_source.xlsx"), "wb") as f:
+            f.write(b)
+    else:
+        b = step9_base_bytes(cfg, ctx)
+    try:
+        threshold = float(ctx.P("threshold", "0.6"))
+    except Exception:
+        threshold = 0.6
+    wb = _wb_from_bytes(b)
+    if "QA Conf MKTA" not in wb.sheetnames:
+        raise Exception('Sheet "QA Conf MKTA" tidak ada.')
+    qa = read_sheet(wb["QA Conf MKTA"])
+    H = qa["headers"]
+    col_id = _find_header(H, ["ID trace", "ID Trace", "IDtrace"])
+    col_user = _find_header(H, ["user phrase", "User Phrase", "Pertanyaan User"])
+    col_bot = _find_header(H, ["bot response", "Bot Response", "Jawaban Bot"])
+    col_intent = _find_header(H, ["intent name", "Intent Name", "Intent"])
+    col_score = _find_header(H, ["Skor Pemrosesan Bahasa"])
+    col_put = _find_header(H, ["PUTUSAN"])
+    col_alasan = _find_header(H, ["ALASAN", "Alasan"])
+    prior = {}
+    if "Analisis MKTA" in wb.sheetnames:
+        am = read_sheet(wb["Analisis MKTA"])
+        AH = am["headers"]
+        p_id = _find_header(AH, ["ID trace", "ID Trace"])
+        p_user = _find_header(AH, ["user phrase", "User Phrase", "Pertanyaan User"])
+        p_llm = _find_header(AH, ["Intent Seharusnya (LLM)", "INTENT SEHARUSNYA"])
+        p_man = _find_header(AH, ["Intent Seharusnya", "Intent Seharusnya (Manual)"])
+        p_cat = _find_header(AH, ["Catatan", "CATATAN"])
+        for rn in sorted(am["rows"].keys()):
+            if rn == 1:
+                continue
+            cells = am["rows"][rn]
+            key = _sv(cells, p_id) + "||" + _sv(cells, p_user)
+            prior[key] = {
+                "llm": _sv(cells, p_llm),
+                "manual": _sv(cells, p_man),
+                "catatan": _sv(cells, p_cat),
+            }
+    rows = []
+    for rn in sorted(qa["rows"].keys()):
+        if rn == 1:
+            continue
+        cells = qa["rows"][rn]
+        sc = _sv(cells, col_score)
+        if not (_is_numeric(sc) and float(sc) < threshold):
+            continue
+        _id = _sv(cells, col_id)
+        user = _sv(cells, col_user)
+        key = _id + "||" + user
+        pr = prior.get(key, {})
+        rows.append({
+            "row": rn, "id_trace": _id, "user": user, "bot": _sv(cells, col_bot),
+            "intent": _sv(cells, col_intent), "skor": sc,
+            "putusan": _sv(cells, col_put), "alasan": _sv(cells, col_alasan),
+            "llm": pr.get("llm", ""), "manual": pr.get("manual", ""), "catatan": pr.get("catatan", ""),
+        })
+    return {"step": 9, "rows": rows, "total": len(rows)}
+
+
+def step9_save(cfg, ctx):
+    edits_raw = ctx.P("edits", "")
+    try:
+        edits = json.loads(edits_raw)
+    except Exception:
+        edits = None
+    if not isinstance(edits, list):
+        raise Exception("Data edit tidak valid.")
+    try:
+        threshold = float(ctx.P("threshold", "0.6"))
+    except Exception:
+        threshold = 0.6
+    b = step9_base_bytes(cfg, ctx)
+    wb = _wb_from_bytes(b)
+    if "QA Conf MKTA" not in wb.sheetnames:
+        raise Exception('Sheet "QA Conf MKTA" tidak ada.')
+    qa = read_sheet(wb["QA Conf MKTA"])
+    H = qa["headers"]
+    col_id = _find_header(H, ["ID trace", "ID Trace"])
+    col_user = _find_header(H, ["user phrase", "User Phrase", "Pertanyaan User"])
+    col_bot = _find_header(H, ["bot response", "Bot Response", "Jawaban Bot"])
+    col_intent = _find_header(H, ["intent name", "Intent Name", "Intent"])
+    col_score = _find_header(H, ["Skor Pemrosesan Bahasa"])
+    col_put = _find_header(H, ["PUTUSAN"])
+    col_alasan = _find_header(H, ["ALASAN", "Alasan"])
+    edit_map = {}
+    for e in edits:
+        try:
+            edit_map[int(e.get("row"))] = e
+        except Exception:
+            continue
+    header = ["ID trace", "user phrase", "bot response", "intent name", "Skor Pemrosesan Bahasa",
+             "PUTUSAN", "ALASAN", "Intent Seharusnya (LLM)", "Intent Seharusnya", "Catatan",
+             "waktu interaksi", "lang", "insertId", "score"]
+    col_waktu = _find_header(H, ["waktu interaksi", "Waktu Interaksi"])
+    col_lang = _find_header(H, ["lang", "Lang"])
+    col_ins = _find_header(H, ["insertId", "InsertId", "InserId"])
+    col_scr = _find_header(H, ["score", "Score"])
+    aoa = [header]
+    baris = 0
+    for rn in sorted(qa["rows"].keys()):
+        if rn == 1:
+            continue
+        cells = qa["rows"][rn]
+        sc = _sv(cells, col_score)
+        if not (_is_numeric(sc) and float(sc) < threshold):
+            continue
+        e = edit_map.get(rn, {})
+        llm = e.get("llm", "")
+        manual = e.get("manual", "")
+        catatan = e.get("catatan", "")
+        aoa.append([
+            _sv(cells, col_id), _sv(cells, col_user), _sv(cells, col_bot), _sv(cells, col_intent),
+            (float(sc) if _is_numeric(sc) else sc), _sv(cells, col_put), _sv(cells, col_alasan),
+            llm, manual, catatan, _sv(cells, col_waktu), _sv(cells, col_lang),
+            _sv(cells, col_ins), _sv(cells, col_scr),
+        ])
+        baris += 1
+    out_bytes = xlsx_upsert_sheet(b, "Analisis MKTA", aoa)
+    summary = {"status": "Selesai", "baris_analisis": baris, "threshold": threshold,
+               "catatan": 'Sheet "Analisis MKTA" diperbarui.'}
+    data = save_artifact(cfg, ctx.run, 9, "xlsx", out_bytes, "hasil_analisis_manual_mkta.xlsx", summary)
+    return {"step": 9, "artifact": data, "baris": baris}
+
+
+# =============================================================
+# STEP 10 — Laporan LM & Pembaruan (XLSX + 2 CSV)
+# =============================================================
+def _csv_bytes(aoa):
+    buf = io.StringIO()
+    w = csv.writer(buf, quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n")
+    for row in aoa:
+        w.writerow(["" if c is None else c for c in row])
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def step10_build(cfg, ctx):
+    # Sumber data: unggahan manual (xlsx_file) diutamakan; jika tidak ada, pakai
+    # hasil Step 9 dari server. Menambah opsi "Unggah & proses" dokumen Excel yang
+    # sudah diedit manual (offline), seperti step-step lain.
+    up = ctx.file("xlsx_file")
+    if up is not None:
+        b = up[0]
+    else:
+        state = load_state(cfg, ctx.run)
+        s9 = state["steps"].get("9")
+        if not s9 or not s9.get("file"):
+            raise Exception('Hasil Step 9 belum ada. Jalankan Step 9 dulu, atau unggah file Excel ber-sheet "Analisis MKTA".')
+        p = os.path.join(run_dir(cfg, ctx.run), s9["file"])
+        if not os.path.isfile(p):
+            raise Exception("File hasil Step 9 hilang dari server.")
+        with open(p, "rb") as f:
+            b = f.read()
+    wb = _wb_from_bytes(b)
+    if "Analisis MKTA" not in wb.sheetnames:
+        raise Exception('Sheet "Analisis MKTA" tidak ada. Jalankan Step 9 dulu, atau unggah file yang berisi sheet tersebut.')
+    am = read_sheet(wb["Analisis MKTA"])
+    H = am["headers"]
+    c_id = _find_header(H, ["ID trace", "ID Trace"])
+    c_user = _find_header(H, ["user phrase", "Pertanyaan User"])
+    c_bot = _find_header(H, ["bot response", "Jawaban Bot"])
+    c_intent = _find_header(H, ["intent name", "Intent"])
+    c_put = _find_header(H, ["PUTUSAN"])
+    c_seharusnya = _find_header(H, ["Intent Seharusnya", "Intent Seharusnya (Manual)"])
+    c_llm = _find_header(H, ["Intent Seharusnya (LLM)"])
+    c_cat = _find_header(H, ["Catatan"])
+    lm_header = ["ID trace", "user phrase", "bot response", "intent name", "PUTUSAN",
+                "Intent Seharusnya", "Catatan"]
+    pem_header = ["Intent Seharusnya", "Training Phrase Baru"]
+    lm_rows = [lm_header]
+    pem_map = {}
+    for rn in sorted(am["rows"].keys()):
+        if rn == 1:
+            continue
+        cells = am["rows"][rn]
+        put = _sv(cells, c_put).strip().upper()
+        seharusnya = _sv(cells, c_seharusnya).strip()
+        if seharusnya == "":
+            seharusnya = _sv(cells, c_llm).strip()
+        user = _sv(cells, c_user)
+        # hanya baris yang butuh TINDAK LANJUT
+        if "TINDAK LANJUT" not in put and put not in ("SALAH", "TIDAK RELEVAN"):
+            if seharusnya == "":
+                continue
+        lm_rows.append([
+            _sv(cells, c_id), user, _sv(cells, c_bot), _sv(cells, c_intent),
+            _sv(cells, c_put), seharusnya, _sv(cells, c_cat),
+        ])
+        if seharusnya != "" and user.strip() != "":
+            pem_map.setdefault(seharusnya, [])
+            if user not in pem_map[seharusnya]:
+                pem_map[seharusnya].append(user)
+    pem_rows = [pem_header]
+    for intent in sorted(pem_map.keys()):
+        for phrase in pem_map[intent]:
+            pem_rows.append([intent, phrase])
+    out_bytes = xlsx_upsert_sheet(b, "LM", lm_rows)
+    out_bytes = xlsx_upsert_sheet(out_bytes, "Pembaruan", pem_rows)
+    d = run_dir(cfg, ctx.run)
+    with open(os.path.join(d, "step10_lm.csv"), "wb") as f:
+        f.write(_csv_bytes(lm_rows))
+    with open(os.path.join(d, "step10_pembaruan.csv"), "wb") as f:
+        f.write(_csv_bytes(pem_rows))
+    summary = {"status": "Selesai", "baris_LM": len(lm_rows) - 1, "baris_Pembaruan": len(pem_rows) - 1,
+               "catatan": "Excel + CSV LM + CSV Pembaruan siap diunduh."}
+    data = save_artifact(cfg, ctx.run, 10, "xlsx", out_bytes, "laporan_LM_dan_pembaruan.xlsx", summary)
+    return {"step": 10, "artifact": data, "lm_rows": len(lm_rows) - 1, "pembaruan_rows": len(pem_rows) - 1}
+
+
+# =============================================================
+# STEP 11 — Pembaruan Intent (suntik training phrase -> usersays)
+# =============================================================
+def s11_derive_phrases(cfg, ctx):
+    state = load_state(cfg, ctx.run)
+    s10 = state["steps"].get("10")
+    if not s10 or not s10.get("file"):
+        raise Exception("Hasil Step 10 belum ada. Jalankan Step 10 dulu.")
+    p = os.path.join(run_dir(cfg, ctx.run), s10["file"])
+    if not os.path.isfile(p):
+        raise Exception("File hasil Step 10 hilang dari server.")
+    with open(p, "rb") as f:
+        b = f.read()
+    wb = _wb_from_bytes(b)
+    if "Pembaruan" not in wb.sheetnames:
+        raise Exception('Sheet "Pembaruan" tidak ada di hasil Step 10.')
+    sh = read_sheet(wb["Pembaruan"])
+    H = sh["headers"]
+    c_intent = _find_header(H, ["Intent Seharusnya", "Intent", "ID"])
+    c_phrase = _find_header(H, ["Training Phrase Baru", "Training Phrase", "Phrase"])
+    phrases = {}
+    for rn in sorted(sh["rows"].keys()):
+        if rn == 1:
+            continue
+        cells = sh["rows"][rn]
+        intent = _sv(cells, c_intent).strip()
+        phrase = _sv(cells, c_phrase).strip()
+        if intent == "" or phrase == "":
+            continue
+        phrases.setdefault(intent, [])
+        if phrase not in phrases[intent]:
+            phrases[intent].append(phrase)
+    if not phrases:
+        raise Exception("Tidak ada training phrase baru pada sheet Pembaruan.")
+    return b, phrases
+
+
+def step11_update(cfg, ctx):
+    raw_base = (ctx.P("ngrok_url") or "").strip()
+    endpoint = api_endpoint(cfg, raw_base, "/api/update-usersays")
+    if not cfg["force_local_api"] and raw_base != "":
+        save_ngrok(cfg, ctx.run, raw_base)
+    df_zip = ctx.file("df_zip")
+    if df_zip is None:
+        raise Exception("Unggah ZIP export Dialogflow (df_zip) yang berisi folder intents.")
+    _, phrases = s11_derive_phrases(cfg, ctx)
+    fields = {"phrases": json.dumps(phrases, ensure_ascii=False)}
+    files = {"df_zip": (df_zip[0], df_zip[1] or "dialogflow.zip", "application/zip")}
+    res = curl_post_json(cfg, endpoint, files, fields)
+    if not isinstance(res, dict) or not res.get("ok", True):
+        raise Exception("Server gagal memproses: " + json.dumps(res, ensure_ascii=False)[:400])
+    zip_b64 = res.get("zip_b64", "")
+    if zip_b64 == "":
+        raise Exception("Server tidak mengembalikan ZIP hasil (zip_b64 kosong).")
+    import base64
+    zip_bytes = base64.b64decode(zip_b64)
+    with open(os.path.join(run_dir(cfg, ctx.run), "step11_usersays.zip"), "wb") as f:
+        f.write(zip_bytes)
+    stats = res.get("stats", {})
+    # bangun sheet Status Pembaruan dari report
+    report = res.get("report", [])
+    st_header = ["Intent", "Status", "Phrase Ditambahkan", "Catatan"]
+    st_rows = [st_header]
+    if isinstance(report, list):
+        for r in report:
+            if isinstance(r, dict):
+                st_rows.append([r.get("intent", ""), r.get("status", ""),
+                                r.get("added", r.get("phrases_added", "")), r.get("note", "")])
+    state = load_state(cfg, ctx.run)
+    s10 = state["steps"].get("10")
+    out_bytes = None
+    if s10 and s10.get("file"):
+        p = os.path.join(run_dir(cfg, ctx.run), s10["file"])
+        if os.path.isfile(p):
+            with open(p, "rb") as f:
+                out_bytes = xlsx_upsert_sheet(f.read(), "Status Pembaruan", st_rows)
+    if out_bytes is None:
+        out_bytes = xlsx_build([{"name": "Status Pembaruan", "rows": st_rows}])
+    summary = {"status": "Selesai", "statistik": stats,
+               "catatan": 'ZIP usersays siap diunduh. Sheet "Status Pembaruan" dibuat.'}
+    data = save_artifact(cfg, ctx.run, 11, "xlsx", out_bytes, "status_pembaruan_intent.xlsx", summary)
+    return {"step": 11, "artifact": data, "stats": stats}
+
+
+# =============================================================
+# DISPATCH (router — sama dgn switch($action) di index.php)
+# =============================================================
+def dispatch(action, cfg, ctx):
+    handlers = {
+        "state": lambda: get_state(cfg, ctx.run),
+        "reset": lambda: reset_run(cfg, ctx.run),
+        "step1": lambda: step1_pull_logs(cfg, ctx),
+        "step2": lambda: step2_json_to_xlsx(cfg, ctx),
+        "step3": lambda: step3_training_intent(cfg, ctx),
+        "step4": lambda: step4_analyze(cfg, ctx),
+        "step5": lambda: step5_qwen_judge(cfg, ctx),
+        "step6load": lambda: step6_load(cfg, ctx),
+        "step6": lambda: step6_save(cfg, ctx),
+        "step7": lambda:
