@@ -319,6 +319,12 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
           <b>Analisis Dialogflow</b>
         </a>
+        {% if can_peraturan %}
+        <a class="tool-side{% if active_page == 'df_webhook' %} active{% endif %}" href="/df-webhook">
+          <div class="ic c-purple"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17V5a2 2 0 0 1 2-2h2"/><path d="M8 21h8a2 2 0 0 0 2-2v-4"/><circle cx="4" cy="17" r="2"/><circle cx="18" cy="6" r="3"/><path d="M18 9v6"/></svg></div>
+          <b>Webhook Chatbot</b>
+        </a>
+        {% endif %}
         {% endif %}
         {% if can_awe %}
         <div class="sec-label" style="margin-top:14px;">AWE (Avaya)</div>
