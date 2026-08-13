@@ -11,6 +11,9 @@ Rute (area akses 'peraturan' = admin; lihat app_core._route_area):
   GET  /api/eval/report?run=..   -> metrik + daftar hasil (opsi only=fail)
   POST /api/eval/stop            -> hentikan run {run}
   POST /api/eval/human           -> simpan validasi manusia {result_id, verdict, note}
+  POST /api/eval/sweep           -> mulai kalibrasi sweep {profil,jenis,limit,holdout,judge,thresholds}
+  GET  /api/eval/sweep/status    -> progres sweep + metrik per ambang + rekomendasi {sweep}
+  POST /api/eval/sweep/stop      -> hentikan sweep {sweep}
 
 Daftarkan dengan:  import eval_routes; eval_routes.register(app)
 """
@@ -25,6 +28,7 @@ from app_core import render_page
 import eval_db
 import eval_sampler
 import eval_harness
+import eval_sweep
 import rag_config_db as rcfg
 
 
@@ -143,6 +147,69 @@ async def api_human(request: Request):
         conn.close()
 
 
+def _parse_thresholds(val):
+    """Terima list angka, atau string dgn pemisah '/' ';' spasi; koma = desimal.
+    Contoh: \"0,30/0,35/0,40\" -> [0.30, 0.35, 0.40]. None bila kosong.
+    """
+    if isinstance(val, (list, tuple)):
+        out = []
+        for x in val:
+            try:
+                out.append(float(x))
+            except Exception:
+                pass
+        return out or None
+    if isinstance(val, str):
+        raw = (val.replace(";", "/").replace(" ", "/")
+                  .replace("\n", "/").replace("\t", "/"))
+        out = []
+        for p in raw.split("/"):
+            p = p.strip().replace(",", ".")
+            if not p:
+                continue
+            try:
+                out.append(float(p))
+            except Exception:
+                pass
+        return out or None
+    return None
+
+
+async def api_sweep(request: Request):
+    b = await _body(request)
+    profil = (b.get("profil") or "agent").strip()
+    jenis = (b.get("jenis") or "all").strip()
+    limit = b.get("limit")
+    try:
+        limit = int(limit) if limit not in (None, "", 0, "0") else None
+    except Exception:
+        limit = None
+    holdout = bool(b.get("holdout", True))
+    judge = bool(b.get("judge", True))
+    thresholds = _parse_thresholds(b.get("thresholds"))
+    try:
+        r = await run_in_threadpool(eval_sweep.start_sweep, profil, jenis, limit,
+                                    holdout, judge, thresholds)
+        return JSONResponse(r)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_sweep_status(request: Request):
+    sweep_id = (request.query_params.get("sweep") or "").strip()
+    if not sweep_id:
+        return JSONResponse({"ok": False, "error": "parameter sweep kosong"})
+    try:
+        return JSONResponse(await run_in_threadpool(eval_sweep.sweep_status, sweep_id))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_sweep_stop(request: Request):
+    b = await _body(request)
+    return JSONResponse(eval_sweep.stop_sweep((b.get("sweep") or "").strip()))
+
+
 def register(app):
     app.add_api_route("/rag-eval", page_eval, methods=["GET"])
     app.add_api_route("/api/eval/summary", api_summary, methods=["GET"])
@@ -152,3 +219,6 @@ def register(app):
     app.add_api_route("/api/eval/report", api_report, methods=["GET"])
     app.add_api_route("/api/eval/stop", api_stop, methods=["POST"])
     app.add_api_route("/api/eval/human", api_human, methods=["POST"])
+    app.add_api_route("/api/eval/sweep", api_sweep, methods=["POST"])
+    app.add_api_route("/api/eval/sweep/status", api_sweep_status, methods=["GET"])
+    app.add_api_route("/api/eval/sweep/stop", api_sweep_stop, methods=["POST"])
