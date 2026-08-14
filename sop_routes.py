@@ -23,6 +23,7 @@ Tanpa anotasi itu, FastAPI (add_api_route) menganggap `request` sebagai query
 parameter wajib sehingga memunculkan error {\"loc\":[\"query\",\"request\"]}.
 """
 import json
+import os
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -124,7 +125,54 @@ async def api_batch(request: Request):
         ingest = d.get("ingest", True)
         ingest = bool(ingest) if ingest is not None else True
         use_ai = bool(d.get("ai_naming", d.get("use_ai_naming", True)))
-        res = sbatch.proses_async(root, do_ocr=do_ocr, ingest=ingest, use_ai_naming=use_ai)
+        do_ringkas = d.get("ringkas", True)
+        do_ringkas = bool(do_ringkas) if do_ringkas is not None else True
+        res = sbatch.proses_async(root, do_ocr=do_ocr, ingest=ingest,
+                                  use_ai_naming=use_ai, do_ringkas=do_ringkas)
+        code = 200 if res.get("ok") else 409
+        return JSONResponse(res, status_code=code)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+def _flag(form, name, default=False):
+    v = form.get(name)
+    if v is None:
+        return default
+    return str(v).strip().lower() in ("1", "true", "on", "ya", "yes")
+
+
+async def api_upload(request: Request):
+    """Terima unggahan berkas SOP (multipart), simpan, lalu proses async."""
+    try:
+        form = await request.form()
+        ups = form.getlist("files")
+        if not ups:
+            one = form.get("file")
+            if one is not None:
+                ups = [one]
+        do_ocr = _flag(form, "do_ocr") or _flag(form, "ocr")
+        use_ai = _flag(form, "ai_naming", True)
+        do_ringkas = _flag(form, "ringkas", True)
+        updir = sbatch.upload_dir()
+        saved = []
+        for uf in ups:
+            nama = os.path.basename((getattr(uf, "filename", "") or "").strip())
+            if not nama:
+                continue
+            data = await uf.read()
+            if isinstance(data, str):
+                data = data.encode("utf-8", "replace")
+            dest = os.path.join(updir, nama)
+            with open(dest, "wb") as w:
+                w.write(data)
+            saved.append(dest)
+        if not saved:
+            return JSONResponse({"ok": False, "error": "tak ada berkas valid diunggah"},
+                                status_code=400)
+        res = sbatch.proses_files_async(saved, root=updir, do_ocr=do_ocr,
+                                        use_ai_naming=use_ai, do_ringkas=do_ringkas)
+        res["disimpan"] = len(saved)
         code = 200 if res.get("ok") else 409
         return JSONResponse(res, status_code=code)
     except Exception as e:
@@ -199,6 +247,7 @@ def register(app):
     app.add_api_route("/api/sop/save", api_save, methods=["POST"])
     app.add_api_route("/api/sop/delete", api_delete, methods=["POST"])
     app.add_api_route("/api/sop/batch", api_batch, methods=["POST"])
+    app.add_api_route("/api/sop/upload", api_upload, methods=["POST"])
     app.add_api_route("/api/sop/batch-progress", api_batch_progress, methods=["GET"])
     app.add_api_route("/api/sop/audit", api_audit, methods=["POST"])
     app.add_api_route("/api/sop/reindex", api_reindex, methods=["POST"])
