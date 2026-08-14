@@ -91,6 +91,11 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
           <div class="field"><label>Suhu (kreativitas)</label><input type="number" id="pSuhu" min="0" max="1" step="0.1"></div>
         </div>
         <div class="field">
+          <label>Model LLM (opsional)</label>
+          <input type="text" id="pModel" placeholder="mis. gpt-4o — kosong = model default .env" autocomplete="off">
+          <div class="hint">Override model/deployment khusus profil <b>agent</b>. Kosongkan untuk memakai model global dari .env. Alternatif tanpa UI: set env <code>RAG_MODEL_AGENT</code>.</div>
+        </div>
+        <div class="field">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
             <input type="checkbox" id="pShow" style="width:16px;height:16px;accent-color:var(--accent);"> Tampilkan tautan sumber pada jawaban agent
           </label>
@@ -179,6 +184,7 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
       el('pLoop').value = (profil.maks_loop!=null?profil.maks_loop:2);
       el('pSuhu').value = (profil.suhu!=null?profil.suhu:0.3);
       el('pShow').checked = !!profil.tampil_sumber;
+      el('pModel').value = profil.model||'';
       renderSrc(profil.sumber||[]);
     }).catch(function(){ renderSrc([]); });
   }
@@ -196,6 +202,7 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
       fallback:el('pFallback').value, sumber:chosenSrc(),
       maks_loop:parseInt(el('pLoop').value||'2',10),
       suhu:parseFloat(el('pSuhu').value||'0.3'),
+      model: el('pModel').value.trim(),
       tampil_sumber: el('pShow').checked?1:0 };
     var p1=fetch('/api/rag/profile/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();});
     var qbody={ target:'agent', maks_tanya:parseInt(el('qMaks').value||'0',10), maks_token:parseInt(el('qTok').value||'0',10) };
