@@ -73,11 +73,33 @@
     <div class="sop-note" id="embedNote"></div>
   </div>
 
+  <!-- Unggah dokumen -->
+  <div class="sop-card">
+    <h2>⬆️ Unggah dokumen SOP</h2>
+    <div class="sop-row">
+      <input class="sop-in" type="file" id="upFiles" multiple
+             accept=".pdf,.pptx,.docx,.txt,.md,.html,.htm,.jpg,.jpeg,.png,.tif,.tiff,.bmp,.webp">
+    </div>
+    <div class="sop-row" style="margin-top:10px">
+      <label class="sop-chk"><input type="checkbox" id="upRingkas" checked> Buat ringkasan otomatis (AI)</label>
+      <label class="sop-chk"><input type="checkbox" id="upAi" checked> Penamaan dibantu AI bila judul kurang jelas</label>
+      <label class="sop-chk"><input type="checkbox" id="upOcr"> OCR berkas hasil pindai</label>
+    </div>
+    <div class="sop-row" style="margin-top:10px">
+      <button class="sop-btn" id="btnUpload">Unggah &amp; proses</button>
+    </div>
+    <div class="sop-note">
+      Pilih satu atau beberapa dokumen (PDF/PPTX/DOCX/TXT/HTML/gambar). Berkas
+      diunggah lalu diekstrak per-bagian, dibuatkan ringkasan, dan disimpan
+      permanen sebagai <b>Sumber 5</b> RAG. Progres tampil pada panel di bawah.
+    </div>
+  </div>
+
   <!-- Impor folder -->
   <div class="sop-card">
-    <h2>📂 Impor folder</h2>
+    <h2>📂 Impor folder (server)</h2>
     <div class="sop-row">
-      <input class="sop-in" id="impRoot" placeholder="contoh: C:\Users\USER\chatbot\pipeline_lokal\sop">
+      <input class="sop-in" id="impRoot" placeholder="contoh: C:\\Users\\USER\\chatbot\\pipeline_lokal\\sop">
     </div>
     <div class="sop-row" style="margin-top:10px">
       <label class="sop-chk"><input type="checkbox" id="impOcr"> OCR berkas pindai (butuh Tesseract 'ind' + Poppler)</label>
@@ -196,7 +218,7 @@ function renderProg(p){
 
 async function pollProg(){
   const d = await jget('/api/sop/batch-progress');
-  if(d.ok){ renderProg(d.progress||{}); if(!(d.progress&&d.progress.running)){ stopPoll(); loadStats(); $('btnImport').disabled=false; } }
+  if(d.ok){ renderProg(d.progress||{}); if(!(d.progress&&d.progress.running)){ stopPoll(); loadStats(); loadList(); $('btnImport').disabled=false; if($('btnUpload')) $('btnUpload').disabled=false; } }
 }
 function startPoll(){ stopPoll(); progTimer = setInterval(pollProg, 1200); pollProg(); }
 function stopPoll(){ if(progTimer){ clearInterval(progTimer); progTimer=null; } }
@@ -210,6 +232,24 @@ $('btnImport').onclick = async () => {
   startPoll();
 };
 $('btnRefreshProg').onclick = pollProg;
+
+$('btnUpload').onclick = async () => {
+  const inp = $('upFiles');
+  if(!inp.files || !inp.files.length){ alert('Pilih berkas dulu.'); return; }
+  const fd = new FormData();
+  for(const f of inp.files) fd.append('files', f);
+  fd.append('do_ocr', $('upOcr').checked ? '1' : '0');
+  fd.append('ai_naming', $('upAi').checked ? '1' : '0');
+  fd.append('ringkas', $('upRingkas').checked ? '1' : '0');
+  $('btnUpload').disabled = true;
+  try {
+    const r = await fetch('/api/sop/upload', {method:'POST', body: fd});
+    const d = await r.json();
+    if(!d.ok){ alert(d.error||'gagal unggah'); $('btnUpload').disabled=false; return; }
+    inp.value = '';
+    startPoll();
+  } catch(e){ alert('gagal unggah: '+e); $('btnUpload').disabled=false; }
+};
 
 $('btnAudit').onclick = async () => {
   const root = $('audRoot').value.trim() || $('impRoot').value.trim();
@@ -261,9 +301,10 @@ async function loadList(){
   if(!d.ok){ $('listWrap').innerHTML = '<div class="muted">'+esc(d.error||'gagal')+'</div>'; return; }
   const items = d.items||[];
   if(!items.length){ $('listWrap').innerHTML = '<div class="muted">Belum ada dokumen.</div>'; return; }
-  let h = `<div class="sop-note">Total ${d.total||items.length} dokumen.</div><table class="sop-tb"><thead><tr><th>Judul</th><th>Kategori</th><th>Tipe</th><th>Unit</th><th>Berkas</th><th></th></tr></thead><tbody>`;
+  let h = `<div class="sop-note">Total ${d.total||items.length} dokumen.</div><table class="sop-tb"><thead><tr><th>Judul &amp; ringkasan</th><th>Kategori</th><th>Tipe</th><th>Unit</th><th>Berkas</th><th></th></tr></thead><tbody>`;
   for(const it of items){
-    h += `<tr><td>${esc(it.judul||'')}</td><td><span class="pill kat">${esc(it.kategori||'')}</span></td><td>${esc(it.sumber_tipe||'')}</td><td>${it.n_unit||0}</td><td class="muted">${esc(it.source_file||'')}</td><td><button class="sop-btn red" data-del="${esc(it.dokumen_id)}">Hapus</button></td></tr>`;
+    const ring = it.ringkasan ? `<div class="muted" style="font-size:11px;margin-top:3px;max-width:460px;white-space:normal">${esc(it.ringkasan)}</div>` : '';
+    h += `<tr><td>${esc(it.judul||'')}${ring}</td><td><span class="pill kat">${esc(it.kategori||'')}</span></td><td>${esc(it.sumber_tipe||'')}</td><td>${it.n_unit||0}</td><td class="muted">${esc(it.source_file||'')}</td><td><button class="sop-btn red" data-del="${esc(it.dokumen_id)}">Hapus</button></td></tr>`;
   }
   h += '</tbody></table>';
   $('listWrap').innerHTML = h;
