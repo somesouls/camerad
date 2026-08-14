@@ -3,10 +3,12 @@
 
 Alur per sampel:
   1. Panggil mesin RAG (rag_engine.answer) dengan profil terpilih.
-     - HOLD-OUT: untuk sampel LIVECHAT, sumber 'awe' dikecualikan agar mesin
-       tidak \"mencontek\" balasan agen yang jadi gold (anti-kebocoran). Sumber
-       chatbot (intent) memakai katalog terkurasi, bukan frasa mentah, jadi
-       tak perlu hold-out.
+     - HOLD-OUT (per-percakapan): untuk sampel LIVECHAT, HANYA percakapan AWE
+       yang sedang diuji (SID) yang dikecualikan agar mesin tidak "mencontek"
+       balasan agennya sendiri (anti-kebocoran); percakapan AWE LAIN tetap
+       tersedia sehingga yang diuji adalah generalisasi, bukan hafalan. Lihat
+       eval_holdout.py. Sumber chatbot (intent) memakai katalog terkurasi,
+       jadi tak perlu hold-out.
   2. Tentukan status abstain (grounded=False atau jawaban == fallback).
   3. Nilai dengan eval_judge (LLM-as-judge).
   4. Simpan hasil ke eval_db + perbarui progres run.
@@ -20,6 +22,7 @@ import traceback
 import eval_db
 import eval_judge
 import rag_engine
+import eval_holdout
 import rag_config_db as rcfg
 import rag_calibration as _cal
 
@@ -52,8 +55,6 @@ def run_samples(run_id, profil, jenis, limit, holdout, judge, min_cos=None):
         _JOBS.setdefault(run_id, {"stop": False})
     conn = eval_db.init_db(eval_db.connect())
     profile = rcfg.get_profile(profil) or rcfg.get_profile("chatbot") or {}
-    base_sumber = [s for s in (profile.get("sumber") or list(rcfg.SUMBER_VALID))
-                   if s in rcfg.SUMBER_VALID] or list(rcfg.SUMBER_VALID)
     fb = _fallback_text(profile)
     try:
         _cal.set_min_cos(min_cos)
@@ -67,15 +68,21 @@ def run_samples(run_id, profil, jenis, limit, holdout, judge, min_cos=None):
                 conn.close()
                 return
             is_live = smp.get("jenis") == "livechat"
-            if holdout and is_live:
-                override = [s for s in base_sumber if s != "awe"]
+            sid = (smp.get("sumber_ref") or "").strip()
+            # HOLD-OUT PER-PERCAKAPAN: kecualikan HANYA SID yang sedang diuji
+            # (bukan seluruh sumber AWE) agar mesin tetap boleh belajar dari
+            # percakapan AWE lain -> uji generalisasi, anti-kebocoran.
+            if holdout and is_live and sid:
+                eval_holdout.set_holdout_sid(sid)
             else:
-                override = None
+                eval_holdout.reset_holdout_sid()
             try:
-                res = rag_engine.answer(smp["pertanyaan"], profile, override=override,
+                res = rag_engine.answer(smp["pertanyaan"], profile, override=None,
                                         history=None, diagnostics=True)
             except Exception as e:
                 res = {"ok": False, "error": str(e)}
+            finally:
+                eval_holdout.reset_holdout_sid()
             answer = (res.get("answer") or "").strip()
             grounded = bool(res.get("grounded"))
             abstain = (not grounded) or bool(
@@ -102,6 +109,7 @@ def run_samples(run_id, profil, jenis, limit, holdout, judge, min_cos=None):
                            (str(e) + " | " + traceback.format_exc())[:400])
     finally:
         _cal.reset_min_cos()
+        eval_holdout.reset_holdout_sid()
         try:
             conn.close()
         except Exception:
