@@ -9,6 +9,15 @@ Dua sumber (sesuai kesepakatan peluncuran):
 
 Sampling: stratified (round-robin antar strata) + dedup near-duplicate agar
 sampel beragam dan tidak menumpuk di 1-2 topik populer.
+
+TAHAP 1 (perbaikan validitas eval):
+  - SARING utterance yang bukan pertanyaan yang bisa berdiri sendiri: salam,
+    penyebutan nama ("saya X", "GIAN ABDUL HAPIDZ"), afirmasi pendek ("iya",
+    "belum pernah"), dan fragmen lanjutan yang bergantung konteks percakapan
+    sebelumnya. Lihat _good_question().
+  - BERSIHKAN gold dari boilerplate sapaan agen (salam, perkenalan, tanya nama,
+    minta menunggu) sehingga gold berisi jawaban substantif; sampel yang gold-nya
+    tinggal basa-basi otomatis di-drop. Lihat _clean_gold().
 """
 import re
 import json
@@ -26,6 +35,27 @@ _STOP = set("yang dan di ke dari untuk pada dengan atau ini itu ada apa bagaiman
 _GREET = re.compile(r"^(halo|hai|hi|hallo|assalamu|selamat\s+(pagi|siang|sore|malam)|"
                     r"pagi|siang|sore|malam|permisi|maaf|terima\s+kasih|makasih|"
                     r"ok|oke|ya|iya|test|tes)\b", re.I)
+
+# Awalan yang menandai utterance BUKAN pertanyaan mandiri (nama diri, afirmasi,
+# atau fragmen lanjutan yang bersandar pada giliran percakapan sebelumnya).
+_NONQ_PREFIX = re.compile(
+    r"^(saya|aku|nama\s+saya|perkenalkan|dengan|iya|ya|betul|benar|baik|oke|ok|"
+    r"sudah|belum|makasih|terima\s+kasih|dan|lalu|terus|trus|kemudian|sedangkan|"
+    r"tapi|namun|berarti|jadi|oh|my\s+name|i\s+am|i'm)\b", re.I)
+
+# Sinyal bahwa utterance kemungkinan pertanyaan/permintaan.
+_QWORD = re.compile(
+    r"(\?|\bapa(kah)?\b|\bbagaimana\b|\bbgmn\b|\bgimana\b|\bgmn\b|\bkenapa\b|"
+    r"\bmengapa\b|\bberapa\b|\bkapan\b|\bdi\s?mana\b|\bdimana\b|\bbisakah\b|"
+    r"\bbolehkah\b|\bapakah\b|\bmohon\b|\btolong\b|\bcara\b|\bhow\b|\bwhat\b|"
+    r"\bwhy\b|\bcan\s+i\b)", re.I)
+
+# Kata kunci domain pajak: sinyal isi substantif walau tanpa kata tanya eksplisit.
+_TAXKW = re.compile(
+    r"(pajak|npwp|nik|coretax|core\s?tax|spt|ppn|pph|faktur|bupot|efin|djp|"
+    r"sertifikat|billing|restitusi|\bpkp\b|\bpbk\b|skpkb|\bstp\b|nitku|suket|"
+    r"\bpp\s?55\b|\bpmk\b|\bper[- ]|lapor|bayar|angsur|kredit|retur|aktivasi|"
+    r"unduh|download|daftar|pemadanan|nonaktif|dokumen|billing|tax|register)", re.I)
 
 
 def _norm(s):
@@ -52,8 +82,87 @@ def _is_greeting(t):
     return bool(_GREET.match(t))
 
 
+def _is_name_like(t):
+    """True bila utterance hanya berupa nama/sapaan diri (1-4 kata alfabet,
+    tanpa angka, tanpa kata tanya/kata kunci pajak). Mis. "GIAN ABDUL HAPIDZ".
+    """
+    words = (t or "").split()
+    if not (1 <= len(words) <= 4):
+        return False
+    if any(ch.isdigit() for ch in t):
+        return False
+    if _QWORD.search(t) or _TAXKW.search(t):
+        return False
+    return all(re.fullmatch(r"[A-Za-z\u00c0-\u017f.'-]+", w) for w in words)
+
+
+def _good_question(t):
+    """True bila utterance layak jadi sampel uji: pertanyaan/keluhan yang bisa
+    berdiri sendiri. Menolak salam, penyebutan nama, afirmasi pendek, dan
+    fragmen lanjutan yang bergantung konteks percakapan sebelumnya.
+    """
+    t = (t or "").strip()
+    if len(t) < 12:
+        return False
+    low = t.lower()
+    has_signal = bool(_QWORD.search(low) or _TAXKW.search(low))
+    meaningful = [w for w in _norm(t).split() if len(w) >= 3 and w not in _STOP]
+    if not has_signal:
+        # Tanpa sinyal apa pun: tolak salam/nama/afirmasi/fragmen lanjutan.
+        if _is_greeting(t) or _NONQ_PREFIX.match(low) or _is_name_like(t):
+            return False
+        # Butuh isi cukup substansial agar tidak sekadar potongan kalimat.
+        return len(meaningful) >= 4 and len(t) >= 25
+    # Ada sinyal pertanyaan/kata kunci pajak.
+    return len(meaningful) >= 2
+
+
+# Boilerplate sapaan agen yang harus dibuang dari gold agar tersisa jawaban isi.
+_BOILER = [re.compile(p, re.I) for p in (
+    r"terima kasih telah menunggu",
+    r"saat ini anda telah terhubung dengan live agent kami",
+    r"mohon menunggu respon dari live agent kami",
+    r"terima kasih telah bersedia menunggu",
+    r"mohon menunggu sebentar[, ]*kami pastikan terlebih dahulu ketentuannya",
+    r"selamat\s+(pagi|siang|sore|malam)",
+    r"good\s+(morning|afternoon|evening|day)",
+    r"perkenalkan[, ]*saya\s+\w+",
+    r"saya\s+\w+[, ]*agen[t]?\s+(live\s*chat\s+)?kring\s*pajak\s*1500200",
+    r"saya\s+\w+\s+dari\s+kring\s*pajak\s*1500200",
+    r"i\s+am\s+\w+[, ]*a?\s*live\s*chat\s+agent\s+from\s+kring\s*pajak\s*1500200",
+    r"agen[t]?\s+live\s*chat\s+kring\s*pajak\s*1500200",
+    r"(sebelumnya[, ]*)?dengan\s+(bapak\s*/\s*ibu|bapak|ibu)\s+siapa\s+(saya|kami)\s+terhubung\s*\??",
+    r"mohon\s+maaf\s+sebelumnya[, ]*",
+    r"may\s+i\s+have\s+your\s+name\s*\??",
+    r"ada\s+yang\s+(bisa|dapat)\s+(saya|kami)\s+(bantu|dibantu)\s*\??",
+    r"ada\s+yang\s+(bisa|dapat)\s+dibantu\s*\??",
+    r"kring\s*pajak\s*1500200",
+)]
+
+
+def _clean_gold(gold):
+    """Buang boilerplate sapaan agen (salam, perkenalan, tanya nama, minta
+    menunggu) agar gold berisi jawaban substantif. Kembalikan '' bila tak
+    tersisa isi berarti -> pemanggil sebaiknya men-drop sampel seperti itu.
+    """
+    g = " " + (gold or "").strip() + " "
+    for rx in _BOILER:
+        g = rx.sub(" ", g)
+    # Buang satu pembuka konfirmasi nama di awal: "Baik, Ibu Adel."
+    g = re.sub(r"^\s*baik[,.\s]+(bapak\s*/\s*ibu|bapak|ibu|pak|bu)\s+\w+[,.\s]+",
+               " ", g, flags=re.I)
+    g = re.sub(r"\s+", " ", g).strip(" ,.-")
+    return g
+
+
 def _extract_qa(transkrip):
-    """Dari list [{role,text}] -> (pertanyaan_customer, gold_agen) atau None."""
+    """Dari list [{role,text}] -> (pertanyaan_customer, gold_agen) atau None.
+
+    - pertanyaan: giliran customer PERTAMA yang lolos _good_question (melewati
+      salam/penyebutan nama pembuka).
+    - gold: gabungan balasan agen, dibersihkan dari boilerplate sapaan. Sampel
+      di-drop bila tak ada pertanyaan valid atau gold isi < 40 karakter.
+    """
     if not isinstance(transkrip, list):
         return None
     cust_q = None
@@ -66,12 +175,12 @@ def _extract_qa(transkrip):
         if not text:
             continue
         if _is_customer(role):
-            if cust_q is None and not _is_greeting(text):
+            if cust_q is None and _good_question(text):
                 cust_q = text
         elif avdb._is_agent(role, text):
             agent_parts.append(text)
-    gold = " ".join(agent_parts).strip()
-    if not cust_q or not gold or len(gold) < 20:
+    gold = _clean_gold(" ".join(agent_parts))
+    if not cust_q or not gold or len(gold) < 40:
         return None
     return cust_q, gold
 
@@ -175,7 +284,7 @@ def collect_chatbot(n=200, seed=42):
     for r in rows:
         d = dict(r)
         q = (d.get("user_phrase") or "").strip()
-        if _is_greeting(q):
+        if not _good_question(q):
             continue
         sig = _sig(q)
         if not sig or sig in seen:
