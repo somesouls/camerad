@@ -14,12 +14,18 @@ rag_routes.py untuk endpoint chat (produksi) dan playground admin (/rag-lab).
 """
 import re
 import json
+import os
+import contextvars
 
 import llm_client
 import pii_mask
 import rag_router
 import rag_config_db as rcfg
 
+try:
+    import rag_rewrite
+except Exception:            # pragma: no cover
+    rag_rewrite = None
 try:
     import intentmap_db as imdb
 except Exception:            # pragma: no cover
@@ -42,6 +48,13 @@ except Exception:            # pragma: no cover
     sopdb = None
 
 MAKS_KONTEKS = 6500
+
+# Budget potong isi pasal peraturan (per blok). Agent perlu lebih panjang agar
+# pasal tidak terpotong; chatbot cukup ringkas. Diset per-request oleh answer()
+# lewat contextvar (aman untuk banyak request paralel).
+_CLIP_PERATURAN_DEFAULT = 700
+_clip_peraturan_ctx = contextvars.ContextVar(
+    "rag_clip_peraturan", default=_CLIP_PERATURAN_DEFAULT)
 
 _STOP = set("""yang dan di ke dari untuk pada dengan atau ini itu ada apa
 bagaimana gimana kenapa mengapa kah min admin kak pak bu mohon tolong ya nya
@@ -288,6 +301,7 @@ def _ctx_peraturan(q, limit=4):
         rows = pdb.search(q, limit, ("berlaku",))
     except Exception:
         rows = []
+    clip_isi = _clip_peraturan_ctx.get()
     blocks, sources = [], []
     for r in rows:
         try:
@@ -312,7 +326,7 @@ def _ctx_peraturan(q, limit=4):
         piece = "Peraturan: " + head
         if judul and judul.lower() not in head.lower():
             piece += "\nTentang: " + _clip(judul, 200)
-        piece += "\nIsi: " + _clip(isi, 700)
+        piece += "\nIsi: " + _clip(isi, clip_isi)
         blocks.append(piece)
         sources.append({"sumber": "Peraturan", "judul": head,
                         "ref": (reference or hierarchy),
@@ -439,7 +453,7 @@ def _verify(q, context):
             "Anda penilai konteks RAG. Diberi PERTANYAAN dan KONTEKS. Nilai "
             "apakah KONTEKS memuat cukup informasi untuk menjawab dengan benar. "
             "Jawab HANYA JSON valid: "
-            '{"cukup":true/false,"butuh_peraturan":true/false,"alasan":"singkat"}. '
+            '{\"cukup\":true/false,\"butuh_peraturan\":true/false,\"alasan\":\"singkat\"}. '
             "'butuh_peraturan' true bila jawaban memerlukan dasar hukum/pasal "
             "yang belum ada di konteks."
         )
@@ -472,6 +486,92 @@ def _render_prompt(tmpl, context, sumber_txt, fallback):
 
 
 # ==========================================================================
+# Profil 'cepat' & budget konteks per-profil.
+# ==========================================================================
+def _env_int(name, default=None):
+    v = os.environ.get(name)
+    if v is None or str(v).strip() == "":
+        return default
+    try:
+        return int(str(v).strip())
+    except Exception:
+        return default
+
+
+def _fast_profiles():
+    """Kumpulan id profil yang dijalankan mode 'cepat'. Default: {'chatbot'}.
+    Override via env RAG_FAST_PROFILES (dipisah koma; kosongkan untuk nonaktif)."""
+    raw = os.environ.get("RAG_FAST_PROFILES")
+    if raw is None:
+        return {"chatbot"}
+    return {x.strip().lower() for x in raw.split(",") if x.strip()}
+
+
+def _is_fast_profile(profile):
+    pid = str((profile or {}).get("id") or "").strip().lower()
+    return bool(pid) and pid in _fast_profiles()
+
+
+def _clip_peraturan_for(profile):
+    """Budget potong isi pasal peraturan untuk profil ini.
+    Prioritas: env PERATURAN_CLIP_<ID> > env PERATURAN_CLIP > default
+    (agent=1300 agar pasal panjang tak terpotong; lainnya=700)."""
+    pid = str((profile or {}).get("id") or "").strip()
+    n = _env_int("PERATURAN_CLIP_" + pid.upper())
+    if n is None:
+        n = _env_int("PERATURAN_CLIP")
+    if n is None:
+        n = 1300 if pid.lower() == "agent" else _CLIP_PERATURAN_DEFAULT
+    return n if (isinstance(n, int) and n > 0) else _CLIP_PERATURAN_DEFAULT
+
+
+def _fastpath_intent(q, profile):
+    """Jalur cepat ala Dialogflow: jawab LANGSUNG dari intent katalog yang sudah
+    diverifikasi analis & punya jawaban cuplikan, tanpa retrieval/LLM sintesis.
+
+    Sengaja konservatif: hanya aktif bila env RAG_FASTPATH_INTENT=1, intent
+    terverifikasi (terverifikasi=1), dan ada jawaban_cuplikan. Gagal-anggun -> None.
+    """
+    if str(os.environ.get("RAG_FASTPATH_INTENT", "0")).strip().lower() not in (
+            "1", "true", "yes", "on"):
+        return None
+    if imdb is None:
+        return None
+    ql = (q or "").strip()
+    if len(ql) < 3:
+        return None
+    try:
+        c = imdb.init_db(imdb.connect())
+    except Exception:
+        return None
+    try:
+        try:
+            imdb.init_catalog(c)
+        except Exception:
+            pass
+        try:
+            rows = imdb.match_catalog(c, ql, limit=1) or []
+        except Exception:
+            rows = []
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+    if not rows:
+        return None
+    d = rows[0]
+    if int(d.get("terverifikasi") or 0) != 1:
+        return None
+    ans = str(d.get("jawaban_cuplikan") or "").strip()
+    intent = str(d.get("intent") or "").strip()
+    if not ans or not intent:
+        return None
+    return {"answer": ans,
+            "sources": [{"sumber": "Training Phrase & Intent", "judul": intent, "ref": ""}]}
+
+
+# ==========================================================================
 # Orkestrasi pipeline.
 # ==========================================================================
 def answer(question, profile, override=None, history=None, diagnostics=False):
@@ -480,11 +580,42 @@ def answer(question, profile, override=None, history=None, diagnostics=False):
     if not q:
         return {"ok": False, "error": "Pertanyaan kosong."}
 
+    # Profil 'cepat' (mis. chatbot pengganti Dialogflow): pangkas biaya LLM —
+    # lewati loop verifikasi (maks_loop=0) & AI-rewrite, dan boleh jalur cepat
+    # FAQ/intent. Mode penuh tetap dipakai di playground (diagnostics=True).
+    fast = _is_fast_profile(profile) and not diagnostics
+
+    # Budget potong isi pasal peraturan per-profil (agent lebih longgar) ->
+    # dibaca _ctx_peraturan lewat contextvar.
+    try:
+        _clip_peraturan_ctx.set(_clip_peraturan_for(profile))
+    except Exception:
+        pass
+    # Tandai profil aktif (+ 'cepat') ke modul rewrite agar AI-rewrite bisa
+    # dilewati untuk profil cepat. Aman bila modul tak tersedia.
+    if rag_rewrite is not None:
+        try:
+            rag_rewrite.set_context(profile.get("id"), fast=fast)
+        except Exception:
+            pass
+
     diag = {"router": None, "retrieval": [], "verifikasi": [],
             "sumber_dipakai": [], "eskalasi": []}
 
     # [1] Router
     allowed = effective_sources(profile, override)
+
+    # [1b] Jalur cepat FAQ/intent (ala Dialogflow): jawab langsung dari intent
+    # terverifikasi tanpa retrieval/LLM. Opt-in via RAG_FASTPATH_INTENT=1.
+    if fast and "intent" in allowed:
+        fp = _fastpath_intent(q, profile)
+        if fp:
+            res = {"ok": True, "answer": fp["answer"], "grounded": True,
+                   "profil": profile.get("id"), "domain": "intent", "jalur": "cepat"}
+            if profile.get("tampil_sumber"):
+                res["sources"] = _dedup_sources(fp["sources"])
+            return res
+
     r = rag_router.route(q, allowed)
     diag["router"] = r
     # Jaga-jaga: kunci urutan router agar tidak pernah keluar dari daftar sumber
@@ -493,8 +624,9 @@ def answer(question, profile, override=None, history=None, diagnostics=False):
     ordered = [s for s in r["ordered"] if s in allowed]
 
     # Tunda Peraturan bila domain bukan hukum -> biar loop verifikasi yang
-    # memicu pencarian peraturan (persis skenario yang diminta).
-    maks_loop = int(profile.get("maks_loop") or 0)
+    # memicu pencarian peraturan (persis skenario yang diminta). Untuk profil
+    # cepat, maks_loop dipaksa 0 (tanpa loop verifikasi LLM).
+    maks_loop = 0 if fast else int(profile.get("maks_loop") or 0)
     defer = set()
     if "peraturan" in ordered and r["domain"] in ("aplikasi", "umum") and maks_loop > 0:
         defer.add("peraturan")
