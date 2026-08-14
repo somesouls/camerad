@@ -17,6 +17,8 @@ Kolom profil:
   tampil_sumber INT   1=tampilkan daftar sumber ke pengguna
   fallback      TEXT  kalimat baku bila tak ada konteks relevan
   suhu          REAL  temperature LLM
+  model         TEXT  (opsional) override model/deployment LLM utk profil ini;
+                       kosong = pakai model global dari .env
   updated_at    TEXT
 
 Env: PIPELINE_RAG_DB_FILE atau 'rag.db'.
@@ -88,6 +90,7 @@ _DEFAULTS = {
         "tampil_sumber": 0,
         "fallback": FALLBACK_DEFAULT,
         "suhu": 0.3,
+        "model": "",
     },
     "agent": {
         "nama": "Asisten Agent Kring Pajak",
@@ -97,6 +100,7 @@ _DEFAULTS = {
         "tampil_sumber": 1,
         "fallback": FALLBACK_DEFAULT,
         "suhu": 0.3,
+        "model": "",
     },
 }
 
@@ -116,17 +120,25 @@ def init_db(conn):
         "CREATE TABLE IF NOT EXISTS rag_profile ("
         "id TEXT PRIMARY KEY, nama TEXT, system_prompt TEXT, sumber TEXT, "
         "maks_loop INTEGER DEFAULT 2, tampil_sumber INTEGER DEFAULT 0, "
-        "fallback TEXT, suhu REAL DEFAULT 0.3, updated_at TEXT)"
+        "fallback TEXT, suhu REAL DEFAULT 0.3, model TEXT, updated_at TEXT)"
     )
+    # Migrasi lembut: tambah kolom 'model' bila DB lama belum memilikinya.
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(rag_profile)").fetchall()]
+        if "model" not in cols:
+            conn.execute("ALTER TABLE rag_profile ADD COLUMN model TEXT")
+    except Exception:
+        pass
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     for pid, d in _DEFAULTS.items():
         row = conn.execute("SELECT 1 FROM rag_profile WHERE id=?", (pid,)).fetchone()
         if not row:
             conn.execute(
                 "INSERT INTO rag_profile (id,nama,system_prompt,sumber,maks_loop,"
-                "tampil_sumber,fallback,suhu,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                "tampil_sumber,fallback,suhu,model,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (pid, d["nama"], d["system_prompt"], json.dumps(d["sumber"]),
-                 d["maks_loop"], d["tampil_sumber"], d["fallback"], d["suhu"], now),
+                 d["maks_loop"], d["tampil_sumber"], d["fallback"], d["suhu"],
+                 d.get("model", ""), now),
             )
     conn.commit()
     return conn
@@ -148,6 +160,7 @@ def _row_to_dict(r):
         d["suhu"] = float(d.get("suhu") if d.get("suhu") is not None else 0.3)
     except Exception:
         d["suhu"] = 0.3
+    d["model"] = str(d.get("model") or "").strip()
     return d
 
 
@@ -188,16 +201,20 @@ def save_profile(pid, data):
         tampil = 1 if data.get("tampil_sumber", cur.get("tampil_sumber")) else 0
         fallback = data.get("fallback") or cur.get("fallback") or FALLBACK_DEFAULT
         suhu = float(data.get("suhu", cur.get("suhu", 0.3)) or 0.3)
+        model_v = data.get("model")
+        if model_v is None:
+            model_v = cur.get("model")
+        model_v = str(model_v or "").strip()
         conn.execute(
             "INSERT INTO rag_profile (id,nama,system_prompt,sumber,maks_loop,"
-            "tampil_sumber,fallback,suhu,updated_at) VALUES (?,?,?,?,?,?,?,?,?) "
+            "tampil_sumber,fallback,suhu,model,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,"
             "system_prompt=excluded.system_prompt,sumber=excluded.sumber,"
             "maks_loop=excluded.maks_loop,tampil_sumber=excluded.tampil_sumber,"
-            "fallback=excluded.fallback,suhu=excluded.suhu,"
+            "fallback=excluded.fallback,suhu=excluded.suhu,model=excluded.model,"
             "updated_at=excluded.updated_at",
             (pid, nama, prompt, json.dumps(sumber), maks_loop, tampil,
-             fallback, suhu, time.strftime("%Y-%m-%d %H:%M:%S")),
+             fallback, suhu, model_v, time.strftime("%Y-%m-%d %H:%M:%S")),
         )
         conn.commit()
         return get_profile(pid)
