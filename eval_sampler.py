@@ -18,6 +18,14 @@ TAHAP 1 (perbaikan validitas eval):
   - BERSIHKAN gold dari boilerplate sapaan agen (salam, perkenalan, tanya nama,
     minta menunggu) sehingga gold berisi jawaban substantif; sampel yang gold-nya
     tinggal basa-basi otomatis di-drop. Lihat _clean_gold().
+
+TAHAP 1.5 (validitas lanjutan):
+  - DROP sampel yang gold-nya pada dasarnya AKSI-AGEN yang tak bisa direplikasi
+    chatbot pengetahuan: verifikasi identitas / pengumpulan data pribadi
+    (NIK/NPWP/nama/alamat/email/HP), pengalihan ke AR/KPP, atau pernyataan
+    "tidak dapat diproses via chat" TANPA muatan pengetahuan/prosedur nyata.
+    Sampel seperti ini membuat mesin selalu dinilai "salah" secara tidak adil.
+    Lihat _gold_answerable().
 """
 import re
 import json
@@ -56,6 +64,48 @@ _TAXKW = re.compile(
     r"sertifikat|billing|restitusi|\bpkp\b|\bpbk\b|skpkb|\bstp\b|nitku|suket|"
     r"\bpp\s?55\b|\bpmk\b|\bper[- ]|lapor|bayar|angsur|kredit|retur|aktivasi|"
     r"unduh|download|daftar|pemadanan|nonaktif|dokumen|billing|tax|register)", re.I)
+
+# TAHAP 1.5: penanda gold = AKSI-AGEN (verifikasi/pengumpulan data/pengalihan)
+# yang tak bisa dilakukan chatbot pengetahuan.
+_ACTION_MARK = [re.compile(p, re.I) for p in (
+    r"(sebutkan|lengkapi|melengkapi|mengisi|isi)\s+data\s+berikut",
+    r"data\s+sebagai\s+berikut",
+    r"(sebutkan|lengkapi)\b.*\bnpwp\b",
+    r"\bnpwp\s*\(",
+    r"alamat\s+(terdaftar|lengkap\s+terdaftar|tempat\s+tinggal\s+terdaftar)",
+    r"email\s+terdaftar",
+    r"(nomor|no\.?)\s*(telepon|hp|handphone)\s*/?\s*(hp\s*)?terdaftar",
+    r"data\s+by\s+system",
+    r"validasi\s+data",
+    r"menghubungi\s+ar\b",
+    r"hubungi\s+ar\b",
+    r"\bar\s+terkait\b",
+    r"\bkpp\s+(terdaftar|terdekat)\b",
+    r"menghubungi\s+kpp\b",
+    r"tidak\s+dapat\s+(kami\s+)?(proses|lanjutkan|diproses|dilanjutkan)",
+    r"tidak\s+(memiliki|mempunyai)\s+(kewenangan|akses|wewenang)",
+    r"we\s+do\s+not\s+have\s+(the\s+)?(access|authority)",
+    r"kindly\s+contact\s+(your\s+)?(registered\s+)?tax\s+office",
+)]
+
+# Penanda gold memuat PENGETAHUAN/PROSEDUR yang bisa direplikasi chatbot.
+_KNOW_MARK = [re.compile(p, re.I) for p in (
+    r"\bpasal\b",
+    r"\bpmk\b",
+    r"\bper[- ]?\d",
+    r"\bpp\s?\d",
+    r"\bundang-undang\b|\buu\b",
+    r"\bayat\b",
+    r"portal\s+saya|profil\s+saya",
+    r"\bmenu\b",
+    r"\blangkah\b",
+    r"silakan\s+(pada|akses|buka|masuk|login|klik|pilih|gunakan|menggunakan)",
+    r"melalui\s+coretax|pada\s+coretax|di\s+coretax",
+    r"tidak\s+perlu\s+efin",
+    r"nik\s*=\s*npwp|nik\s+sebagai\s+npwp|nik\s+menjadi\s+npwp",
+    r"\d{2}[.:]\d{2}",
+    r"senin\s+(s\.?d\.?|sampai)\s+jumat",
+)]
 
 
 def _norm(s):
@@ -155,13 +205,32 @@ def _clean_gold(gold):
     return g
 
 
+def _gold_answerable(gold):
+    """TAHAP 1.5: True bila gold memuat jawaban pengetahuan yang WAJAR
+    direplikasi chatbot. False bila gold pada dasarnya aksi-agen
+    (verifikasi/pengumpulan data pribadi atau pengalihan ke AR/KPP) tanpa
+    muatan pengetahuan -> sampel tak adil untuk menilai chatbot.
+    """
+    g = gold or ""
+    if not g.strip():
+        return False
+    action = sum(1 for rx in _ACTION_MARK if rx.search(g))
+    know = sum(1 for rx in _KNOW_MARK if rx.search(g))
+    if action >= 1 and know == 0:
+        return False
+    if action >= 3 and know <= 1:
+        return False
+    return True
+
+
 def _extract_qa(transkrip):
     """Dari list [{role,text}] -> (pertanyaan_customer, gold_agen) atau None.
 
     - pertanyaan: giliran customer PERTAMA yang lolos _good_question (melewati
       salam/penyebutan nama pembuka).
     - gold: gabungan balasan agen, dibersihkan dari boilerplate sapaan. Sampel
-      di-drop bila tak ada pertanyaan valid atau gold isi < 40 karakter.
+      di-drop bila tak ada pertanyaan valid, gold isi < 40 karakter, atau gold
+      pada dasarnya aksi-agen yang tak bisa direplikasi chatbot (_gold_answerable).
     """
     if not isinstance(transkrip, list):
         return None
@@ -181,6 +250,8 @@ def _extract_qa(transkrip):
             agent_parts.append(text)
     gold = _clean_gold(" ".join(agent_parts))
     if not cust_q or not gold or len(gold) < 40:
+        return None
+    if not _gold_answerable(gold):
         return None
     return cust_q, gold
 
