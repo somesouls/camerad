@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """rag_grounding_patch.py — Tahap 3: guardrail grounding jawaban RAG.
 
-Dua guardrail dijalankan sebagai post-processor atas rag_engine.answer():
+Guardrail dijalankan sebagai post-processor atas rag_engine.answer():
 
 1. ANTI-LINK TIDAK RESMI (env RAG_GUARD_URL, default aktif)
    Membuang URL pada BODY jawaban yang bukan domain resmi (*.go.id) dan tidak
@@ -15,9 +15,16 @@ Dua guardrail dijalankan sebagai post-processor atas rag_engine.answer():
    PBB + nomor) yang TIDAK terdukung konteks retrieval, jawaban dipaksa abstain
    (fallback) agar tidak menyebarkan dasar hukum fiktif pada domain sensitif.
 
-Keduanya FAIL-OPEN: bila terjadi galat, jawaban asli dikembalikan apa adanya.
-Mengikuti pola monkey-patch rag_successor_patch / rag_calibration_patch dan
-membungkus rag_engine.answer + rag_engine._render_prompt (untuk menangkap
+3. ANTI-KARANG PASAL TELANJANG (env RAG_GUARD_PASAL_BARE, default NONAKTIF)
+   Menangkap rujukan "Pasal N" (tanpa jenis peraturan) yang tak muncul di
+   konteks retrieval. Karena istilah seperti "PPh Pasal 21/23/25" lazim dipakai
+   sehari-hari, guardrail ini bisa agresif; maka default NONAKTIF dengan dua
+   mode via RAG_GUARD_PASAL_BARE_MODE: "flag" (default; hanya menandai di
+   res['guardrail'], jawaban TIDAK diubah) atau "abstain" (paksa fallback).
+
+Semua guardrail FAIL-OPEN: bila terjadi galat, jawaban asli dikembalikan apa
+adanya. Mengikuti pola monkey-patch rag_successor_patch / rag_calibration_patch
+dan membungkus rag_engine.answer + rag_engine._render_prompt (untuk menangkap
 konteks yang benar-benar dipakai), sehingga berlaku untuk SEMUA pemanggil:
 chat produksi, webhook Dialogflow, playground /rag-lab, dan harness /rag-eval.
 """
@@ -134,6 +141,25 @@ def _ungrounded_regs(answer_text, ctx):
     return {p for p in ans if p not in ctxp}
 
 
+# ---- Guardrail 3: pasal 'telanjang' tak terdukung -----------------------
+_PASAL_RE = re.compile(r"\bpasal\s+(\d{1,4}[A-Za-z]?)\b", re.I)
+
+
+def _pasal_nums(text):
+    out = set()
+    for m in re.finditer(_PASAL_RE, text or ""):
+        out.add(m.group(1).upper())
+    return out
+
+
+def _ungrounded_pasal(answer_text, ctx):
+    ans = _pasal_nums(answer_text)
+    if not ans:
+        return set()
+    ctxp = _pasal_nums(ctx or "")
+    return {p for p in ans if p not in ctxp}
+
+
 # ---- Pembungkus answer ---------------------------------------------------
 def _install():
     if getattr(_re, "_grounding_patched", False):
@@ -168,6 +194,7 @@ def _install():
             ctx = "" if ctx is _SENTINEL else (ctx or "")
             ctx_lower = ctx.lower()
             notes = []
+            bare_info = None
 
             if _flag("RAG_GUARD_URL", True):
                 new_ans, removed = _sanitize_urls(ans, ctx_lower)
@@ -190,9 +217,32 @@ def _install():
                         res["diagnostics"].setdefault("guardrail", []).append(info)
                     return res
 
+            if _flag("RAG_GUARD_PASAL_BARE", False):
+                bad_pasal = _ungrounded_pasal(ans, ctx)
+                if bad_pasal:
+                    mode = (os.environ.get("RAG_GUARD_PASAL_BARE_MODE") or "flag").strip().lower()
+                    detail = sorted("Pasal %s" % p for p in bad_pasal)
+                    if mode == "abstain":
+                        fb = profile.get("fallback") or _rcfg.FALLBACK_DEFAULT
+                        res["answer"] = fb
+                        res["grounded"] = False
+                        res["sources"] = []
+                        info = {"abstain": True,
+                                "alasan": "rujukan pasal tak terdukung konteks",
+                                "pasal": detail}
+                        res["guardrail"] = info
+                        if diagnostics and isinstance(res.get("diagnostics"), dict):
+                            res["diagnostics"].setdefault("guardrail", []).append(info)
+                        return res
+                    bare_info = detail
+                    notes.append("tandai %d rujukan pasal tak terdukung konteks" % len(detail))
+
             if notes:
                 res["answer"] = ans
-                res["guardrail"] = {"abstain": False, "catatan": notes}
+                g = {"abstain": False, "catatan": notes}
+                if bare_info:
+                    g["pasal_takterdukung"] = bare_info
+                res["guardrail"] = g
         except Exception as e:        # fail-open
             try:
                 res["guardrail_error"] = str(e)[:160]
@@ -203,9 +253,19 @@ def _install():
     _re.answer = _guarded_answer
     _re._render_prompt = _render_capture
     _re._grounding_patched = True
-    print("[rag_grounding_patch] guardrail grounding aktif (url=%s, pasal=%s)."
-          % (_flag("RAG_GUARD_URL", True), _flag("RAG_GUARD_PASAL", True)),
+    print("[rag_grounding_patch] guardrail grounding aktif (url=%s, pasal=%s, pasal_bare=%s)."
+          % (_flag("RAG_GUARD_URL", True), _flag("RAG_GUARD_PASAL", True),
+             _flag("RAG_GUARD_PASAL_BARE", False)),
           flush=True)
 
 
 _install()
+
+
+# --- Registrasi HyDE (opsional, env RAG_HYDE; default nonaktif) ----------
+# Diimpor di sini agar ikut ter-load saat web_app mengimpor rag_grounding_patch,
+# tanpa perlu menyentuh web_app.py. Fail-open bila modul tak ada.
+try:
+    import rag_hyde_patch  # noqa: F401
+except Exception as _e:
+    print("[rag_grounding_patch] rag_hyde_patch tidak dimuat: %s" % _e, flush=True)
