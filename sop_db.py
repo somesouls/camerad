@@ -340,6 +340,7 @@ def list_dokumen_grouped(q="", kategori="", limit=200, offset=0, conn=None):
         base = (
             "SELECT dokumen_id, MIN(judul) AS judul, MIN(kategori) AS kategori, "
             "MIN(sumber_tipe) AS sumber_tipe, MIN(status) AS status, "
+            "MAX(ringkasan) AS ringkasan, "
             "COUNT(*) AS n_unit, MIN(source_file) AS source_file, "
             "MAX(source_url) AS source_url, MAX(updated_at) AS updated_at "
             "FROM sop_unit " + wsql + " GROUP BY dokumen_id"
