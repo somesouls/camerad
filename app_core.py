@@ -157,6 +157,9 @@ def _route_area(path):
     # Menu SOP/Proses Bisnis memakai area akses yang sama dengan Peraturan.
     if path == "/sop" or path.startswith("/api/sop"):
         return "peraturan"
+    # Menu Kamus & Rewriting (Tahap 5) memakai area akses Peraturan (admin).
+    if path == "/kamus" or path.startswith("/api/kamus"):
+        return "peraturan"
     if path == "/users" or path.startswith("/api/users"):
         return "users"
     if (path == "/awe/kelola" or path.startswith("/api/awe/pull")

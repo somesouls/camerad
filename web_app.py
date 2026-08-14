@@ -152,6 +152,14 @@ import step10_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     rag_engine sendiri & memperbarui _DISPATCH, jadi aman diimpor di sini. ---
 import rag_successor_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Tahap 5 (reranker + query rewriting): bungkus peraturan_db.search agar
+#     (a) memperluas query dengan kamus sinonim + rewriting AI (peraturan/pasal),
+#     (b) mengurutkan ulang kandidat dengan cross-encoder reranker. Dipasang
+#     SEBELUM rag_calibration_patch agar gerbang cosine tetap menilai query ASLI
+#     (wrapper menerima query asli dari gate, memperluas HANYA utk retrieval,
+#     lalu rerank pakai query asli). Fail-open bila modul/model tak tersedia. ---
+import rag_rerank_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 # --- Point 3 (kalibrasi ambang cosine): aktifkan gerbang retrieval berbasis
 #     ambang cosine (rag_calibration_patch) — menyaring pasal peraturan & sumber
 #     intent yang kemiripan semantiknya di bawah ambang aktif (min_cos). Ambang
@@ -226,6 +234,12 @@ peraturan_routes.register(app)
 #     ekstrak dokumen (pdf/pptx/docx/txt/html/gambar) -> disimpan permanen. ---
 import sop_routes
 sop_routes.register(app)
+
+# --- Menu Kamus & Rewriting (Tahap 5): kelola kamus sinonim/istilah pajak +
+#     alat uji rewriting otomatis AI (peraturan/pasal). Memakai app_core.render_page
+#     & mesin RAG, jadi didaftarkan bersama menu Peraturan/SOP. ---
+import rag_kamus_routes
+rag_kamus_routes.register(app)
 
 import studio_routes
 studio_routes.register(

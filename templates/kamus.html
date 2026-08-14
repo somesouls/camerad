@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+{% block title %}Kamus & Rewriting · Camerad Studio{% endblock %}
+{% block content %}
+<div style="max-width:1100px;margin:0 auto;padding:24px 28px 60px;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+    <h1 style="margin:0;font-size:22px;font-weight:800;letter-spacing:-0.02em;">📖 Kamus & Query Rewriting</h1>
+  </div>
+  <p style="color:var(--text-muted);margin:0 0 20px;font-size:14px;">
+    Kamus sinonim/istilah pajak untuk menjembatani bahasa awam ↔ bahasa hukum, plus reranker cross-encoder. Dipakai otomatis saat retrieval sumber <b>Peraturan</b>.
+  </p>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px;">
+    <div class="kpi" id="kpiKamus">—</div>
+    <div class="kpi" id="kpiRerank">—</div>
+    <div class="kpi" id="kpiAI">—</div>
+  </div>
+
+  <section style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:18px 20px;margin-bottom:24px;">
+    <h2 style="margin:0 0 4px;font-size:16px;">🤖 Uji Rewriting Otomatis (AI) untuk Peraturan/Pasal</h2>
+    <p style="color:var(--text-muted);margin:0 0 12px;font-size:13px;">Ketik pertanyaan awam; sistem mengubahnya jadi kueri hukum formal, memperluas dengan kamus, lalu menampilkan pratinjau peraturan (dengan skor reranker).</p>
+    <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;">
+      <textarea id="ujiQ" rows="2" placeholder="mis. apa jasa pelayaran kena PPN" style="flex:1;min-width:280px;padding:10px 12px;border-radius:10px;border:1px solid var(--panel-border);background:var(--bg-base);color:var(--text-main);font-family:inherit;font-size:14px;"></textarea>
+      <button id="btnUji" class="btnp">Jalankan</button>
+    </div>
+    <div id="ujiHasil" style="margin-top:14px;display:none;"></div>
+  </section>
+
+  <section style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:18px 20px;">
+    <h2 style="margin:0 0 12px;font-size:16px;">🗂️ Kelola Kamus Sinonim</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+      <input id="fIstilah" placeholder="Istilah baku (mis. Pajak Pertambahan Nilai)" class="inp">
+      <input id="fKategori" placeholder="Kategori (mis. akronim)" class="inp">
+    </div>
+    <input id="fSinonim" placeholder="Sinonim/variasi awam, pisahkan koma (mis. PPN, pajak jualan)" class="inp" style="margin-top:10px;width:100%;">
+    <input id="fCatatan" placeholder="Catatan (opsional)" class="inp" style="margin-top:10px;width:100%;">
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+      <label style="font-size:13px;color:var(--text-muted);display:flex;gap:6px;align-items:center;"><input type="checkbox" id="fAktif" checked> Aktif</label>
+      <input type="hidden" id="fId">
+      <button id="btnSimpan" class="btnp">Simpan</button>
+      <button id="btnReset" class="btns">Bersihkan</button>
+      <span id="saveMsg" style="font-size:13px;color:var(--text-muted);"></span>
+    </div>
+    <div style="margin-top:16px;display:flex;gap:10px;">
+      <input id="cari" placeholder="Cari istilah / sinonim…" class="inp" style="flex:1;">
+      <button id="btnCari" class="btns">Cari</button>
+    </div>
+    <div id="tabelKamus" style="margin-top:14px;overflow-x:auto;"></div>
+  </section>
+</div>
+
+<style>
+.kpi{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:10px 14px;font-size:13px;color:var(--text-main);}
+.inp{padding:9px 12px;border-radius:10px;border:1px solid var(--panel-border);background:var(--bg-base);color:var(--text-main);font-family:inherit;font-size:14px;}
+.btnp{padding:9px 16px;border-radius:10px;border:none;background:var(--accent,#4f46e5);color:#fff;font-weight:600;cursor:pointer;font-size:14px;}
+.btns{padding:9px 14px;border-radius:10px;border:1px solid var(--panel-border);background:transparent;color:var(--text-main);cursor:pointer;font-size:14px;}
+.ktab{width:100%;border-collapse:collapse;font-size:13px;}
+.ktab th,.ktab td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--panel-border);vertical-align:top;}
+.ktab th{color:var(--text-muted);font-weight:600;}
+.chip{display:inline-block;background:rgba(79,70,229,0.12);color:var(--text-main);border-radius:6px;padding:1px 7px;margin:1px 3px 1px 0;font-size:12px;}
+.linkbtn{border:none;background:transparent;color:var(--accent,#4f46e5);cursor:pointer;font-size:12.5px;padding:2px 4px;}
+.linkbtn.del{color:#dc2626;}
+code{word-break:break-word;}
+</style>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var esc=function(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+  function post(url,body){return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}).then(function(r){return r.json();});}
+
+  function loadStats(){
+    fetch('/api/kamus/stats').then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok)return;
+      $('kpiKamus').innerHTML='🗂️ Entri aktif: <b>'+(d.aktif||0)+'</b> / '+(d.total||0);
+      $('kpiRerank').innerHTML='🔁 Reranker: <b>'+(d.rerank_aktif?'aktif':'nonaktif')+'</b>'+(d.rerank_model?(' · '+esc(d.rerank_model)):'');
+    }).catch(function(){});
+  }
+  $('kpiAI').innerHTML='🤖 AI rewriting: <b>{{ "aktif" if rewrite_ai else "nonaktif" }}</b>';
+
+  function isi(r){$('fId').value=r.id||'';$('fIstilah').value=r.istilah||'';$('fSinonim').value=(r.sinonim_list||[]).join(', ');$('fKategori').value=r.kategori||'';$('fCatatan').value=r.catatan||'';$('fAktif').checked=!!r.aktif;window.scrollTo({top:0,behavior:'smooth'});}
+  function reset(){$('fId').value='';$('fIstilah').value='';$('fSinonim').value='';$('fKategori').value='';$('fCatatan').value='';$('fAktif').checked=true;$('saveMsg').textContent='';}
+
+  function loadList(){
+    post('/api/kamus/list',{q:($('cari').value||'').trim()}).then(function(d){
+      var box=$('tabelKamus');
+      if(!d||!d.ok){box.innerHTML='<p style="color:#dc2626;">'+esc(d&&d.error||'Gagal memuat.')+'</p>';return;}
+      if(!d.rows.length){box.innerHTML='<p style="color:var(--text-muted);">Belum ada entri.</p>';return;}
+      var h='<table class="ktab"><thead><tr><th>Istilah baku</th><th>Sinonim / variasi awam</th><th>Kategori</th><th>Aktif</th><th></th></tr></thead><tbody>';
+      d.rows.forEach(function(r){
+        var chips=(r.sinonim_list||[]).map(function(s){return '<span class="chip">'+esc(s)+'</span>';}).join('');
+        h+='<tr><td><b>'+esc(r.istilah)+'</b></td><td>'+chips+'</td><td>'+esc(r.kategori||'')+'</td><td>'+(r.aktif?'✅':'—')+'</td>'+
+           '<td style="white-space:nowrap;"><button class="linkbtn" data-ed=\''+esc(JSON.stringify(r))+'\'>Ubah</button><button class="linkbtn del" data-del="'+r.id+'">Hapus</button></td></tr>';
+      });
+      h+='</tbody></table>';
+      box.innerHTML=h;
+      box.querySelectorAll('[data-ed]').forEach(function(b){b.onclick=function(){try{isi(JSON.parse(b.getAttribute('data-ed')));}catch(e){}};});
+      box.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){if(!confirm('Hapus entri ini?'))return;post('/api/kamus/delete',{id:b.getAttribute('data-del')}).then(function(){loadList();loadStats();});};});
+    });
+  }
+
+  $('btnSimpan').onclick=function(){
+    var body={id:$('fId').value||null,istilah:$('fIstilah').value.trim(),sinonim:$('fSinonim').value,kategori:$('fKategori').value.trim(),catatan:$('fCatatan').value.trim(),aktif:$('fAktif').checked?1:0};
+    if(!body.istilah){$('saveMsg').textContent='Istilah wajib diisi.';return;}
+    $('saveMsg').textContent='Menyimpan…';
+    post('/api/kamus/save',body).then(function(d){if(d&&d.ok){$('saveMsg').textContent='Tersimpan.';reset();loadList();loadStats();}else{$('saveMsg').textContent=(d&&d.error)||'Gagal.';}});
+  };
+  $('btnReset').onclick=reset;
+  $('btnCari').onclick=loadList;
+  $('cari').addEventListener('keydown',function(e){if(e.key==='Enter')loadList();});
+
+  $('btnUji').onclick=function(){
+    var q=($('ujiQ').value||'').trim();
+    if(!q)return;
+    var box=$('ujiHasil');box.style.display='block';box.innerHTML='<p style="color:var(--text-muted);">Memproses…</p>';
+    post('/api/kamus/rewrite',{q:q}).then(function(d){
+      if(!d||!d.ok){box.innerHTML='<p style="color:#dc2626;">'+esc(d&&d.error||'Gagal.')+'</p>';return;}
+      var ai=d.ai||{};
+      var h='';
+      h+='<div style="margin-bottom:10px;"><b>Query efektif (untuk retrieval):</b><br><code style="font-size:12.5px;">'+esc(d.query_efektif||'')+'</code></div>';
+      h+='<div style="margin-bottom:10px;"><b>Perluasan kamus:</b> '+((d.kamus||[]).length?(d.kamus.map(function(s){return '<span class="chip">'+esc(s)+'</span>';}).join('')):'<span style="color:var(--text-muted);">—</span>')+'</div>';
+      h+='<div style="margin-bottom:10px;"><b>Rewriting AI:</b> '+(ai.dipakai?'':'<span style="color:var(--text-muted);">('+esc(ai.alasan||'tidak dipakai')+')</span>');
+      if(ai.dipakai){
+        h+='<div style="margin-top:4px;">Kueri formal: <code style="font-size:12.5px;">'+esc(ai.query_formal||'')+'</code></div>';
+        h+='<div style="margin-top:4px;">Istilah: '+((ai.istilah||[]).map(function(s){return '<span class="chip">'+esc(s)+'</span>';}).join('')||'—')+'</div>';
+        h+='<div style="margin-top:4px;">Jenis peraturan (dugaan): '+((ai.jenis_peraturan||[]).map(function(s){return '<span class="chip">'+esc(s)+'</span>';}).join('')||'—')+'</div>';
+        h+='<div style="margin-top:4px;">Pasal (dugaan): '+((ai.pasal_dugaan||[]).map(function(s){return '<span class="chip">'+esc(s)+'</span>';}).join('')||'—')+'</div>';
+      }
+      h+='</div>';
+      var pr=d.peraturan||[];
+      h+='<div style="margin-top:6px;"><b>Pratinjau peraturan (setelah rerank):</b>';
+      if(d.peraturan_error){h+=' <span style="color:#dc2626;">'+esc(d.peraturan_error)+'</span>';}
+      if(pr.length){
+        h+='<table class="ktab" style="margin-top:6px;"><thead><tr><th>#</th><th>Peraturan</th><th>Status</th><th>Skor rerank</th><th>Skor RRF</th></tr></thead><tbody>';
+        pr.forEach(function(r,i){h+='<tr><td>'+(i+1)+'</td><td>'+esc(r.judul)+'</td><td>'+esc(r.status||'')+'</td><td>'+(r.rerank_skor!=null?r.rerank_skor:'—')+'</td><td>'+(r.skor!=null?(Math.round(r.skor*1e5)/1e5):'—')+'</td></tr>';});
+        h+='</tbody></table>';
+      } else if(!d.peraturan_error){ h+=' <span style="color:var(--text-muted);">tidak ada hasil.</span>'; }
+      h+='</div>';
+      box.innerHTML=h;
+    }).catch(function(e){box.innerHTML='<p style="color:#dc2626;">Error: '+esc(e)+'</p>';});
+  };
+
+  loadStats();loadList();
+})();
+</script>
+{% endblock %}
