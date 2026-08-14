@@ -160,6 +160,14 @@ import rag_successor_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     agar ikut membungkus dispatch peraturan versi successor. ---
 import rag_calibration_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Tahap 3 (guardrail grounding jawaban): monkey-patch rag_engine.answer agar
+#     (a) membuang/menormalkan tautan tidak resmi/pemendek (t.co/x.com/bit.ly)
+#     dari body jawaban, dan (b) memaksa abstain bila jawaban memuat rujukan
+#     hukum (PMK/PER/PP/UU + nomor) yang tidak terdukung konteks retrieval.
+#     Fail-open. WAJIB setelah rag_successor_patch & rag_calibration_patch agar
+#     membungkus versi answer/_render_prompt terakhir. ---
+import rag_grounding_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe_routes
 awe_routes.register(
     app,
