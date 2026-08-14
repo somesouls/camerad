@@ -34,6 +34,18 @@ except Exception:
     llm_client = None
 
 _TAG = "[sop][batch] "
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def upload_dir():
+    """Folder tujuan berkas hasil unggah (dibuat bila belum ada)."""
+    d = os.environ.get("PIPELINE_SOP_UPLOAD_DIR") or os.path.join(_BASE_DIR, "sop_uploads")
+    try:
+        os.makedirs(d, exist_ok=True)
+    except Exception:
+        pass
+    return d
+
 
 # --------------------------------------------------------------- state progres
 _PROG_LOCK = threading.Lock()
@@ -211,6 +223,36 @@ def tentukan_nama(info, use_ai_naming):
     return judul, kategori, sumber
 
 
+# ------------------------------------------------------------------ ringkasan
+def _ringkas_dokumen(judul, kategori, teks):
+    """Ringkasan padat dokumen via LLM (setia pada isi). Fallback ''."""
+    if llm_client is None:
+        return ""
+    cuplik = (teks or "").strip()
+    if not cuplik:
+        return ""
+    cuplik = cuplik[:6000]
+    sys = (
+        "Anda asisten yang membuat ringkasan dokumen SOP dan proses bisnis "
+        "layanan perpajakan DJP. Ringkas SETIA pada isi dokumen; DILARANG "
+        "menambah fakta, angka, pasal, atau tautan yang tidak ada di teks."
+    )
+    prompt = (
+        "Buat ringkasan padat Bahasa Indonesia (3-6 kalimat, bentuk paragraf, "
+        "tanpa poin bernomor) dari dokumen berikut. Fokus pada: untuk siapa/kapan "
+        "dokumen ini dipakai, langkah atau prosedur inti, serta syarat/dokumen "
+        "penting bila disebut.\n"
+        "Judul: %s\nKategori: %s\nIsi dokumen:\n%s"
+        % (judul or "-", kategori or "-", cuplik)
+    )
+    try:
+        out = llm_client.chat([{"role": "user", "content": prompt}], system=sys,
+                              max_new_tokens=320, temperature=0.2)
+    except Exception:
+        return ""
+    return SF._clean(out or "")[:1500]
+
+
 # ------------------------------------------------------------------ potong isi
 def _potong(bagian, isi, maks=SF.MAKS_ISI):
     isi = (isi or "").strip()
@@ -235,8 +277,10 @@ def _potong(bagian, isi, maks=SF.MAKS_ISI):
 
 
 # ------------------------------------------------------------------- inti proses
-def proses(root, do_ocr=False, ingest=True, use_ai_naming=True, conn=None):
-    """Jalankan impor folder (blocking). ingest=False -> pratinjau tanpa simpan."""
+def proses(root, do_ocr=False, ingest=True, use_ai_naming=True, conn=None,
+           files=None, do_ringkas=True):
+    """Jalankan impor (blocking). files=None telusuri folder; files=daftar path
+    proses berkas itu saja (unggah). ingest=False -> pratinjau tanpa simpan."""
     own = conn is None
     conn = conn or sdb.init_db(sdb.connect())
     ringkas = {"total": 0, "ditambah": 0, "dilewati": 0, "gagal": 0,
@@ -252,14 +296,17 @@ def proses(root, do_ocr=False, ingest=True, use_ai_naming=True, conn=None):
             print(_TAG + "folder tidak ada: %s" % root)
             return {"ok": False, "error": "Folder tidak ditemukan", "ringkas": ringkas}
 
-        files = [p for p in _iter_files(root) if _didukung(p)]
-        total = len(files)
+        if files is not None:
+            kandidat = [p for p in files if _didukung(p) and os.path.isfile(p)]
+        else:
+            kandidat = [p for p in _iter_files(root) if _didukung(p)]
+        total = len(kandidat)
         _prog(running=True, fase="proses", root=root, total=total, selesai=0,
               ditambah=0, dilewati=0, gagal=0, perlu_ocr=0, error="", ocr={})
-        print(_TAG + "mulai: %d berkas di %s (ocr=%s, ai=%s, ingest=%s)"
-              % (total, root, do_ocr, use_ai_naming, ingest))
+        print(_TAG + "mulai: %d berkas di %s (ocr=%s, ai=%s, ingest=%s, ringkas=%s)"
+              % (total, root, do_ocr, use_ai_naming, ingest, do_ringkas))
 
-        for i, path in enumerate(files, start=1):
+        for i, path in enumerate(kandidat, start=1):
             nama_file = os.path.relpath(path, root)
             _prog(fase="proses", selesai=i - 1, file=nama_file, ocr={})
             tipe = _tipe_hint(path)
@@ -283,16 +330,14 @@ def proses(root, do_ocr=False, ingest=True, use_ai_naming=True, conn=None):
                 sid = _source_id(root, path)
                 did = _dokumen_id(sid)
 
-                unit_defs = []
-                urut = 0
+                sec_units = []
                 for sec in info.sections:
                     for (bag, isi) in _potong(sec.get("bagian", ""), sec.get("isi", "")):
                         if not isi:
                             continue
-                        urut += 1
-                        unit_defs.append((urut, bag, isi))
+                        sec_units.append((bag, isi))
 
-                if not unit_defs:
+                if not sec_units:
                     ringkas["dilewati"] += 1
                     _prog(dilewati=ringkas["dilewati"])
                     log_rows.append({"file": nama_file, "dokumen_id": did, "judul": judul,
@@ -303,6 +348,21 @@ def proses(root, do_ocr=False, ingest=True, use_ai_naming=True, conn=None):
                 if info.perlu_ocr:
                     ringkas["perlu_ocr"] += 1
                     _prog(perlu_ocr=ringkas["perlu_ocr"])
+
+                ringkasan = ""
+                if ingest and do_ringkas:
+                    _prog(fase="ringkas", file=nama_file, judul=judul)
+                    ringkasan = _ringkas_dokumen(judul, kategori, info.teks)
+                    _prog(fase="proses")
+
+                unit_defs = []
+                urut = 0
+                if ringkasan:
+                    urut += 1
+                    unit_defs.append((urut, "Ringkasan", ringkasan))
+                for (bag, isi) in sec_units:
+                    urut += 1
+                    unit_defs.append((urut, bag, isi))
 
                 if ingest:
                     sdb.delete_dokumen(did, conn=conn)  # segarkan bila impor ulang
@@ -315,7 +375,7 @@ def proses(root, do_ocr=False, ingest=True, use_ai_naming=True, conn=None):
                             "bagian": bag,
                             "urutan": urut,
                             "isi": isi,
-                            "ringkasan": "",
+                            "ringkasan": ringkasan,
                             "sumber_tipe": tipe,
                             "status": "aktif",
                             "source_url": "",
@@ -327,6 +387,8 @@ def proses(root, do_ocr=False, ingest=True, use_ai_naming=True, conn=None):
                 ringkas["unit"] += len(unit_defs)
                 _prog(ditambah=ringkas["ditambah"], judul=judul, n_unit=len(unit_defs))
                 catatan = "judul via %s" % src_nama
+                if ringkasan:
+                    catatan += "; +ringkasan"
                 if info.perlu_ocr:
                     catatan += "; perlu OCR"
                 log_rows.append({"file": nama_file, "dokumen_id": did, "judul": judul,
@@ -371,7 +433,8 @@ def proses(root, do_ocr=False, ingest=True, use_ai_naming=True, conn=None):
             conn.close()
 
 
-def proses_async(root, do_ocr=False, ingest=True, use_ai_naming=True):
+def proses_async(root, do_ocr=False, ingest=True, use_ai_naming=True,
+                 files=None, do_ringkas=True):
     global _THREAD
     if is_running():
         return {"ok": False, "error": "Proses impor SOP masih berjalan."}
@@ -380,13 +443,23 @@ def proses_async(root, do_ocr=False, ingest=True, use_ai_naming=True):
 
     def _run():
         try:
-            proses(root, do_ocr=do_ocr, ingest=ingest, use_ai_naming=use_ai_naming)
+            proses(root, do_ocr=do_ocr, ingest=ingest, use_ai_naming=use_ai_naming,
+                   files=files, do_ringkas=do_ringkas)
         except Exception as e:
             _prog(running=False, fase="error", error=str(e)[:200])
 
     _THREAD = threading.Thread(target=_run, daemon=True)
     _THREAD.start()
     return {"ok": True, "started": True}
+
+
+def proses_files_async(paths, root=None, do_ocr=False, use_ai_naming=True,
+                       do_ringkas=True):
+    """Proses daftar berkas (hasil unggah) memakai pipeline yang sama."""
+    root = root or upload_dir()
+    paths = list(paths or [])
+    return proses_async(root, do_ocr=do_ocr, ingest=True, use_ai_naming=use_ai_naming,
+                        files=paths, do_ringkas=do_ringkas)
 
 
 # ---------------------------------------------------------------------- audit
