@@ -139,3 +139,88 @@ def _generate_one(system, user, max_new_tokens, temperature):
             print(f"[LLM] percobaan {attempt}/{max_retries} gagal: {exc}",
                   flush=True)
             if attempt < max_retries:
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+    raise RuntimeError(f"LLM gagal setelah {max_retries} percobaan: {last_err}")
+
+
+def chat(messages, system=None, max_new_tokens=1024, temperature=0.4, model=None):
+    """Chat multi-turn. `messages` = list[{role, content}] (role: user/assistant/system).
+    Mengembalikan satu string balasan asisten.
+
+    `model` (opsional) menimpa model/deployment default HANYA untuk panggilan ini.
+    Bila kosong/None, tetap memakai model global dari .env (OPENAI_MODEL /
+    AZURE_OPENAI_DEPLOYMENT / GEMINI_MODEL). Dipakai untuk wiring model per-profil
+    (mis. agent memakai model lebih kuat, chatbot memakai model lebih cepat)."""
+    init_client()
+    use_model = (str(model).strip() if model else "") or _model
+    sys_txt = system or ""
+    conv = []
+    for m in (messages or []):
+        role = (m.get("role") or "user").lower()
+        content = m.get("content") or ""
+        if role == "system":
+            sys_txt = (sys_txt + "\n" + content).strip()
+            continue
+        conv.append({"role": role, "content": content})
+
+    max_retries = int(_cfg("LLM_MAX_RETRIES", "4"))
+    delay = 2.0
+    last_err = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            if _provider in ("openai", "azure", "azure_openai", "azureopenai"):
+                msgs = []
+                if sys_txt:
+                    msgs.append({"role": "system", "content": sys_txt})
+                for m in conv:
+                    r = m["role"] if m["role"] in ("user", "assistant") else "user"
+                    msgs.append({"role": r, "content": m["content"]})
+                req_kwargs = {
+                    "model": use_model,
+                    "messages": msgs,
+                    "temperature": temperature,
+                }
+                if _provider in ("azure", "azure_openai", "azureopenai"):
+                    req_kwargs["max_completion_tokens"] = max(int(max_new_tokens), 1)
+                else:
+                    req_kwargs["max_tokens"] = max(int(max_new_tokens), 1)
+                resp = _client.chat.completions.create(**req_kwargs)
+                return (resp.choices[0].message.content or "").strip()
+
+            # gemini / google
+            model_obj = _client.GenerativeModel(
+                use_model, system_instruction=(sys_txt or None)
+            )
+            contents = []
+            for m in conv:
+                grole = "model" if m["role"] == "assistant" else "user"
+                contents.append({"role": grole, "parts": [m["content"]]})
+            resp = model_obj.generate_content(
+                contents,
+                generation_config={
+                    "max_output_tokens": max(int(max_new_tokens), 16),
+                    "temperature": temperature,
+                },
+            )
+            return (getattr(resp, "text", "") or "").strip()
+
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            print(f"[LLM chat] percobaan {attempt}/{max_retries} gagal: {exc}",
+                  flush=True)
+            if attempt < max_retries:
+                time.sleep(delay)
+                delay = min(delay * 2, 30)
+    raise RuntimeError(f"LLM chat gagal setelah {max_retries} percobaan: {last_err}")
+
+
+def generate(prompts, max_new_tokens=256, system=None, temperature=0.0):
+    """Kembalikan list output (satu string per prompt)."""
+    init_client()
+    if isinstance(prompts, str):
+        prompts = [prompts]
+    return [
+        _generate_one(system, p, max_new_tokens, temperature)
+        for p in prompts
+    ]
