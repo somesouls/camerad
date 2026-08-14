@@ -12,6 +12,7 @@ Tahap:
 Profil (persona/prompt/sumber) diambil dari rag_config_db. Dipakai oleh
 rag_routes.py untuk endpoint chat (produksi) dan playground admin (/rag-lab).
 """
+import os
 import re
 import json
 
@@ -74,6 +75,29 @@ def _json_list(v):
         return x if isinstance(x, list) else []
     except Exception:
         return []
+
+
+def _profile_model(profile):
+    """Model/deployment LLM untuk profil ini (wiring model per-profil).
+
+    Prioritas:
+      1) kolom 'model' pada profil (di-set dari halaman Konfigurasi Agent), lalu
+      2) env RAG_MODEL_<ID> (mis. RAG_MODEL_AGENT / RAG_MODEL_CHATBOT), lalu
+      3) None -> llm_client memakai model global dari .env seperti biasa.
+    Fail-open: error apa pun -> None (perilaku lama).
+    """
+    try:
+        m = str((profile or {}).get("model") or "").strip()
+        if m:
+            return m
+        pid = str((profile or {}).get("id") or "").strip()
+        if pid:
+            env = os.environ.get("RAG_MODEL_" + pid.upper())
+            if env and env.strip():
+                return env.strip()
+    except Exception:
+        pass
+    return None
 
 
 # ==========================================================================
@@ -379,11 +403,11 @@ def effective_sources(profile, override=None):
 
     - override (dari playground /rag-lab): daftar centang admin -> dipakai apa
       adanya.
-    - produksi (chat): daftar 'sumber' (checkbox pada halaman "RAG Agent -
-      Konfigurasi") BERSIFAT OTORITATIF. Sumber yang TIDAK dicentang tidak akan
+    - produksi (chat): daftar 'sumber' (checkbox pada halaman \"RAG Agent -
+      Konfigurasi\") BERSIFAT OTORITATIF. Sumber yang TIDAK dicentang tidak akan
       dipanggil maupun dikutip.
 
-    Catatan perbaikan: dulu chip @sumber di dalam prompt (mis. "@intent")
+    Catatan perbaikan: dulu chip @sumber di dalam prompt (mis. \"@intent\")
     menimpa pilihan checkbox sehingga sumber yang sudah di-uncheck tetap
     terpakai. Sekarang chip pada prompt murni panduan naratif untuk LLM dan
     TIDAK lagi menentukan sumber retrieval.
@@ -557,7 +581,8 @@ def answer(question, profile, override=None, history=None, diagnostics=False):
     msgs.append({"role": "user", "content": pii_mask.mask_text(q)})
     try:
         ans = llm_client.chat(msgs, system=pii_mask.mask_text(system),
-                              max_new_tokens=800, temperature=float(profile.get("suhu") or 0.3))
+                              max_new_tokens=800, temperature=float(profile.get("suhu") or 0.3),
+                              model=_profile_model(profile))
     except Exception as e:
         return {"ok": False, "error": str(e)}
     if not (ans or "").strip():

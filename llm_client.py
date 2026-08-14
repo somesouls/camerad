@@ -144,10 +144,16 @@ def _generate_one(system, user, max_new_tokens, temperature):
     raise RuntimeError(f"LLM gagal setelah {max_retries} percobaan: {last_err}")
 
 
-def chat(messages, system=None, max_new_tokens=1024, temperature=0.4):
+def chat(messages, system=None, max_new_tokens=1024, temperature=0.4, model=None):
     """Chat multi-turn. `messages` = list[{role, content}] (role: user/assistant/system).
-    Mengembalikan satu string balasan asisten."""
+    Mengembalikan satu string balasan asisten.
+
+    `model` (opsional) menimpa model/deployment default HANYA untuk panggilan ini.
+    Bila kosong/None, tetap memakai model global dari .env (OPENAI_MODEL /
+    AZURE_OPENAI_DEPLOYMENT / GEMINI_MODEL). Dipakai untuk wiring model per-profil
+    (mis. agent memakai model lebih kuat, chatbot memakai model lebih cepat)."""
     init_client()
+    use_model = (str(model).strip() if model else "") or _model
     sys_txt = system or ""
     conv = []
     for m in (messages or []):
@@ -171,7 +177,7 @@ def chat(messages, system=None, max_new_tokens=1024, temperature=0.4):
                     r = m["role"] if m["role"] in ("user", "assistant") else "user"
                     msgs.append({"role": r, "content": m["content"]})
                 req_kwargs = {
-                    "model": _model,
+                    "model": use_model,
                     "messages": msgs,
                     "temperature": temperature,
                 }
@@ -183,14 +189,14 @@ def chat(messages, system=None, max_new_tokens=1024, temperature=0.4):
                 return (resp.choices[0].message.content or "").strip()
 
             # gemini / google
-            model = _client.GenerativeModel(
-                _model, system_instruction=(sys_txt or None)
+            model_obj = _client.GenerativeModel(
+                use_model, system_instruction=(sys_txt or None)
             )
             contents = []
             for m in conv:
                 grole = "model" if m["role"] == "assistant" else "user"
                 contents.append({"role": grole, "parts": [m["content"]]})
-            resp = model.generate_content(
+            resp = model_obj.generate_content(
                 contents,
                 generation_config={
                     "max_output_tokens": max(int(max_new_tokens), 16),
