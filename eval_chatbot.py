@@ -458,4 +458,113 @@ def _worker_load(run_id, profile, concurrency, total, question):
                 "error": errs,
                 "error_rate": round(errs / n * 100.0, 2) if n else 0.0,
                 "latency_ms": {"avg": round(sum(lat) / len(lat), 1) if lat else None,
-                               "p50": _pct(ls, 50), "p95": _pct(ls, 
+                               "p50": _pct(ls, 50), "p95": _pct(ls, 95),
+                               "p99": _pct(ls, 99), "maks": round(max(lat), 1) if lat else None,
+                               "min": round(min(lat), 1) if lat else None}}
+        conn.execute("UPDATE evalc_run SET status=?, finished_at=?, n_done=?, metrik=? WHERE id=?",
+                     ("done", _now(), n, json.dumps(metr, ensure_ascii=False), run_id))
+        conn.commit()
+    except Exception as e:
+        conn.execute("UPDATE evalc_run SET status=?, finished_at=?, note=? WHERE id=?",
+                     ("error", _now(), str(e)[:300], run_id))
+        conn.commit()
+    finally:
+        conn.close()
+        with _LOCK:
+            _JOBS.pop(run_id, None)
+
+
+def start_load(profil="chatbot", mode="tanpa_llm", concurrency=20, total=100, question=None):
+    profile = _profile(profil)
+    mode = (mode or "").strip().lower()
+    if mode in ("tanpa_llm", "llm", "full", ""):
+        profile["mode"] = mode
+    concurrency = max(1, min(int(concurrency or 1), 200))
+    total = max(1, min(int(total or 1), 1000))
+    q = (question or "").strip() or "bagaimana cara lapor SPT tahunan?"
+    rid = "chatbot_load_" + uuid.uuid4().hex[:10]
+    _create_run(rid, "chatbot_load", profil,
+                {"mode": mode, "concurrency": concurrency, "total": total, "question": q}, total)
+    with _LOCK:
+        _JOBS[rid] = {"stop": False}
+    threading.Thread(target=_worker_load, args=(rid, profile, concurrency, total, q),
+                     daemon=True).start()
+    return {"ok": True, "run_id": rid, "n_total": total}
+
+
+def stop(run_id):
+    with _LOCK:
+        j = _JOBS.get(run_id)
+        if j:
+            j["stop"] = True
+    return {"ok": True, "run_id": run_id}
+
+
+def _decode_run(d):
+    for k in ("params", "metrik"):
+        try:
+            d[k] = json.loads(d.get(k) or "null")
+        except Exception:
+            d[k] = None
+    return d
+
+
+def status(run_id):
+    conn = init_db(connect())
+    try:
+        r = conn.execute("SELECT * FROM evalc_run WHERE id=?", (run_id,)).fetchone()
+        if not r:
+            return {"ok": False, "error": "run tidak ditemukan"}
+        return {"ok": True, "run": _decode_run(dict(r))}
+    finally:
+        conn.close()
+
+
+def list_runs(limit=20, metode=None):
+    conn = init_db(connect())
+    try:
+        q = "SELECT id,metode,profil,status,n_total,n_done,started_at,finished_at FROM evalc_run"
+        params = []
+        if metode:
+            q += " WHERE metode=?"; params.append(metode)
+        q += " ORDER BY started_at DESC LIMIT ?"; params.append(int(limit))
+        return [dict(r) for r in conn.execute(q, params).fetchall()]
+    finally:
+        conn.close()
+
+
+def report(run_id=None, metode=None, only=None):
+    conn = init_db(connect())
+    try:
+        if not run_id:
+            q = "SELECT * FROM evalc_run WHERE status='done'"
+            params = []
+            if metode:
+                q += " AND metode=?"; params.append(metode)
+            q += " ORDER BY started_at DESC LIMIT 1"
+            r = conn.execute(q, params).fetchone()
+            run_id = r["id"] if r else None
+        if not run_id:
+            return {"ok": True, "run": None, "metrik": None, "results": []}
+        rr = conn.execute("SELECT * FROM evalc_run WHERE id=?", (run_id,)).fetchone()
+        if not rr:
+            return {"ok": True, "run": None, "metrik": None, "results": []}
+        run = _decode_run(dict(rr))
+        rows = [dict(x) for x in conn.execute(
+            "SELECT * FROM evalc_result WHERE run_id=? ORDER BY id", (run_id,)).fetchall()]
+        for d in rows:
+            try:
+                d["sources"] = json.loads(d.get("sources") or "[]")
+            except Exception:
+                d["sources"] = []
+            try:
+                d["history"] = json.loads(d.get("history") or "[]")
+            except Exception:
+                d["history"] = []
+        if only == "fallback":
+            rows = [d for d in rows if d.get("fallback_hit")]
+        elif only == "hallucination":
+            rows = [d for d in rows if d.get("judge_verdict") == "halusinasi"]
+        return {"ok": True, "run": run, "metrik": run.get("metrik"), "results": rows[:200]}
+    finally:
+        conn.close()
