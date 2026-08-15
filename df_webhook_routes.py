@@ -1,23 +1,34 @@
 # -*- coding: utf-8 -*-
 """df_webhook_routes.py — Webhook Dialogflow ES untuk ChatBot Kring Pajak.
 
-Endpoint fulfillment yang dipanggil server Dialogflow ES saat sebuah intent
-mengaktifkan webhook (mis. intent Default Fallback). Jawaban diambil dari mesin
-RAG internal (rag_engine.jawab_chat) dengan grounding ke basis pengetahuan
-perpajakan.
+OPSI B (ECHO/REPLAY) — supaya jawaban RAG+LLM yang bisa >5 dtk TETAP terkirim
+lewat Dialogflow (agar terekam, mis. Avaya) tanpa melanggar batas ~5 dtk ES:
 
-FAST-PATH + DEADLINE GUARD
-  Dialogflow ES memutus koneksi webhook pada ~5 detik. Karena RAG+LLM bisa lebih
-  lama, jawaban dihitung di threadpool dengan batas waktu (default 4,5 dtk).
-  Bila lewat batas, endpoint segera membalas kalimat fallback cepat (HTTP 200)
-  supaya bot tetap menjawab; komputasi RAG yang masih berjalan dibiarkan selesai
-  di latar belakang (hasilnya tidak dipakai untuk giliran ini).
+  Giliran 1 (pertanyaan): webhook memulai komputasi RAG di THREAD LATAR
+  BELAKANG lalu menyimpannya di job-store per-sesi. Ia menunggu s.d. `deadline`
+  (default 4,5 dtk). Bila jawaban keburu siap -> dikirim langsung (giliran
+  tunggal, cocok untuk mode cepat). Bila belum -> webhook membalas ACK singkat
+  ("mohon tunggu"), komputasi dibiarkan lanjut di latar belakang.
+
+  Giliran 2 (echo/poll): frontend mengirim teks SENTINEL_POLL lewat Dialogflow
+  (jatuh ke Default Fallback Intent -> webhook). Webhook TIDAK menghitung ulang,
+  hanya MENGAMBIL hasil dari job-store: bila sudah siap -> kirim jawaban penuh
+  (terekam di Avaya); bila belum -> ACK lagi.
+
+UKUR WAKTU
+  durasi_backend = waktu MURNI di backend: sejak pesan diterima webhook sampai
+  jawaban RAG siap dikirim. TIDAK termasuk lalu lintas frontend/Dialogflow
+  maupun jeda polling. Dicatat ke log server + diekspos via ambil_job() ke
+  chat_frontend_routes untuk ditampilkan di UI.
+
+CATATAN PRODUKSI
+  Poll berbasis teks sentinel ini akan muncul sebagai giliran user di transkrip
+  Avaya. Untuk produksi sebaiknya diganti Dialogflow EVENT khusus (intent
+  terpisah, webhook aktif, tanpa respons statis) agar transkrip bersih.
 
 KEAMANAN
-  Endpoint /api/df/webhook publik (dipanggil server-ke-server Google), jadi
-  DILINDUNGI token rahasia: Dialogflow harus mengirim header
-  'X-Camerad-Token: <token>' ATAU query '?token=<token>'. Token dikelola di menu
-  "Webhook Chatbot".
+  Endpoint /api/df/webhook publik (server-ke-server Google) -> DILINDUNGI token
+  rahasia (header 'X-Camerad-Token: <token>' ATAU query '?token=<token>').
 
 Endpoint:
   POST /api/df/webhook               -> fulfillment Dialogflow ES (publik, token)
@@ -27,7 +38,6 @@ Endpoint:
   POST /api/df/webhook/config/rotate -> (admin) ganti token rahasia
   POST /api/df/webhook/test          -> (admin) uji fast-path (tanpa Dialogflow)
 """
-import asyncio
 import time
 import threading
 
@@ -39,6 +49,14 @@ from app_core import render_page
 
 import rag_engine
 import df_webhook_db as dfdb
+
+
+# Teks penanda giliran "echo/poll" (Opsi B). Harus SAMA dengan yang dikirim
+# frontend (chat.html / chat_frontend_routes).
+SENTINEL_POLL = "__CAMERAD_POLL__"
+
+# Balasan sementara saat jawaban belum siap (giliran 1 lambat / poll pending).
+ACK_TEXT = "⏳ Mohon tunggu sebentar, jawaban sedang saya siapkan…"
 
 
 # ---- Riwayat per-session (in-memory, dengan TTL) ----------------------------
@@ -78,6 +96,80 @@ def _hist_add(session, turns, question, answer):
         stale = [k for k, v in _HIST.items() if now - v[0] > _HIST_TTL]
         for k in stale:
             _HIST.pop(k, None)
+
+
+# ---- Job-store Opsi B (echo/replay) -----------------------------------------
+_JOBS = {}
+_JOBS_LOCK = threading.Lock()
+_JOBS_TTL = 10 * 60  # 10 menit
+
+
+def _session_key(session_path):
+    s = (session_path or "").strip()
+    if not s:
+        return "default"
+    return s.rsplit("/", 1)[-1] or "default"
+
+
+def _bersihkan_job_lama(now_mono):
+    stale = [k for k, v in _JOBS.items()
+             if now_mono - v.get("t_diterima", now_mono) > _JOBS_TTL]
+    for k in stale:
+        _JOBS.pop(k, None)
+
+
+def ambil_job(session_key):
+    """Dibaca chat_frontend_routes (proses sama) untuk status/hasil + durasi."""
+    with _JOBS_LOCK:
+        job = _JOBS.get((session_key or "").strip())
+        if not job:
+            return None
+        return {
+            "status": job.get("status"),
+            "jawaban": job.get("jawaban") or "",
+            "is_fallback": bool(job.get("is_fallback")),
+            "durasi_backend": job.get("durasi_backend"),
+            "pertanyaan": job.get("pertanyaan") or "",
+        }
+
+
+def _kerja_rag(skey, question, history, profil, turns, fallback):
+    """Dijalankan di thread latar belakang: hitung RAG lalu simpan ke job."""
+    jawaban = ""
+    is_fb = False
+    try:
+        res = rag_engine.jawab_chat(question, history, profil)
+        ans = (res or {}).get("answer") or ""
+        if res and res.get("ok") and ans.strip():
+            jawaban = ans
+            _hist_add(skey, turns, question, jawaban)
+        else:
+            jawaban = fallback
+            is_fb = True
+    except Exception:
+        jawaban = fallback
+        is_fb = True
+
+    t_selesai = time.monotonic()
+    durasi = None
+    ev = None
+    with _JOBS_LOCK:
+        job = _JOBS.get(skey)
+        if job is not None:
+            job["jawaban"] = jawaban
+            job["is_fallback"] = is_fb
+            job["status"] = "done"
+            job["t_selesai"] = t_selesai
+            durasi = round(t_selesai - job["t_diterima"], 3)
+            job["durasi_backend"] = durasi
+            ev = job.get("ev")
+    try:
+        print(f"[Opsi B] sesi={skey} durasi_backend={durasi}s fallback={is_fb} "
+              f"(pesan masuk webhook -> jawaban siap)")
+    except Exception:
+        pass
+    if ev is not None:
+        ev.set()
 
 
 def _extract_query(payload):
@@ -134,28 +226,55 @@ def register(app):
         if not question:
             return JSONResponse(_df_reply(cfg.get("fallback") or ""), status_code=200)
 
+        skey = _session_key(session)
         profil = cfg.get("profil") or "chatbot"
         deadline = max(0.5, float(cfg.get("deadline_ms") or 4500) / 1000.0)
         turns = cfg["riwayat_turn"] if cfg.get("pakai_riwayat") else 0
-        history = _hist_get(session, turns)
+        fallback = cfg.get("fallback") or ""
 
-        try:
-            res = await asyncio.wait_for(
-                run_in_threadpool(rag_engine.jawab_chat, question, history, profil),
-                timeout=deadline,
-            )
-        except asyncio.TimeoutError:
-            # Fast-path: lewat deadline -> balas fallback cepat agar DF tak time out.
-            return JSONResponse(_df_reply(cfg.get("fallback") or ""), status_code=200)
-        except Exception:
-            return JSONResponse(_df_reply(cfg.get("fallback") or ""), status_code=200)
+        # ---- Giliran ECHO/POLL: ambil hasil, JANGAN hitung ulang ----
+        if question == SENTINEL_POLL:
+            with _JOBS_LOCK:
+                job = _JOBS.get(skey)
+                status = job.get("status") if job else None
+                jawaban = job.get("jawaban") if job else ""
+            if status == "done":
+                return JSONResponse(_df_reply(jawaban or fallback), status_code=200)
+            return JSONResponse(_df_reply(ACK_TEXT), status_code=200)
 
-        answer = (res or {}).get("answer") or ""
-        if not (res and res.get("ok") and answer.strip()):
-            answer = cfg.get("fallback") or ""
-        else:
-            _hist_add(session, turns, question, answer)
-        return JSONResponse(_df_reply(answer), status_code=200)
+        # ---- Giliran PERTANYAAN BARU: mulai komputasi latar belakang ----
+        now = time.monotonic()
+        ev = threading.Event()
+        with _JOBS_LOCK:
+            _bersihkan_job_lama(now)
+            _JOBS[skey] = {
+                "status": "pending",
+                "pertanyaan": question,
+                "jawaban": "",
+                "is_fallback": False,
+                "t_diterima": now,
+                "t_selesai": None,
+                "durasi_backend": None,
+                "ev": ev,
+            }
+        history = _hist_get(skey, turns)
+        threading.Thread(
+            target=_kerja_rag,
+            args=(skey, question, history, profil, turns, fallback),
+            daemon=True,
+        ).start()
+
+        # Fast-path: tunggu s.d. deadline (di threadpool agar event loop bebas
+        # melayani callback lain). Siap -> kirim langsung; belum -> ACK.
+        selesai = await run_in_threadpool(ev.wait, deadline)
+        if selesai:
+            with _JOBS_LOCK:
+                job = _JOBS.get(skey) or {}
+                jawaban = job.get("jawaban") or ""
+            if jawaban.strip():
+                return JSONResponse(_df_reply(jawaban), status_code=200)
+            return JSONResponse(_df_reply(fallback), status_code=200)
+        return JSONResponse(_df_reply(ACK_TEXT), status_code=200)
 
     async def page_df_webhook(request: Request):
         return render_page(request, "df_webhook.html", "df_webhook")
@@ -177,6 +296,7 @@ def register(app):
                              "webhook_url": _public_url(request)})
 
     async def api_df_webhook_test(request: Request):
+        import asyncio
         body = await _body(request)
         question = (body.get("question") or "").strip()
         if not question:
