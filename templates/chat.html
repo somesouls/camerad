@@ -1,245 +1,333 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Chat - Agen Hebat</title>
-    <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f5f5f5; margin: 0; }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Live Chat Pajak - Camerad</title>
+<style>
+  :root{ --biru:#1976d2; --biru-tua:#1565c0; --kuning:#ffc91b; --kuning2:#ffe804; }
+  *{ box-sizing:border-box; }
+  body{ font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#eef2f5; margin:0; }
 
-        /* Tombol Melayang */
-        .chat-bot-icon {
-            position: fixed; bottom: 20px; right: 20px; height: 60px; width: 60px;
-            background: linear-gradient(135deg, #1976d2, #1565c0);
-            border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-            display: flex; align-items: center; justify-content: center;
-            cursor: pointer; z-index: 9999; color: white;
-        }
+  /* ---- Tombol melayang (gaya DJP: kuning + pulse) ---- */
+  .chat-bot-icon{
+    position:fixed; bottom:20px; right:20px; height:58px; width:58px;
+    background-image:linear-gradient(135deg,var(--kuning2),var(--kuning));
+    border:4px solid #fff; border-radius:30px; z-index:9999; cursor:pointer;
+    box-shadow:0 10px 20px rgba(255,201,27,.35); color:#fff;
+    display:flex; align-items:center; justify-content:center;
+    transition:all .3s cubic-bezier(.25,.8,.25,1); animation:djp-pulse 2.5s infinite;
+  }
+  .chat-bot-icon:hover{ transform:translateY(-3px) scale(1.05); box-shadow:0 15px 25px rgba(255,201,27,.45); }
+  @keyframes djp-pulse{ 0%{box-shadow:0 0 0 0 rgba(255,201,27,.6);} 70%{box-shadow:0 0 0 15px rgba(255,201,27,0);} 100%{box-shadow:0 0 0 0 rgba(255,201,27,0);} }
 
-        /* Container Chat */
-        .chat-screen {
-            position: fixed; bottom: 90px; right: 20px; width: 350px; height: 500px;
-            background: white; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-            display: flex; flex-direction: column; overflow: hidden;
-            transform: scale(0); transform-origin: bottom right; transition: all 0.3s ease;
-            z-index: 9998;
-        }
-        .chat-screen.show { transform: scale(1); }
+  /* ---- Panel ---- */
+  .chat-screen{
+    position:fixed; bottom:90px; right:20px; width:360px; height:560px; background:#fff;
+    border-radius:14px; box-shadow:0 8px 30px rgba(0,0,0,.22); display:flex; flex-direction:column;
+    overflow:hidden; transform:scale(0); transform-origin:bottom right; transition:all .3s ease; z-index:9998;
+  }
+  .chat-screen.show{ transform:scale(1); }
+  .chat-header{ background:var(--biru); color:#fff; padding:13px 15px; display:flex; align-items:center; justify-content:space-between; }
+  .chat-header .kiri{ display:flex; align-items:center; gap:10px; }
+  .logo-bulat{ width:34px; height:34px; border-radius:50%; background:#fff; color:var(--biru); font-weight:800; display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .judul{ font-weight:700; line-height:1.1; }
+  .judul small{ display:block; font-weight:400; font-size:11px; opacity:.85; }
+  .close-btn{ cursor:pointer; font-weight:bold; opacity:.9; }
+  .close-btn:hover{ opacity:1; }
 
-        /* Header */
-        .chat-header {
-            background: #1976d2; color: white; padding: 15px; font-weight: bold;
-            display: flex; justify-content: space-between; align-items: center;
-        }
-        .close-btn { cursor: pointer; font-weight: bold; }
+  /* ---- Layar/screen di dalam panel ---- */
+  .layar{ flex:1; overflow-y:auto; padding:18px; display:none; }
+  .layar.aktif{ display:block; }
+  .powered{ text-align:center; font-size:10px; color:#90a4ae; margin-top:16px; }
 
-        /* Area Obrolan */
-        .chat-body { flex: 1; padding: 15px; overflow-y: auto; background: #fafafa; }
-        .pesan { margin-bottom: 15px; padding: 10px 15px; border-radius: 15px; max-width: 80%; line-height: 1.4; }
-        .pesan.bot { background: #e3f2fd; color: #0d47a1; align-self: flex-start; border-bottom-left-radius: 2px; }
-        .pesan.user { background: #1976d2; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
+  .info-teks{ text-align:center; color:#546e7a; font-size:13px; margin:4px 0 16px; }
+  .judul-langkah{ text-align:center; font-weight:700; color:#263238; margin:2px 0 14px; }
 
-        /* Gelembung ACK (menunggu jawaban RAG) -> gaya netral */
-        .pesan.bot.menunggu { background: #eceff1; color: #546e7a; font-style: italic; }
+  /* Kartu pilihan (bahasa/identitas) */
+  .pilihan{ display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+  .kartu{ border:2px solid #e0e6eb; border-radius:10px; padding:14px; width:130px; cursor:pointer; text-align:center; transition:all .15s ease; background:#fafcfe; }
+  .kartu:hover{ transform:translateY(-2px); box-shadow:0 6px 14px rgba(0,0,0,.1); }
+  .kartu.terpilih{ border-color:var(--biru); background:#e9f2fd; box-shadow:0 0 0 3px rgba(25,118,210,.15); }
+  .kartu svg{ width:56px; height:40px; }
+  .kartu span{ display:block; margin-top:8px; font-size:13px; font-weight:600; color:#37474f; }
 
-        /* Balasan FALLBACK (bukan dari mesin RAG) -> gaya berbeda */
-        .pesan.bot.fallback { background: #fff3e0; color: #e65100; border: 1px dashed #ffb74d; }
+  /* Form */
+  .grup{ margin-bottom:11px; }
+  .grup input, .grup select{ width:100%; padding:11px 12px; border:1px solid #d6dde3; border-radius:9px; font-size:14px; outline:none; transition:all .15s; background:#fff; }
+  .grup input:focus, .grup select:focus{ border-color:var(--biru); box-shadow:0 0 0 3px rgba(25,118,210,.15); }
+  .err{ color:#e53935; font-size:12px; text-align:center; min-height:16px; margin:2px 0 8px; }
 
-        /* Meta waktu respons (kecil, di bawah balasan bot) */
-        .meta-waktu { font-size: 11px; color: #90a4ae; margin: -8px 0 15px 4px; }
-        .meta-waktu.fallback { color: #ef6c00; }
+  .tombol{ width:100%; border:none; border-radius:24px; padding:12px; font-size:14px; font-weight:600; cursor:pointer; margin-top:8px; transition:all .15s; }
+  .tombol-primer{ background:var(--biru); color:#fff; }
+  .tombol-primer:hover{ background:var(--biru-tua); }
+  .tombol-sekunder{ background:#eceff1; color:#455a64; }
+  .tombol-sekunder:hover{ background:#dfe4e7; }
 
-        /* Indikator "sedang mengetik" */
-        .typing { display: inline-flex; align-items: center; gap: 4px; }
-        .typing .dot {
-            width: 7px; height: 7px; border-radius: 50%; background: #64b5f6;
-            animation: blink 1.2s infinite ease-in-out both;
-        }
-        .typing .dot:nth-child(2) { animation-delay: 0.2s; }
-        .typing .dot:nth-child(3) { animation-delay: 0.4s; }
-        @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+  /* Titik langkah */
+  .langkah-dot{ display:flex; justify-content:center; gap:8px; margin-bottom:14px; }
+  .langkah-dot span{ width:26px; height:26px; border-radius:50%; background:#e0e6eb; color:#78909c; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; }
+  .langkah-dot span.on{ background:var(--biru); color:#fff; }
 
-        /* Area Input */
-        .chat-input {
-            padding: 10px; border-top: 1px solid #ddd; display: flex; background: white;
-        }
-        .chat-input input {
-            flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none;
-        }
-        .chat-input button {
-            background: #1976d2; color: white; border: none; padding: 10px 15px;
-            margin-left: 10px; border-radius: 50%; cursor: pointer;
-        }
-        .chat-input button:disabled { opacity: 0.5; cursor: not-allowed; }
-    </style>
+  /* ---- Chat ---- */
+  #layar-chat{ padding:0; display:none; flex-direction:column; }
+  #layar-chat.aktif{ display:flex; }
+  .chat-body{ flex:1; padding:15px; overflow-y:auto; background:#fafafa; }
+  .pesan{ margin-bottom:14px; padding:10px 14px; border-radius:15px; max-width:82%; line-height:1.45; font-size:14px; white-space:pre-wrap; }
+  .pesan.bot{ background:#e3f2fd; color:#0d47a1; border-bottom-left-radius:2px; }
+  .pesan.user{ background:var(--biru); color:#fff; margin-left:auto; border-bottom-right-radius:2px; }
+  .pesan.bot.menunggu{ background:#eceff1; color:#546e7a; font-style:italic; }
+  .pesan.bot.fallback{ background:#fff3e0; color:#e65100; border:1px dashed #ffb74d; }
+  .meta-waktu{ font-size:11px; color:#90a4ae; margin:-8px 0 14px 4px; }
+  .meta-waktu.fallback{ color:#ef6c00; }
+  .typing{ display:inline-flex; align-items:center; gap:4px; }
+  .typing .dot{ width:7px; height:7px; border-radius:50%; background:#64b5f6; animation:blink 1.2s infinite ease-in-out both; }
+  .typing .dot:nth-child(2){ animation-delay:.2s; } .typing .dot:nth-child(3){ animation-delay:.4s; }
+  @keyframes blink{ 0%,80%,100%{opacity:.2;} 40%{opacity:1;} }
+  .chat-input{ padding:10px; border-top:1px solid #e3e8ec; display:flex; background:#fff; }
+  .chat-input input{ flex:1; padding:11px; border:1px solid #d6dde3; border-radius:22px; outline:none; }
+  .chat-input button{ background:var(--biru); color:#fff; border:none; width:42px; height:42px; margin-left:8px; border-radius:50%; cursor:pointer; font-size:16px; }
+  .chat-input button:disabled{ opacity:.5; cursor:not-allowed; }
+</style>
 </head>
 <body>
 
-    <!-- Tombol Melayang -->
-    <div class="chat-bot-icon" id="chat-toggle">💬</div>
+<!-- Tombol melayang -->
+<div class="chat-bot-icon" id="toggle" title="Live Chat Pajak">
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+</div>
 
-    <!-- Container Chat -->
-    <div class="chat-screen" id="chat-screen">
-        <div class="chat-header">
-            <span>Live Chat Pajak</span>
-            <span class="close-btn" id="chat-close">✖</span>
+<div class="chat-screen" id="panel">
+  <div class="chat-header">
+    <div class="kiri">
+      <div class="logo-bulat" id="logo">P</div>
+      <div class="judul">Live Chat Pajak<small id="sub-judul">Camerad · RAG Kring Pajak</small></div>
+    </div>
+    <span class="close-btn" id="close">✖</span>
+  </div>
+
+  <!-- Layar 1: Bahasa -->
+  <div class="layar aktif" id="layar-bahasa">
+    <p class="info-teks" data-i18n="lang.info">Silakan pilih bahasa terlebih dahulu.</p>
+    <h4 class="judul-langkah" data-i18n="lang.pilih">Pilih Bahasa Anda</h4>
+    <div class="pilihan">
+      <div class="kartu terpilih" data-lang="id">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><path d="M31,8c0-2.209-1.791-4-4-4H5c-2.209,0-4,1.791-4,4v9H31V8Z" fill="#ea3323"/><path d="M5,28H27c2.209,0,4-1.791,4-4v-8H1v8c0,2.209,1.791,4,4,4Z" fill="#fff"/></svg>
+        <span>Indonesia</span>
+      </div>
+      <div class="kartu" data-lang="en">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect x="1" y="4" width="30" height="24" rx="4" ry="4" fill="#071b65"/><path d="M1.638,5.846,13,13.732V5.5a.5.5,0,0,0-.5-.5H2.045A3.937,3.937,0,0,0,1.638,5.846Z" fill="#fff"/><rect x="13" y="4" width="6" height="24" fill="#fff"/><rect x="1" y="13" width="30" height="6" fill="#fff"/><rect x="14" y="4" width="4" height="24" fill="#b92932"/><rect x="1" y="14" width="30" height="4" fill="#b92932"/></svg>
+        <span>English</span>
+      </div>
+    </div>
+    <div class="err" id="err-bahasa"></div>
+    <button class="tombol tombol-primer" id="btn-bahasa" data-i18n="btn.next">Selanjutnya</button>
+    <div class="powered">Direktorat Jenderal Pajak</div>
+  </div>
+
+  <!-- Layar 2: Identitas -->
+  <div class="layar" id="layar-identitas">
+    <div class="langkah-dot"><span class="on" id="dot1">1</span><span id="dot2">2</span></div>
+
+    <!-- Langkah 2a: jenis identitas -->
+    <div id="idstep1">
+      <h4 class="judul-langkah" data-i18n="id.pilih">Pilih Identitas Anda</h4>
+      <div class="pilihan">
+        <div class="kartu" data-id="npwp">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 453 453" fill="#455a64"><path d="M453.6,151.8c-1.4-40.8-34.4-72.8-75.1-72.8H75.3C34.5,79,1.5,111,.2,151.8c0,.2,0,.4-.1.6C0,152.2,0,152.4,0,152.4v147.6c0,41.5,33.8,75.3,75.3,75.3h303.2c41.5,0,75.3-33.8,75.3-75.3V152.4C453.7,152.2,453.7,152,453.6,151.8ZM422.9,300c0,24.5-20,44.5-44.5,44.5H75.3c-24.5,0-44.5-20-44.5-44.5V230.1H422.9ZM422.9,199.4H30.7V167.8H422.9Z"/><rect x="45" y="276" width="192" height="31" rx="15"/></svg>
+          <span>NPWP / NIK</span>
         </div>
-        <div class="chat-body" id="chat-body">
-            <div class="pesan bot">Halo Kawan Pajak! Ada yang bisa saya bantu hari ini?</div>
+        <div class="kartu" data-id="non">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 260 260" fill="#455a64"><path d="M236.7,40.9H24C10.8,40.9,0,51.6,0,64.9v130.9c0,13.2,10.8,24,24,24h212.7c13.2,0,24-10.8,24-24V64.9C260.7,51.6,249.9,40.9,236.7,40.9Zm9,154.9c0,5-4,9-9,9H24c-5,0-9-4-9-9V64.9c0-5,4-9,9-9h212.7c5,0,9,4,9,9Z"/><path d="M85,133c17,0,31-13.8,31-30.8S102,71.4,85,71.4,54.3,85.2,54.3,102.3,68.2,133,85,133Z"/><path d="M97,138.7H73.4c-16.6,0-30,13.5-30,30.1v13c0,4.1,3.4,7.5,7.5,7.5s7.5-3.4,7.5-7.5v-13c0-8.3,6.8-15.1,15.1-15.1H97c8.3,0,15.1,6.8,15.1,15.1v13c0,4.1,3.4,7.5,7.5,7.5s7.5-3.4,7.5-7.5v-13C127.2,152.2,113.7,138.7,97,138.7Z"/><rect x="147" y="84" width="75" height="12" rx="6"/><rect x="147" y="118" width="48" height="12" rx="6"/><rect x="147" y="141" width="48" height="12" rx="6"/><rect x="147" y="165" width="75" height="12" rx="6"/></svg>
+          <span>Non-NPWP</span>
         </div>
-        <div class="chat-input">
-            <input type="text" id="input-pesan" placeholder="Ketik pesan Anda...">
-            <button id="btn-kirim">➤</button>
-        </div>
+      </div>
+      <div class="err" id="err-id1"></div>
+      <button class="tombol tombol-sekunder" id="btn-ubah-bahasa" data-i18n="btn.changeLang">Ubah Bahasa</button>
+      <button class="tombol tombol-primer" id="btn-id-next" data-i18n="btn.next">Selanjutnya</button>
     </div>
 
-    <script>
-        const toggleBtn = document.getElementById('chat-toggle');
-        const closeBtn = document.getElementById('chat-close');
-        const chatScreen = document.getElementById('chat-screen');
-        const chatBody = document.getElementById('chat-body');
-        const inputPesan = document.getElementById('input-pesan');
-        const btnKirim = document.getElementById('btn-kirim');
+    <!-- Langkah 2b: isi data -->
+    <div id="idstep2" style="display:none;">
+      <h4 class="judul-langkah" data-i18n="id.isi">Isi Data Identitas</h4>
+      <div class="grup"><input type="text" id="f-npwp" placeholder="NPWP / NIK"></div>
+      <div class="grup"><input type="text" id="f-nama" placeholder="Nama"></div>
+      <div class="grup"><input type="email" id="f-email" placeholder="Email"></div>
+      <div class="grup"><input type="text" id="f-telp" placeholder="Telepon"></div>
+      <div class="grup">
+        <select id="f-topik">
+          <option value="" data-i18n="id.topikPh">Pilih Jenis Pertanyaan</option>
+          <option value="Umum">Informasi Umum (NPWP, PKP, SPT)</option>
+          <option value="Faktur">Faktur Pajak / e-Faktur</option>
+          <option value="Coretax">Coretax</option>
+          <option value="Lainnya">Lainnya</option>
+        </select>
+      </div>
+      <div class="err" id="err-id2"></div>
+      <button class="tombol tombol-sekunder" id="btn-id-prev" data-i18n="btn.prev">Sebelumnya</button>
+      <button class="tombol tombol-primer" id="btn-mulai" data-i18n="btn.start">Mulai Percakapan</button>
+    </div>
+    <div class="powered">Direktorat Jenderal Pajak</div>
+  </div>
 
-        toggleBtn.addEventListener('click', () => chatScreen.classList.add('show'));
-        closeBtn.addEventListener('click', () => chatScreen.classList.remove('show'));
+  <!-- Layar 3: Chat -->
+  <div class="layar" id="layar-chat">
+    <div class="chat-body" id="chat-body"></div>
+    <div class="chat-input">
+      <input type="text" id="input-pesan" placeholder="Ketik pesan Anda...">
+      <button id="btn-kirim">➤</button>
+    </div>
+  </div>
+</div>
 
-        // Konfigurasi Opsi B
-        const API = 'https://api.agenthebat.com';
-        const SENTINEL_POLL = '__CAMERAD_POLL__'; // harus sama dgn backend
-        const POLL_INTERVAL = 1500;               // jeda antar-poll (ms)
-        const POLL_MAX = 40;                      // batas percobaan (~60 dtk)
+<script>
+  // ====== Konfigurasi backend + Opsi B ======
+  const API = 'https://api.agenthebat.com';
+  const SENTINEL_POLL = '__CAMERAD_POLL__';   // harus sama dgn backend
+  const POLL_INTERVAL = 1500;
+  const POLL_MAX = 40;
 
-        const sessionId = "wp-" + Math.random().toString(36).substr(2, 9);
+  // ====== i18n ringkas ======
+  const T = {
+    id:{ 'lang.info':'Silakan pilih bahasa terlebih dahulu.','lang.pilih':'Pilih Bahasa Anda',
+      'id.pilih':'Pilih Identitas Anda','id.isi':'Isi Data Identitas','id.topikPh':'Pilih Jenis Pertanyaan',
+      'btn.next':'Selanjutnya','btn.prev':'Sebelumnya','btn.start':'Mulai Percakapan','btn.changeLang':'Ubah Bahasa',
+      'err.lang':'Pilih salah satu bahasa','err.id':'Pilih salah satu identitas','err.form':'Nama dan Jenis Pertanyaan wajib diisi',
+      'chat.ph':'Ketik pesan Anda...','sub':'Camerad · RAG Kring Pajak',
+      'greet':(n)=>`Halo ${n||'Kawan Pajak'}! Ada yang bisa saya bantu hari ini?`,
+      'wait':'⏳ Mohon tunggu sebentar…','timeout':'Maaf, jawaban terlalu lama disiapkan. Silakan coba lagi.',
+      'meta.backend':'backend','meta.masuk':'pesan masuk → jawaban siap','meta.layar':'layar','meta.cadangan':'⚠ jawaban cadangan (bukan dari mesin RAG)',
+      'putus':'Koneksi terputus.','kosong':'(balasan kosong dari server)' },
+    en:{ 'lang.info':'Please choose a language first.','lang.pilih':'Choose Your Language',
+      'id.pilih':'Choose Your Identity','id.isi':'Fill in Your Details','id.topikPh':'Choose Question Type',
+      'btn.next':'Next','btn.prev':'Back','btn.start':'Start Conversation','btn.changeLang':'Change Language',
+      'err.lang':'Please select a language','err.id':'Please select an identity','err.form':'Name and Question Type are required',
+      'chat.ph':'Type your message...','sub':'Camerad · Kring Pajak RAG',
+      'greet':(n)=>`Hi ${n||'there'}! How can I help you today?`,
+      'wait':'⏳ Please wait a moment…','timeout':'Sorry, the answer is taking too long. Please try again.',
+      'meta.backend':'backend','meta.masuk':'received → answer ready','meta.layar':'screen','meta.cadangan':'⚠ fallback answer (not from RAG engine)',
+      'putus':'Connection lost.','kosong':'(empty reply from server)' }
+  };
+  let lang = 'id';
+  function tr(k){ return (T[lang] && T[lang][k]) || (T.id[k]) || k; }
+  function applyLang(){
+    document.querySelectorAll('[data-i18n]').forEach(el=>{ const k=el.getAttribute('data-i18n'); const v=tr(k); if(typeof v==='string') el.textContent=v; });
+    document.getElementById('input-pesan').placeholder = tr('chat.ph');
+    document.getElementById('sub-judul').textContent = tr('sub');
+  }
 
-        function scrollBawah() { chatBody.scrollTop = chatBody.scrollHeight; }
+  // ====== Navigasi layar ======
+  const el = (id)=>document.getElementById(id);
+  function tampilLayar(id){ document.querySelectorAll('.layar').forEach(l=>l.classList.remove('aktif')); el(id).classList.add('aktif'); }
 
-        function tampilkanMengetik() {
-            const el = document.createElement('div');
-            el.className = 'pesan bot typing-wrap';
-            el.innerHTML = '<span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>';
-            chatBody.appendChild(el);
-            scrollBawah();
-            return el;
-        }
+  el('toggle').addEventListener('click', ()=> el('panel').classList.add('show'));
+  el('close').addEventListener('click', ()=> el('panel').classList.remove('show'));
 
-        // Meta: tampilkan durasi backend (pesan masuk -> jawaban siap) + total layar
-        function tambahMeta(durasiBackend, durasiTotal, isFallback) {
-            const meta = document.createElement('div');
-            meta.className = 'meta-waktu' + (isFallback ? ' fallback' : '');
-            let t = '';
-            if (durasiBackend !== null && durasiBackend !== undefined) {
-                t += '⏱ backend ' + Number(durasiBackend).toFixed(2) + ' dtk (pesan masuk → jawaban siap)';
-            }
-            if (durasiTotal !== null && durasiTotal !== undefined) {
-                t += (t ? ' · ' : '⏱ ') + 'layar ' + Number(durasiTotal).toFixed(2) + ' dtk';
-            }
-            if (isFallback) t += ' · ⚠ jawaban cadangan (bukan dari mesin RAG)';
-            meta.textContent = t;
-            chatBody.appendChild(meta);
-            scrollBawah();
-        }
+  // Layar bahasa
+  document.querySelectorAll('#layar-bahasa .kartu').forEach(k=>{
+    k.addEventListener('click', ()=>{ document.querySelectorAll('#layar-bahasa .kartu').forEach(x=>x.classList.remove('terpilih')); k.classList.add('terpilih'); });
+  });
+  el('btn-bahasa').addEventListener('click', ()=>{
+    const dipilih = document.querySelector('#layar-bahasa .kartu.terpilih');
+    if(!dipilih){ el('err-bahasa').textContent = tr('err.lang'); return; }
+    lang = dipilih.getAttribute('data-lang'); applyLang();
+    document.documentElement.lang = lang;
+    tampilLayar('layar-identitas');
+  });
 
-        function selesaikan() {
-            btnKirim.disabled = false;
-            inputPesan.disabled = false;
-            inputPesan.focus();
-            scrollBawah();
-        }
+  // Layar identitas - langkah 1
+  document.querySelectorAll('#idstep1 .kartu').forEach(k=>{
+    k.addEventListener('click', ()=>{ document.querySelectorAll('#idstep1 .kartu').forEach(x=>x.classList.remove('terpilih')); k.classList.add('terpilih'); });
+  });
+  el('btn-ubah-bahasa').addEventListener('click', ()=> tampilLayar('layar-bahasa'));
+  el('btn-id-next').addEventListener('click', ()=>{
+    if(!document.querySelector('#idstep1 .kartu.terpilih')){ el('err-id1').textContent = tr('err.id'); return; }
+    el('idstep1').style.display='none'; el('idstep2').style.display='block';
+    el('dot2').classList.add('on');
+  });
+  el('btn-id-prev').addEventListener('click', ()=>{
+    el('idstep2').style.display='none'; el('idstep1').style.display='block'; el('dot2').classList.remove('on');
+  });
 
-        function tampilkanJawaban(el, data, t0) {
-            el.classList.remove('typing-wrap', 'menunggu');
-            el.textContent = (data && data.reply) ? data.reply : '(balasan kosong dari server)';
-            if (data && data.is_fallback) el.classList.add('fallback');
-            const total = (performance.now() - t0) / 1000;
-            tambahMeta(data ? data.durasi_backend : null, total, !!(data && data.is_fallback));
-        }
+  // Data identitas + sesi
+  const identitas = {};
+  const sessionId = "wp-" + Math.random().toString(36).substr(2,9);
 
-        async function kirimPesan() {
-            const teks = inputPesan.value.trim();
-            if (!teks) return;
+  el('btn-mulai').addEventListener('click', ()=>{
+    const nama = el('f-nama').value.trim();
+    const topik = el('f-topik').value;
+    if(!nama || !topik){ el('err-id2').textContent = tr('err.form'); return; }
+    identitas.npwp = el('f-npwp').value.trim();
+    identitas.nama = nama; identitas.email = el('f-email').value.trim();
+    identitas.telp = el('f-telp').value.trim(); identitas.topik = topik;
+    el('logo').textContent = (nama[0]||'P').toUpperCase();
+    tampilLayar('layar-chat');
+    tambahBubbleBot(tr('greet')(nama.split(' ')[0]));
+  });
 
-            const userEl = document.createElement('div');
-            userEl.className = 'pesan user';
-            userEl.textContent = teks;
-            chatBody.appendChild(userEl);
-            inputPesan.value = "";
-            scrollBawah();
+  // ====== Chat (Opsi B: fast-path + echo/poll) ======
+  const chatBody = el('chat-body');
+  const inputPesan = el('input-pesan');
+  const btnKirim = el('btn-kirim');
 
-            btnKirim.disabled = true;
-            inputPesan.disabled = true;
-            const t0 = performance.now();
-            const mengetikEl = tampilkanMengetik();
+  function scrollBawah(){ chatBody.scrollTop = chatBody.scrollHeight; }
+  function tambahBubbleBot(teks){ const d=document.createElement('div'); d.className='pesan bot'; d.textContent=teks; chatBody.appendChild(d); scrollBawah(); return d; }
+  function tampilkanMengetik(){ const d=document.createElement('div'); d.className='pesan bot typing-wrap'; d.innerHTML='<span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>'; chatBody.appendChild(d); scrollBawah(); return d; }
 
-            try {
-                const resp = await fetch(API + '/api/chat/detect', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: teks, session_id: sessionId })
-                });
-                const data = await resp.json();
+  function tambahMeta(durasiBackend, durasiTotal, isFallback){
+    const m=document.createElement('div'); m.className='meta-waktu'+(isFallback?' fallback':'');
+    let t='';
+    if(durasiBackend!==null && durasiBackend!==undefined) t+='⏱ '+tr('meta.backend')+' '+Number(durasiBackend).toFixed(2)+' dtk ('+tr('meta.masuk')+')';
+    if(durasiTotal!==null && durasiTotal!==undefined) t+=(t?' · ':'⏱ ')+tr('meta.layar')+' '+Number(durasiTotal).toFixed(2)+' dtk';
+    if(isFallback) t+=' · '+tr('meta.cadangan');
+    m.textContent=t; chatBody.appendChild(m); scrollBawah();
+  }
+  function selesaikan(){ btnKirim.disabled=false; inputPesan.disabled=false; inputPesan.focus(); scrollBawah(); }
+  function tampilkanJawaban(elm, data, t0){
+    elm.classList.remove('typing-wrap','menunggu');
+    elm.textContent = (data && data.reply) ? data.reply : tr('kosong');
+    if(data && data.is_fallback) elm.classList.add('fallback');
+    tambahMeta(data?data.durasi_backend:null, (performance.now()-t0)/1000, !!(data&&data.is_fallback));
+  }
 
-                if (data && data.error) {
-                    mengetikEl.classList.remove('typing-wrap');
-                    mengetikEl.classList.add('fallback');
-                    mengetikEl.textContent = 'Error: ' + data.error;
-                    tambahMeta(null, (performance.now() - t0) / 1000, true);
-                    return selesaikan();
-                }
+  async function kirimPesan(){
+    const teks = inputPesan.value.trim();
+    if(!teks) return;
+    const u=document.createElement('div'); u.className='pesan user'; u.textContent=teks; chatBody.appendChild(u);
+    inputPesan.value=''; scrollBawah();
+    btnKirim.disabled=true; inputPesan.disabled=true;
+    const t0=performance.now();
+    const mengetik=tampilkanMengetik();
+    try{
+      const resp=await fetch(API+'/api/chat/detect',{ method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ text:teks, session_id:sessionId, lang:lang, nama:identitas.nama, topik:identitas.topik }) });
+      const data=await resp.json();
+      if(data && data.error){ mengetik.classList.remove('typing-wrap'); mengetik.classList.add('fallback'); mengetik.textContent='Error: '+data.error; tambahMeta(null,(performance.now()-t0)/1000,true); return selesaikan(); }
+      if(data && data.ready){ tampilkanJawaban(mengetik,data,t0); return selesaikan(); }
+      // PENDING -> ACK jadi bubble 1, lalu polling echo utk bubble 2
+      mengetik.classList.remove('typing-wrap'); mengetik.classList.add('menunggu');
+      mengetik.textContent = (data && data.reply) ? data.reply : tr('wait');
+      const typing2=tampilkanMengetik();
+      pollJawaban(t0, typing2, 0);
+    }catch(e){ mengetik.classList.remove('typing-wrap'); mengetik.classList.add('fallback'); mengetik.textContent=tr('putus'); tambahMeta(null,(performance.now()-t0)/1000,true); selesaikan(); }
+  }
 
-                if (data && data.ready) {
-                    // Fast-path: jawaban langsung siap (mis. mode cepat).
-                    tampilkanJawaban(mengetikEl, data, t0);
-                    return selesaikan();
-                }
+  function pollJawaban(t0, typingEl, attempt){
+    if(attempt>=POLL_MAX){ typingEl.classList.remove('typing-wrap'); typingEl.classList.add('fallback'); typingEl.textContent=tr('timeout'); tambahMeta(null,(performance.now()-t0)/1000,true); return selesaikan(); }
+    setTimeout(async ()=>{
+      try{
+        const resp=await fetch(API+'/api/chat/detect',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ text:SENTINEL_POLL, session_id:sessionId }) });
+        const data=await resp.json();
+        if(data && data.ready){ tampilkanJawaban(typingEl,data,t0); return selesaikan(); }
+        pollJawaban(t0, typingEl, attempt+1);
+      }catch(e){ pollJawaban(t0, typingEl, attempt+1); }
+    }, POLL_INTERVAL);
+  }
 
-                // PENDING (Opsi B): gelembung ACK jadi bubble ke-1, lalu polling
-                // giliran echo untuk mengambil jawaban (bubble ke-2).
-                mengetikEl.classList.remove('typing-wrap');
-                mengetikEl.classList.add('menunggu');
-                mengetikEl.textContent = (data && data.reply) ? data.reply : '⏳ Mohon tunggu sebentar…';
-                const typing2 = tampilkanMengetik();
-                pollJawaban(t0, typing2, 0);
-            } catch (err) {
-                mengetikEl.classList.remove('typing-wrap');
-                mengetikEl.classList.add('fallback');
-                mengetikEl.textContent = 'Koneksi terputus.';
-                tambahMeta(null, (performance.now() - t0) / 1000, true);
-                selesaikan();
-            }
-        }
+  btnKirim.addEventListener('click', kirimPesan);
+  inputPesan.addEventListener('keypress', e=>{ if(e.key==='Enter') kirimPesan(); });
 
-        // Giliran echo: kirim sentinel lewat Dialogflow (tetap terekam) sampai
-        // jawaban RAG siap, lalu tampilkan di bubble ke-2.
-        function pollJawaban(t0, typingEl, attempt) {
-            if (attempt >= POLL_MAX) {
-                typingEl.classList.remove('typing-wrap');
-                typingEl.classList.add('fallback');
-                typingEl.textContent = 'Maaf, jawaban terlalu lama disiapkan. Silakan coba lagi.';
-                tambahMeta(null, (performance.now() - t0) / 1000, true);
-                return selesaikan();
-            }
-            setTimeout(async () => {
-                try {
-                    const resp = await fetch(API + '/api/chat/detect', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ text: SENTINEL_POLL, session_id: sessionId })
-                    });
-                    const data = await resp.json();
-                    if (data && data.ready) {
-                        tampilkanJawaban(typingEl, data, t0);
-                        return selesaikan();
-                    }
-                    pollJawaban(t0, typingEl, attempt + 1);
-                } catch (err) {
-                    pollJawaban(t0, typingEl, attempt + 1);
-                }
-            }, POLL_INTERVAL);
-        }
-
-        btnKirim.addEventListener('click', kirimPesan);
-        inputPesan.addEventListener('keypress', (e) => { if (e.key === 'Enter') kirimPesan(); });
-    </script>
+  applyLang();
+</script>
 </body>
 </html>
