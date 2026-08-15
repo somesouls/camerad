@@ -20,12 +20,15 @@ kutipan nomor peraturan) dan hasilnya di-cache per-query agar tidak memanggil
 LLM berkali-kali dalam satu jawaban.
 
 Konfigurasi (env):
-  RAG_REWRITE_AI     '1' (default) aktif; '0' matikan (kamus tetap jalan).
+  RAG_REWRITE_AI            '1' (default) aktif; '0' matikan (kamus tetap jalan).
+  RAG_REWRITE_AI_PROFILES   daftar profil (dipisah koma) yang boleh AI-rewrite;
+                            kosong = semua boleh. Mis. 'agent' -> chatbot dilewati.
 Gagal-anggun: setiap kegagalan -> kembali ke query asli/tanpa AI.
 """
 import os
 import re
 import json
+import contextvars
 
 try:
     import llm_client
@@ -52,6 +55,56 @@ _KATA_TANYA = ("apa", "apakah", "bagaimana", "gimana", "kenapa", "mengapa",
 def _ai_enabled():
     return str(os.environ.get("RAG_REWRITE_AI", "1")).strip().lower() not in (
         "0", "false", "no", "off")
+
+
+# Konteks per-request (aman untuk banyak request paralel via contextvars):
+# profil aktif & apakah profil 'cepat'. Diisi oleh rag_engine.answer() sebelum
+# retrieval, lalu dibaca saat memutuskan apakah AI-rewrite dijalankan.
+_CTX_PROFILE = contextvars.ContextVar("rag_rw_profile", default="")
+_CTX_FAST = contextvars.ContextVar("rag_rw_fast", default=False)
+
+
+def set_context(profile_id=None, fast=None):
+    """Tandai profil aktif (+ apakah 'cepat') untuk request saat ini."""
+    try:
+        if profile_id is not None:
+            _CTX_PROFILE.set(str(profile_id or "").strip().lower())
+        if fast is not None:
+            _CTX_FAST.set(bool(fast))
+    except Exception:
+        pass
+
+
+def set_active_profile(profile_id=None):
+    """Kompatibilitas: set profil aktif saja."""
+    set_context(profile_id=profile_id)
+
+
+def _ai_profile_allowed():
+    """True bila AI-rewrite boleh untuk konteks saat ini.
+
+    Prioritas:
+      1. env RAG_REWRITE_AI_PROFILES (daftar profil dipisah koma) -> hanya profil
+         tsb yang boleh (eksplisit, menang atas apa pun).
+      2. Profil aktif ditandai 'cepat' -> AI-rewrite dilewati (chatbot ngebut).
+      3. Selain itu -> boleh (kompatibel mundur).
+    """
+    raw = str(os.environ.get("RAG_REWRITE_AI_PROFILES", "")).strip()
+    try:
+        pid = _CTX_PROFILE.get()
+    except Exception:
+        pid = ""
+    if raw:
+        allow = {x.strip().lower() for x in raw.split(",") if x.strip()}
+        if not allow or not pid:
+            return True
+        return pid in allow
+    try:
+        if _CTX_FAST.get():
+            return False
+    except Exception:
+        pass
+    return True
 
 
 def expand_kamus(q):
@@ -111,6 +164,9 @@ def rewrite_ai(q, force=False):
             return base
         if not _is_natural(q):
             base["alasan"] = "Query bukan pertanyaan natural; AI dilewati."
+            return base
+        if not _ai_profile_allowed():
+            base["alasan"] = "AI rewriting dilewati untuk profil ini (profil cepat / RAG_REWRITE_AI_PROFILES)."
             return base
     if llm_client is None:
         base["alasan"] = "llm_client tak tersedia."
