@@ -65,6 +65,16 @@
       <div class="field"><label>Profil mesin RAG</label><select id="cProfil"></select></div>
       <div class="field"><label>Deadline guard (milidetik)</label><input type="number" id="cDeadline" min="500" max="15000" step="100"></div>
     </div>
+    <div class="field">
+      <label>Mode mesin (untuk pengujian) — disimpan pada profil terpilih</label>
+      <select id="cMode">
+        <option value="">Auto (ikuti setelan server)</option>
+        <option value="tanpa_llm">1 · Tanpa LLM (paling cepat: jawaban intent + cuplikan)</option>
+        <option value="llm">2 · Dengan LLM hemat (tanpa loop verifikasi &amp; AI-rewrite)</option>
+        <option value="full">3 · Full LLM (AI-rewrite + verifikasi + sintesis)</option>
+      </select>
+      <div class="hint">Mode berlaku untuk profil terpilih di seluruh kanal (chatbot web <code>/rag</code> maupun webhook Dialogflow). Ubah mode lalu klik <b>Simpan Pengaturan</b>, kemudian pakai <b>Uji Fast-Path</b> di bawah untuk membandingkan kecepatan tiap mode.</div>
+    </div>
     <div class="field"><label class="toggle"><input type="checkbox" id="cRiwayat"> Ingat konteks percakapan per sesi</label></div>
     <div class="field" id="turnWrap"><label>Jumlah giliran yang diingat</label><input type="number" id="cTurn" min="0" max="10" step="1"></div>
     <div class="field"><label>Kalimat fallback (dibalas saat lewat deadline / gagal)</label><textarea id="cFallback"></textarea></div>
@@ -107,11 +117,18 @@
     el('cProfil').innerHTML=opts.map(function(k){ return '<option value="'+esc(k)+'">'+esc(k)+'</option>'; }).join('');
     if(sel){ el('cProfil').value=sel; }
   }
+  var PROFILES=[];
+  function applyMode(){
+    var pid=el('cProfil').value; var p=null;
+    for(var i=0;i<PROFILES.length;i++){ if(PROFILES[i].id===pid){ p=PROFILES[i]; break; } }
+    if(el('cMode')){ el('cMode').value=(p&&p.mode)?p.mode:''; }
+  }
   function fillProfil(sel){
     fetch('/api/rag/profiles').then(function(r){return r.json();}).then(function(d){
-      var list=(d&&d.profil)||[];
-      var opts=list.length?list.map(function(p){return p.id;}):['chatbot','agent'];
+      PROFILES=(d&&d.profil)||[];
+      var opts=PROFILES.length?PROFILES.map(function(p){return p.id;}):['chatbot','agent'];
       renderProfil(opts, sel);
+      applyMode();
     }).catch(function(){ renderProfil(['chatbot','agent'], sel); });
   }
 
@@ -146,6 +163,15 @@
     var old=btn.textContent; btn.textContent='Tersalin'; setTimeout(function(){ btn.textContent=old; },1500);
   }
 
+  function saveMode(){
+    var pid=el('cProfil').value; var mode=el('cMode')?el('cMode').value:'';
+    if(!pid){ return Promise.resolve(); }
+    return fetch('/api/rag/profile/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:pid,mode:mode})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(d&&d.ok&&d.profil){ for(var i=0;i<PROFILES.length;i++){ if(PROFILES[i].id===pid){ PROFILES[i]=d.profil; break; } } }
+      }).catch(function(){});
+  }
+
   function save(){
     var msg=el('saveMsg'); msg.textContent='Menyimpan…'; msg.className='';
     var body={ aktif:el('cAktif').checked?1:0, profil:el('cProfil').value,
@@ -153,7 +179,9 @@
       pakai_riwayat:el('cRiwayat').checked?1:0,
       riwayat_turn:parseInt(el('cTurn').value||'3',10),
       fallback:el('cFallback').value };
-    fetch('/api/df/webhook/config/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    saveMode().then(function(){
+      return fetch('/api/df/webhook/config/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    })
       .then(function(r){return r.json();}).then(function(d){
         if(d&&d.ok){ applyCfg(d); msg.textContent='✔ Tersimpan.'; msg.className='saveok';
           setTimeout(function(){ if(msg.className==='saveok'){msg.textContent='';} },4000); }
@@ -187,6 +215,7 @@
   el('btnTest').onclick=runTest;
   el('cAktif').addEventListener('change',syncPill);
   el('cRiwayat').addEventListener('change',syncTurn);
+  el('cProfil').addEventListener('change',applyMode);
   el('tQ').addEventListener('keydown',function(e){ if(e.key==='Enter'){ runTest(); } });
 
   load();
