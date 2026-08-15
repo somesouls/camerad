@@ -17,6 +17,7 @@ Kolom profil:
   tampil_sumber INT   1=tampilkan daftar sumber ke pengguna
   fallback      TEXT  kalimat baku bila tak ada konteks relevan
   suhu          REAL  temperature LLM
+  mode          TEXT  mode mesin: ''(auto)|tanpa_llm|llm|full (untuk pengujian)
   updated_at    TEXT
 
 Env: PIPELINE_RAG_DB_FILE atau 'rag.db'.
@@ -36,6 +37,13 @@ SUMBER_LABEL = {
     "peraturan": "Peraturan",
     "sop": "SOP & Proses Bisnis",
 }
+
+# Mode mesin per-profil (dibaca rag_engine.answer):
+#   '' (auto)   -> ikut env (profil cepat)
+#   'tanpa_llm' -> tanpa LLM generatif (jalur cepat intent + cuplikan retrieval)
+#   'llm'       -> pakai LLM tapi hemat (tanpa loop verifikasi & AI-rewrite)
+#   'full'      -> pipeline penuh (AI-rewrite + loop verifikasi + sintesis)
+_MODE_VALID = ("", "tanpa_llm", "llm", "full")
 
 FALLBACK_DEFAULT = (
     "Mohon maaf, informasi mengenai hal tersebut belum tersedia pada basis "
@@ -116,8 +124,15 @@ def init_db(conn):
         "CREATE TABLE IF NOT EXISTS rag_profile ("
         "id TEXT PRIMARY KEY, nama TEXT, system_prompt TEXT, sumber TEXT, "
         "maks_loop INTEGER DEFAULT 2, tampil_sumber INTEGER DEFAULT 0, "
-        "fallback TEXT, suhu REAL DEFAULT 0.3, updated_at TEXT)"
+        "fallback TEXT, suhu REAL DEFAULT 0.3, mode TEXT DEFAULT '', updated_at TEXT)"
     )
+    # Migrasi lunak: tambah kolom 'mode' bila DB lama belum memilikinya.
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(rag_profile)").fetchall()]
+        if "mode" not in cols:
+            conn.execute("ALTER TABLE rag_profile ADD COLUMN mode TEXT DEFAULT ''")
+    except Exception:
+        pass
     now = time.strftime("%Y-%m-%d %H:%M:%S")
     for pid, d in _DEFAULTS.items():
         row = conn.execute("SELECT 1 FROM rag_profile WHERE id=?", (pid,)).fetchone()
@@ -148,6 +163,8 @@ def _row_to_dict(r):
         d["suhu"] = float(d.get("suhu") if d.get("suhu") is not None else 0.3)
     except Exception:
         d["suhu"] = 0.3
+    m = (d.get("mode") or "").strip().lower()
+    d["mode"] = m if m in _MODE_VALID else ""
     return d
 
 
@@ -188,16 +205,20 @@ def save_profile(pid, data):
         tampil = 1 if data.get("tampil_sumber", cur.get("tampil_sumber")) else 0
         fallback = data.get("fallback") or cur.get("fallback") or FALLBACK_DEFAULT
         suhu = float(data.get("suhu", cur.get("suhu", 0.3)) or 0.3)
+        mode = (data.get("mode") if data.get("mode") is not None else cur.get("mode")) or ""
+        mode = str(mode).strip().lower()
+        if mode not in _MODE_VALID:
+            mode = ""
         conn.execute(
             "INSERT INTO rag_profile (id,nama,system_prompt,sumber,maks_loop,"
-            "tampil_sumber,fallback,suhu,updated_at) VALUES (?,?,?,?,?,?,?,?,?) "
+            "tampil_sumber,fallback,suhu,mode,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(id) DO UPDATE SET nama=excluded.nama,"
             "system_prompt=excluded.system_prompt,sumber=excluded.sumber,"
             "maks_loop=excluded.maks_loop,tampil_sumber=excluded.tampil_sumber,"
-            "fallback=excluded.fallback,suhu=excluded.suhu,"
+            "fallback=excluded.fallback,suhu=excluded.suhu,mode=excluded.mode,"
             "updated_at=excluded.updated_at",
             (pid, nama, prompt, json.dumps(sumber), maks_loop, tampil,
-             fallback, suhu, time.strftime("%Y-%m-%d %H:%M:%S")),
+             fallback, suhu, mode, time.strftime("%Y-%m-%d %H:%M:%S")),
         )
         conn.commit()
         return get_profile(pid)
