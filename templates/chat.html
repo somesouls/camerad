@@ -39,6 +39,19 @@
         .pesan.bot { background: #e3f2fd; color: #0d47a1; align-self: flex-start; border-bottom-left-radius: 2px; }
         .pesan.user { background: #1976d2; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
 
+        /* Meta waktu respons (kecil, di bawah balasan bot) */
+        .meta-waktu { font-size: 11px; color: #90a4ae; margin: -8px 0 15px 4px; }
+
+        /* Indikator "sedang mengetik" */
+        .typing { display: inline-flex; align-items: center; gap: 4px; }
+        .typing .dot {
+            width: 7px; height: 7px; border-radius: 50%; background: #64b5f6;
+            animation: blink 1.2s infinite ease-in-out both;
+        }
+        .typing .dot:nth-child(2) { animation-delay: 0.2s; }
+        .typing .dot:nth-child(3) { animation-delay: 0.4s; }
+        @keyframes blink { 0%, 80%, 100% { opacity: 0.2; } 40% { opacity: 1; } }
+
         /* Area Input */
         .chat-input {
             padding: 10px; border-top: 1px solid #ddd; display: flex; background: white;
@@ -50,6 +63,7 @@
             background: #1976d2; color: white; border: none; padding: 10px 15px; 
             margin-left: 10px; border-radius: 50%; cursor: pointer;
         }
+        .chat-input button:disabled { opacity: 0.5; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -87,15 +101,36 @@
         // ID Sesi Unik
         const sessionId = "wp-" + Math.random().toString(36).substr(2, 9);
 
+        function scrollBawah() { chatBody.scrollTop = chatBody.scrollHeight; }
+
+        // Tampilkan indikator "sedang mengetik" dan kembalikan elemennya
+        function tampilkanMengetik() {
+            const el = document.createElement('div');
+            el.className = 'pesan bot typing-wrap';
+            el.innerHTML = '<span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>';
+            chatBody.appendChild(el);
+            scrollBawah();
+            return el;
+        }
+
         // Fungsi Kirim Pesan
         async function kirimPesan() {
             const teks = inputPesan.value.trim();
             if (!teks) return;
 
             // Tampilkan pesan user
-            chatBody.innerHTML += `<div class="pesan user">${teks}</div>`;
+            const userEl = document.createElement('div');
+            userEl.className = 'pesan user';
+            userEl.textContent = teks;
+            chatBody.appendChild(userEl);
             inputPesan.value = "";
-            chatBody.scrollTop = chatBody.scrollHeight;
+            scrollBawah();
+
+            // Kunci input + tampilkan indikator mengetik
+            btnKirim.disabled = true;
+            inputPesan.disabled = true;
+            const mengetikEl = tampilkanMengetik();
+            const t0 = performance.now();
 
             try {
                 // Tembak ke API Backend (api.agenthebat.com)
@@ -104,17 +139,41 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ text: teks, session_id: sessionId })
                 });
-                
+
                 const data = await response.json();
-                
-                // Tampilkan balasan bot
-                if (data.reply) {
-                    chatBody.innerHTML += `<div class="pesan bot">${data.reply}</div>`;
+                const detik = ((performance.now() - t0) / 1000).toFixed(2);
+
+                // Ganti indikator mengetik dengan balasan bot
+                mengetikEl.classList.remove('typing-wrap');
+                if (data && data.reply) {
+                    mengetikEl.textContent = data.reply;
+                } else if (data && data.error) {
+                    mengetikEl.style.color = 'red';
+                    mengetikEl.textContent = 'Error: ' + data.error;
+                } else {
+                    mengetikEl.textContent = '(balasan kosong dari server)';
                 }
+
+                // Meta waktu respons
+                const meta = document.createElement('div');
+                meta.className = 'meta-waktu';
+                meta.textContent = '⏱ ' + detik + ' detik';
+                chatBody.appendChild(meta);
             } catch (error) {
-                chatBody.innerHTML += `<div class="pesan bot" style="color:red;">Koneksi terputus.</div>`;
+                const detik = ((performance.now() - t0) / 1000).toFixed(2);
+                mengetikEl.classList.remove('typing-wrap');
+                mengetikEl.style.color = 'red';
+                mengetikEl.textContent = 'Koneksi terputus.';
+                const meta = document.createElement('div');
+                meta.className = 'meta-waktu';
+                meta.textContent = '⏱ ' + detik + ' detik';
+                chatBody.appendChild(meta);
+            } finally {
+                btnKirim.disabled = false;
+                inputPesan.disabled = false;
+                inputPesan.focus();
+                scrollBawah();
             }
-            chatBody.scrollTop = chatBody.scrollHeight;
         }
 
         // Trigger kirim
