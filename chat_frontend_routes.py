@@ -2,6 +2,7 @@ import os
 import uuid
 from fastapi import Request
 from fastapi.responses import JSONResponse, HTMLResponse
+from starlette.concurrency import run_in_threadpool
 from google.cloud import dialogflow
 
 # Import konfigurasi dan fungsi render_page bawaan dari app_core buatan Opus
@@ -22,29 +23,41 @@ def register(app):
         data = await request.json()
         text = data.get("text", "")
         session_id = data.get("session_id", str(uuid.uuid4()))
-        
+
         project_id = CONFIG.get("camerad_project_id")
-        
-        # Menggunakan kredensial dari file JSON yang disetel di CONFIG
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = CONFIG["camerad_service_account_file"]
-        
-        session_client = dialogflow.SessionsClient()
-        session = session_client.session_path(project_id, session_id)
-        
-        text_input = dialogflow.TextInput(text=text, language_code="id")
-        query_input = dialogflow.QueryInput(text=text_input)
-        
-        try:
-            # Kirim teks ke Dialogflow
-            response = session_client.detect_intent(
+
+        # =====================================================================
+        # PENTING (perbaikan self-deadlock 5 detik):
+        # detect_intent() milik Dialogflow bersifat SINKRON/blocking (gRPC).
+        # Bila dipanggil langsung di dalam handler async, ia MEMBLOKIR event
+        # loop. Padahal saat detect_intent menunggu, Dialogflow memanggil
+        # balik webhook /api/df/webhook ke server yang SAMA. Karena event loop
+        # terblokir, callback webhook itu tidak bisa dilayani tepat waktu ->
+        # Dialogflow time out ~5 dtk -> jatuh ke respons STATIS intent
+        # (mis. "Salam!", "Hai!") alih-alih jawaban mesin RAG.
+        #
+        # Solusi: jalankan detect_intent di threadpool sehingga event loop
+        # tetap bebas melayani callback webhook secara paralel.
+        # =====================================================================
+        def _detect():
+            # Kredensial service account khusus camerad
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = CONFIG["camerad_service_account_file"]
+            session_client = dialogflow.SessionsClient()
+            session = session_client.session_path(project_id, session_id)
+            text_input = dialogflow.TextInput(text=text, language_code="id")
+            query_input = dialogflow.QueryInput(text=text_input)
+            return session_client.detect_intent(
                 request={"session": session, "query_input": query_input}
             )
+
+        try:
+            # Kirim teks ke Dialogflow (di threadpool, tidak memblokir loop)
+            response = await run_in_threadpool(_detect)
             qr = response.query_result
             intent = qr.intent
 
-            # is_fallback = True untuk Default Fallback Intent. Kita juga anggap
-            # sebagai fallback bila teks balasan kosong (mis. webhook RAG time out
-            # >5 dtk sehingga Dialogflow hanya mengembalikan respons statis/kosong).
+            # is_fallback = True untuk Default Fallback Intent. Juga dianggap
+            # fallback bila teks balasan kosong (mis. webhook time out).
             is_fallback = bool(getattr(intent, "is_fallback", False))
             reply = qr.fulfillment_text or ""
             if not reply.strip():
