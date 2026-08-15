@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Chat - Agen Hebat</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f5f5f5; margin: 0; }
+        
+        /* Tombol Melayang */
+        .chat-bot-icon {
+            position: fixed; bottom: 20px; right: 20px; height: 60px; width: 60px;
+            background: linear-gradient(135deg, #1976d2, #1565c0);
+            border-radius: 50%; box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer; z-index: 9999; color: white;
+        }
+
+        /* Container Chat */
+        .chat-screen {
+            position: fixed; bottom: 90px; right: 20px; width: 350px; height: 500px;
+            background: white; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            display: flex; flex-direction: column; overflow: hidden;
+            transform: scale(0); transform-origin: bottom right; transition: all 0.3s ease;
+            z-index: 9998;
+        }
+        .chat-screen.show { transform: scale(1); }
+
+        /* Header */
+        .chat-header {
+            background: #1976d2; color: white; padding: 15px; font-weight: bold;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .close-btn { cursor: pointer; font-weight: bold; }
+
+        /* Area Obrolan */
+        .chat-body { flex: 1; padding: 15px; overflow-y: auto; background: #fafafa; }
+        .pesan { margin-bottom: 15px; padding: 10px 15px; border-radius: 15px; max-width: 80%; line-height: 1.4; }
+        .pesan.bot { background: #e3f2fd; color: #0d47a1; align-self: flex-start; border-bottom-left-radius: 2px; }
+        .pesan.user { background: #1976d2; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
+
+        /* Area Input */
+        .chat-input {
+            padding: 10px; border-top: 1px solid #ddd; display: flex; background: white;
+        }
+        .chat-input input {
+            flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 20px; outline: none;
+        }
+        .chat-input button {
+            background: #1976d2; color: white; border: none; padding: 10px 15px; 
+            margin-left: 10px; border-radius: 50%; cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Tombol Melayang -->
+    <div class="chat-bot-icon" id="chat-toggle">💬</div>
+
+    <!-- Container Chat -->
+    <div class="chat-screen" id="chat-screen">
+        <div class="chat-header">
+            <span>Live Chat Pajak</span>
+            <span class="close-btn" id="chat-close">✖</span>
+        </div>
+        <div class="chat-body" id="chat-body">
+            <div class="pesan bot">Halo Kawan Pajak! Ada yang bisa saya bantu hari ini?</div>
+        </div>
+        <div class="chat-input">
+            <input type="text" id="input-pesan" placeholder="Ketik pesan Anda...">
+            <button id="btn-kirim">➤</button>
+        </div>
+    </div>
+
+    <script>
+        const toggleBtn = document.getElementById('chat-toggle');
+        const closeBtn = document.getElementById('chat-close');
+        const chatScreen = document.getElementById('chat-screen');
+        const chatBody = document.getElementById('chat-body');
+        const inputPesan = document.getElementById('input-pesan');
+        const btnKirim = document.getElementById('btn-kirim');
+
+        // Buka/Tutup Chat
+        toggleBtn.addEventListener('click', () => chatScreen.classList.add('show'));
+        closeBtn.addEventListener('click', () => chatScreen.classList.remove('show'));
+
+        // ID Sesi Unik
+        const sessionId = "wp-" + Math.random().toString(36).substr(2, 9);
+
+        // Fungsi Kirim Pesan
+        async function kirimPesan() {
+            const teks = inputPesan.value.trim();
+            if (!teks) return;
+
+            // Tampilkan pesan user
+            chatBody.innerHTML += `<div class="pesan user">${teks}</div>`;
+            inputPesan.value = "";
+            chatBody.scrollTop = chatBody.scrollHeight;
+
+            try {
+                // Tembak ke API Backend (api.agenthebat.com)
+                const response = await fetch('https://api.agenthebat.com/api/chat/detect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: teks, session_id: sessionId })
+                });
+                
+                const data = await response.json();
+                
+                // Tampilkan balasan bot
+                if (data.reply) {
+                    chatBody.innerHTML += `<div class="pesan bot">${data.reply}</div>`;
+                }
+            } catch (error) {
+                chatBody.innerHTML += `<div class="pesan bot" style="color:red;">Koneksi terputus.</div>`;
+            }
+            chatBody.scrollTop = chatBody.scrollHeight;
+        }
+
+        // Trigger kirim
+        btnKirim.addEventListener('click', kirimPesan);
+        inputPesan.addEventListener('keypress', (e) => { if (e.key === 'Enter') kirimPesan(); });
+    </script>
+</body>
+</html>

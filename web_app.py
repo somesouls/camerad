@@ -218,6 +218,12 @@ agent_chat_routes.register(app)
 import df_webhook_routes
 df_webhook_routes.register(app)
 
+
+# --- Endpoint untuk Widget Chat Frontend ---
+import chat_frontend_routes
+chat_frontend_routes.register(app)
+
+
 # --- Menu Evaluasi RAG (poin 2): kumpulkan sampel pertanyaan asli (livechat +
 #     chatbot), jalankan uji keandalan (LLM-as-judge + hold-out AWE), dan
 #     dashboard metrik keandalan/halusinasi + validasi manusia. Khusus admin.

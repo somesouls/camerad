@@ -32,6 +32,9 @@ CONFIG = {
     "project_id": os.environ.get("PIPELINE_PROJECT_ID", "avaya-djp-klipbot-prod"),
     "service_account_file": os.environ.get("PIPELINE_SA_FILE")
     or os.path.join(BASE_DIR, "service-account.json"),
+    "camerad_project_id": os.environ.get("CAMERAD_PROJECT_ID", "camerad-mcpg"),
+    "camerad_service_account_file": os.environ.get("CAMERAD_SA_FILE")
+    or os.path.join(BASE_DIR, "camerad-service-account.json"),
     "google_scope": "https://www.googleapis.com/auth/cloud-platform",
     "qwen_api_key": os.environ.get("PIPELINE_API_KEY", "sam-n8n-secret"),
     "local_api_base": os.environ.get("PIPELINE_API_BASE") or "http://127.0.0.1:8000",
@@ -43,6 +46,16 @@ CONFIG = {
 XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 app = FastAPI(title="Camerad Studio")
+
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Bintang berarti mengizinkan akses dari domain mana saja
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 _TEMPLATES = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 app.mount("/static", StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
@@ -93,7 +106,7 @@ def render_page(request, template_name, active_page="", extra=None):
 
 # /api/df/webhook = endpoint fulfillment Dialogflow ES (dipanggil server Google),
 # jadi harus publik; keamanannya dijaga oleh token rahasia di df_webhook_routes.
-_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico", "/credit", "/api/df/webhook"}
+_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico", "/credit", "/api/df/webhook", "/api/chat/detect", "/livechat"}
 
 
 def _route_action(method, path):
