@@ -525,14 +525,16 @@ def _clip_peraturan_for(profile):
     return n if (isinstance(n, int) and n > 0) else _CLIP_PERATURAN_DEFAULT
 
 
-def _fastpath_intent(q, profile):
+def _fastpath_intent(q, profile, require_env=True):
     """Jalur cepat ala Dialogflow: jawab LANGSUNG dari intent katalog yang sudah
     diverifikasi analis & punya jawaban cuplikan, tanpa retrieval/LLM sintesis.
 
-    Sengaja konservatif: hanya aktif bila env RAG_FASTPATH_INTENT=1, intent
-    terverifikasi (terverifikasi=1), dan ada jawaban_cuplikan. Gagal-anggun -> None.
+    Sengaja konservatif: hanya aktif bila env RAG_FASTPATH_INTENT=1 (kecuali
+    require_env=False, mis. mode 'tanpa_llm' yang eksplisit meminta jalur ini),
+    intent terverifikasi (terverifikasi=1), dan ada jawaban_cuplikan.
+    Gagal-anggun -> None.
     """
-    if str(os.environ.get("RAG_FASTPATH_INTENT", "0")).strip().lower() not in (
+    if require_env and str(os.environ.get("RAG_FASTPATH_INTENT", "0")).strip().lower() not in (
             "1", "true", "yes", "on"):
         return None
     if imdb is None:
@@ -571,6 +573,49 @@ def _fastpath_intent(q, profile):
             "sources": [{"sumber": "Training Phrase & Intent", "judul": intent, "ref": ""}]}
 
 
+def _resolve_mode(profile):
+    """Mode mesin per-profil (disetel via switch di halaman Webhook Chatbot).
+    Kembalikan '' (auto), 'tanpa_llm', 'llm', atau 'full'."""
+    m = str((profile or {}).get("mode") or "").strip().lower()
+    return m if m in ("tanpa_llm", "llm", "full") else ""
+
+
+def _answer_no_llm(q, profile, allowed):
+    """Mode 'tanpa LLM': jawab TANPA memanggil LLM generatif sama sekali.
+
+    Urutan: (1) jalur cepat intent (jawaban cuplikan terverifikasi); (2) cuplikan
+    teratas hasil retrieval dari sumber lain; (3) kalimat fallback. Router LLM &
+    sintesis LLM sengaja dilewati. Catatan: retrieval tetap boleh memakai
+    embedding/reranker (bukan LLM generatif) bila diaktifkan.
+    """
+    # (1) Jalur cepat intent - abaikan gerbang env karena mode ini eksplisit.
+    if "intent" in allowed:
+        fp = _fastpath_intent(q, profile, require_env=False)
+        if fp:
+            res = {"ok": True, "answer": fp["answer"], "grounded": True,
+                   "profil": profile.get("id"), "domain": "intent", "jalur": "tanpa_llm"}
+            if profile.get("tampil_sumber"):
+                res["sources"] = _dedup_sources(fp["sources"])
+            return res
+    # (2) Cuplikan teratas dari sumber lain (tanpa sintesis LLM).
+    order = [s for s in ("intent", "sop", "sosmed", "awe", "peraturan") if s in allowed]
+    for key in order:
+        t, s = _retrieve_one(key, q)
+        if t and t.strip():
+            res = {"ok": True, "answer": _clip(t, 1200), "grounded": True,
+                   "profil": profile.get("id"),
+                   "domain": ("peraturan" if key == "peraturan" else "umum"),
+                   "jalur": "tanpa_llm"}
+            if profile.get("tampil_sumber"):
+                res["sources"] = _dedup_sources(s)
+            return res
+    # (3) Fallback.
+    fallback = profile.get("fallback") or rcfg.FALLBACK_DEFAULT
+    return {"ok": True, "answer": fallback, "grounded": False,
+            "profil": profile.get("id"), "domain": "umum",
+            "jalur": "tanpa_llm", "sources": []}
+
+
 # ==========================================================================
 # Orkestrasi pipeline.
 # ==========================================================================
@@ -580,10 +625,23 @@ def answer(question, profile, override=None, history=None, diagnostics=False):
     if not q:
         return {"ok": False, "error": "Pertanyaan kosong."}
 
-    # Profil 'cepat' (mis. chatbot pengganti Dialogflow): pangkas biaya LLM —
-    # lewati loop verifikasi (maks_loop=0) & AI-rewrite, dan boleh jalur cepat
-    # FAQ/intent. Mode penuh tetap dipakai di playground (diagnostics=True).
-    fast = _is_fast_profile(profile) and not diagnostics
+    # Mode mesin per-profil (switch di halaman "Webhook Chatbot"):
+    #   ''(auto)    -> ikut env (profil 'cepat' seperti perilaku bawaan)
+    #   'tanpa_llm' -> TANPA LLM generatif (jalur cepat intent + cuplikan retrieval)
+    #   'llm'       -> pakai LLM tapi hemat (tanpa loop verifikasi & AI-rewrite)
+    #   'full'      -> pipeline penuh (AI-rewrite + loop verifikasi + sintesis)
+    # Playground /rag-lab (diagnostics=True) selalu memakai pipeline penuh.
+    mode = _resolve_mode(profile)
+    if diagnostics:
+        no_llm, fast = False, False
+    elif mode == "full":
+        no_llm, fast = False, False
+    elif mode == "llm":
+        no_llm, fast = False, True
+    elif mode == "tanpa_llm":
+        no_llm, fast = True, False
+    else:
+        no_llm, fast = False, _is_fast_profile(profile)
 
     # Budget potong isi pasal peraturan per-profil (agent lebih longgar) ->
     # dibaca _ctx_peraturan lewat contextvar.
@@ -591,19 +649,23 @@ def answer(question, profile, override=None, history=None, diagnostics=False):
         _clip_peraturan_ctx.set(_clip_peraturan_for(profile))
     except Exception:
         pass
-    # Tandai profil aktif (+ 'cepat') ke modul rewrite agar AI-rewrite bisa
-    # dilewati untuk profil cepat. Aman bila modul tak tersedia.
+    # Tandai profil aktif ke modul rewrite; AI-rewrite (LLM) dilewati untuk mode
+    # 'cepat' maupun 'tanpa_llm'. Aman bila modul tak tersedia.
     if rag_rewrite is not None:
         try:
-            rag_rewrite.set_context(profile.get("id"), fast=fast)
+            rag_rewrite.set_context(profile.get("id"), fast=(fast or no_llm))
         except Exception:
             pass
 
+    # [1] Sumber efektif (checkbox profil / override playground).
+    allowed = effective_sources(profile, override)
+
+    # Mode TANPA LLM: jawab tanpa memanggil LLM generatif sama sekali.
+    if no_llm:
+        return _answer_no_llm(q, profile, allowed)
+
     diag = {"router": None, "retrieval": [], "verifikasi": [],
             "sumber_dipakai": [], "eskalasi": []}
-
-    # [1] Router
-    allowed = effective_sources(profile, override)
 
     # [1b] Jalur cepat FAQ/intent (ala Dialogflow): jawab langsung dari intent
     # terverifikasi tanpa retrieval/LLM. Opt-in via RAG_FASTPATH_INTENT=1.
