@@ -231,6 +231,14 @@ chat_frontend_routes.register(app)
 import eval_routes
 eval_routes.register(app)
 
+# --- Menu Evaluasi RAG · Chatbot: pengujian KHUSUS profil chatbot, terpisah
+#     dari profil agent. Tiga metode: (1) coverage training-phrase top-intent,
+#     (2) deflection pertanyaan fallback + riwayat percakapan, (3) uji beban
+#     concurrency mesin RAG. Khusus admin (area 'peraturan'). Didaftarkan
+#     setelah eval_routes karena berbagi mesin & profil RAG. ---
+import eval_chatbot_routes
+eval_chatbot_routes.register(app)
+
 # --- Menu Peraturan (sumber resource #5): kelola basis data peraturan perpajakan
 #     (migrasi dari repositori jakai). Dipakai juga sebagai sumber grounding RAG. ---
 import peraturan_routes
