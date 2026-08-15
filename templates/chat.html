@@ -39,8 +39,12 @@
         .pesan.bot { background: #e3f2fd; color: #0d47a1; align-self: flex-start; border-bottom-left-radius: 2px; }
         .pesan.user { background: #1976d2; color: white; margin-left: auto; border-bottom-right-radius: 2px; }
 
+        /* Balasan FALLBACK (bukan dari mesin RAG) -> gaya berbeda */
+        .pesan.bot.fallback { background: #fff3e0; color: #e65100; border: 1px dashed #ffb74d; }
+
         /* Meta waktu respons (kecil, di bawah balasan bot) */
         .meta-waktu { font-size: 11px; color: #90a4ae; margin: -8px 0 15px 4px; }
+        .meta-waktu.fallback { color: #ef6c00; }
 
         /* Indikator "sedang mengetik" */
         .typing { display: inline-flex; align-items: center; gap: 4px; }
@@ -113,6 +117,14 @@
             return el;
         }
 
+        // Tambah baris meta (waktu respons + tanda cadangan bila fallback)
+        function tambahMeta(detik, isFallback) {
+            const meta = document.createElement('div');
+            meta.className = 'meta-waktu' + (isFallback ? ' fallback' : '');
+            meta.textContent = '⏱ ' + detik + ' detik' + (isFallback ? ' · ⚠ jawaban cadangan (bukan dari mesin RAG)' : '');
+            chatBody.appendChild(meta);
+        }
+
         // Fungsi Kirim Pesan
         async function kirimPesan() {
             const teks = inputPesan.value.trim();
@@ -142,32 +154,28 @@
 
                 const data = await response.json();
                 const detik = ((performance.now() - t0) / 1000).toFixed(2);
+                const isFallback = !!(data && data.is_fallback);
 
                 // Ganti indikator mengetik dengan balasan bot
                 mengetikEl.classList.remove('typing-wrap');
                 if (data && data.reply) {
                     mengetikEl.textContent = data.reply;
+                    if (isFallback) mengetikEl.classList.add('fallback');
                 } else if (data && data.error) {
-                    mengetikEl.style.color = 'red';
+                    mengetikEl.classList.add('fallback');
                     mengetikEl.textContent = 'Error: ' + data.error;
                 } else {
+                    mengetikEl.classList.add('fallback');
                     mengetikEl.textContent = '(balasan kosong dari server)';
                 }
 
-                // Meta waktu respons
-                const meta = document.createElement('div');
-                meta.className = 'meta-waktu';
-                meta.textContent = '⏱ ' + detik + ' detik';
-                chatBody.appendChild(meta);
+                tambahMeta(detik, isFallback);
             } catch (error) {
                 const detik = ((performance.now() - t0) / 1000).toFixed(2);
                 mengetikEl.classList.remove('typing-wrap');
-                mengetikEl.style.color = 'red';
+                mengetikEl.classList.add('fallback');
                 mengetikEl.textContent = 'Koneksi terputus.';
-                const meta = document.createElement('div');
-                meta.className = 'meta-waktu';
-                meta.textContent = '⏱ ' + detik + ' detik';
-                chatBody.appendChild(meta);
+                tambahMeta(detik, true);
             } finally {
                 btnKirim.disabled = false;
                 inputPesan.disabled = false;

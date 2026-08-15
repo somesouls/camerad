@@ -39,6 +39,25 @@ def register(app):
             response = session_client.detect_intent(
                 request={"session": session, "query_input": query_input}
             )
-            return {"reply": response.query_result.fulfillment_text, "session_id": session_id}
+            qr = response.query_result
+            intent = qr.intent
+
+            # is_fallback = True untuk Default Fallback Intent. Kita juga anggap
+            # sebagai fallback bila teks balasan kosong (mis. webhook RAG time out
+            # >5 dtk sehingga Dialogflow hanya mengembalikan respons statis/kosong).
+            is_fallback = bool(getattr(intent, "is_fallback", False))
+            reply = qr.fulfillment_text or ""
+            if not reply.strip():
+                is_fallback = True
+
+            return {
+                "reply": reply,
+                "session_id": session_id,
+                "intent": getattr(intent, "display_name", "") or "",
+                "confidence": round(
+                    float(getattr(qr, "intent_detection_confidence", 0.0) or 0.0), 3
+                ),
+                "is_fallback": is_fallback,
+            }
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)})
