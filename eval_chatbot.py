@@ -13,6 +13,7 @@ TERPISAH dari tabel agent (eval_run/eval_result) agar tidak mengganggu menu Eval
 """
 import json
 import math
+import re
 import time
 import uuid
 import threading
@@ -112,6 +113,54 @@ def _fallback_text(profile):
     return (profile.get("fallback") or rcfg.FALLBACK_DEFAULT)
 
 
+# ---------------------------------------------------------------- filter sampel
+# Token menu / navigasi / event yang BUKAN pertanyaan wajib pajak sungguhan.
+_MENU_TOKENS = {
+    "menu utama", "menu", "home", "kembali", "welcome", "mulai", "start",
+    "ya", "tidak", "iya", "lanjut", "batal", "ok", "oke", "selesai",
+    "test", "testing", "abc", "asdf", "qwerty", "coba",
+}
+
+
+def _looks_junk(phrase):
+    """True bila frasa fallback jelas BUKAN pertanyaan nyata (perlu dibuang dari
+    sampel Metode 2): fragmen HTML, kode chip menu (cbxNN), token navigasi,
+    penanda testing, atau murni angka/kode (nomor tiket/telepon)."""
+    p = (phrase or "").strip()
+    if len(p) < 4:
+        return True
+    low = p.lower()
+    if "<" in p or ">" in p or "style=" in low or "http://" in low or "https://" in low:
+        return True
+    if re.match(r"^cbx\d+$", low):
+        return True
+    if low in _MENU_TOKENS:
+        return True
+    if "testing" in low:
+        return True
+    if re.match(r"^[\d\s.,/#:+()-]+$", p):
+        return True
+    # harus ada minimal satu kata alfabet >= 3 huruf agar dianggap pertanyaan
+    if not re.findall(r"[a-zA-Z\u00c0-\u024f]{3,}", p):
+        return True
+    return False
+
+
+def _is_clean_turn(turn):
+    """Turn 'bersih' = user menjawab & intent MATCH (bukan fallback, bukan
+    System_/Umum_, bukan event WELCOME). HANYA turn seperti ini yang boleh
+    dijadikan riwayat percakapan sebelumnya."""
+    if turn.get("is_fallback"):
+        return False
+    it = (turn.get("intent") or "").strip()
+    if not it or it.startswith("System_") or it.startswith("Umum_"):
+        return False
+    up = (turn.get("user_phrase") or "").strip()
+    if not up or up.upper() == "WELCOME":
+        return False
+    return True
+
+
 def _run_one(profile, question, history=None):
     t0 = time.time()
     try:
@@ -173,6 +222,16 @@ def sample_intent_phrases(top_n=100, window="90d", lang=None, per_intent=12):
 
 
 def _first_occurrence_context(conn, phrase, start, end, lang, max_history=6):
+    """Rekonstruksi konteks percakapan untuk satu frasa fallback.
+
+    Definisi 'riwayat' (sesuai kebutuhan): HANYA giliran user yang MATCH intent
+    (bersih) + jawaban bot SEBELUM turn fallback ini. Turn WELCOME/system dan
+    turn fallback lain TIDAK dihitung sebagai riwayat.
+
+    first_turn=True  -> tidak ada giliran bersih sebelum fallback (mis. user
+                        langsung fallback tepat setelah WELCOME). Diuji tanpa riwayat.
+    first_turn=False -> ada >=1 giliran bersih sebelumnya (lanjutan). Diuji DENGAN riwayat.
+    """
     target = adb._norm_phrase(phrase)
     try:
         det = adb.candidate_detail(conn, phrase, start, end, lang)
@@ -187,22 +246,36 @@ def _first_occurrence_context(conn, phrase, start, end, lang, max_history=6):
         tx = adb.session_transcript(conn, sid)
     except Exception:
         tx = []
+    # Cari turn FALLBACK pertama yang cocok frasa target.
     idx = None
     for i, turn in enumerate(tx):
-        if adb._norm_phrase(turn.get("user_phrase")) == target:
+        if turn.get("is_fallback") and adb._norm_phrase(turn.get("user_phrase")) == target:
             idx = i
             break
+    if idx is None:                       # cadangan: cocokkan tanpa syarat fallback
+        for i, turn in enumerate(tx):
+            if adb._norm_phrase(turn.get("user_phrase")) == target:
+                idx = i
+                break
     if idx is None:
         return {"first_turn": True, "history": [], "session_id": sid}
-    first_turn = (idx == 0)
-    history = []
-    for turn in tx[:idx][-int(max_history):]:
+    # Susun riwayat HANYA dari giliran bersih (match) sebelum turn fallback ini.
+    pairs = []
+    for turn in tx[:idx]:
+        if not _is_clean_turn(turn):
+            continue
         up = (turn.get("user_phrase") or "").strip()
         br = (turn.get("bot_response") or "").strip()
+        pairs.append((up, br))
+    max_pairs = max(1, int(max_history) // 2)
+    pairs = pairs[-max_pairs:]
+    history = []
+    for up, br in pairs:
         if up:
             history.append({"role": "user", "content": up})
         if br:
             history.append({"role": "assistant", "content": br})
+    first_turn = (len(history) == 0)
     return {"first_turn": first_turn, "history": history, "session_id": sid}
 
 
@@ -210,8 +283,10 @@ def sample_fallback_questions(window="30d", min_count=2, limit=200, lang=None, m
     conn = adb.init_db(adb.connect())
     try:
         start, end = adb.resolve_range(window)
-        nqs = adb.new_questions(conn, start, end, limit=int(limit) * 4, min_len=3, lang=lang)
-        nqs = [q for q in nqs if int(q.get("count") or 0) >= int(min_count)][: int(limit)]
+        # Ambil lebih banyak kandidat mentah karena sebagian akan dibuang filter sampah.
+        nqs = adb.new_questions(conn, start, end, limit=int(limit) * 6, min_len=3, lang=lang)
+        nqs = [q for q in nqs if int(q.get("count") or 0) >= int(min_count)]
+        nqs = [q for q in nqs if not _looks_junk(q.get("phrase"))][: int(limit)]
         out = []
         for q in nqs:
             phrase = q["phrase"]
@@ -326,6 +401,28 @@ def compute_metrics(conn, run_id, metode):
         fu_n = [r for r in rows if not r["first_turn"] and not r["with_history"]]
         if fu_n:
             m["followup_no_history"] = dr(fu_n)
+    if metode == "chatbot_intent":
+        # Diagnosis penyebab fallback pada frasa yang SEHARUSNYA dikenali:
+        #  - recall_miss          : intent asal frasa TIDAK ikut terambil retrieval.
+        #  - retrieved_but_abstain: intent asal TERAMBIL, tapi mesin tetap abstain
+        #                           (verifikasi/grounding terlalu ketat).
+        miss = 0
+        abst = 0
+        for r in rows:
+            if not r["fallback_hit"]:
+                continue
+            intent = (r.get("intent") or "").strip()
+            try:
+                srcs = json.loads(r.get("sources") or "[]")
+            except Exception:
+                srcs = []
+            hay = " || ".join(str(s.get("judul", "")) for s in srcs if isinstance(s, dict))
+            if intent and intent in hay:
+                abst += 1
+            else:
+                miss += 1
+        m["recall_miss"] = miss
+        m["retrieved_but_abstain"] = abst
     lat = [r["latency_ms"] for r in rows if r.get("latency_ms") is not None]
     if lat:
         ls = sorted(lat)
@@ -561,6 +658,9 @@ def report(run_id=None, metode=None, only=None):
                 d["history"] = json.loads(d.get("history") or "[]")
             except Exception:
                 d["history"] = []
+            # Diagnosis Metode 1: apakah intent asal frasa ikut terambil retrieval?
+            hay = " || ".join(str(s.get("judul", "")) for s in d["sources"] if isinstance(s, dict))
+            d["self_retrieved"] = bool(d.get("intent")) and ((d.get("intent") or "") in hay)
         if only == "fallback":
             rows = [d for d in rows if d.get("fallback_hit")]
         elif only == "hallucination":
