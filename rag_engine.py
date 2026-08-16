@@ -31,6 +31,10 @@ try:
 except Exception:            # pragma: no cover
     ris = None
 try:
+    import rag_reranker
+except Exception:            # pragma: no cover
+    rag_reranker = None
+try:
     import intentmap_db as imdb
 except Exception:            # pragma: no cover
     imdb = None
@@ -103,6 +107,43 @@ def _intent_topk():
         return 6
 
 
+def _rerank_intent_picks(q, picks, top_k):
+    """Rerank cross-encoder atas kandidat intent hasil fusi (opsional).
+
+    picks: list entri {"d": <katalog dict>, "skor": float} terurut menurun.
+    Mengembalikan list entri yang SAMA namun terurut ulang oleh cross-encoder
+    (rag_reranker). Hanya pool teratas yang dinilai ulang demi hemat latensi;
+    sisanya ditempel di belakang. Bila reranker nonaktif/tak tersedia atau
+    error, kembalikan picks apa adanya (gagal-anggun).
+    """
+    if rag_reranker is None or not picks or len(picks) < 2:
+        return picks
+    try:
+        if not rag_reranker.is_available():
+            return picks
+    except Exception:
+        return picks
+    try:
+        pool_n = max(int(top_k) * 3, 8)
+    except Exception:
+        pool_n = 12
+    pool, rest = picks[:pool_n], picks[pool_n:]
+    rows = []
+    for e in pool:
+        d = (e or {}).get("d") or {}
+        judul = str(d.get("intent") or "")
+        isi = (str(d.get("jawaban_cuplikan") or "").strip()
+               or str(d.get("deskripsi_cakupan") or "").strip()
+               or str(d.get("deskripsi_maksud") or "").strip())
+        rows.append({"judul": judul, "isi": isi, "_e": e})
+    try:
+        ordered = rag_reranker.rerank(q, rows, top_k=None) or []
+    except Exception:
+        return picks
+    out = [r["_e"] for r in ordered if isinstance(r, dict) and r.get("_e") is not None]
+    return (out + rest) if out else picks
+
+
 # ==========================================================================
 # Tahap 2 — Retrieval per sumber (identik dengan pilot; dipindah ke engine).
 # ==========================================================================
@@ -150,20 +191,34 @@ def _ctx_dialogflow(q):
             cat_rows = []
 
         # (A) Peringkat LEKSIKAL — hitung kemunculan token (kuat utk kata kunci).
+        # (4) Untuk kueri PENDEK (sedikit token bermakna, mis. "coretax",
+        # "lupa efin"), kueri biasanya merujuk LANGSUNG ke nama intent atau
+        # contoh training phrase, bukan uraian panjang. Maka beri bobot lebih
+        # besar pada kecocokan NAMA-INTENT & TRAINING PHRASE untuk kueri pendek.
+        short_n = _env_int("RAG_INTENT_SHORTQ_TOKENS", 3) or 3
+        name_boost = _env_int("RAG_INTENT_NAME_BOOST", 3) or 3
+        tp_boost = _env_int("RAG_INTENT_TP_BOOST", 2) or 2
+        is_short_q = 0 < len(toks) <= short_n
         lex_scored = []
         if toks:
             for r in cat_rows:
                 d = dict(r)
                 tps = _json_list(d.get("training_phrase_contoh"))
                 iname = str(d.get("intent") or "")
+                iname_l = iname.lower()
+                tp_hay = " ".join(str(x) for x in tps).lower()
                 hay = " ".join([
                     iname, str(d.get("deskripsi_maksud") or ""),
                     str(d.get("deskripsi_cakupan") or ""),
                     str(d.get("jawaban_cuplikan") or ""),
-                    " ".join(str(x) for x in tps),
+                    tp_hay,
                 ]).lower()
                 score = sum(hay.count(t) for t in toks)
-                score += 2 * sum(1 for t in toks if t in iname.lower())
+                name_hits = sum(1 for t in toks if t in iname_l)
+                score += 2 * name_hits
+                if is_short_q:
+                    score += name_boost * name_hits
+                    score += tp_boost * sum(tp_hay.count(t) for t in toks)
                 if score > 0:
                     lex_scored.append((score, d))
             lex_scored.sort(key=lambda x: -x[0])
@@ -200,7 +255,12 @@ def _ctx_dialogflow(q):
             e["skor"] += 0.15 * float(s or 0)
 
         picks = sorted(fused.values(), key=lambda e: -e["skor"])
-        for e in picks[:_intent_topk()]:
+        # (C2) Rerank cross-encoder (opsional, env RAG_RERANK): baca pasangan
+        # (pertanyaan, kandidat) sekaligus untuk skor relevansi lebih akurat
+        # atas hasil fusi. Gagal-anggun -> urutan fusi dipertahankan.
+        top_k = _intent_topk()
+        picks = _rerank_intent_picks(q, picks, top_k)
+        for e in picks[:top_k]:
             d = e["d"]
             intent = str(d.get("intent") or "")
             ans = (d.get("jawaban_cuplikan") or "").strip()
