@@ -38,6 +38,7 @@ Endpoint:
   POST /api/df/webhook/config/rotate -> (admin) ganti token rahasia
   POST /api/df/webhook/test          -> (admin) uji fast-path (tanpa Dialogflow)
 """
+import os
 import time
 import threading
 
@@ -130,16 +131,22 @@ def ambil_job(session_key):
             "is_fallback": bool(job.get("is_fallback")),
             "durasi_backend": job.get("durasi_backend"),
             "pertanyaan": job.get("pertanyaan") or "",
+            "intent": job.get("intent") or "",
+            "topik": job.get("topik") or "",
         }
 
 
-def _kerja_rag(skey, question, history, profil, turns, fallback):
+def _kerja_rag(skey, question, history, profil, turns, fallback, intent=""):
     """Dijalankan di thread latar belakang: hitung RAG lalu simpan ke job."""
     jawaban = ""
     is_fb = False
+    topik = ""
     try:
         res = rag_engine.jawab_chat(question, history, profil)
         ans = (res or {}).get("answer") or ""
+        # 'topik' = domain/kategori yang disimpulkan mesin RAG (mis. 'intent',
+        # 'peraturan', 'aplikasi', 'umum'). Berguna untuk observabilitas log.
+        topik = str((res or {}).get("domain") or "").strip()
         if res and res.get("ok") and ans.strip():
             jawaban = ans
             _hist_add(skey, turns, question, jawaban)
@@ -160,11 +167,13 @@ def _kerja_rag(skey, question, history, profil, turns, fallback):
             job["is_fallback"] = is_fb
             job["status"] = "done"
             job["t_selesai"] = t_selesai
+            job["topik"] = topik
             durasi = round(t_selesai - job["t_diterima"], 3)
             job["durasi_backend"] = durasi
             ev = job.get("ev")
     try:
         print(f"[Opsi B] sesi={skey} durasi_backend={durasi}s fallback={is_fb} "
+              f"intent={intent or '-'} topik={topik or '-'} "
               f"(pesan masuk webhook -> jawaban siap)")
     except Exception:
         pass
@@ -195,7 +204,21 @@ def _df_reply(text):
 
 
 def _public_url(request):
-    base = str(request.base_url).rstrip("/")
+    """URL publik endpoint webhook untuk ditampilkan di halaman admin.
+
+    Di balik Cloudflare tunnel / reverse-proxy, request.base_url sering berupa
+    alamat INTERNAL (mis. http://0.0.0.0:8080) sehingga URL yang ditampilkan
+    salah bila dicopy ke konsol Dialogflow. Utamakan basis publik dari env
+    CAMERAD_PUBLIC_BASE; bila kosong dan base_url terlihat internal, pakai
+    domain publik bawaan (https://api.agenthebat.com).
+    """
+    base = (os.environ.get("CAMERAD_PUBLIC_BASE") or "").strip().rstrip("/")
+    if not base:
+        rb = str(request.base_url).rstrip("/")
+        if any(h in rb for h in ("0.0.0.0", "127.0.0.1", "localhost")):
+            base = "https://api.agenthebat.com"
+        else:
+            base = rb
     return base + "/api/df/webhook"
 
 
@@ -255,12 +278,14 @@ def register(app):
                 "t_diterima": now,
                 "t_selesai": None,
                 "durasi_backend": None,
+                "intent": intent,
+                "topik": "",
                 "ev": ev,
             }
         history = _hist_get(skey, turns)
         threading.Thread(
             target=_kerja_rag,
-            args=(skey, question, history, profil, turns, fallback),
+            args=(skey, question, history, profil, turns, fallback, intent),
             daemon=True,
         ).start()
 
