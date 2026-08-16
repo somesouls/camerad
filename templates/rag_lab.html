@@ -131,6 +131,13 @@ textarea.prompt { min-height:230px; font-family:ui-monospace,SFMono-Regular,Menl
         <div class="field" style="margin-bottom:10px;">
           <textarea id="qTxt" rows="3" placeholder="mis. Bagaimana cara mengurus EFIN yang lupa?"></textarea>
         </div>
+        <div class="field" style="margin-bottom:10px;">
+          <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:var(--text-main); margin-bottom:0;">
+            <input type="checkbox" id="prodMode" style="width:16px; height:16px; accent-color:var(--accent);">
+            <span>Mode produksi — ikuti mode nyata profil (mis. chatbot = cepat / tanpa loop verifikasi)</span>
+          </label>
+          <div class="hint">Default (mati) memaksa pipeline penuh + diagnostik. Aktifkan untuk melihat perilaku persis seperti produksi.</div>
+        </div>
         <div class="row">
           <button class="btn primary" id="btnRun">▶ Jalankan uji</button>
           <span class="hint" id="runMsg"></span>
@@ -319,7 +326,8 @@ textarea.prompt { min-height:230px; font-family:ui-monospace,SFMono-Regular,Menl
     var srcs=checkedSources(); if(!srcs.length){ $('runMsg').textContent='Centang minimal satu sumber.'; return; }
     $('btnRun').disabled=true; $('runMsg').textContent='Memproses…';
     $('result').innerHTML='<div class="empty-r">Memproses pipeline (router → retrieval → verifikasi → sintesis)…</div>';
-    var body={ question:q, profil:$('profSel').value, sumber:srcs, history:[] };
+    var body={ question:q, profil:$('profSel').value, sumber:srcs, history:[],
+      prod_mode: ($('prodMode') ? $('prodMode').checked : false) };
     fetch('/api/rag/lab',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
       .then(function(r){return r.json();}).then(function(j){ $('btnRun').disabled=false; $('runMsg').textContent=''; renderResult(j); })
       .catch(function(){ $('btnRun').disabled=false; $('runMsg').textContent=''; $('result').innerHTML='<div class="empty-r" style="color:var(--c-red-txt)">Gagal terhubung ke server.</div>'; });
