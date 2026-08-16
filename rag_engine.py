@@ -122,6 +122,17 @@ def _ctx_dialogflow(q):
         return "", []
     blocks, sources = [], []
     toks = _tokens(q, k=12)
+    # Perluas token pencocokan LEKSIKAL dengan kamus sinonim/akronim (non-LLM,
+    # jadi tetap jalan pada mode cepat). Mis. "error PPN" -> tambah token
+    # "pajak","pertambahan","nilai" agar intent "Kode Error ... PPN" ikut terjaring.
+    try:
+        if rag_rewrite is not None:
+            for _term in (rag_rewrite.expand_kamus(q) or []):
+                for _t in _tokens(_term, k=6):
+                    if _t not in toks:
+                        toks.append(_t)
+    except Exception:
+        pass
     try:
         try:
             imdb.init_catalog(c)
@@ -678,7 +689,8 @@ def _answer_no_llm(q, profile, allowed):
 # ==========================================================================
 # Orkestrasi pipeline.
 # ==========================================================================
-def answer(question, profile, override=None, history=None, diagnostics=False):
+def answer(question, profile, override=None, history=None, diagnostics=False,
+           honor_mode=False):
     q = (question or "").strip()
     fallback = profile.get("fallback") or rcfg.FALLBACK_DEFAULT
     if not q:
@@ -689,9 +701,12 @@ def answer(question, profile, override=None, history=None, diagnostics=False):
     #   'tanpa_llm' -> TANPA LLM generatif (jalur cepat intent + cuplikan retrieval)
     #   'llm'       -> pakai LLM tapi hemat (tanpa loop verifikasi & AI-rewrite)
     #   'full'      -> pipeline penuh (AI-rewrite + loop verifikasi + sintesis)
-    # Playground /rag-lab (diagnostics=True) selalu memakai pipeline penuh.
+    # Playground /rag-lab (diagnostics=True) biasanya memaksa pipeline penuh.
+    # Namun bila honor_mode=True (opsi \"mode produksi\" di RAG Lab), tetap ikuti
+    # mode NYATA profil (mis. 'cepat' untuk chatbot) supaya diagnostik
+    # mencerminkan perilaku produksi sebenarnya.
     mode = _resolve_mode(profile)
-    if diagnostics:
+    if diagnostics and not honor_mode:
         no_llm, fast = False, False
     elif mode == "full":
         no_llm, fast = False, False
@@ -833,10 +848,11 @@ def jawab_chat(question, history=None, profil="chatbot"):
     return answer(question, p, override=None, history=history, diagnostics=False)
 
 
-def jawab_lab(question, profil, sumber_override, history=None):
+def jawab_lab(question, profil, sumber_override, history=None, prod_mode=False):
     p = rcfg.get_profile(profil) or rcfg.get_profile("chatbot")
     if not p:
         return {"ok": False, "error": "Profil RAG belum tersedia."}
     if sumber_override is not None and not isinstance(sumber_override, list):
         sumber_override = None
-    return answer(question, p, override=sumber_override, history=history, diagnostics=True)
+    return answer(question, p, override=sumber_override, history=history,
+                  diagnostics=True, honor_mode=bool(prod_mode))
