@@ -105,6 +105,25 @@ details summary { cursor:pointer; }
     <div class="bar" id="m3_bar" style="display:none;"><span style="width:0%"></span></div>
     <div id="m3_dash"></div>
   </div>
+
+  <div class="card">
+    <h3>Metode 4 · Peta Recall (murah, tersimpan permanen)</h3>
+    <div class="desc">Memetakan intent mana yang SUDAH tertangani mesin dan mana yang BELUM — hasil DISIMPAN permanen. Sebuah intent dianggap <b>terjawab</b> HANYA bila SEMUA variasi training phrase-nya dijawab juri <b>benar</b>. Juri LLM dipakai saat pemetaan; intent yang sudah terjawab TIDAK diuji/dinilai ulang. Centang “Hanya yang belum” agar uji-ulang cuma menyasar intent belum terjawab (hemat). Perbaiki gap lewat menu <a href="/kamus">Kamus &amp; Rewriting</a> (akronim/sinonim), lalu uji ulang.</div>
+    <div class="row">
+      <div class="field"><label>Profil</label><select id="m4_profil"></select></div>
+      <div class="field"><label>Top intent</label><select id="m4_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
+      <div class="field"><label>Rentang</label><select id="m4_window"><option value="90d">90 hari</option><option value="30d">30 hari</option><option value="all">Semua</option></select></div>
+      <div class="field"><label>Frasa/intent</label><input type="number" id="m4_per" value="12" min="1" max="12" style="width:110px"></div>
+      <div class="field"><label>Batasi intent (0=semua)</label><input type="number" id="m4_limit" value="0" min="0" style="width:150px"></div>
+      <label class="field small" style="align-self:center"><input type="checkbox" id="m4_only" checked> Hanya yang belum terjawab</label>
+      <button class="btn primary" id="m4_run">▶ Petakan</button>
+      <button class="btn ghost" id="m4_stop" style="display:none;">Hentikan</button>
+      <button class="btn ghost" id="m4_refresh">Muat peta</button>
+    </div>
+    <div class="hint" id="m4_msg"></div>
+    <div class="bar" id="m4_bar" style="display:none;"><span style="width:0%"></span></div>
+    <div id="m4_dash"></div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -113,8 +132,8 @@ details summary { cursor:pointer; }
   var PROFILES = {{ profil_list|tojson }};
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
-  ['m1_profil','m2_profil','m3_profil'].forEach(function(id){
-    var sel=$(id); (PROFILES||[]).forEach(function(p){ var o=document.createElement('option'); o.value=p.id; o.textContent=(p.nama||p.id)+' ('+p.id+')'; sel.appendChild(o); });
+  ['m1_profil','m2_profil','m3_profil','m4_profil'].forEach(function(id){
+    var sel=$(id); if(!sel) return; (PROFILES||[]).forEach(function(p){ var o=document.createElement('option'); o.value=p.id; o.textContent=(p.nama||p.id)+' ('+p.id+')'; sel.appendChild(o); });
     if(sel.querySelector('option[value=chatbot]')) sel.value='chatbot';
   });
   function post(url,body){ return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}).then(function(r){return r.json();}); }
@@ -260,6 +279,81 @@ details summary { cursor:pointer; }
       if(j.suggestion) $('m3_conc').value=Math.max(1,j.suggestion);
     }).catch(function(){ $('m3_peakmsg').textContent='Gagal terhubung.'; });
   });
+
+  // ---- Metode 4: Peta Recall (persisten) ----
+  (function(){
+    var poll=null, curRun=null, curFilter='';
+    function msg(t){ $('m4_msg').textContent=t||''; }
+    function loadMap(filter){
+      curFilter = (filter!=null? filter : curFilter) || '';
+      var url='/api/eval/chatbot/map/list'+(curFilter?('?status='+encodeURIComponent(curFilter)):'');
+      fetch(url).then(function(r){return r.json();}).then(function(j){ renderMap(j); }).catch(function(){});
+    }
+    function renderMap(j){
+      var d=$('m4_dash'); if(!j||!j.ok){ d.innerHTML='<div class="hint">Belum ada peta. Klik “Petakan” untuk membangunnya.</div>'; return; }
+      var m=j.metrik||{}; var h='<div class="kpi-grid">';
+      h+=kpi(m.total_intent||0,'Total intent dipetakan');
+      h+=kpi((m.terjawab||0),'Terjawab','ok');
+      h+=kpi((m.belum||0),'Belum terjawab',(m.belum?'bad':'ok'));
+      h+=kpi((m.pct_terjawab!=null?m.pct_terjawab+'%':'–'),'% Terjawab',(m.pct_terjawab>=90?'ok':''));
+      h+='</div>';
+      h+='<div class="row" style="margin:10px 0;">'
+        +'<button class="btn ghost" data-f="">Semua</button>'
+        +'<button class="btn ghost" data-f="belum">Belum</button>'
+        +'<button class="btn ghost" data-f="terjawab">Terjawab</button>'
+        +'<button class="btn ghost" id="m4_resetall" style="margin-left:auto;">Batalkan semua status</button></div>';
+      var rows=j.results||[];
+      h+='<table><tr><th>Intent</th><th>Status</th><th>Benar/Total</th><th>Masalah</th><th></th></tr>';
+      rows.forEach(function(r){
+        var st = r.status==='terjawab' ? '<span class="tag benar">terjawab</span>'
+               : (r.manual? '<span class="tag salah">dibatalkan</span>' : '<span class="tag">belum</span>');
+        var prob=[]; if(r.n_salah) prob.push(r.n_salah+' salah'); if(r.n_halusinasi) prob.push(r.n_halusinasi+' halusinasi'); if(r.n_abstain) prob.push(r.n_abstain+' abstain');
+        h+='<tr><td><a href="#" class="m4int" data-i="'+esc(r.intent)+'">'+esc(r.intent)+'</a></td>'
+          +'<td>'+st+'</td><td>'+(r.n_benar||0)+'/'+(r.n_total||0)+'</td>'
+          +'<td class="small mut">'+esc(prob.join(', '))+'</td>'
+          +'<td>'+(r.status==='terjawab'?('<button class="btn ghost small m4reset" data-i="'+esc(r.intent)+'">batalkan</button>'):'')+'</td></tr>';
+      });
+      h+='</table><div id="m4_detail"></div>';
+      d.innerHTML=h;
+      Array.prototype.forEach.call(d.querySelectorAll('button[data-f]'), function(b){ b.addEventListener('click', function(){ loadMap(b.getAttribute('data-f')); }); });
+      var ra=$('m4_resetall'); if(ra) ra.addEventListener('click', function(){ if(!confirm('Batalkan status TERJAWAB untuk semua intent?')) return; post('/api/eval/chatbot/map/reset',{all:true}).then(function(){ loadMap(); }); });
+      Array.prototype.forEach.call(d.querySelectorAll('.m4reset'), function(b){ b.addEventListener('click', function(e){ e.preventDefault(); post('/api/eval/chatbot/map/reset',{intent:b.getAttribute('data-i')}).then(function(){ loadMap(); }); }); });
+      Array.prototype.forEach.call(d.querySelectorAll('.m4int'), function(a){ a.addEventListener('click', function(e){ e.preventDefault(); loadDetail(a.getAttribute('data-i')); }); });
+    }
+    function loadDetail(intent){
+      fetch('/api/eval/chatbot/map/intent?intent='+encodeURIComponent(intent)).then(function(r){return r.json();}).then(function(j){
+        var box=$('m4_detail'); if(!box||!j||!j.ok) return;
+        var h='<div class="card" style="margin-top:10px;"><div class="small mut">Detail frasa: '+esc(intent)+'</div>';
+        (j.phrases||[]).forEach(function(p){
+          h+='<div class="qbox"><span class="tag '+esc(p.verdict||'')+'">'+esc(p.verdict||'?')+'</span> '+esc(p.phrase)
+            +(p.alasan?('<br><span class="small mut">'+esc(p.alasan)+'</span>'):'')+'</div>';
+        });
+        if(!(j.phrases||[]).length) h+='<div class="hint">Belum ada detail frasa.</div>';
+        h+='</div>'; box.innerHTML=h;
+      });
+    }
+    function setProg(run){
+      var pct=run.n_total?Math.round(run.n_done/run.n_total*100):0;
+      $('m4_bar').style.display='block'; $('m4_bar').firstChild.style.width=pct+'%';
+      msg('Memetakan '+run.n_done+'/'+run.n_total+' ('+pct+'%) · '+run.status+(run.note?(' · '+run.note):''));
+      if(run.status==='running'){ $('m4_stop').style.display=''; }
+      else { $('m4_stop').style.display='none'; if(poll){clearInterval(poll);poll=null;} loadMap(); }
+    }
+    $('m4_run').addEventListener('click', function(){
+      $('m4_run').disabled=true; msg('Memulai…');
+      var body={ profil:$('m4_profil').value, top_n:parseInt($('m4_top').value,10), window:$('m4_window').value, per_intent:parseInt($('m4_per').value||'12',10), only_unanswered:$('m4_only').checked, judge:true, limit:parseInt($('m4_limit').value||'0',10) };
+      post('/api/eval/chatbot/map/start', body).then(function(j){
+        $('m4_run').disabled=false;
+        if(!j||!j.ok){ msg('Gagal: '+((j&&j.error)||'?')); return; }
+        if(!j.run_id||!j.n_total){ msg(j.note||'Tidak ada intent untuk dipetakan.'); loadMap(); return; }
+        curRun=j.run_id; msg('Berjalan… '+j.n_intent+' intent, '+j.n_total+' frasa');
+        if(poll) clearInterval(poll);
+        poll=setInterval(function(){ fetch('/api/eval/chatbot/map/status?run='+encodeURIComponent(curRun)).then(function(r){return r.json();}).then(function(s){ if(s&&s.ok&&s.run) setProg(s.run); }); }, 2500);
+      }).catch(function(){ $('m4_run').disabled=false; msg('Gagal terhubung.'); });
+    });
+    $('m4_stop').addEventListener('click', function(){ if(curRun) post('/api/eval/chatbot/map/stop',{run:curRun}); });
+    $('m4_refresh').addEventListener('click', function(){ loadMap(''); });
+  })();
 })();
 </script>
 {% endblock %}
