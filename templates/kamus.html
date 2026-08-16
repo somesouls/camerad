@@ -140,6 +140,22 @@ code{word-break:break-word;}
     }).catch(function(e){box.innerHTML='<p style="color:#dc2626;">Error: '+esc(e)+'</p>';});
   };
 
+  // Prefill dari halaman lain (mis. shortcut "belum terjawab -> Kamus" di
+  // Evaluasi Chatbot): /kamus?sinonim=<frasa> atau /kamus?istilah=<istilah>.
+  (function(){
+    try{
+      var sp=new URLSearchParams(window.location.search||'');
+      var pi=(sp.get('istilah')||'').trim(), ps=(sp.get('sinonim')||'').trim();
+      if(pi||ps){
+        if(pi) $('fIstilah').value=pi;
+        if(ps) $('fSinonim').value=ps;
+        $('saveMsg').textContent='Diisi otomatis dari Evaluasi — lengkapi istilah baku lalu Simpan.';
+        window.scrollTo({top:0,behavior:'smooth'});
+        setTimeout(function(){ try{ (pi?$('fSinonim'):$('fIstilah')).focus(); }catch(e){} }, 300);
+      }
+    }catch(e){}
+  })();
+
   loadStats();loadList();
 })();
 </script>

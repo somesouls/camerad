@@ -61,7 +61,7 @@ details.ph { border:1px solid var(--panel-border); border-radius:8px; margin:8px
 
   <div class="card">
     <h3>Metode 1 · Peta Recall — Uji Training Phrase per Intent</h3>
-    <div class="desc">Seperti lab uji otomatis (tanpa input manual). Tiap <b>training phrase</b> dari TOP intent Dialogflow yang sering terpanggil diproses mesin RAG → dirakit prompt → dilempar ke LLM → menghasilkan jawaban → dinilai <b>juri LLM</b>. Tujuannya: memetakan apakah mesin RAG-LLM sudah mampu menjawab yang selama ini sudah dikenali bot lama. Hasil DISIMPAN permanen (sistem update). Sebuah intent <b>terjawab</b> HANYA bila SEMUA frasanya dinilai <b>benar</b>. Perbaiki gap lewat menu <a href="/kamus">Kamus &amp; Rewriting</a>, lalu uji ulang.</div>
+    <div class="desc">Seperti lab uji otomatis (tanpa input manual). Tiap <b>training phrase</b> dari TOP intent Dialogflow yang sering terpanggil diproses mesin RAG → dirakit prompt → dilempar ke LLM → menghasilkan jawaban → dinilai <b>juri LLM</b>. Tujuannya: memetakan apakah mesin RAG-LLM sudah mampu menjawab yang selama ini sudah dikenali bot lama. Hasil DISIMPAN permanen (sistem update). Sebuah intent <b>terjawab</b> HANYA bila SEMUA frasanya dinilai <b>benar</b>. Perbaiki gap lewat menu <a href="/kamus">Kamus &amp; Rewriting</a> — pada tiap frasa yang gagal tersedia tombol <b>➕ Tambah ke Kamus</b>, lalu uji ulang.</div>
     <div class="row">
       <div class="field"><label>Top intent</label><select id="m1_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
       <div class="field"><label>Rentang</label><select id="m1_window"><option value="90d">90 hari</option><option value="30d">30 hari</option><option value="all">Semua</option></select></div>
@@ -200,11 +200,12 @@ details.ph { border:1px solid var(--panel-border); border-radius:8px; margin:8px
         if(!ph.length){ box.innerHTML='<div class="hint" style="padding:8px;">Belum ada frasa diuji untuk intent ini.</div>'; return; }
         var h='';
         ph.forEach(function(p){
+          var bad = p.verdict && p.verdict!=='benar' && p.verdict!=='abstain_benar';
           h+='<details class="ph"><summary style="padding:8px;"><span class="tag '+esc(p.verdict||'')+'">'+esc(p.verdict||'?')+'</span> '+esc(p.phrase)+(p.latency_ms!=null?(' <span class="small mut">· '+Math.round(p.latency_ms)+' ms</span>'):'')+'</summary>';
           h+='<div class="grid3">';
           h+='<div><b class="small">Prompt (dirangkai mesin RAG)</b><pre>'+esc(p.prompt||'(kosong — jalur fallback / tanpa prompt LLM)')+'</pre></div>';
           h+='<div><b class="small">Jawaban LLM</b><div class="qbox">'+esc(p.answer||'(kosong)')+'</div></div>';
-          h+='<div><b class="small">Juri LLM</b><div class="qbox"><span class="tag '+esc(p.verdict||'')+'">'+esc(p.verdict||'?')+'</span>'+(p.skor!=null?(' · skor '+p.skor):'')+'</div>'+(p.alasan?('<div class="qbox mut small">'+esc(p.alasan)+'</div>'):'')+'</div>';
+          h+='<div><b class="small">Juri LLM</b><div class="qbox"><span class="tag '+esc(p.verdict||'')+'">'+esc(p.verdict||'?')+'</span>'+(p.skor!=null?(' · skor '+p.skor):'')+'</div>'+(p.alasan?('<div class="qbox mut small">'+esc(p.alasan)+'</div>'):'')+(bad?('<div style="margin-top:6px;"><a href="/kamus?sinonim='+encodeURIComponent(p.phrase||'')+'" target="_blank" rel="noopener" style="font-size:11.5px;color:var(--accent);text-decoration:none;font-weight:600;">➕ Tambah frasa ini ke Kamus</a></div>'):'')+'</div>';
           h+='</div></details>';
         });
         box.innerHTML=h;
