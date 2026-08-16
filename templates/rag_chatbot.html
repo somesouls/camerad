@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% block title %}Konfigurasi RAG Chatbot · Camerad Studio{% endblock %}
+{% block head %}
+<style>
+.cfg-wrap{ max-width:1180px; margin:0 auto; padding:8px 28px 60px; }
+.cfg-head h1{ font-size:24px; font-weight:800; letter-spacing:-.02em; margin:6px 0 4px; }
+.cfg-head p{ color:var(--text-muted); margin:0 0 20px; font-size:14px; }
+.cfg-grid{ display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start; }
+.card{ background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:16px; padding:18px 20px; margin-bottom:18px; }
+.card h3{ font-size:15px; font-weight:700; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+.card .sub{ color:var(--text-muted); font-size:12.5px; margin:0 0 14px; }
+.field{ margin-bottom:14px; }
+.field label{ display:block; font-size:12.5px; font-weight:600; color:var(--text-muted); margin-bottom:6px; }
+.field input[type=number], .field input[type=text], .field textarea, .field select{ width:100%; background:var(--bg-base); border:1px solid var(--panel-border); color:var(--text-main); border-radius:10px; padding:10px 12px; font-family:inherit; font-size:14px; outline:none; }
+.field textarea{ resize:vertical; min-height:160px; line-height:1.5; }
+.field input:focus, .field textarea:focus, .field select:focus{ border-color:var(--accent); }
+.row2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.src-row{ display:flex; align-items:flex-start; gap:10px; padding:9px 0; border-bottom:1px solid var(--panel-border); }
+.src-row:last-child{ border-bottom:none; }
+.src-row input{ margin-top:3px; width:16px; height:16px; accent-color:var(--accent); flex:none; }
+.src-row .sr-txt b{ font-size:13.5px; }
+.src-row .sr-txt span{ display:block; font-size:12px; color:var(--text-muted); }
+.chips{ display:flex; flex-wrap:wrap; gap:6px; margin-bottom:4px; }
+.chip{ font-size:11.5px; border:1px solid var(--panel-border); border-radius:999px; padding:4px 10px; cursor:pointer; color:var(--text-muted); background:transparent; }
+.chip:hover{ border-color:var(--accent); color:var(--accent); }
+.btn{ border:1px solid var(--panel-border); background:transparent; color:var(--text-main); border-radius:10px; padding:10px 18px; font-size:14px; font-weight:600; cursor:pointer; transition:.15s; }
+.btn:hover{ border-color:var(--accent); color:var(--accent); }
+.btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+.btn.primary:hover{ background:var(--accent-hover); color:#fff; }
+.btn:disabled{ opacity:.5; cursor:not-allowed; }
+.savebar{ display:flex; align-items:center; gap:14px; margin:2px 0 26px; }
+.saveok{ font-size:13px; color:var(--c-green-txt); }
+.saveerr{ font-size:13px; color:var(--c-red-txt); }
+.hint{ font-size:11.5px; color:var(--text-muted); margin-top:6px; text-align:left; }
+.t-ans{ white-space:pre-wrap; line-height:1.6; font-size:14px; color:var(--text-main); }
+.mono{ font-family:ui-monospace,monospace; font-size:11.5px; white-space:pre-wrap; color:var(--text-muted); background:var(--bg-base); border:1px solid var(--panel-border); border-radius:10px; padding:10px; max-height:280px; overflow:auto; }
+.badge{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px; display:inline-block; }
+.badge.g{ background:var(--c-green); color:var(--c-green-txt); }
+.badge.f{ background:var(--c-orange); color:var(--c-orange-txt); }
+.stat-row{ display:flex; flex-wrap:wrap; gap:10px; margin:6px 0 16px; }
+.stat{ flex:1; min-width:120px; border:1px solid var(--panel-border); border-radius:12px; padding:12px 14px; }
+.stat b{ display:block; font-size:22px; font-weight:800; line-height:1.1; }
+.stat span{ font-size:12px; color:var(--text-muted); }
+.stat.up b{ color:var(--c-green-txt); } .stat.down b{ color:var(--c-red-txt); }
+.filter-row{ display:flex; flex-wrap:wrap; gap:10px; margin-bottom:14px; align-items:flex-end; }
+.filter-row .fg{ display:flex; flex-direction:column; gap:4px; }
+.filter-row label{ font-size:11px; color:var(--text-muted); font-weight:600; }
+.filter-row input, .filter-row select{ background:var(--bg-base); border:1px solid var(--panel-border); color:var(--text-main); border-radius:9px; padding:8px 10px; font-size:13px; font-family:inherit; outline:none; }
+.filter-row input:focus, .filter-row select:focus{ border-color:var(--accent); }
+.tbl-scroll{ overflow-x:auto; border:1px solid var(--panel-border); border-radius:12px; }
+table.rv{ width:100%; border-collapse:collapse; font-size:13px; min-width:900px; }
+table.rv th, table.rv td{ text-align:left; padding:10px 12px; border-bottom:1px solid var(--panel-border); vertical-align:top; }
+table.rv th{ font-size:11.5px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); position:sticky; top:0; background:var(--panel-bg); }
+table.rv tr:last-child td{ border-bottom:none; }
+table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--text-muted); }
+.rv-src{ display:flex; flex-direction:column; gap:4px; }
+.rv-src a, .rv-src span{ font-size:11.5px; color:var(--accent); text-decoration:none; word-break:break-word; }
+.rv-src span{ color:var(--text-muted); }
+.empty-r{ text-align:center; color:var(--text-muted); padding:26px; font-size:13px; }
+@media (max-width:900px){ .cfg-grid{ grid-template-columns:1fr; } }
+</style>
+{% endblock %}
+{% block content %}
+<div class="cfg-wrap">
+  <div class="cfg-head">
+    <h1>⚙️ Konfigurasi Mesin RAG — Chatbot Dialogflow (Wajib Pajak)</h1>
+    <p>Atur sumber pengetahuan, batas penggunaan harian, parameter mesin, dan persona untuk profil <b>chatbot</b> (layanan Wajib Pajak lewat Dialogflow). Perubahan langsung berlaku pada jawaban chatbot. Halaman ini terkunci ke profil <b>chatbot</b>.</p>
+  </div>
+
+  <div class="cfg-grid">
+    <div class="cfg-col">
+      <div class="card">
+        <h3>🧩 Sumber Pengetahuan Aktif</h3>
+        <div class="sub">Aktif / nonaktifkan sumber yang boleh dicari mesin untuk grounding jawaban chatbot.</div>
+        <div id="srcList"></div>
+        <div class="hint">Minimal satu sumber sebaiknya aktif. Jika semua dimatikan, sistem memakai seluruh sumber sebagai cadangan.</div>
+      </div>
+
+      <div class="card">
+        <h3>⏱️ Batas Penggunaan Harian</h3>
+        <div class="sub">Berlaku per hari untuk kanal chatbot (zona waktu Asia/Jakarta).</div>
+        <div class="row2">
+          <div class="field"><label>Maks. pertanyaan / hari</label><input type="number" id="qMaks" min="0" step="1" placeholder="0 = nonaktif"></div>
+          <div class="field"><label>Maks. token / jawaban</label><input type="number" id="qTok" min="0" step="1" placeholder="0 = default"></div>
+        </div>
+        <div class="hint">Isi 0 pada maks. pertanyaan untuk menonaktifkan batas. Maks. token 0 = pakai default mesin.</div>
+      </div>
+
+      <div class="card">
+        <h3>🔧 Parameter Mesin</h3>
+        <div class="row2">
+          <div class="field"><label>Putaran verifikasi (loop)</label><input type="number" id="pLoop" min="0" max="4" step="1"></div>
+          <div class="field"><label>Suhu (kreativitas)</label><input type="number" id="pSuhu" min="0" max="1" step="0.1"></div>
+        </div>
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="pShow" style="width:16px;height:16px;accent-color:var(--accent);"> Tampilkan tautan sumber pada jawaban chatbot
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="cfg-col">
+      <div class="card">
+        <h3>🤖 Persona &amp; System Prompt</h3>
+        <div class="field"><label>Nama persona</label><input type="text" id="pNama" placeholder="Chatbot Kring Pajak"></div>
+        <div class="field">
+          <label>Sisipkan penanda sumber ke prompt</label>
+          <div class="chips" id="chipRow"></div>
+        </div>
+        <div class="field"><label>System prompt</label><textarea id="pPrompt" placeholder="Instruksi persona, gaya bahasa, aturan menjawab..."></textarea>
+          <div class="hint">Gunakan {{ '{{konteks}}' }}, {{ '{{sumber}}' }}, dan {{ '{{fallback}}' }} sebagai placeholder yang akan diisi mesin.</div>
+        </div>
+        <div class="field"><label>Kalimat fallback (saat konteks tidak ditemukan)</label><textarea id="pFallback" style="min-height:90px;"></textarea></div>
+      </div>
+
+      <div class="card">
+        <h3>🧪 Uji Cepat (on-demand)</h3>
+        <div class="sub">Uji satu pertanyaan memakai konfigurasi profil <b>chatbot</b> yang tersimpan. Hasil tidak disimpan — simpan konfigurasi dulu untuk menguji perubahan.</div>
+        <div class="field" style="margin-bottom:10px;"><textarea id="tQ" style="min-height:70px;" placeholder="mis. Bagaimana cara mengurus EFIN yang lupa?"></textarea></div>
+        <div class="field" style="margin-bottom:10px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="tProd" style="width:16px;height:16px;accent-color:var(--accent);"> Mode produksi (ikuti mode nyata profil; matikan untuk pipeline penuh + diagnostik)
+          </label>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <button class="btn primary" id="btnTest">▶ Jalankan uji</button>
+          <span class="hint" id="tMsg" style="margin-top:0;"></span>
+        </div>
+        <div id="tResult" style="margin-top:12px;"><div class="empty-r">Belum ada hasil.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="savebar">
+    <button class="btn primary" id="btnSave">Simpan Konfigurasi Chatbot</button>
+    <span id="saveMsg"></span>
+  </div>
+
+  <div class="card">
+    <h3>📊 Review Log Chatbot</h3>
+    <div class="sub">Tinjau interaksi chatbot yang tercatat (bila ada) lengkap dengan sumber &amp; penilaian. Untuk evaluasi menyeluruh gunakan menu Evaluasi RAG · Chatbot.</div>
+    <div class="stat-row" id="statRow"></div>
+    <div class="filter-row">
+      <div class="fg"><label>Cari pengguna</label><input type="text" id="fName" placeholder="ketik..."></div>
+      <div class="fg"><label>Feedback</label><select id="fFb"><option value="">Semua</option><option value="up">👍 Naik</option><option value="down">👎 Turun</option><option value="none">Belum dinilai</option></select></div>
+      <div class="fg"><label>Grounding</label><select id="fGr"><option value="">Semua</option><option value="1">Grounded</option><option value="0">Fallback</option></select></div>
+      <div class="fg"><label>Domain</label><select id="fDom"><option value="">Semua</option></select></div>
+      <div class="fg"><label>Rentang</label><select id="fRange"><option value="all">Semua waktu</option><option value="today">Hari ini</option><option value="7d">7 hari</option><option value="30d">30 hari</option></select></div>
+      <div class="fg"><label>&nbsp;</label><button class="btn" id="btnReload">Segarkan</button></div>
+    </div>
+    <div id="logWrap"><div class="empty-r">Memuat…</div></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var SRC_VALID = {{ sumber_valid|tojson }};
+  var SRC_LABEL = {{ sumber_label|tojson }};
+  var PROFIL = 'chatbot';
+  var SRC_DESC = {
+    intent:'Training phrase &amp; jawaban resmi Dialogflow',
+    awe:'Percakapan historis AWE (Avaya)',
+    sosmed:'Q&amp;A media sosial (X / IG / TikTok)',
+    peraturan:'Basis data peraturan perpajakan',
+    sop:'SOP &amp; proses bisnis internal'
+  };
+  var el=function(id){return document.getElementById(id);};
+  function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  var profil=null;
+
+  function renderSrc(active){
+    var set={}; (active||[]).forEach(function(k){set[k]=1;});
+    el('srcList').innerHTML = SRC_VALID.map(function(k){
+      var on = set[k]?'checked':'';
+      return '<label class="src-row"><input type="checkbox" data-src="'+k+'" '+on+'><span class="sr-txt"><b>'+esc(SRC_LABEL[k]||k)+'</b><span>'+(SRC_DESC[k]||'')+'</span></span></label>';
+    }).join('');
+  }
+  function chosenSrc(){
+    var out=[];
+    el('srcList').querySelectorAll('input[data-src]').forEach(function(i){ if(i.checked) out.push(i.getAttribute('data-src')); });
+    return out;
+  }
+  function renderChips(){
+    el('chipRow').innerHTML = SRC_VALID.map(function(k){
+      return '<button type="button" class="chip" data-ins="@'+k+'">@'+esc(k)+'</button>';
+    }).join('');
+  }
+
+  function loadProfile(){
+    fetch('/api/rag/profiles').then(function(r){return r.json();}).then(function(d){
+      var list=(d&&d.profil)||[];
+      profil = list.filter(function(p){return p.id===PROFIL;})[0] || {};
+      el('pNama').value = profil.nama||'';
+      el('pPrompt').value = profil.system_prompt||'';
+      el('pFallback').value = profil.fallback||'';
+      el('pLoop').value = (profil.maks_loop!=null?profil.maks_loop:2);
+      el('pSuhu').value = (profil.suhu!=null?profil.suhu:0.3);
+      el('pShow').checked = !!profil.tampil_sumber;
+      renderSrc(profil.sumber||[]);
+    }).catch(function(){ renderSrc([]); });
+  }
+  function loadQuota(){
+    fetch('/api/rag/quota').then(function(r){return r.json();}).then(function(d){
+      var q=((d&&d.quota)||[]).filter(function(x){return x.target===PROFIL;})[0]||{};
+      el('qMaks').value = (q.maks_tanya!=null?q.maks_tanya:0);
+      el('qTok').value = (q.maks_token!=null?q.maks_token:0);
+    }).catch(function(){});
+  }
+
+  function saveAll(){
+    var msg=el('saveMsg'); msg.textContent='Menyimpan…'; msg.className='';
+    var body={ id:PROFIL, nama:el('pNama').value.trim(), system_prompt:el('pPrompt').value,
+      fallback:el('pFallback').value, sumber:chosenSrc(),
+      maks_loop:parseInt(el('pLoop').value||'2',10),
+      suhu:parseFloat(el('pSuhu').value||'0.3'),
+      tampil_sumber: el('pShow').checked?1:0 };
+    var p1=fetch('/api/rag/profile/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();});
+    var qbody={ target:PROFIL, maks_tanya:parseInt(el('qMaks').value||'0',10), maks_token:parseInt(el('qTok').value||'0',10) };
+    var p2=fetch('/api/rag/quota/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(qbody)}).then(function(r){return r.json();});
+    Promise.all([p1,p2]).then(function(res){
+      var ok=res[0]&&res[0].ok!==false && res[1]&&res[1].ok!==false;
+      if(ok){ msg.textContent='✔ Konfigurasi tersimpan.'; msg.className='saveok'; }
+      else { msg.textContent='✖ Sebagian gagal: '+(((res[0]||{}).error)||((res[1]||{}).error)||''); msg.className='saveerr'; }
+      setTimeout(function(){ if(msg.className==='saveok'){ msg.textContent=''; } },4000);
+    }).catch(function(e){ msg.textContent='✖ Gagal: '+e.message; msg.className='saveerr'; });
+  }
+
+  function renderTest(j){
+    var box=el('tResult');
+    if(!j||!j.ok){ box.innerHTML='<div class="empty-r" style="color:var(--c-red-txt)">'+esc((j&&j.error)||'Gagal.')+'</div>'; return; }
+    var html='<div style="margin-bottom:6px;">'+(j.grounded?'<span class="badge g">grounded</span>':'<span class="badge f">fallback</span>');
+    if(j.domain) html+=' <span class="badge" style="background:var(--c-blue);color:var(--c-blue-txt)">domain: '+esc(j.domain)+'</span>';
+    html+='</div><div class="t-ans">'+esc(j.answer||'')+'</div>';
+    if(j.sources&&j.sources.length){ html+='<div class="rv-src" style="margin-top:8px">'+j.sources.map(function(s){var t=esc((s.sumber||'')+' · '+(s.judul||''));return s.url?'<a href="'+esc(s.url)+'" target="_blank" rel="noopener">🔗 '+t+'</a>':'<span>'+t+'</span>';}).join('')+'</div>'; }
+    if(j.prompt_final){ html+='<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--accent)">Lihat prompt final</summary><div class="mono">'+esc(j.prompt_final)+'</div></details>'; }
+    box.innerHTML=html;
+  }
+  function runTest(){
+    var q=el('tQ').value.trim(); if(!q){ el('tMsg').textContent='Isi pertanyaan dulu.'; return; }
+    var srcs=chosenSrc(); if(!srcs.length){ el('tMsg').textContent='Centang minimal satu sumber.'; return; }
+    el('btnTest').disabled=true; el('tMsg').textContent='Memproses…'; el('tResult').innerHTML='<div class="empty-r">Memproses pipeline…</div>';
+    var body={question:q, profil:PROFIL, sumber:srcs, history:[], prod_mode: el('tProd').checked};
+    fetch('/api/rag/lab',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){el('btnTest').disabled=false; el('tMsg').textContent=''; renderTest(j);}).catch(function(){el('btnTest').disabled=false; el('tMsg').textContent=''; el('tResult').innerHTML='<div class="empty-r" style="color:var(--c-red-txt)">Gagal terhubung.</div>';});
+  }
+
+  function tsWIB(ts){
+    if(!ts) return '';
+    try{ var d=new Date(ts.replace(' ','T')+'Z');
+      return d.toLocaleString('id-ID',{timeZone:'Asia/Jakarta',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
+    }catch(e){ return ts; }
+  }
+  function srcCell(sources){
+    if(!sources||!sources.length) return '<span style="color:var(--text-muted)">—</span>';
+    return '<div class="rv-src">'+sources.map(function(s){
+      var t=esc((s.sumber||'')+' · '+(s.judul||''));
+      if(s.url) return '<a href="'+esc(s.url)+'" target="_blank" rel="noopener">🔗 '+t+'</a>';
+      return '<span>'+t+'</span>';
+    }).join('')+'</div>';
+  }
+  function fbIc(f){ return f==='up'?'👍':(f==='down'?'👎':'<span style="color:var(--text-muted)">–</span>'); }
+
+  function renderStats(st){
+    st=st||{up:0,down:0,none:0,total:0};
+    var pct=function(n){ return st.total?Math.round(n*100/st.total):0; };
+    el('statRow').innerHTML =
+      '<div class="stat"><b>'+st.total+'</b><span>Total interaksi</span></div>'+
+      '<div class="stat up"><b>'+st.up+'</b><span>👍 Akurat ('+pct(st.up)+'%)</span></div>'+
+      '<div class="stat down"><b>'+st.down+'</b><span>👎 Keliru ('+pct(st.down)+'%)</span></div>'+
+      '<div class="stat"><b>'+st.none+'</b><span>Belum dinilai</span></div>';
+  }
+  function renderDomains(list){
+    var sel=el('fDom'); var cur=sel.value;
+    sel.innerHTML='<option value="">Semua</option>'+(list||[]).map(function(d){return '<option value="'+esc(d)+'">'+esc(d)+'</option>';}).join('');
+    sel.value=cur;
+  }
+  function renderLogs(logs){
+    if(!logs||!logs.length){ el('logWrap').innerHTML='<div class="empty-r">Belum ada data sesuai filter.</div>'; return; }
+    var rows=logs.map(function(m){
+      var ans=(m.answer||'');
+      return '<tr>'+
+        '<td>'+esc(tsWIB(m.ts))+'</td>'+
+        '<td>'+esc(m.username||'—')+'</td>'+
+        '<td class="q">'+esc(m.question||'')+'</td>'+
+        '<td class="a">'+esc(ans.slice(0,180))+(ans.length>180?'…':'')+'</td>'+
+        '<td>'+srcCell(m.sources)+'</td>'+
+        '<td>'+esc(m.domain||'—')+'</td>'+
+        '<td>'+(m.grounded?'<span class="badge g">grounded</span>':'<span class="badge f">fallback</span>')+'</td>'+
+        '<td style="text-align:center">'+fbIc(m.feedback)+'</td>'+
+        '</tr>';
+    }).join('');
+    el('logWrap').innerHTML='<div class="tbl-scroll"><table class="rv"><thead><tr>'+
+      '<th>Waktu (WIB)</th><th>Pengguna</th><th>Pertanyaan</th><th>Jawaban</th><th>Sumber</th><th>Domain</th><th>Grounding</th><th>Nilai</th>'+
+      '</tr></thead><tbody>'+rows+'</tbody></table></div>';
+  }
+  function loadLogs(){
+    var qs=['profil='+PROFIL];
+    var name=el('fName').value.trim(); if(name) qs.push('q='+encodeURIComponent(name));
+    var fb=el('fFb').value; if(fb) qs.push('feedback='+fb);
+    var gr=el('fGr').value; if(gr) qs.push('grounded='+gr);
+    var dm=el('fDom').value; if(dm) qs.push('domain='+encodeURIComponent(dm));
+    var rg=el('fRange').value; if(rg) qs.push('range='+rg);
+    el('logWrap').innerHTML='<div class="empty-r">Memuat…</div>';
+    fetch('/api/rag/logs?'+qs.join('&')).then(function(r){return r.json();}).then(function(d){
+      if(!(d&&d.ok)){ el('logWrap').innerHTML='<div class="empty-r">Gagal memuat: '+esc((d&&d.error)||'')+'</div>'; return; }
+      renderStats(d.stats); renderDomains(d.domains); renderLogs(d.logs);
+    }).catch(function(e){ el('logWrap').innerHTML='<div class="empty-r">Gagal: '+esc(e.message)+'</div>'; });
+  }
+
+  document.addEventListener('click',function(ev){
+    var c=ev.target.closest?ev.target.closest('.chip[data-ins]'):null;
+    if(c){ var ta=el('pPrompt'); var ins=c.getAttribute('data-ins'); var p=ta.selectionStart||ta.value.length;
+      ta.value=ta.value.slice(0,p)+ins+' '+ta.value.slice(p); ta.focus(); }
+  });
+  el('btnSave').onclick=saveAll;
+  el('btnTest').onclick=runTest;
+  el('btnReload').onclick=loadLogs;
+  el('fFb').onchange=loadLogs; el('fGr').onchange=loadLogs; el('fDom').onchange=loadLogs; el('fRange').onchange=loadLogs;
+  var t=null; el('fName').addEventListener('input',function(){ clearTimeout(t); t=setTimeout(loadLogs,350); });
+
+  renderChips(); loadProfile(); loadQuota(); loadLogs();
+})();
+</script>
+{% endblock %}

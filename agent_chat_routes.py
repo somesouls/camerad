@@ -14,6 +14,7 @@ Endpoint:
   GET  /api/rag/quota      -> (admin) lihat kuota harian agent & chatbot
   POST /api/rag/quota/save -> (admin) setel kuota harian
   GET  /rag-agent          -> (admin) halaman konfigurasi mesin RAG profil agent
+  GET  /rag-chatbot        -> (admin) halaman konfigurasi mesin RAG profil chatbot
   GET  /api/rag/logs       -> (admin) daftar log chat + feedback untuk review
 """
 from fastapi import Request
@@ -129,6 +130,12 @@ def register(app):
             "sumber_label": rcfg.SUMBER_LABEL,
         })
 
+    async def page_rag_chatbot(request: Request):
+        return render_page(request, "rag_chatbot.html", "rag_chatbot", {
+            "sumber_valid": list(rcfg.SUMBER_VALID),
+            "sumber_label": rcfg.SUMBER_LABEL,
+        })
+
     async def api_rag_logs(request: Request):
         qp = request.query_params
 
@@ -156,4 +163,5 @@ def register(app):
     app.add_api_route("/api/rag/quota", api_rag_quota, methods=["GET"])
     app.add_api_route("/api/rag/quota/save", api_rag_quota_save, methods=["POST"])
     app.add_api_route("/rag-agent", page_rag_agent, methods=["GET"])
+    app.add_api_route("/rag-chatbot", page_rag_chatbot, methods=["GET"])
     app.add_api_route("/api/rag/logs", api_rag_logs, methods=["GET"])

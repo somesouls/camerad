@@ -150,10 +150,10 @@ def _route_area(path):
     # /api/rag agar tidak jatuh ke aturan 'common' di bawah. Ditaruh paling awal.
     if path in ("/rag-eval", "/rag-eval-chatbot") or path.startswith("/api/eval"):
         return "peraturan"
-    # Playground RAG (uji sumber/prompt) + Konfigurasi RAG Agent + kelola profil
-    # + kuota harian + review log feedback = khusus admin. Ditaruh sebelum
-    # aturan /api/rag generik agar tidak jatuh ke 'common'.
-    if (path == "/rag-lab" or path == "/rag-agent"
+    # Playground RAG (uji sumber/prompt) + Konfigurasi RAG Agent + Konfigurasi
+    # RAG Chatbot + kelola profil + kuota harian + review log feedback = khusus
+    # admin. Ditaruh sebelum aturan /api/rag generik agar tidak jatuh ke 'common'.
+    if (path == "/rag-lab" or path == "/rag-agent" or path == "/rag-chatbot"
             or path.startswith("/api/rag/lab")
             or path.startswith("/api/rag/profile")
             or path.startswith("/api/rag/quota")
