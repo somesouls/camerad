@@ -5,21 +5,22 @@ Rute (area akses 'peraturan' = admin):
   GET  /rag-eval-chatbot                 -> halaman
   GET  /api/eval/chatbot/summary         -> daftar run + profil
   GET  /api/eval/chatbot/peak            -> puncak hit per jendela waktu (saran beban)
-  POST /api/eval/chatbot/intent          -> metode 1 (coverage training-phrase top-intent)
+  POST /api/eval/chatbot/intent          -> metode lama (coverage sekali-jalan, dipertahankan utk kompat)
   POST /api/eval/chatbot/fallback        -> metode 2 (deflection fallback + riwayat)
   POST /api/eval/chatbot/load            -> metode 3 (uji beban/concurrency)
   GET  /api/eval/chatbot/status?run=     -> progres run
   GET  /api/eval/chatbot/report?run=&only= -> metrik + hasil
   POST /api/eval/chatbot/stop            -> hentikan run {run}
 
-  -- Metode 4: Peta Recall per-intent (tersimpan permanen) --
-  POST /api/eval/chatbot/map/start       -> mulai pemetaan {profil,top_n,window,per_intent,only_unanswered,judge,limit}
-  GET  /api/eval/chatbot/map/status?run= -> progres pemetaan
-  GET  /api/eval/chatbot/map/list?status=&q= -> daftar intent + status
-  GET  /api/eval/chatbot/map/intent?intent= -> detail per-frasa satu intent
+  -- Metode 1: Peta Recall per-intent (tersimpan permanen) --
+  POST /api/eval/chatbot/map/start       -> mulai uji {profil,top_n,window,per_intent,only_unanswered,judge,limit}
+  GET  /api/eval/chatbot/map/status?run= -> progres uji
+  GET  /api/eval/chatbot/map/list?status=&q=&limit=&offset=&cukup= -> daftar intent (pagination)
+  GET  /api/eval/chatbot/map/intent?intent= -> detail per-frasa satu intent (prompt|jawaban|juri)
   GET  /api/eval/chatbot/map/summary     -> ringkasan status
-  POST /api/eval/chatbot/map/reset       -> batalkan status {intent} atau {all:true}
-  POST /api/eval/chatbot/map/stop        -> hentikan pemetaan {run}
+  POST /api/eval/chatbot/map/cukup       -> tandai/lepas 'cukup' {intent,cukup} atau {all:true,cukup}
+  POST /api/eval/chatbot/map/reset       -> batalkan status 'terjawab' {intent} atau {all:true}
+  POST /api/eval/chatbot/map/stop        -> hentikan uji {run}
 
 Daftarkan: import eval_chatbot_routes; eval_chatbot_routes.register(app)
 """
@@ -52,6 +53,10 @@ def _int(v, default):
         return int(v)
     except Exception:
         return default
+
+
+def _truthy(v):
+    return str(v).strip().lower() in ("1", "true", "ya", "yes", "on")
 
 
 async def page(request: Request):
@@ -139,7 +144,7 @@ async def api_stop(request: Request):
     return JSONResponse(ec.stop((b.get("run") or "").strip()))
 
 
-# ---------------------------------------------------------------- Metode 4: Peta Recall
+# ---------------------------------------------------------------- Metode 1: Peta Recall
 async def api_map_start(request: Request):
     b = await _body(request)
     limit = b.get("limit")
@@ -171,8 +176,17 @@ async def api_map_status(request: Request):
 async def api_map_list(request: Request):
     status = (request.query_params.get("status") or "").strip() or None
     q = (request.query_params.get("q") or "").strip() or None
+    limit = _int(request.query_params.get("limit"), 50)
+    offset = _int(request.query_params.get("offset"), 0)
+    cukup_raw = (request.query_params.get("cukup") or "").strip().lower()
+    cukup = None
+    if cukup_raw in ("1", "true", "ya", "yes"):
+        cukup = True
+    elif cukup_raw in ("0", "false", "tidak", "no"):
+        cukup = False
     try:
-        return JSONResponse(await run_in_threadpool(erm.get_map, status, q, 1000))
+        return JSONResponse(await run_in_threadpool(
+            erm.get_map, status, q, limit, offset, cukup))
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
@@ -190,6 +204,20 @@ async def api_map_intent(request: Request):
 async def api_map_summary(request: Request):
     try:
         return JSONResponse(await run_in_threadpool(erm.summary))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_map_cukup(request: Request):
+    b = await _body(request)
+    cukup = b.get("cukup", True)
+    if isinstance(cukup, str):
+        cukup = _truthy(cukup)
+    try:
+        r = await run_in_threadpool(
+            erm.set_cukup, (b.get("intent") or "").strip() or None,
+            bool(cukup), bool(b.get("all", False)))
+        return JSONResponse(r)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
@@ -225,5 +253,6 @@ def register(app):
     app.add_api_route("/api/eval/chatbot/map/list", api_map_list, methods=["GET"])
     app.add_api_route("/api/eval/chatbot/map/intent", api_map_intent, methods=["GET"])
     app.add_api_route("/api/eval/chatbot/map/summary", api_map_summary, methods=["GET"])
+    app.add_api_route("/api/eval/chatbot/map/cukup", api_map_cukup, methods=["POST"])
     app.add_api_route("/api/eval/chatbot/map/reset", api_map_reset, methods=["POST"])
     app.add_api_route("/api/eval/chatbot/map/stop", api_map_stop, methods=["POST"])
