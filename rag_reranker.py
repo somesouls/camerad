@@ -41,6 +41,25 @@ def _pool():
         return 30
 
 
+def device_info():
+    """Diagnostik: perangkat & build torch yang sebenarnya dipakai reranker.
+    Berguna untuk membuktikan apakah kode BENAR-BENAR jalan di GPU. Jika
+    cuda_available=False padahal PC ber-GPU, biasanya torch yang terinstal
+    adalah build CPU-only (lihat catatan di requirements.txt)."""
+    info = {"enabled": _enabled(), "model": model_id(),
+            "device_env": os.environ.get("RAG_RERANK_DEVICE", "").strip()}
+    try:
+        import torch
+        info["torch"] = torch.__version__
+        info["cuda_build"] = getattr(torch.version, "cuda", None)
+        info["cuda_available"] = bool(torch.cuda.is_available())
+        info["device"] = "cuda" if (not info["device_env"] and info["cuda_available"]) else (info["device_env"] or "cpu")
+    except Exception as e:
+        info["torch"] = None
+        info["error"] = str(e)[:120]
+    return info
+
+
 def _load_model():
     global _MODEL, _MODEL_TRIED
     if _MODEL is not None:
@@ -53,13 +72,31 @@ def _load_model():
     try:
         from sentence_transformers import CrossEncoder
         dev = os.environ.get("RAG_RERANK_DEVICE", "").strip()
+        cuda_ok = None
+        torch_ver = None
+        cuda_build = None
         if not dev:
             try:
                 import torch
-                dev = "cuda" if torch.cuda.is_available() else "cpu"
+                cuda_ok = bool(torch.cuda.is_available())
+                torch_ver = torch.__version__
+                cuda_build = getattr(torch.version, "cuda", None)
+                dev = "cuda" if cuda_ok else "cpu"
             except Exception:
                 dev = "cpu"
+        else:
+            try:
+                import torch
+                cuda_ok = bool(torch.cuda.is_available())
+                torch_ver = torch.__version__
+                cuda_build = getattr(torch.version, "cuda", None)
+            except Exception:
+                pass
         _MODEL = CrossEncoder(model_id(), device=dev, max_length=512)
+        # Log diagnostik: ungkap perangkat NYATA yang dipakai. Jika device=cpu
+        # padahal PC ber-GPU -> hampir pasti torch build CPU-only (cuda_build=None).
+        print("[rag_reranker] model=%s device=%s cuda_available=%s torch=%s cuda_build=%s"
+              % (model_id(), dev, cuda_ok, torch_ver, cuda_build), flush=True)
     except Exception:
         _MODEL = None
     return _MODEL
