@@ -64,7 +64,7 @@ details summary { cursor:pointer; }
 
   <div class="card">
     <h3>Metode 2 · Deflection Pertanyaan Fallback</h3>
-    <div class="desc">Ambil pertanyaan yang jatuh fallback (&gt; N kali) pada rentang waktu. Jika fallback di giliran PERTAMA → diuji tanpa riwayat (memetakan yang sebenarnya bisa dijawab RAG). Jika giliran LANJUTAN → diuji DENGAN riwayat percakapan sebelumnya. Metrik = deflection rate (% kini terjawab grounded vs tetap fallback).</div>
+    <div class="desc">Ambil pertanyaan yang jatuh fallback (&gt; N kali) pada rentang waktu. Jika fallback di giliran PERTAMA → diuji tanpa riwayat (memetakan yang sebenarnya bisa dijawab RAG). Jika giliran LANJUTAN → diuji DENGAN riwayat percakapan sebelumnya (hanya giliran yang match intent + jawaban bot; event WELCOME/system diabaikan). Metrik = deflection rate (% kini terjawab grounded vs tetap fallback). Sampel sampah (kode menu, angka, fragmen HTML, teks testing) otomatis dibuang.</div>
     <div class="row">
       <div class="field"><label>Profil</label><select id="m2_profil"></select></div>
       <div class="field"><label>Rentang</label><select id="m2_window"><option value="30d">30 hari</option><option value="90d">90 hari</option><option value="all">Semua</option></select></div>
@@ -124,8 +124,9 @@ details summary { cursor:pointer; }
     var fails=(j.results||[]).filter(function(r){ return r.fallback_hit; });
     h+='<details style="margin-top:12px;"><summary class="hint">'+title+' ('+fails.length+')</summary>';
     fails.slice(0,60).forEach(function(r){
+      var diag=''; if(r.intent){ diag = (r.self_retrieved? ' · <span class="tag">terambil→abstain</span>' : ' · <span class="tag halusinasi">recall-miss</span>'); }
       h+='<div class="card" style="margin-top:8px;">';
-      h+='<div class="small mut">'+(r.intent?('intent: '+esc(r.intent)+' · '):'')+(r.first_turn?'giliran pertama':'lanjutan')+(r.with_history?' · +riwayat':'')+(r.judge_verdict?(' · '+esc(r.judge_verdict)):'')+'</div>';
+      h+='<div class="small mut">'+(r.intent?('intent: '+esc(r.intent)+' · '):'')+(r.first_turn?'giliran pertama':'lanjutan')+(r.with_history?' · +riwayat':'')+(r.judge_verdict?(' · '+esc(r.judge_verdict)):'')+diag+'</div>';
       h+='<div class="qbox"><b>T:</b> '+esc(r.pertanyaan)+'</div>';
       if(r.history&&r.history.length) h+='<div class="qbox small mut"><b>Riwayat:</b> '+esc(r.history.map(function(x){return x.role+': '+x.content;}).join(' | ').slice(0,300))+'</div>';
       h+='<div class="qbox"><b>Mesin:</b> '+esc((r.answer||'').slice(0,400))+'</div>';
@@ -178,6 +179,7 @@ details summary { cursor:pointer; }
       h+='</div>';
       if(m.judge&&Object.keys(m.judge).length){ h+='<table><tr><th>Verdict juri</th><th>Jumlah</th></tr>'; Object.keys(m.judge).forEach(function(k){ h+='<tr><td><span class="tag '+esc(k)+'">'+esc(k)+'</span></td><td>'+m.judge[k]+'</td></tr>'; }); h+='</table>'; }
       if(m.latency_ms) h+='<div class="hint">Latensi: '+lat(m.latency_ms)+'</div>';
+      if(m.recall_miss!=null) h+='<div class="hint">Diagnosis fallback: <b>'+m.recall_miss+'</b> recall-miss (intent asal TIDAK terambil retrieval — masalah recall) · <b>'+m.retrieved_but_abstain+'</b> terambil tapi mesin tetap abstain (verifikasi terlalu ketat).</div>';
       renderFails(j,h,d,'Frasa yang MASIH fallback (harusnya dikenali)');
     }
   });
