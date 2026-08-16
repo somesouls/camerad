@@ -46,21 +46,47 @@ details summary { cursor:pointer; }
   </div>
 
   <div class="card">
-    <h3>Metode 1 · Coverage Training Phrase (Top Intent)</h3>
-    <div class="desc">Ambil TOP intent paling sering dipanggil (Distribusi Intent Teratas), lalu uji mesin RAG dengan training phrase tiap intent. Karena topik ini sudah dikenal Dialogflow, mesin RAG idealnya TIDAK fallback (coverage ≈ 100%). Soft-gold = jawaban resmi intent (opsional dinilai LLM). Catatan: katalog menyimpan maks 12 contoh frasa per intent. Sampel sampah (kode menu/angka/testing) kini otomatis dibuang.</div>
-    <div class="row">
-      <div class="field"><label>Profil</label><select id="m1_profil"></select></div>
-      <div class="field"><label>Top intent</label><select id="m1_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
-      <div class="field"><label>Rentang</label><select id="m1_window"><option value="90d">90 hari</option><option value="30d">30 hari</option><option value="all">Semua</option></select></div>
-      <div class="field"><label>Frasa/intent</label><input type="number" id="m1_per" value="12" min="1" max="12" style="width:110px"></div>
-      <div class="field"><label>Batasi sampel (0=semua)</label><input type="number" id="m1_limit" value="0" min="0" style="width:150px"></div>
-      <label class="field small" style="align-self:center"><input type="checkbox" id="m1_judge" checked> Nilai LLM (kualitas)</label>
-      <button class="btn primary" id="m1_run">▶ Jalankan</button>
-      <button class="btn ghost" id="m1_stop" style="display:none;">Hentikan</button>
+    <h3>Metode 1 · Coverage &amp; Peta Recall Training Phrase</h3>
+    <div class="desc">Uji mesin RAG memakai training phrase intent teratas (Distribusi Intent Teratas). Dua mode dalam satu tempat: <b>Coverage</b> — sampel, sekali jalan, untuk mengukur % terjawab &amp; mutu; dan <b>Peta Recall</b> — menyeluruh &amp; tersimpan permanen, untuk melacak intent mana yang sudah/belum tertangani. Sampel sampah (kode menu/angka/testing) otomatis dibuang.</div>
+    <div class="row" style="margin-bottom:4px;">
+      <div class="field"><label>Mode</label><select id="m1_mode"><option value="coverage">Coverage (sampel · sekali jalan)</option><option value="map">Peta Recall (menyeluruh · tersimpan)</option></select></div>
     </div>
+
+    <div id="m1_ctl_cov">
+      <div class="desc">Ambil TOP intent paling sering dipanggil, lalu uji mesin RAG dengan training phrase tiap intent. Karena topik ini sudah dikenal Dialogflow, mesin RAG idealnya TIDAK fallback (coverage ≈ 100%). Soft-gold = jawaban resmi intent (opsional dinilai LLM). Katalog menyimpan maks 12 contoh frasa per intent.</div>
+      <div class="row">
+        <div class="field"><label>Profil</label><select id="m1_profil"></select></div>
+        <div class="field"><label>Top intent</label><select id="m1_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
+        <div class="field"><label>Rentang</label><select id="m1_window"><option value="90d">90 hari</option><option value="30d">30 hari</option><option value="all">Semua</option></select></div>
+        <div class="field"><label>Frasa/intent</label><input type="number" id="m1_per" value="12" min="1" max="12" style="width:110px"></div>
+        <div class="field"><label>Batasi sampel (0=semua)</label><input type="number" id="m1_limit" value="0" min="0" style="width:150px"></div>
+        <label class="field small" style="align-self:center"><input type="checkbox" id="m1_judge" checked> Nilai LLM (kualitas)</label>
+        <button class="btn primary" id="m1_run">▶ Jalankan</button>
+        <button class="btn ghost" id="m1_stop" style="display:none;">Hentikan</button>
+      </div>
+    </div>
+
+    <div id="m1_ctl_map" style="display:none;">
+      <div class="desc">Memetakan intent mana yang SUDAH tertangani mesin dan mana yang BELUM — hasil DISIMPAN permanen. Sebuah intent dianggap <b>terjawab</b> HANYA bila SEMUA variasi training phrase-nya dijawab juri <b>benar</b>. Juri LLM dipakai saat pemetaan; intent yang sudah terjawab TIDAK diuji/dinilai ulang. Centang “Hanya yang belum” agar uji-ulang cuma menyasar intent belum terjawab (hemat). Perbaiki gap lewat menu <a href="/kamus">Kamus &amp; Rewriting</a> (akronim/sinonim), lalu uji ulang.</div>
+      <div class="row">
+        <div class="field"><label>Profil</label><select id="m4_profil"></select></div>
+        <div class="field"><label>Top intent</label><select id="m4_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
+        <div class="field"><label>Rentang</label><select id="m4_window"><option value="90d">90 hari</option><option value="30d">30 hari</option><option value="all">Semua</option></select></div>
+        <div class="field"><label>Frasa/intent</label><input type="number" id="m4_per" value="12" min="1" max="12" style="width:110px"></div>
+        <div class="field"><label>Batasi intent (0=semua)</label><input type="number" id="m4_limit" value="0" min="0" style="width:150px"></div>
+        <label class="field small" style="align-self:center"><input type="checkbox" id="m4_only" checked> Hanya yang belum terjawab</label>
+        <button class="btn primary" id="m4_run">▶ Petakan</button>
+        <button class="btn ghost" id="m4_stop" style="display:none;">Hentikan</button>
+        <button class="btn ghost" id="m4_refresh">Muat peta</button>
+      </div>
+    </div>
+
     <div class="hint" id="m1_msg"></div>
     <div class="bar" id="m1_bar" style="display:none;"><span style="width:0%"></span></div>
     <div id="m1_dash"></div>
+    <div class="hint" id="m4_msg" style="display:none;"></div>
+    <div class="bar" id="m4_bar" style="display:none;"><span style="width:0%"></span></div>
+    <div id="m4_dash" style="display:none;"></div>
   </div>
 
   <div class="card">
@@ -104,25 +130,6 @@ details summary { cursor:pointer; }
     <div class="hint" id="m3_msg"></div>
     <div class="bar" id="m3_bar" style="display:none;"><span style="width:0%"></span></div>
     <div id="m3_dash"></div>
-  </div>
-
-  <div class="card">
-    <h3>Metode 4 · Peta Recall (murah, tersimpan permanen)</h3>
-    <div class="desc">Memetakan intent mana yang SUDAH tertangani mesin dan mana yang BELUM — hasil DISIMPAN permanen. Sebuah intent dianggap <b>terjawab</b> HANYA bila SEMUA variasi training phrase-nya dijawab juri <b>benar</b>. Juri LLM dipakai saat pemetaan; intent yang sudah terjawab TIDAK diuji/dinilai ulang. Centang “Hanya yang belum” agar uji-ulang cuma menyasar intent belum terjawab (hemat). Perbaiki gap lewat menu <a href="/kamus">Kamus &amp; Rewriting</a> (akronim/sinonim), lalu uji ulang.</div>
-    <div class="row">
-      <div class="field"><label>Profil</label><select id="m4_profil"></select></div>
-      <div class="field"><label>Top intent</label><select id="m4_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
-      <div class="field"><label>Rentang</label><select id="m4_window"><option value="90d">90 hari</option><option value="30d">30 hari</option><option value="all">Semua</option></select></div>
-      <div class="field"><label>Frasa/intent</label><input type="number" id="m4_per" value="12" min="1" max="12" style="width:110px"></div>
-      <div class="field"><label>Batasi intent (0=semua)</label><input type="number" id="m4_limit" value="0" min="0" style="width:150px"></div>
-      <label class="field small" style="align-self:center"><input type="checkbox" id="m4_only" checked> Hanya yang belum terjawab</label>
-      <button class="btn primary" id="m4_run">▶ Petakan</button>
-      <button class="btn ghost" id="m4_stop" style="display:none;">Hentikan</button>
-      <button class="btn ghost" id="m4_refresh">Muat peta</button>
-    </div>
-    <div class="hint" id="m4_msg"></div>
-    <div class="bar" id="m4_bar" style="display:none;"><span style="width:0%"></span></div>
-    <div id="m4_dash"></div>
   </div>
 </div>
 {% endblock %}
@@ -280,7 +287,7 @@ details summary { cursor:pointer; }
     }).catch(function(){ $('m3_peakmsg').textContent='Gagal terhubung.'; });
   });
 
-  // ---- Metode 4: Peta Recall (persisten) ----
+  // ---- Metode 1 · mode Peta Recall (persisten) ----
   (function(){
     var poll=null, curRun=null, curFilter='';
     function msg(t){ $('m4_msg').textContent=t||''; }
@@ -353,6 +360,26 @@ details summary { cursor:pointer; }
     });
     $('m4_stop').addEventListener('click', function(){ if(curRun) post('/api/eval/chatbot/map/stop',{run:curRun}); });
     $('m4_refresh').addEventListener('click', function(){ loadMap(''); });
+  })();
+
+  // ---- Metode 1 · pemilih mode: Coverage <-> Peta Recall ----
+  (function(){
+    var sel=$('m1_mode'); if(!sel) return;
+    var mapLoaded=false;
+    function apply(){
+      var cov = sel.value!=='map';
+      $('m1_ctl_cov').style.display = cov?'':'none';
+      $('m1_ctl_map').style.display = cov?'none':'';
+      $('m1_msg').style.display = cov?'':'none';
+      $('m1_dash').style.display = cov?'':'none';
+      if(cov) $('m1_bar').style.display='none';
+      $('m4_msg').style.display = cov?'none':'';
+      $('m4_dash').style.display = cov?'none':'';
+      if(cov) $('m4_bar').style.display='none';
+      if(!cov && !mapLoaded){ mapLoaded=true; var rf=$('m4_refresh'); if(rf) rf.click(); }
+    }
+    sel.addEventListener('change', apply);
+    apply();
   })();
 })();
 </script>
