@@ -84,6 +84,24 @@ def _model_id():
             or "paraphrase-multilingual-mpnet-base-v2")
 
 
+def device_info():
+    """Diagnostik: perangkat & build torch yang sebenarnya dipakai retrieval
+    semantik intent. Jika cuda_available=False padahal PC ber-GPU, biasanya
+    torch yang terinstal adalah build CPU-only (lihat catatan requirements.txt)."""
+    info = {"enabled": _enabled(), "model": _model_id(),
+            "device_env": os.environ.get("RAG_INTENT_SEMANTIC_DEVICE", "").strip()}
+    try:
+        import torch
+        info["torch"] = torch.__version__
+        info["cuda_build"] = getattr(torch.version, "cuda", None)
+        info["cuda_available"] = bool(torch.cuda.is_available())
+        info["device"] = "cuda" if (not info["device_env"] and info["cuda_available"]) else (info["device_env"] or "cpu")
+    except Exception as e:
+        info["torch"] = None
+        info["error"] = str(e)[:120]
+    return info
+
+
 # ---- hook pengujian ----
 def set_encoder(fn):
     """Set encoder tiruan untuk pengujian: fn(list[str]) -> np.ndarray[N,d]
@@ -109,9 +127,15 @@ def _load_model():
         import torch
         from sentence_transformers import SentenceTransformer
         dev = os.environ.get("RAG_INTENT_SEMANTIC_DEVICE", "").strip()
+        cuda_ok = bool(torch.cuda.is_available())
         if not dev:
-            dev = "cuda" if torch.cuda.is_available() else "cpu"
+            dev = "cuda" if cuda_ok else "cpu"
         _MODEL = SentenceTransformer(_model_id(), device=dev)
+        # Log diagnostik: ungkap perangkat NYATA. device=cpu padahal PC ber-GPU
+        # => hampir pasti torch build CPU-only (cuda_build=None).
+        print("[rag_intent_semantic] model=%s device=%s cuda_available=%s torch=%s cuda_build=%s"
+              % (_model_id(), dev, cuda_ok, torch.__version__,
+                 getattr(torch.version, "cuda", None)), flush=True)
     except Exception:
         _MODEL = None
     return _MODEL
