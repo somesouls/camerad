@@ -12,6 +12,15 @@ Rute (area akses 'peraturan' = admin):
   GET  /api/eval/chatbot/report?run=&only= -> metrik + hasil
   POST /api/eval/chatbot/stop            -> hentikan run {run}
 
+  -- Metode 4: Peta Recall per-intent (tersimpan permanen) --
+  POST /api/eval/chatbot/map/start       -> mulai pemetaan {profil,top_n,window,per_intent,only_unanswered,judge,limit}
+  GET  /api/eval/chatbot/map/status?run= -> progres pemetaan
+  GET  /api/eval/chatbot/map/list?status=&q= -> daftar intent + status
+  GET  /api/eval/chatbot/map/intent?intent= -> detail per-frasa satu intent
+  GET  /api/eval/chatbot/map/summary     -> ringkasan status
+  POST /api/eval/chatbot/map/reset       -> batalkan status {intent} atau {all:true}
+  POST /api/eval/chatbot/map/stop        -> hentikan pemetaan {run}
+
 Daftarkan: import eval_chatbot_routes; eval_chatbot_routes.register(app)
 """
 import json
@@ -23,6 +32,7 @@ from starlette.concurrency import run_in_threadpool
 from app_core import render_page
 
 import eval_chatbot as ec
+import eval_recall_map as erm
 import rag_config_db as rcfg
 
 
@@ -129,6 +139,77 @@ async def api_stop(request: Request):
     return JSONResponse(ec.stop((b.get("run") or "").strip()))
 
 
+# ---------------------------------------------------------------- Metode 4: Peta Recall
+async def api_map_start(request: Request):
+    b = await _body(request)
+    limit = b.get("limit")
+    try:
+        limit = int(limit) if limit not in (None, "", 0, "0") else None
+    except Exception:
+        limit = None
+    try:
+        r = await run_in_threadpool(
+            erm.start_map, (b.get("profil") or "chatbot").strip(),
+            _int(b.get("top_n"), 100), (b.get("window") or "90d").strip(), None,
+            _int(b.get("per_intent"), 12), bool(b.get("only_unanswered", True)),
+            bool(b.get("judge", True)), limit)
+        return JSONResponse(r)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_map_status(request: Request):
+    run_id = (request.query_params.get("run") or "").strip()
+    if not run_id:
+        return JSONResponse({"ok": False, "error": "parameter run kosong"})
+    try:
+        return JSONResponse(await run_in_threadpool(erm.status, run_id))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_map_list(request: Request):
+    status = (request.query_params.get("status") or "").strip() or None
+    q = (request.query_params.get("q") or "").strip() or None
+    try:
+        return JSONResponse(await run_in_threadpool(erm.get_map, status, q, 1000))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_map_intent(request: Request):
+    intent = (request.query_params.get("intent") or "").strip()
+    if not intent:
+        return JSONResponse({"ok": False, "error": "parameter intent kosong"})
+    try:
+        return JSONResponse(await run_in_threadpool(erm.get_intent, intent))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_map_summary(request: Request):
+    try:
+        return JSONResponse(await run_in_threadpool(erm.summary))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_map_reset(request: Request):
+    b = await _body(request)
+    try:
+        r = await run_in_threadpool(
+            erm.reset_status, (b.get("intent") or "").strip() or None,
+            bool(b.get("all", False)))
+        return JSONResponse(r)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_map_stop(request: Request):
+    b = await _body(request)
+    return JSONResponse(erm.stop((b.get("run") or "").strip()))
+
+
 def register(app):
     app.add_api_route("/rag-eval-chatbot", page, methods=["GET"])
     app.add_api_route("/api/eval/chatbot/summary", api_summary, methods=["GET"])
@@ -139,3 +220,10 @@ def register(app):
     app.add_api_route("/api/eval/chatbot/status", api_status, methods=["GET"])
     app.add_api_route("/api/eval/chatbot/report", api_report, methods=["GET"])
     app.add_api_route("/api/eval/chatbot/stop", api_stop, methods=["POST"])
+    app.add_api_route("/api/eval/chatbot/map/start", api_map_start, methods=["POST"])
+    app.add_api_route("/api/eval/chatbot/map/status", api_map_status, methods=["GET"])
+    app.add_api_route("/api/eval/chatbot/map/list", api_map_list, methods=["GET"])
+    app.add_api_route("/api/eval/chatbot/map/intent", api_map_intent, methods=["GET"])
+    app.add_api_route("/api/eval/chatbot/map/summary", api_map_summary, methods=["GET"])
+    app.add_api_route("/api/eval/chatbot/map/reset", api_map_reset, methods=["POST"])
+    app.add_api_route("/api/eval/chatbot/map/stop", api_map_stop, methods=["POST"])
