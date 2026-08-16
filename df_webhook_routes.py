@@ -50,6 +50,7 @@ from app_core import render_page
 
 import rag_engine
 import df_webhook_db as dfdb
+import agent_log_db as aldb
 
 
 # Teks penanda giliran "echo/poll" (Opsi B). Harus SAMA dengan yang dikirim
@@ -141,12 +142,16 @@ def _kerja_rag(skey, question, history, profil, turns, fallback, intent=""):
     jawaban = ""
     is_fb = False
     topik = ""
+    sources = []
+    grounded = False
     try:
         res = rag_engine.jawab_chat(question, history, profil)
         ans = (res or {}).get("answer") or ""
         # 'topik' = domain/kategori yang disimpulkan mesin RAG (mis. 'intent',
         # 'peraturan', 'aplikasi', 'umum'). Berguna untuk observabilitas log.
         topik = str((res or {}).get("domain") or "").strip()
+        sources = (res or {}).get("sources") or []
+        grounded = bool((res or {}).get("grounded"))
         if res and res.get("ok") and ans.strip():
             jawaban = ans
             _hist_add(skey, turns, question, jawaban)
@@ -156,6 +161,16 @@ def _kerja_rag(skey, question, history, profil, turns, fallback, intent=""):
     except Exception:
         jawaban = fallback
         is_fb = True
+
+    # Catat interaksi chatbot (profil 'chatbot') agar bisa direview lewat menu
+    # Konfigurasi/Evaluasi Chatbot via agent_log_db.list_logs(profil='chatbot').
+    # Chat Dialogflow tidak lewat jalur /api/rag/agent, jadi dicatat di sini.
+    try:
+        aldb.log_chat(skey, "wajib_pajak", profil, question, jawaban,
+                      [] if is_fb else sources,
+                      grounded and not is_fb, topik)
+    except Exception:
+        pass
 
     t_selesai = time.monotonic()
     durasi = None
