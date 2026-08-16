@@ -38,62 +38,56 @@ th { color:var(--text-muted); font-weight:600; }
 .qbox { font-size:12.5px; color:var(--text-main); margin:4px 0; line-height:1.5; }
 .small { font-size:11.5px; }
 details summary { cursor:pointer; }
+details.int { border:1px solid var(--panel-border); border-radius:10px; margin-top:8px; background:var(--bg-base); }
+details.int > summary { list-style:none; }
+details.int > summary::-webkit-details-marker { display:none; }
+.int-sum { display:flex; gap:12px; align-items:center; padding:9px 10px; font-size:12.5px; flex-wrap:wrap; }
+.int-sum .int-name { flex:1; min-width:160px; font-weight:600; color:var(--text-main); }
+.int-sum .col { color:var(--text-muted); }
+.colhead { display:flex; gap:12px; padding:6px 10px; font-size:10.5px; color:var(--text-muted); font-weight:700; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid var(--panel-border); }
+details.ph { border:1px solid var(--panel-border); border-radius:8px; margin:8px; background:var(--panel-bg); }
+.grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; padding:10px; }
+@media (max-width:900px){ .grid3 { grid-template-columns:1fr; } }
+.grid3 pre { white-space:pre-wrap; word-break:break-word; font-size:11px; background:var(--bg-base); border:1px solid var(--panel-border); border-radius:8px; padding:8px; max-height:320px; overflow:auto; margin:6px 0 0; }
+.pager { display:flex; gap:12px; align-items:center; justify-content:center; margin-top:14px; font-size:12.5px; }
+#m1_filters { display:flex; gap:6px; flex-wrap:wrap; }
+#m1_filters .fbtn { padding:6px 12px; }
 </style>
 <div class="ev-wrap">
   <div class="ev-head">
     <h1>🤖 Evaluasi RAG · Chatbot</h1>
-    <p>Pengujian KHUSUS profil <b>Chatbot</b> (Wajib Pajak), berbeda dari profil Agent. Fokusnya <b>cakupan (coverage)</b> &amp; <b>ketangguhan</b> — bukan menilai jawaban vs gold agen. Pengujian profil Agent ada di menu <a href="/rag-eval">Evaluasi RAG · Agent</a>.</p>
+    <p>Pengujian KHUSUS profil <b>Chatbot</b> (Wajib Pajak), mengikuti pengaturan halaman Konfigurasi Chatbot. Pengujian profil Agent ada di menu <a href="/rag-eval">Evaluasi RAG · Agent</a>.</p>
   </div>
 
   <div class="card">
-    <h3>Metode 1 · Coverage &amp; Peta Recall Training Phrase</h3>
-    <div class="desc">Uji mesin RAG memakai training phrase intent teratas (Distribusi Intent Teratas). Dua mode dalam satu tempat: <b>Coverage</b> — sampel, sekali jalan, untuk mengukur % terjawab &amp; mutu; dan <b>Peta Recall</b> — menyeluruh &amp; tersimpan permanen, untuk melacak intent mana yang sudah/belum tertangani. Sampel sampah (kode menu/angka/testing) otomatis dibuang.</div>
-    <div class="row" style="margin-bottom:4px;">
-      <div class="field"><label>Mode</label><select id="m1_mode"><option value="coverage">Coverage (sampel · sekali jalan)</option><option value="map">Peta Recall (menyeluruh · tersimpan)</option></select></div>
+    <h3>Metode 1 · Peta Recall — Uji Training Phrase per Intent</h3>
+    <div class="desc">Seperti lab uji otomatis (tanpa input manual). Tiap <b>training phrase</b> dari TOP intent Dialogflow yang sering terpanggil diproses mesin RAG → dirakit prompt → dilempar ke LLM → menghasilkan jawaban → dinilai <b>juri LLM</b>. Tujuannya: memetakan apakah mesin RAG-LLM sudah mampu menjawab yang selama ini sudah dikenali bot lama. Hasil DISIMPAN permanen (sistem update). Sebuah intent <b>terjawab</b> HANYA bila SEMUA frasanya dinilai <b>benar</b>. Perbaiki gap lewat menu <a href="/kamus">Kamus &amp; Rewriting</a>, lalu uji ulang.</div>
+    <div class="row">
+      <div class="field"><label>Top intent</label><select id="m1_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
+      <div class="field"><label>Rentang</label><select id="m1_window"><option value="90d">90 hari</option><option value="30d">30 hari</option><option value="all">Semua</option></select></div>
+      <div class="field"><label>Frasa/intent</label><input type="number" id="m1_per" value="12" min="1" max="12" style="width:110px"></div>
+      <div class="field"><label>Batasi intent (0=semua)</label><input type="number" id="m1_limit" value="0" min="0" style="width:150px"></div>
+      <label class="field small" style="align-self:center"><input type="checkbox" id="m1_only" checked> Hanya uji yang belum terjawab</label>
+      <label class="field small" style="align-self:center"><input type="checkbox" id="m1_judge" checked> Nilai juri LLM</label>
+      <button class="btn primary" id="m1_run">▶ Jalankan uji</button>
+      <button class="btn ghost" id="m1_stop" style="display:none;">Hentikan</button>
+      <button class="btn ghost" id="m1_refresh">Muat peta</button>
     </div>
-
-    <div id="m1_ctl_cov">
-      <div class="desc">Ambil TOP intent paling sering dipanggil, lalu uji mesin RAG dengan training phrase tiap intent. Karena topik ini sudah dikenal Dialogflow, mesin RAG idealnya TIDAK fallback (coverage ≈ 100%). Soft-gold = jawaban resmi intent (opsional dinilai LLM). Katalog menyimpan maks 12 contoh frasa per intent.</div>
-      <div class="row">
-        <div class="field"><label>Profil</label><select id="m1_profil"></select></div>
-        <div class="field"><label>Top intent</label><select id="m1_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
-        <div class="field"><label>Rentang</label><select id="m1_window"><option value="90d">90 hari</option><option value="30d">30 hari</option><option value="all">Semua</option></select></div>
-        <div class="field"><label>Frasa/intent</label><input type="number" id="m1_per" value="12" min="1" max="12" style="width:110px"></div>
-        <div class="field"><label>Batasi sampel (0=semua)</label><input type="number" id="m1_limit" value="0" min="0" style="width:150px"></div>
-        <label class="field small" style="align-self:center"><input type="checkbox" id="m1_judge" checked> Nilai LLM (kualitas)</label>
-        <button class="btn primary" id="m1_run">▶ Jalankan</button>
-        <button class="btn ghost" id="m1_stop" style="display:none;">Hentikan</button>
-      </div>
-    </div>
-
-    <div id="m1_ctl_map" style="display:none;">
-      <div class="desc">Memetakan intent mana yang SUDAH tertangani mesin dan mana yang BELUM — hasil DISIMPAN permanen. Sebuah intent dianggap <b>terjawab</b> HANYA bila SEMUA variasi training phrase-nya dijawab juri <b>benar</b>. Juri LLM dipakai saat pemetaan; intent yang sudah terjawab TIDAK diuji/dinilai ulang. Centang “Hanya yang belum” agar uji-ulang cuma menyasar intent belum terjawab (hemat). Perbaiki gap lewat menu <a href="/kamus">Kamus &amp; Rewriting</a> (akronim/sinonim), lalu uji ulang.</div>
-      <div class="row">
-        <div class="field"><label>Profil</label><select id="m4_profil"></select></div>
-        <div class="field"><label>Top intent</label><select id="m4_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
-        <div class="field"><label>Rentang</label><select id="m4_window"><option value="90d">90 hari</option><option value="30d">30 hari</option><option value="all">Semua</option></select></div>
-        <div class="field"><label>Frasa/intent</label><input type="number" id="m4_per" value="12" min="1" max="12" style="width:110px"></div>
-        <div class="field"><label>Batasi intent (0=semua)</label><input type="number" id="m4_limit" value="0" min="0" style="width:150px"></div>
-        <label class="field small" style="align-self:center"><input type="checkbox" id="m4_only" checked> Hanya yang belum terjawab</label>
-        <button class="btn primary" id="m4_run">▶ Petakan</button>
-        <button class="btn ghost" id="m4_stop" style="display:none;">Hentikan</button>
-        <button class="btn ghost" id="m4_refresh">Muat peta</button>
-      </div>
-    </div>
-
+    <div class="hint">Profil: <b>Chatbot</b> (mengikuti pengaturan halaman Konfigurasi Chatbot). Uji-ulang default hanya menyasar intent yang <b>belum terjawab</b>; nonaktifkan “Hanya uji yang belum terjawab” untuk menguji ulang yang sudah terjawab. Menambah “Frasa/intent” lalu jalankan lagi = frasa baru ikut diuji &amp; disimpan (update).</div>
     <div class="hint" id="m1_msg"></div>
     <div class="bar" id="m1_bar" style="display:none;"><span style="width:0%"></span></div>
+    <div class="row" style="margin-top:12px;">
+      <div class="field" style="flex:1;min-width:220px;"><label>Cari intent</label><input type="text" id="m1_q" placeholder="ketik nama intent…"></div>
+      <div class="field"><label>Filter</label><div id="m1_filters"><button class="btn ghost fbtn" data-f="all">Semua</button><button class="btn ghost fbtn" data-f="belum">Belum</button><button class="btn ghost fbtn" data-f="terjawab">Terjawab</button><button class="btn ghost fbtn" data-f="cukup">Cukup</button><button class="btn ghost fbtn" data-f="belumcukup">Belum cukup</button></div></div>
+      <button class="btn ghost" id="m1_resetall" style="align-self:flex-end;">Batalkan semua status</button>
+    </div>
     <div id="m1_dash"></div>
-    <div class="hint" id="m4_msg" style="display:none;"></div>
-    <div class="bar" id="m4_bar" style="display:none;"><span style="width:0%"></span></div>
-    <div id="m4_dash" style="display:none;"></div>
   </div>
 
   <div class="card">
     <h3>Metode 2 · Deflection Pertanyaan Fallback</h3>
-    <div class="desc">Ambil pertanyaan yang jatuh fallback (&gt; N kali) pada rentang waktu. Jika fallback di giliran PERTAMA → diuji tanpa riwayat (memetakan yang sebenarnya bisa dijawab RAG). Jika giliran LANJUTAN → diuji DENGAN riwayat percakapan sebelumnya (hanya giliran yang match intent + jawaban bot; event WELCOME/system diabaikan). Metrik = deflection rate (% kini terjawab grounded vs tetap fallback). Sampel sampah (kode menu, angka, fragmen HTML, teks testing) otomatis dibuang.</div>
+    <div class="desc">Ambil pertanyaan yang jatuh fallback (&gt; N kali) pada rentang waktu. Jika fallback di giliran PERTAMA → diuji tanpa riwayat. Jika giliran LANJUTAN → diuji DENGAN riwayat percakapan sebelumnya (hanya giliran yang match intent + jawaban bot; event WELCOME/system diabaikan). Metrik = deflection rate (% kini terjawab grounded vs tetap fallback). Sampel sampah otomatis dibuang. Profil: <b>Chatbot</b>.</div>
     <div class="row">
-      <div class="field"><label>Profil</label><select id="m2_profil"></select></div>
       <div class="field"><label>Rentang</label><select id="m2_window"><option value="30d">30 hari</option><option value="90d">90 hari</option><option value="all">Semua</option></select></div>
       <div class="field"><label>Min. muncul</label><input type="number" id="m2_min" value="2" min="1" style="width:110px"></div>
       <div class="field"><label>Batasi</label><input type="number" id="m2_limit" value="100" min="1" style="width:120px"></div>
@@ -109,9 +103,8 @@ details summary { cursor:pointer; }
 
   <div class="card">
     <h3>Metode 3 · Uji Beban / Concurrency</h3>
-    <div class="desc">Tembak mesin RAG dengan banyak permintaan bersamaan; ukur latensi (p50/p95/p99), throughput, dan error rate. Default mode <b>Tanpa LLM</b> (menguji mesin retrieval lokal tanpa biaya Azure). Gunakan “Hitung puncak dari data” untuk memperkirakan beban realistis dari timestamp Dialogflow.</div>
+    <div class="desc">Tembak mesin RAG dengan banyak permintaan bersamaan; ukur latensi (p50/p95/p99), throughput, dan error rate. Default mode <b>Tanpa LLM</b> (menguji mesin retrieval lokal tanpa biaya Azure). Gunakan “Hitung puncak dari data” untuk memperkirakan beban realistis dari timestamp Dialogflow. Profil: <b>Chatbot</b>.</div>
     <div class="row">
-      <div class="field"><label>Profil</label><select id="m3_profil"></select></div>
       <div class="field"><label>Mode mesin</label><select id="m3_mode"><option value="tanpa_llm">Tanpa LLM (retrieval lokal)</option><option value="llm">LLM (hemat)</option><option value="full">LLM penuh</option><option value="">Auto (profil)</option></select></div>
       <div class="field"><label>Konkuren (serentak)</label><input type="number" id="m3_conc" value="20" min="1" max="200" style="width:130px"></div>
       <div class="field"><label>Total permintaan</label><input type="number" id="m3_total" value="100" min="1" max="1000" style="width:140px"></div>
@@ -136,13 +129,8 @@ details summary { cursor:pointer; }
 {% block scripts %}
 <script>
 (function(){
-  var PROFILES = {{ profil_list|tojson }};
   var $ = function(id){ return document.getElementById(id); };
   function esc(s){ return (s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
-  ['m1_profil','m2_profil','m3_profil','m4_profil'].forEach(function(id){
-    var sel=$(id); if(!sel) return; (PROFILES||[]).forEach(function(p){ var o=document.createElement('option'); o.value=p.id; o.textContent=(p.nama||p.id)+' ('+p.id+')'; sel.appendChild(o); });
-    if(sel.querySelector('option[value=chatbot]')) sel.value='chatbot';
-  });
   function post(url,body){ return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}).then(function(r){return r.json();}); }
   function kpi(v,l,cls){ return '<div class="kpi '+(cls||'')+'"><div class="v">'+v+'</div><div class="l">'+l+'</div></div>'; }
   function lat(m){ if(!m) return '–'; return 'avg '+m.avg+' · p50 '+m.p50+' · p95 '+m.p95+(m.p99!=null?(' · p99 '+m.p99):'')+' · maks '+m.maks+' ms'; }
@@ -162,31 +150,6 @@ details summary { cursor:pointer; }
     });
     h+='</details>';
     d.innerHTML=h;
-  }
-
-  // Render daftar berbasis verdict juri (mis. 'salah', 'halusinasi'). Menampilkan
-  // jawaban mesin + alasan juri agar kasus 'silent failure' (menjawab tapi keliru)
-  // yang TIDAK muncul di daftar fallback tetap terlihat & bisa ditelusuri.
-  function renderRows(rows, box, title){
-    var h='<details style="margin-top:12px;"><summary class="hint">'+title+' ('+rows.length+')</summary>';
-    rows.slice(0,80).forEach(function(r){
-      h+='<div class="card" style="margin-top:8px;">';
-      h+='<div class="small mut">'+(r.intent?('intent: '+esc(r.intent)+' · '):'')+(r.judge_verdict?('<span class="tag '+esc(r.judge_verdict)+'">'+esc(r.judge_verdict)+'</span>'):'')+(r.judge_skor!=null?(' · skor '+r.judge_skor):'')+(r.self_retrieved?' · <span class="tag">terambil</span>':'')+'</div>';
-      h+='<div class="qbox"><b>T:</b> '+esc(r.pertanyaan)+'</div>';
-      h+='<div class="qbox"><b>Mesin:</b> '+esc((r.answer||'').slice(0,400))+'</div>';
-      if(r.judge_alasan) h+='<div class="qbox mut"><b>Alasan juri:</b> '+esc(r.judge_alasan)+'</div>';
-      if(r.gold) h+='<div class="qbox mut"><b>Jawaban resmi:</b> '+esc((r.gold||'').slice(0,300))+'</div>';
-      h+='</div>';
-    });
-    h+='</details>';
-    box.innerHTML=h;
-  }
-
-  function loadVerdict(rid, boxId, verdict, title){
-    var box=document.getElementById(boxId); if(!box||!rid) return;
-    fetch('/api/eval/chatbot/report?run='+encodeURIComponent(rid)+'&only='+encodeURIComponent(verdict)).then(function(r){return r.json();}).then(function(j){
-      renderRows(j.results||[], box, title);
-    }).catch(function(){});
   }
 
   function runner(cfg){
@@ -218,33 +181,112 @@ details summary { cursor:pointer; }
     if($(cfg.stop)) $(cfg.stop).addEventListener('click', function(){ if(curRun) post('/api/eval/chatbot/stop',{run:curRun}); });
   }
 
-  runner({
-    run:'m1_run', stop:'m1_stop', bar:'m1_bar', msg:'m1_msg', dash:'m1_dash',
-    startUrl:'/api/eval/chatbot/intent',
-    body:function(){ return { profil:$('m1_profil').value, top_n:parseInt($('m1_top').value,10), window:$('m1_window').value, per_intent:parseInt($('m1_per').value||'12',10), judge:$('m1_judge').checked, limit:parseInt($('m1_limit').value||'0',10) }; },
-    render:function(j){ var d=$('m1_dash'); if(!j||!j.ok||!j.metrik){ d.innerHTML='<div class="hint">Belum ada hasil.</div>'; return; }
-      var m=j.metrik; var h='<div class="kpi-grid">';
-      h+=kpi(m.coverage+'%','Coverage (terjawab)', m.coverage>=90?'ok':'bad');
-      h+=kpi(m.fallback_rate+'%','Masih fallback', m.fallback_rate<10?'ok':'bad');
-      h+=kpi(m.total,'Frasa diuji');
-      h+=kpi((m.skor_rata!=null?m.skor_rata:'–'),'Skor rata juri');
-      h+='</div>';
-      if(m.judge&&Object.keys(m.judge).length){ h+='<table><tr><th>Verdict juri</th><th>Jumlah</th></tr>'; Object.keys(m.judge).forEach(function(k){ h+='<tr><td><span class="tag '+esc(k)+'">'+esc(k)+'</span></td><td>'+m.judge[k]+'</td></tr>'; }); h+='</table>'; }
-      if(m.presisi_jawab!=null) h+='<div class="hint">Presisi saat menjawab (juri): <b>'+m.presisi_jawab+'%</b> — dari yang benar-benar dijawab; sisanya salah/halusinasi. Ini lebih jujur daripada coverage.</div>';
-      if(m.latency_ms) h+='<div class="hint">Latensi: '+lat(m.latency_ms)+'</div>';
-      if(m.recall_miss!=null) h+='<div class="hint">Diagnosis fallback: <b>'+m.recall_miss+'</b> recall-miss (intent asal TIDAK terambil retrieval — masalah recall) · <b>'+m.retrieved_but_abstain+'</b> terambil tapi mesin tetap abstain (verifikasi terlalu ketat).</div>';
-      h+='<div id="m1_salah_box"></div><div id="m1_halu_box"></div>';
-      renderFails(j,h,d,'Frasa yang MASIH fallback (harusnya dikenali)');
-      var rid=(j.run&&j.run.id)||'';
-      loadVerdict(rid,'m1_salah_box','salah','⚠ Jawaban SALAH — menjawab tapi keliru (silent failure)');
-      loadVerdict(rid,'m1_halu_box','halusinasi','🚨 Halusinasi — klaim spesifik dikarang');
-    }
-  });
+  // ================= Metode 1 · Peta Recall (accordion + pagination) =================
+  (function(){
+    var PAGE=20;
+    var st={status:'', q:'', cukup:null, offset:0, limit:PAGE};
+    var poll=null, curRun=null;
+    function msg(t){ $('m1_msg').textContent=t||''; }
+    function isCukup(r){ return r.status==='terjawab' || r.cukup==1; }
+    function badge(r){ if(r.status==='terjawab') return '<span class="tag benar">terjawab</span>'; if(r.manual) return '<span class="tag salah">dibatalkan</span>'; return '<span class="tag">belum</span>'; }
+    function probText(r){ var p=[]; if(r.n_salah)p.push(r.n_salah+' salah'); if(r.n_halusinasi)p.push(r.n_halusinasi+' halusinasi'); if(r.n_abstain)p.push(r.n_abstain+' abstain'); return p.length?p.join(', '):'–'; }
 
+    function loadPhrases(intent, box){
+      if(!box) return;
+      box.innerHTML='<div class="hint" style="padding:8px;">Memuat…</div>';
+      fetch('/api/eval/chatbot/map/intent?intent='+encodeURIComponent(intent)).then(function(r){return r.json();}).then(function(j){
+        if(!j||!j.ok){ box.innerHTML='<div class="hint" style="padding:8px;">Gagal memuat.</div>'; return; }
+        var ph=j.phrases||[];
+        if(!ph.length){ box.innerHTML='<div class="hint" style="padding:8px;">Belum ada frasa diuji untuk intent ini.</div>'; return; }
+        var h='';
+        ph.forEach(function(p){
+          h+='<details class="ph"><summary style="padding:8px;"><span class="tag '+esc(p.verdict||'')+'">'+esc(p.verdict||'?')+'</span> '+esc(p.phrase)+(p.latency_ms!=null?(' <span class="small mut">· '+Math.round(p.latency_ms)+' ms</span>'):'')+'</summary>';
+          h+='<div class="grid3">';
+          h+='<div><b class="small">Prompt (dirangkai mesin RAG)</b><pre>'+esc(p.prompt||'(kosong — jalur fallback / tanpa prompt LLM)')+'</pre></div>';
+          h+='<div><b class="small">Jawaban LLM</b><div class="qbox">'+esc(p.answer||'(kosong)')+'</div></div>';
+          h+='<div><b class="small">Juri LLM</b><div class="qbox"><span class="tag '+esc(p.verdict||'')+'">'+esc(p.verdict||'?')+'</span>'+(p.skor!=null?(' · skor '+p.skor):'')+'</div>'+(p.alasan?('<div class="qbox mut small">'+esc(p.alasan)+'</div>'):'')+'</div>';
+          h+='</div></details>';
+        });
+        box.innerHTML=h;
+      }).catch(function(){ box.innerHTML='<div class="hint" style="padding:8px;">Gagal terhubung.</div>'; });
+    }
+
+    function renderMap(j){
+      var d=$('m1_dash');
+      if(!j||!j.ok){ d.innerHTML='<div class="hint">Belum ada peta. Klik “Jalankan uji” untuk membangunnya, atau “Muat peta”.</div>'; return; }
+      var m=j.metrik||{};
+      var h='<div class="kpi-grid">';
+      h+=kpi(m.total_intent||0,'Total intent');
+      h+=kpi((m.terjawab||0),'Terjawab','ok');
+      h+=kpi((m.belum||0),'Belum terjawab',(m.belum?'bad':'ok'));
+      h+=kpi((m.cukup!=null?m.cukup:0),'Cukup','ok');
+      h+='</div>';
+      var rows=j.results||[];
+      h+='<div class="colhead"><span style="flex:1;min-width:160px;">Intent</span><span style="width:110px;">Status</span><span style="width:80px;">Benar/Total</span><span style="flex:1;min-width:120px;">Masalah</span><span style="width:170px;">Cukup</span></div>';
+      if(!rows.length){ h+='<div class="hint" style="padding:10px;">Tidak ada intent pada filter ini.</div>'; }
+      rows.forEach(function(r){
+        var auto=r.status==='terjawab';
+        h+='<details class="int" data-i="'+esc(r.intent)+'"><summary class="int-sum">'
+          +'<span class="int-name">'+esc(r.intent)+'</span>'
+          +'<span class="col" style="width:110px;">'+badge(r)+'</span>'
+          +'<span class="col" style="width:80px;">'+(r.n_benar||0)+'/'+(r.n_total||0)+'</span>'
+          +'<span class="col" style="flex:1;min-width:120px;">'+esc(probText(r))+'</span>'
+          +'<label class="col" style="width:170px;" onclick="event.stopPropagation();"><input type="checkbox" class="m1cukup" data-i="'+esc(r.intent)+'" '+(isCukup(r)?'checked':'')+'> Cukup'+(auto?' <span class="small mut">(auto)</span> · <a href="#" class="m1reset small" data-i="'+esc(r.intent)+'">uji ulang</a>':'')+'</label>'
+          +'</summary><div class="ph-wrap" data-i="'+esc(r.intent)+'"></div></details>';
+      });
+      var total=j.total||0, limit=j.limit||PAGE, offset=j.offset||0;
+      var from=total?offset+1:0, to=Math.min(offset+limit,total);
+      h+='<div class="pager"><button class="btn ghost" id="m1_prev" '+(offset<=0?'disabled':'')+'>‹ Sebelumnya</button><span class="mut">'+from+'–'+to+' dari '+total+'</span><button class="btn ghost" id="m1_next" '+(to>=total?'disabled':'')+'>Berikutnya ›</button></div>';
+      d.innerHTML=h;
+      var pv=$('m1_prev'), nx=$('m1_next');
+      if(pv) pv.addEventListener('click', function(){ if(st.offset>0){ st.offset=Math.max(0,st.offset-st.limit); loadMap(); } });
+      if(nx) nx.addEventListener('click', function(){ st.offset=st.offset+st.limit; loadMap(); });
+      Array.prototype.forEach.call(d.querySelectorAll('.m1cukup'), function(cb){ cb.addEventListener('change', function(){ post('/api/eval/chatbot/map/cukup',{intent:cb.getAttribute('data-i'),cukup:cb.checked}).then(function(){ loadMap(); }); }); });
+      Array.prototype.forEach.call(d.querySelectorAll('.m1reset'), function(a){ a.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); post('/api/eval/chatbot/map/reset',{intent:a.getAttribute('data-i')}).then(function(){ loadMap(); }); }); });
+      Array.prototype.forEach.call(d.querySelectorAll('details.int'), function(det){ det.addEventListener('toggle', function(){ if(det.open && !det.dataset.loaded){ det.dataset.loaded='1'; loadPhrases(det.getAttribute('data-i'), det.querySelector('.ph-wrap')); } }); });
+    }
+
+    function loadMap(){
+      var u='/api/eval/chatbot/map/list?limit='+st.limit+'&offset='+st.offset;
+      if(st.status) u+='&status='+encodeURIComponent(st.status);
+      if(st.q) u+='&q='+encodeURIComponent(st.q);
+      if(st.cukup===true) u+='&cukup=1'; else if(st.cukup===false) u+='&cukup=0';
+      fetch(u).then(function(r){return r.json();}).then(renderMap).catch(function(){});
+    }
+
+    function setProg(run){
+      var pct=run.n_total?Math.round(run.n_done/run.n_total*100):0;
+      $('m1_bar').style.display='block'; $('m1_bar').firstChild.style.width=pct+'%';
+      msg('Menguji '+run.n_done+'/'+run.n_total+' ('+pct+'%) · '+run.status+(run.note?(' · '+run.note):''));
+      if(run.status==='running'){ $('m1_stop').style.display=''; }
+      else { $('m1_stop').style.display='none'; if(poll){clearInterval(poll);poll=null;} loadMap(); }
+    }
+
+    $('m1_run').addEventListener('click', function(){
+      $('m1_run').disabled=true; msg('Memulai…');
+      var body={ profil:'chatbot', top_n:parseInt($('m1_top').value,10), window:$('m1_window').value, per_intent:parseInt($('m1_per').value||'12',10), only_unanswered:$('m1_only').checked, judge:$('m1_judge').checked, limit:parseInt($('m1_limit').value||'0',10) };
+      post('/api/eval/chatbot/map/start', body).then(function(j){
+        $('m1_run').disabled=false;
+        if(!j||!j.ok){ msg('Gagal: '+((j&&j.error)||'?')); return; }
+        if(!j.run_id||!j.n_total){ msg(j.note||'Tidak ada intent untuk diuji.'); loadMap(); return; }
+        curRun=j.run_id; msg('Berjalan… '+j.n_intent+' intent, '+j.n_total+' frasa');
+        if(poll) clearInterval(poll);
+        poll=setInterval(function(){ fetch('/api/eval/chatbot/map/status?run='+encodeURIComponent(curRun)).then(function(r){return r.json();}).then(function(s){ if(s&&s.ok&&s.run) setProg(s.run); }); }, 2500);
+      }).catch(function(){ $('m1_run').disabled=false; msg('Gagal terhubung.'); });
+    });
+    $('m1_stop').addEventListener('click', function(){ if(curRun) post('/api/eval/chatbot/map/stop',{run:curRun}); });
+    $('m1_refresh').addEventListener('click', function(){ loadMap(); });
+    $('m1_resetall').addEventListener('click', function(){ if(!confirm('Batalkan status TERJAWAB untuk semua intent? (mereka akan ikut diuji ulang)')) return; post('/api/eval/chatbot/map/reset',{all:true}).then(function(){ loadMap(); }); });
+    Array.prototype.forEach.call(document.querySelectorAll('#m1_filters .fbtn'), function(b){ b.addEventListener('click', function(){ var f=b.getAttribute('data-f'); st.offset=0; st.status=''; st.cukup=null; if(f==='belum') st.status='belum'; else if(f==='terjawab') st.status='terjawab'; else if(f==='cukup') st.cukup=true; else if(f==='belumcukup') st.cukup=false; loadMap(); }); });
+    var qbox=$('m1_q'); if(qbox){ var tmr=null; qbox.addEventListener('input', function(){ clearTimeout(tmr); tmr=setTimeout(function(){ st.q=qbox.value.trim(); st.offset=0; loadMap(); }, 350); }); }
+    loadMap();
+  })();
+
+  // ================= Metode 2 & 3 =================
   runner({
     run:'m2_run', stop:'m2_stop', bar:'m2_bar', msg:'m2_msg', dash:'m2_dash',
     startUrl:'/api/eval/chatbot/fallback',
-    body:function(){ return { profil:$('m2_profil').value, window:$('m2_window').value, min_count:parseInt($('m2_min').value||'2',10), limit:parseInt($('m2_limit').value||'100',10), judge:$('m2_judge').checked, also_no_history:$('m2_nohist').checked }; },
+    body:function(){ return { profil:'chatbot', window:$('m2_window').value, min_count:parseInt($('m2_min').value||'2',10), limit:parseInt($('m2_limit').value||'100',10), judge:$('m2_judge').checked, also_no_history:$('m2_nohist').checked }; },
     render:function(j){ var d=$('m2_dash'); if(!j||!j.ok||!j.metrik){ d.innerHTML='<div class="hint">Belum ada hasil.</div>'; return; }
       var m=j.metrik; var h='<div class="kpi-grid">';
       h+=kpi(m.deflection+'%','Deflection (kini terjawab)', m.deflection>=50?'ok':'bad');
@@ -265,7 +307,7 @@ details summary { cursor:pointer; }
   runner({
     run:'m3_run', stop:'m3_stop', bar:'m3_bar', msg:'m3_msg', dash:'m3_dash',
     startUrl:'/api/eval/chatbot/load',
-    body:function(){ return { profil:$('m3_profil').value, mode:$('m3_mode').value, concurrency:parseInt($('m3_conc').value||'20',10), total:parseInt($('m3_total').value||'100',10), question:$('m3_q').value }; },
+    body:function(){ return { profil:'chatbot', mode:$('m3_mode').value, concurrency:parseInt($('m3_conc').value||'20',10), total:parseInt($('m3_total').value||'100',10), question:$('m3_q').value }; },
     render:function(j){ var d=$('m3_dash'); if(!j||!j.ok||!j.metrik){ d.innerHTML='<div class="hint">Belum ada hasil.</div>'; return; }
       var m=j.metrik; var h='<div class="kpi-grid">';
       h+=kpi((m.throughput_rps!=null?m.throughput_rps:'–'),'Throughput (req/dtk)');
@@ -286,101 +328,6 @@ details summary { cursor:pointer; }
       if(j.suggestion) $('m3_conc').value=Math.max(1,j.suggestion);
     }).catch(function(){ $('m3_peakmsg').textContent='Gagal terhubung.'; });
   });
-
-  // ---- Metode 1 · mode Peta Recall (persisten) ----
-  (function(){
-    var poll=null, curRun=null, curFilter='';
-    function msg(t){ $('m4_msg').textContent=t||''; }
-    function loadMap(filter){
-      curFilter = (filter!=null? filter : curFilter) || '';
-      var url='/api/eval/chatbot/map/list'+(curFilter?('?status='+encodeURIComponent(curFilter)):'');
-      fetch(url).then(function(r){return r.json();}).then(function(j){ renderMap(j); }).catch(function(){});
-    }
-    function renderMap(j){
-      var d=$('m4_dash'); if(!j||!j.ok){ d.innerHTML='<div class="hint">Belum ada peta. Klik “Petakan” untuk membangunnya.</div>'; return; }
-      var m=j.metrik||{}; var h='<div class="kpi-grid">';
-      h+=kpi(m.total_intent||0,'Total intent dipetakan');
-      h+=kpi((m.terjawab||0),'Terjawab','ok');
-      h+=kpi((m.belum||0),'Belum terjawab',(m.belum?'bad':'ok'));
-      h+=kpi((m.pct_terjawab!=null?m.pct_terjawab+'%':'–'),'% Terjawab',(m.pct_terjawab>=90?'ok':''));
-      h+='</div>';
-      h+='<div class="row" style="margin:10px 0;">'
-        +'<button class="btn ghost" data-f="">Semua</button>'
-        +'<button class="btn ghost" data-f="belum">Belum</button>'
-        +'<button class="btn ghost" data-f="terjawab">Terjawab</button>'
-        +'<button class="btn ghost" id="m4_resetall" style="margin-left:auto;">Batalkan semua status</button></div>';
-      var rows=j.results||[];
-      h+='<table><tr><th>Intent</th><th>Status</th><th>Benar/Total</th><th>Masalah</th><th></th></tr>';
-      rows.forEach(function(r){
-        var st = r.status==='terjawab' ? '<span class="tag benar">terjawab</span>'
-               : (r.manual? '<span class="tag salah">dibatalkan</span>' : '<span class="tag">belum</span>');
-        var prob=[]; if(r.n_salah) prob.push(r.n_salah+' salah'); if(r.n_halusinasi) prob.push(r.n_halusinasi+' halusinasi'); if(r.n_abstain) prob.push(r.n_abstain+' abstain');
-        h+='<tr><td><a href="#" class="m4int" data-i="'+esc(r.intent)+'">'+esc(r.intent)+'</a></td>'
-          +'<td>'+st+'</td><td>'+(r.n_benar||0)+'/'+(r.n_total||0)+'</td>'
-          +'<td class="small mut">'+esc(prob.join(', '))+'</td>'
-          +'<td>'+(r.status==='terjawab'?('<button class="btn ghost small m4reset" data-i="'+esc(r.intent)+'">batalkan</button>'):'')+'</td></tr>';
-      });
-      h+='</table><div id="m4_detail"></div>';
-      d.innerHTML=h;
-      Array.prototype.forEach.call(d.querySelectorAll('button[data-f]'), function(b){ b.addEventListener('click', function(){ loadMap(b.getAttribute('data-f')); }); });
-      var ra=$('m4_resetall'); if(ra) ra.addEventListener('click', function(){ if(!confirm('Batalkan status TERJAWAB untuk semua intent?')) return; post('/api/eval/chatbot/map/reset',{all:true}).then(function(){ loadMap(); }); });
-      Array.prototype.forEach.call(d.querySelectorAll('.m4reset'), function(b){ b.addEventListener('click', function(e){ e.preventDefault(); post('/api/eval/chatbot/map/reset',{intent:b.getAttribute('data-i')}).then(function(){ loadMap(); }); }); });
-      Array.prototype.forEach.call(d.querySelectorAll('.m4int'), function(a){ a.addEventListener('click', function(e){ e.preventDefault(); loadDetail(a.getAttribute('data-i')); }); });
-    }
-    function loadDetail(intent){
-      fetch('/api/eval/chatbot/map/intent?intent='+encodeURIComponent(intent)).then(function(r){return r.json();}).then(function(j){
-        var box=$('m4_detail'); if(!box||!j||!j.ok) return;
-        var h='<div class="card" style="margin-top:10px;"><div class="small mut">Detail frasa: '+esc(intent)+'</div>';
-        (j.phrases||[]).forEach(function(p){
-          h+='<div class="qbox"><span class="tag '+esc(p.verdict||'')+'">'+esc(p.verdict||'?')+'</span> '+esc(p.phrase)
-            +(p.alasan?('<br><span class="small mut">'+esc(p.alasan)+'</span>'):'')+'</div>';
-        });
-        if(!(j.phrases||[]).length) h+='<div class="hint">Belum ada detail frasa.</div>';
-        h+='</div>'; box.innerHTML=h;
-      });
-    }
-    function setProg(run){
-      var pct=run.n_total?Math.round(run.n_done/run.n_total*100):0;
-      $('m4_bar').style.display='block'; $('m4_bar').firstChild.style.width=pct+'%';
-      msg('Memetakan '+run.n_done+'/'+run.n_total+' ('+pct+'%) · '+run.status+(run.note?(' · '+run.note):''));
-      if(run.status==='running'){ $('m4_stop').style.display=''; }
-      else { $('m4_stop').style.display='none'; if(poll){clearInterval(poll);poll=null;} loadMap(); }
-    }
-    $('m4_run').addEventListener('click', function(){
-      $('m4_run').disabled=true; msg('Memulai…');
-      var body={ profil:$('m4_profil').value, top_n:parseInt($('m4_top').value,10), window:$('m4_window').value, per_intent:parseInt($('m4_per').value||'12',10), only_unanswered:$('m4_only').checked, judge:true, limit:parseInt($('m4_limit').value||'0',10) };
-      post('/api/eval/chatbot/map/start', body).then(function(j){
-        $('m4_run').disabled=false;
-        if(!j||!j.ok){ msg('Gagal: '+((j&&j.error)||'?')); return; }
-        if(!j.run_id||!j.n_total){ msg(j.note||'Tidak ada intent untuk dipetakan.'); loadMap(); return; }
-        curRun=j.run_id; msg('Berjalan… '+j.n_intent+' intent, '+j.n_total+' frasa');
-        if(poll) clearInterval(poll);
-        poll=setInterval(function(){ fetch('/api/eval/chatbot/map/status?run='+encodeURIComponent(curRun)).then(function(r){return r.json();}).then(function(s){ if(s&&s.ok&&s.run) setProg(s.run); }); }, 2500);
-      }).catch(function(){ $('m4_run').disabled=false; msg('Gagal terhubung.'); });
-    });
-    $('m4_stop').addEventListener('click', function(){ if(curRun) post('/api/eval/chatbot/map/stop',{run:curRun}); });
-    $('m4_refresh').addEventListener('click', function(){ loadMap(''); });
-  })();
-
-  // ---- Metode 1 · pemilih mode: Coverage <-> Peta Recall ----
-  (function(){
-    var sel=$('m1_mode'); if(!sel) return;
-    var mapLoaded=false;
-    function apply(){
-      var cov = sel.value!=='map';
-      $('m1_ctl_cov').style.display = cov?'':'none';
-      $('m1_ctl_map').style.display = cov?'none':'';
-      $('m1_msg').style.display = cov?'':'none';
-      $('m1_dash').style.display = cov?'':'none';
-      if(cov) $('m1_bar').style.display='none';
-      $('m4_msg').style.display = cov?'none':'';
-      $('m4_dash').style.display = cov?'none':'';
-      if(cov) $('m4_bar').style.display='none';
-      if(!cov && !mapLoaded){ mapLoaded=true; var rf=$('m4_refresh'); if(rf) rf.click(); }
-    }
-    sel.addEventListener('change', apply);
-    apply();
-  })();
 })();
 </script>
 {% endblock %}
