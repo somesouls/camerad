@@ -27,10 +27,13 @@
 .btn:hover{ border-color:var(--accent); color:var(--accent); }
 .btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
 .btn.primary:hover{ background:var(--accent-hover); color:#fff; }
+.btn:disabled{ opacity:.5; cursor:not-allowed; }
 .savebar{ display:flex; align-items:center; gap:14px; margin:2px 0 26px; }
 .saveok{ font-size:13px; color:var(--c-green-txt); }
 .saveerr{ font-size:13px; color:var(--c-red-txt); }
 .hint{ font-size:11.5px; color:var(--text-muted); margin-top:6px; text-align:left; }
+.t-ans{ white-space:pre-wrap; line-height:1.6; font-size:14px; color:var(--text-main); }
+.mono{ font-family:ui-monospace,monospace; font-size:11.5px; white-space:pre-wrap; color:var(--text-muted); background:var(--bg-base); border:1px solid var(--panel-border); border-radius:10px; padding:10px; max-height:280px; overflow:auto; }
 .stat-row{ display:flex; flex-wrap:wrap; gap:10px; margin:6px 0 16px; }
 .stat{ flex:1; min-width:120px; border:1px solid var(--panel-border); border-radius:12px; padding:12px 14px; }
 .stat b{ display:block; font-size:22px; font-weight:800; line-height:1.1; }
@@ -62,7 +65,7 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
 <div class="cfg-wrap">
   <div class="cfg-head">
     <h1>⚙️ Konfigurasi Mesin RAG — Agent Kring Pajak</h1>
-    <p>Atur sumber pengetahuan, batas penggunaan harian, parameter mesin, dan persona untuk chat profil <b>agent</b> (halaman utama). Perubahan langsung berlaku pada jawaban agent.</p>
+    <p>Atur sumber pengetahuan, batas penggunaan harian, parameter mesin, dan persona untuk chat profil <b>agent</b> (halaman utama). Perubahan langsung berlaku pada jawaban agent. Halaman ini terkunci ke profil <b>agent</b>.</p>
   </div>
 
   <div class="cfg-grid">
@@ -110,6 +113,22 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
           <div class="hint">Gunakan {{ '{{konteks}}' }}, {{ '{{sumber}}' }}, dan {{ '{{fallback}}' }} sebagai placeholder yang akan diisi mesin.</div>
         </div>
         <div class="field"><label>Kalimat fallback (saat konteks tidak ditemukan)</label><textarea id="pFallback" style="min-height:90px;"></textarea></div>
+      </div>
+
+      <div class="card">
+        <h3>🧪 Uji Cepat (on-demand)</h3>
+        <div class="sub">Uji satu pertanyaan memakai konfigurasi profil <b>agent</b> yang tersimpan. Hasil tidak disimpan — simpan konfigurasi dulu untuk menguji perubahan.</div>
+        <div class="field" style="margin-bottom:10px;"><textarea id="tQ" style="min-height:70px;" placeholder="mis. Bagaimana cara mengurus EFIN yang lupa?"></textarea></div>
+        <div class="field" style="margin-bottom:10px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="tProd" style="width:16px;height:16px;accent-color:var(--accent);"> Mode produksi (ikuti mode nyata profil; matikan untuk pipeline penuh + diagnostik)
+          </label>
+        </div>
+        <div style="display:flex; gap:12px; align-items:center;">
+          <button class="btn primary" id="btnTest">▶ Jalankan uji</button>
+          <span class="hint" id="tMsg" style="margin-top:0;"></span>
+        </div>
+        <div id="tResult" style="margin-top:12px;"><div class="empty-r">Belum ada hasil.</div></div>
       </div>
     </div>
   </div>
@@ -208,6 +227,24 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
     }).catch(function(e){ msg.textContent='✖ Gagal: '+e.message; msg.className='saveerr'; });
   }
 
+  function renderTest(j){
+    var box=el('tResult');
+    if(!j||!j.ok){ box.innerHTML='<div class="empty-r" style="color:var(--c-red-txt)">'+esc((j&&j.error)||'Gagal.')+'</div>'; return; }
+    var html='<div style="margin-bottom:6px;">'+(j.grounded?'<span class="badge g">grounded</span>':'<span class="badge f">fallback</span>');
+    if(j.domain) html+=' <span class="badge" style="background:var(--c-blue);color:var(--c-blue-txt)">domain: '+esc(j.domain)+'</span>';
+    html+='</div><div class="t-ans">'+esc(j.answer||'')+'</div>';
+    if(j.sources&&j.sources.length){ html+='<div class="rv-src" style="margin-top:8px">'+j.sources.map(function(s){var t=esc((s.sumber||'')+' · '+(s.judul||''));return s.url?'<a href="'+esc(s.url)+'" target="_blank" rel="noopener">🔗 '+t+'</a>':'<span>'+t+'</span>';}).join('')+'</div>'; }
+    if(j.prompt_final){ html+='<details style="margin-top:8px"><summary style="cursor:pointer;color:var(--accent)">Lihat prompt final</summary><div class="mono">'+esc(j.prompt_final)+'</div></details>'; }
+    box.innerHTML=html;
+  }
+  function runTest(){
+    var q=el('tQ').value.trim(); if(!q){ el('tMsg').textContent='Isi pertanyaan dulu.'; return; }
+    var srcs=chosenSrc(); if(!srcs.length){ el('tMsg').textContent='Centang minimal satu sumber.'; return; }
+    el('btnTest').disabled=true; el('tMsg').textContent='Memproses…'; el('tResult').innerHTML='<div class="empty-r">Memproses pipeline…</div>';
+    var body={question:q, profil:'agent', sumber:srcs, history:[], prod_mode: el('tProd').checked};
+    fetch('/api/rag/lab',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){el('btnTest').disabled=false; el('tMsg').textContent=''; renderTest(j);}).catch(function(){el('btnTest').disabled=false; el('tMsg').textContent=''; el('tResult').innerHTML='<div class="empty-r" style="color:var(--c-red-txt)">Gagal terhubung.</div>';});
+  }
+
   function tsWIB(ts){
     if(!ts) return '';
     try{ var d=new Date(ts.replace(' ','T')+'Z');
@@ -277,6 +314,7 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
       ta.value=ta.value.slice(0,p)+ins+' '+ta.value.slice(p); ta.focus(); }
   });
   el('btnSave').onclick=saveAll;
+  el('btnTest').onclick=runTest;
   el('btnReload').onclick=loadLogs;
   el('fFb').onchange=loadLogs; el('fGr').onchange=loadLogs; el('fDom').onchange=loadLogs; el('fRange').onchange=loadLogs;
   var t=null; el('fName').addEventListener('input',function(){ clearTimeout(t); t=setTimeout(loadLogs,350); });
