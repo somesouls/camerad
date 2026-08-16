@@ -199,6 +199,10 @@ def sample_intent_phrases(top_n=100, window="90d", lang=None, per_intent=12):
             intent = (t.get("intent") or "").strip()
             if not intent or intent == "(kosong)":
                 continue
+            # Lewati intent uji-coba/testing yang bukan pengetahuan wajib pajak.
+            il = intent.lower()
+            if "testing" in il or il.startswith("test_") or il.endswith("_test"):
+                continue
             row = conn.execute(
                 "SELECT training_phrase_contoh, jawaban_cuplikan FROM intentmap_catalog WHERE intent=?",
                 (intent,)).fetchone()
@@ -209,7 +213,10 @@ def sample_intent_phrases(top_n=100, window="90d", lang=None, per_intent=12):
                 except Exception:
                     phrases = []
                 gold = row["jawaban_cuplikan"] or ""
-            phrases = [str(p).strip() for p in phrases if str(p).strip()][: int(per_intent)]
+            phrases = [str(p).strip() for p in phrases if str(p).strip()]
+            # Buang frasa sampah (kode chip cbxNN, angka/kode murni, token menu,
+            # penanda testing) agar coverage tidak dihukum oleh sampel non-pertanyaan.
+            phrases = [ph for ph in phrases if not _looks_junk(ph)][: int(per_intent)]
             for ph in phrases:
                 out.append({"intent": intent, "pertanyaan": ph, "gold": gold,
                             "first_turn": True, "history": [], "session_id": ""})
@@ -377,9 +384,16 @@ def compute_metrics(conn, run_id, metode):
     total = len(rows)
     grounded = sum(1 for r in rows if r["grounded"])
     fallback = sum(1 for r in rows if r["fallback_hit"])
+    answered = total - fallback
+    # Coverage/deflection = benar-benar TERJAWAB (bukan fallback). Sebelumnya
+    # dihitung dari flag 'grounded' yang bisa TRUE walau mesin mengeluarkan teks
+    # fallback -> badge tak konsisten dengan fallback_rate. Pakai (total-fallback)
+    # agar coverage + fallback_rate = 100%.
     m = {"total": total,
-         "coverage": round(grounded / total * 100.0, 2) if total else 0.0,
-         "deflection": round(grounded / total * 100.0, 2) if total else 0.0,
+         "grounded": grounded,
+         "answered": answered,
+         "coverage": round(answered / total * 100.0, 2) if total else 0.0,
+         "deflection": round(answered / total * 100.0, 2) if total else 0.0,
          "fallback_rate": round(fallback / total * 100.0, 2) if total else 0.0}
     verds = {}
     skor_sum, skor_n = 0.0, 0
@@ -392,9 +406,13 @@ def compute_metrics(conn, run_id, metode):
     m["judge"] = verds
     m["skor_rata"] = round(skor_sum / skor_n, 3) if skor_n else None
     m["halusinasi_rate"] = round(verds.get("halusinasi", 0) / total * 100.0, 2) if total else 0.0
+    # Presisi saat menjawab = benar / (benar+salah+halusinasi). Lebih jujur
+    # daripada coverage karena menghukum jawaban yang keliru/dikarang.
+    dijawab_juri = verds.get("benar", 0) + verds.get("salah", 0) + verds.get("halusinasi", 0)
+    m["presisi_jawab"] = round(verds.get("benar", 0) / dijawab_juri * 100.0, 2) if dijawab_juri else None
     if metode == "chatbot_fallback":
         def dr(rr):
-            t = len(rr); g = sum(1 for x in rr if x["grounded"])
+            t = len(rr); g = sum(1 for x in rr if not x["fallback_hit"])
             return {"total": t, "deflection": round(g / t * 100.0, 2) if t else 0.0}
         m["first_turn"] = dr([r for r in rows if r["first_turn"] and not r["with_history"]])
         m["followup_with_history"] = dr([r for r in rows if not r["first_turn"] and r["with_history"]])
@@ -663,8 +681,12 @@ def report(run_id=None, metode=None, only=None):
             d["self_retrieved"] = bool(d.get("intent")) and ((d.get("intent") or "") in hay)
         if only == "fallback":
             rows = [d for d in rows if d.get("fallback_hit")]
-        elif only == "hallucination":
+        elif only in ("hallucination", "halusinasi"):
             rows = [d for d in rows if d.get("judge_verdict") == "halusinasi"]
+        elif only == "salah":
+            rows = [d for d in rows if d.get("judge_verdict") == "salah"]
+        elif only == "abstain_salah":
+            rows = [d for d in rows if d.get("judge_verdict") == "abstain_salah"]
         return {"ok": True, "run": run, "metrik": run.get("metrik"), "results": rows[:200]}
     finally:
         conn.close()
