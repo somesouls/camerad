@@ -27,6 +27,10 @@ try:
 except Exception:            # pragma: no cover
     rag_rewrite = None
 try:
+    import rag_intent_semantic as ris
+except Exception:            # pragma: no cover
+    ris = None
+try:
     import intentmap_db as imdb
 except Exception:            # pragma: no cover
     imdb = None
@@ -89,10 +93,27 @@ def _json_list(v):
         return []
 
 
+def _intent_topk():
+    """Berapa banyak intent teratas (hasil fusi leksikal+semantik) diambil ke
+    konteks. Dinaikkan dari 4 -> default 6 untuk memperbaiki recall. Override
+    via env RAG_INTENT_TOPK."""
+    try:
+        return max(1, int(os.environ.get("RAG_INTENT_TOPK", "6")))
+    except Exception:
+        return 6
+
+
 # ==========================================================================
 # Tahap 2 — Retrieval per sumber (identik dengan pilot; dipindah ke engine).
 # ==========================================================================
 def _ctx_dialogflow(q):
+    """Retrieval intent HYBRID: gabungan pencocokan LEKSIKAL (hitung token) dan
+    SEMANTIK (embedding via rag_intent_semantic). Leksikal kuat untuk kata kunci
+    persis; semantik menutup parafrase/sinonim/salah ketik (mis. \"mengubah
+    pekerjaan\" -> intent \"...Perubahan Data\"; \"error PPN\" -> \"Kode Error...\").
+    Kedua peringkat digabung dengan Reciprocal Rank Fusion lalu diambil top-K.
+    Gagal-anggun: bila modul/model semantik tak tersedia, otomatis leksikal saja.
+    """
     if imdb is None:
         return "", []
     try:
@@ -107,33 +128,69 @@ def _ctx_dialogflow(q):
         except Exception:
             pass
         cat_rows = []
+        try:
+            cat_rows = c.execute(
+                "SELECT intent, deskripsi_maksud, deskripsi_cakupan, "
+                "jawaban_cuplikan, training_phrase_contoh FROM intentmap_catalog "
+                "WHERE COALESCE(sumber_status,'aktif')!='hilang' "
+                "AND COALESCE(soft_deleted,0)=0"
+            ).fetchall()
+        except Exception:
+            cat_rows = []
+
+        # (A) Peringkat LEKSIKAL — hitung kemunculan token (kuat utk kata kunci).
+        lex_scored = []
         if toks:
+            for r in cat_rows:
+                d = dict(r)
+                tps = _json_list(d.get("training_phrase_contoh"))
+                iname = str(d.get("intent") or "")
+                hay = " ".join([
+                    iname, str(d.get("deskripsi_maksud") or ""),
+                    str(d.get("deskripsi_cakupan") or ""),
+                    str(d.get("jawaban_cuplikan") or ""),
+                    " ".join(str(x) for x in tps),
+                ]).lower()
+                score = sum(hay.count(t) for t in toks)
+                score += 2 * sum(1 for t in toks if t in iname.lower())
+                if score > 0:
+                    lex_scored.append((score, d))
+            lex_scored.sort(key=lambda x: -x[0])
+        lex_order = [d for _, d in lex_scored]
+
+        # (B) Peringkat SEMANTIK — embedding katalog (parafrase/sinonim/typo).
+        sem_ranked = []
+        if ris is not None:
             try:
-                cat_rows = c.execute(
-                    "SELECT intent, deskripsi_maksud, deskripsi_cakupan, "
-                    "jawaban_cuplikan, training_phrase_contoh FROM intentmap_catalog "
-                    "WHERE COALESCE(sumber_status,'aktif')!='hilang' "
-                    "AND COALESCE(soft_deleted,0)=0"
-                ).fetchall()
+                sem_ranked = ris.rank(q, limit=max(6, _intent_topk() * 2)) or []
             except Exception:
-                cat_rows = []
-        scored = []
-        for r in cat_rows:
-            d = dict(r)
-            tps = _json_list(d.get("training_phrase_contoh"))
-            iname = str(d.get("intent") or "")
-            hay = " ".join([
-                iname, str(d.get("deskripsi_maksud") or ""),
-                str(d.get("deskripsi_cakupan") or ""),
-                str(d.get("jawaban_cuplikan") or ""),
-                " ".join(str(x) for x in tps),
-            ]).lower()
-            score = sum(hay.count(t) for t in toks)
-            score += 2 * sum(1 for t in toks if t in iname.lower())
-            if score > 0:
-                scored.append((score, d))
-        scored.sort(key=lambda x: -x[0])
-        for score, d in scored[:4]:
+                sem_ranked = []
+
+        # (C) Fusi peringkat (Reciprocal Rank Fusion) leksikal + semantik, plus
+        #     dorongan kecil dari cosine agar kecocokan semantik kuat naik.
+        fused = {}
+        _RRF_K = 60.0
+        for i, d in enumerate(lex_order):
+            nm = str(d.get("intent") or "")
+            if not nm:
+                continue
+            e = fused.setdefault(nm, {"d": d, "skor": 0.0})
+            e["skor"] += 1.0 / (_RRF_K + i + 1)
+        for i, item in enumerate(sem_ranked):
+            try:
+                d, s = item
+            except Exception:
+                d, s = item, 0.0
+            nm = str((d or {}).get("intent") or "")
+            if not nm:
+                continue
+            e = fused.setdefault(nm, {"d": d, "skor": 0.0})
+            e["skor"] += 1.0 / (_RRF_K + i + 1)
+            e["skor"] += 0.15 * float(s or 0)
+
+        picks = sorted(fused.values(), key=lambda e: -e["skor"])
+        for e in picks[:_intent_topk()]:
+            d = e["d"]
             intent = str(d.get("intent") or "")
             ans = (d.get("jawaban_cuplikan") or "").strip()
             desc = (d.get("deskripsi_cakupan") or d.get("deskripsi_maksud") or "").strip()
@@ -146,6 +203,8 @@ def _ctx_dialogflow(q):
                 continue
             blocks.append(piece)
             sources.append({"sumber": "Training Phrase & Intent", "judul": intent, "ref": ""})
+
+        # (D) Kebijakan pemetaan intent analis (imdb.match) — tetap disuntik.
         try:
             m = imdb.match(c, q, limit=3) or []
         except Exception:
@@ -157,8 +216,8 @@ def _ctx_dialogflow(q):
                 t_pol = ""
             if t_pol and t_pol.strip():
                 blocks.append(t_pol)
-                for e in m:
-                    nm = e.get("intent") if isinstance(e, dict) else None
+                for ent in m:
+                    nm = ent.get("intent") if isinstance(ent, dict) else None
                     if nm and not any(s["judul"] == nm for s in sources):
                         sources.append({"sumber": "Training Phrase & Intent", "judul": nm, "ref": ""})
     finally:
@@ -393,11 +452,11 @@ def effective_sources(profile, override=None):
 
     - override (dari playground /rag-lab): daftar centang admin -> dipakai apa
       adanya.
-    - produksi (chat): daftar 'sumber' (checkbox pada halaman "RAG Agent -
-      Konfigurasi") BERSIFAT OTORITATIF. Sumber yang TIDAK dicentang tidak akan
+    - produksi (chat): daftar 'sumber' (checkbox pada halaman \"RAG Agent -
+      Konfigurasi\") BERSIFAT OTORITATIF. Sumber yang TIDAK dicentang tidak akan
       dipanggil maupun dikutip.
 
-    Catatan perbaikan: dulu chip @sumber di dalam prompt (mis. "@intent")
+    Catatan perbaikan: dulu chip @sumber di dalam prompt (mis. \"@intent\")
     menimpa pilihan checkbox sehingga sumber yang sudah di-uncheck tetap
     terpakai. Sekarang chip pada prompt murni panduan naratif untuk LLM dan
     TIDAK lagi menentukan sumber retrieval.
@@ -625,7 +684,7 @@ def answer(question, profile, override=None, history=None, diagnostics=False):
     if not q:
         return {"ok": False, "error": "Pertanyaan kosong."}
 
-    # Mode mesin per-profil (switch di halaman "Webhook Chatbot"):
+    # Mode mesin per-profil (switch di halaman \"Webhook Chatbot\"):
     #   ''(auto)    -> ikut env (profil 'cepat' seperti perilaku bawaan)
     #   'tanpa_llm' -> TANPA LLM generatif (jalur cepat intent + cuplikan retrieval)
     #   'llm'       -> pakai LLM tapi hemat (tanpa loop verifikasi & AI-rewrite)
