@@ -20,6 +20,10 @@ Mengikuti pola monkey-patch rag_successor_patch / rag_calibration_patch dan
 membungkus rag_engine.answer + rag_engine._render_prompt (untuk menangkap
 konteks yang benar-benar dipakai), sehingga berlaku untuk SEMUA pemanggil:
 chat produksi, webhook Dialogflow, playground /rag-lab, dan harness /rag-eval.
+
+Catatan: pembungkus answer MENERUSKAN semua argumen kata-kunci tambahan
+(**kwargs, mis. honor_mode) apa adanya ke rag_engine.answer asli, sehingga
+parameter baru pada answer() tidak pernah 'ditelan' wrapper ini.
 """
 import os
 import re
@@ -149,13 +153,13 @@ def _install():
         return _orig_render(tmpl, context, sumber_txt, fallback)
 
     def _guarded_answer(question, profile, override=None, history=None,
-                        diagnostics=False):
+                        diagnostics=False, **kwargs):
         try:
             _TLS.ctx = _SENTINEL
         except Exception:
             pass
         res = _orig_answer(question, profile, override=override,
-                           history=history, diagnostics=diagnostics)
+                           history=history, diagnostics=diagnostics, **kwargs)
         try:
             if not isinstance(res, dict) or not res.get("ok"):
                 return res
