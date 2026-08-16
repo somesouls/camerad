@@ -30,7 +30,7 @@
   .chat-screen.show{ transform:scale(1); }
   .chat-header{ background:var(--biru); color:#fff; padding:13px 15px; display:flex; align-items:center; justify-content:space-between; }
   .chat-header .kiri{ display:flex; align-items:center; gap:10px; }
-  .logo-bulat{ width:34px; height:34px; border-radius:50%; background:#fff; color:var(--biru); font-weight:800; display:flex; align-items:center; justify-content:center; font-size:15px; }
+  .logo-bulat{ width:34px; height:34px; border-radius:50%; background:#fff; color:var(--biru); font-weight:800; display:flex; align-items:center; justify-content:center; font-size:15px; overflow:hidden; }
   .judul{ font-weight:700; line-height:1.1; }
   .judul small{ display:block; font-weight:400; font-size:11px; opacity:.85; }
   .close-btn{ cursor:pointer; font-weight:bold; opacity:.9; }
@@ -260,7 +260,6 @@
     identitas.npwp = el('f-npwp').value.trim();
     identitas.nama = nama; identitas.email = el('f-email').value.trim();
     identitas.telp = el('f-telp').value.trim(); identitas.topik = topik;
-    el('logo').textContent = (nama[0]||'P').toUpperCase();
     tampilLayar('layar-chat');
     tambahBubbleBot(tr('greet')(nama.split(' ')[0]));
   });
@@ -328,6 +327,20 @@
   inputPesan.addEventListener('keypress', e=>{ if(e.key==='Enter') kirimPesan(); });
 
   applyLang();
+
+  // Logo lingkaran header: tampilkan lambang DJP (bukan inisial) dari server,
+  // pakai URL absolut API agar tetap termuat saat widget disematkan lintas-asal.
+  (function(){
+    const lg = el('logo');
+    if(!lg) return;
+    const img = document.createElement('img');
+    img.src = API + '/static/logo-only.svg';
+    img.alt = 'DJP';
+    img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:50%;';
+    img.onerror = function(){ lg.textContent = 'P'; };
+    lg.textContent = '';
+    lg.appendChild(img);
+  })();
 </script>
 </body>
 </html>
