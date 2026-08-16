@@ -134,9 +134,10 @@ async def api_profile_save(request: Request):
 
 
 def _warmup_intent_semantic():
-    """Bangun indeks embedding katalog intent di latar belakang saat boot agar
-    query pertama tidak lambat. Nonaktif via RAG_INTENT_SEMANTIC_WARMUP=0.
-    Gagal-anggun: kegagalan apa pun hanya dicatat, tidak menghentikan server."""
+    """Bangun indeks embedding katalog intent + pramuat model reranker di latar
+    belakang saat boot agar query pertama tidak lambat. Nonaktif via
+    RAG_INTENT_SEMANTIC_WARMUP=0 (khusus indeks semantik). Gagal-anggun:
+    kegagalan apa pun hanya dicatat, tidak menghentikan server."""
     if str(os.environ.get("RAG_INTENT_SEMANTIC_WARMUP", "1")).strip().lower() in (
             "0", "false", "no", "off"):
         return
@@ -149,6 +150,20 @@ def _warmup_intent_semantic():
         except Exception as e:
             try:
                 print("[warmup] rag_intent_semantic dilewati:", e, flush=True)
+            except Exception:
+                pass
+        # Pramuat model reranker cross-encoder (bila aktif, env RAG_RERANK) agar
+        # query pertama tak menanggung waktu muat model. is_available() akan
+        # memicu pemuatan model bila belum dimuat.
+        try:
+            import rag_reranker
+            if rag_reranker.is_available():
+                print("[warmup] model reranker cross-encoder siap.", flush=True)
+            else:
+                print("[warmup] reranker nonaktif/tak tersedia (dilewati).", flush=True)
+        except Exception as e:
+            try:
+                print("[warmup] rag_reranker dilewati:", e, flush=True)
             except Exception:
                 pass
 
@@ -166,5 +181,5 @@ def register(app):
     app.add_api_route("/api/rag/profiles", api_profiles, methods=["GET"])
     app.add_api_route("/api/rag/profile", api_profile_get, methods=["POST"])
     app.add_api_route("/api/rag/profile/save", api_profile_save, methods=["POST"])
-    # Warm-up mesin semantik intent di latar belakang saat modul didaftarkan.
+    # Warm-up mesin semantik intent + reranker di latar belakang saat didaftarkan.
     _warmup_intent_semantic()
