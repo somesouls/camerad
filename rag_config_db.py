@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 """rag_config_db.py — Profil & konfigurasi mesin RAG (disimpan permanen).
 
-Tiap "profil" mewakili satu peran AI yang berbagi backend LLM sama namun beda
+Tiap \"profil\" mewakili satu peran AI yang berbagi backend LLM sama namun beda
 persona/prompt:
-  - "chatbot" : ChatBot Pajak untuk Wajib Pajak (ringkas, sumber disembunyikan)
-  - "agent"   : Asisten Agent Kring Pajak (detail + tampilkan sumber & link)
+  - \"chatbot\" : ChatBot Pajak untuk Wajib Pajak (ringkas, sumber disembunyikan)
+  - \"agent\"   : Asisten Agent Kring Pajak (detail + tampilkan sumber & link)
   - (voicebot menyusul; cukup tambah profil baru saat waktunya)
 
 Kolom profil:
@@ -52,7 +52,9 @@ FALLBACK_DEFAULT = (
     "terdekat. Terima kasih."
 )
 
-_PROMPT_CHATBOT = (
+# Versi LAMA prompt chatbot (dipakai untuk migrasi lunak: hanya di-upgrade bila
+# prompt tersimpan di DB masih PERSIS sama dengan ini alias belum dikustom admin).
+_PROMPT_CHATBOT_LAMA = (
     "PERAN\n"
     "Kamu adalah Agent Kring Pajak - asisten informasi layanan perpajakan "
     "resmi untuk Wajib Pajak. Jawab dengan bahasa Indonesia yang ramah, "
@@ -65,6 +67,32 @@ _PROMPT_CHATBOT = (
     "{{konteks}}\n\n"
     "BILA TIDAK ADA DI DATA\n"
     "Jika konteks tidak memuat informasi relevan, balas PERSIS: \"{{fallback}}\"\n\n"
+    "GAYA\n"
+    "Ringkas, jelas, dan langkah demi langkah bila prosedural. Jangan "
+    "menampilkan nama sumber internal kepada pengguna."
+)
+
+_PROMPT_CHATBOT = (
+    "PERAN\n"
+    "Kamu adalah Agent Kring Pajak - asisten informasi layanan perpajakan "
+    "resmi untuk Wajib Pajak. Jawab dengan bahasa Indonesia yang ramah, "
+    "formal, sopan, dan normatif.\n\n"
+    "SUMBER JAWABAN\n"
+    "Gunakan HANYA \"KONTEKS INTERNAL\" di bawah. Untuk pertanyaan seputar "
+    "aplikasi/prosedur, utamakan @sop @sosmed @awe. Untuk dasar hukum/"
+    "ketentuan, gunakan @peraturan. Dilarang memakai pengetahuan umum atau "
+    "sumber web, dan dilarang mengarang fakta, angka, tautan, atau prosedur.\n\n"
+    "{{konteks}}\n\n"
+    "CARA MENJAWAB\n"
+    "- Bila konteks memuat informasi yang relevan (meski hanya SEBAGIAN), "
+    "JAWAB dari bagian yang relevan itu. Jangan menolak menjawab hanya karena "
+    "konteks terasa kurang lengkap.\n"
+    "- Bila hanya sebagian informasi tersedia, sampaikan dulu yang ada, lalu "
+    "arahkan Wajib Pajak menghubungi Kring Pajak di 1500200 atau kantor pajak "
+    "terdekat untuk rincian yang belum tercakup.\n"
+    "- Gunakan HANYA kalimat fallback PERSIS berikut bila konteks benar-benar "
+    "TIDAK memuat informasi apa pun yang berkaitan dengan pertanyaan: "
+    "\"{{fallback}}\"\n\n"
     "GAYA\n"
     "Ringkas, jelas, dan langkah demi langkah bila prosedural. Jangan "
     "menampilkan nama sumber internal kepada pengguna."
@@ -143,6 +171,18 @@ def init_db(conn):
                 (pid, d["nama"], d["system_prompt"], json.dumps(d["sumber"]),
                  d["maks_loop"], d["tampil_sumber"], d["fallback"], d["suhu"], now),
             )
+    # Migrasi lunak prompt chatbot: bila prompt tersimpan masih versi LAMA (stok),
+    # naikkan otomatis ke versi anti over-abstain. Prompt yang sudah dikustom
+    # admin TIDAK diubah.
+    try:
+        r = conn.execute("SELECT system_prompt FROM rag_profile WHERE id='chatbot'").fetchone()
+        if r and (r[0] or "").strip() == _PROMPT_CHATBOT_LAMA.strip():
+            conn.execute(
+                "UPDATE rag_profile SET system_prompt=?, updated_at=? WHERE id='chatbot'",
+                (_PROMPT_CHATBOT, now),
+            )
+    except Exception:
+        pass
     conn.commit()
     return conn
 
