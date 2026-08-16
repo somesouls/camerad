@@ -33,6 +33,7 @@ th { color:var(--text-muted); font-weight:600; }
 .tag { display:inline-block; font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:6px; background:var(--panel-border); color:var(--text-main); }
 .tag.benar, .tag.abstain_benar { background:var(--c-green,#dcfce7); color:var(--c-green-txt,#16a34a); }
 .tag.halusinasi { background:var(--c-red,#fee2e2); color:var(--c-red-txt,#dc2626); }
+.tag.salah, .tag.abstain_salah { background:var(--c-red,#fee2e2); color:var(--c-red-txt,#dc2626); }
 .mut { color:var(--text-muted); }
 .qbox { font-size:12.5px; color:var(--text-main); margin:4px 0; line-height:1.5; }
 .small { font-size:11.5px; }
@@ -46,7 +47,7 @@ details summary { cursor:pointer; }
 
   <div class="card">
     <h3>Metode 1 · Coverage Training Phrase (Top Intent)</h3>
-    <div class="desc">Ambil TOP intent paling sering dipanggil (Distribusi Intent Teratas), lalu uji mesin RAG dengan training phrase tiap intent. Karena topik ini sudah dikenal Dialogflow, mesin RAG idealnya TIDAK fallback (coverage ≈ 100%). Soft-gold = jawaban resmi intent (opsional dinilai LLM). Catatan: katalog menyimpan maks 12 contoh frasa per intent.</div>
+    <div class="desc">Ambil TOP intent paling sering dipanggil (Distribusi Intent Teratas), lalu uji mesin RAG dengan training phrase tiap intent. Karena topik ini sudah dikenal Dialogflow, mesin RAG idealnya TIDAK fallback (coverage ≈ 100%). Soft-gold = jawaban resmi intent (opsional dinilai LLM). Catatan: katalog menyimpan maks 12 contoh frasa per intent. Sampel sampah (kode menu/angka/testing) kini otomatis dibuang.</div>
     <div class="row">
       <div class="field"><label>Profil</label><select id="m1_profil"></select></div>
       <div class="field"><label>Top intent</label><select id="m1_top"><option value="100">Top 100</option><option value="300">Top 300</option><option value="50">Top 50</option></select></div>
@@ -137,6 +138,31 @@ details summary { cursor:pointer; }
     d.innerHTML=h;
   }
 
+  // Render daftar berbasis verdict juri (mis. 'salah', 'halusinasi'). Menampilkan
+  // jawaban mesin + alasan juri agar kasus 'silent failure' (menjawab tapi keliru)
+  // yang TIDAK muncul di daftar fallback tetap terlihat & bisa ditelusuri.
+  function renderRows(rows, box, title){
+    var h='<details style="margin-top:12px;"><summary class="hint">'+title+' ('+rows.length+')</summary>';
+    rows.slice(0,80).forEach(function(r){
+      h+='<div class="card" style="margin-top:8px;">';
+      h+='<div class="small mut">'+(r.intent?('intent: '+esc(r.intent)+' · '):'')+(r.judge_verdict?('<span class="tag '+esc(r.judge_verdict)+'">'+esc(r.judge_verdict)+'</span>'):'')+(r.judge_skor!=null?(' · skor '+r.judge_skor):'')+(r.self_retrieved?' · <span class="tag">terambil</span>':'')+'</div>';
+      h+='<div class="qbox"><b>T:</b> '+esc(r.pertanyaan)+'</div>';
+      h+='<div class="qbox"><b>Mesin:</b> '+esc((r.answer||'').slice(0,400))+'</div>';
+      if(r.judge_alasan) h+='<div class="qbox mut"><b>Alasan juri:</b> '+esc(r.judge_alasan)+'</div>';
+      if(r.gold) h+='<div class="qbox mut"><b>Jawaban resmi:</b> '+esc((r.gold||'').slice(0,300))+'</div>';
+      h+='</div>';
+    });
+    h+='</details>';
+    box.innerHTML=h;
+  }
+
+  function loadVerdict(rid, boxId, verdict, title){
+    var box=document.getElementById(boxId); if(!box||!rid) return;
+    fetch('/api/eval/chatbot/report?run='+encodeURIComponent(rid)+'&only='+encodeURIComponent(verdict)).then(function(r){return r.json();}).then(function(j){
+      renderRows(j.results||[], box, title);
+    }).catch(function(){});
+  }
+
   function runner(cfg){
     var poll=null, curRun=null;
     function setProg(run){
@@ -178,9 +204,14 @@ details summary { cursor:pointer; }
       h+=kpi((m.skor_rata!=null?m.skor_rata:'–'),'Skor rata juri');
       h+='</div>';
       if(m.judge&&Object.keys(m.judge).length){ h+='<table><tr><th>Verdict juri</th><th>Jumlah</th></tr>'; Object.keys(m.judge).forEach(function(k){ h+='<tr><td><span class="tag '+esc(k)+'">'+esc(k)+'</span></td><td>'+m.judge[k]+'</td></tr>'; }); h+='</table>'; }
+      if(m.presisi_jawab!=null) h+='<div class="hint">Presisi saat menjawab (juri): <b>'+m.presisi_jawab+'%</b> — dari yang benar-benar dijawab; sisanya salah/halusinasi. Ini lebih jujur daripada coverage.</div>';
       if(m.latency_ms) h+='<div class="hint">Latensi: '+lat(m.latency_ms)+'</div>';
       if(m.recall_miss!=null) h+='<div class="hint">Diagnosis fallback: <b>'+m.recall_miss+'</b> recall-miss (intent asal TIDAK terambil retrieval — masalah recall) · <b>'+m.retrieved_but_abstain+'</b> terambil tapi mesin tetap abstain (verifikasi terlalu ketat).</div>';
+      h+='<div id="m1_salah_box"></div><div id="m1_halu_box"></div>';
       renderFails(j,h,d,'Frasa yang MASIH fallback (harusnya dikenali)');
+      var rid=(j.run&&j.run.id)||'';
+      loadVerdict(rid,'m1_salah_box','salah','⚠ Jawaban SALAH — menjawab tapi keliru (silent failure)');
+      loadVerdict(rid,'m1_halu_box','halusinasi','🚨 Halusinasi — klaim spesifik dikarang');
     }
   });
 
