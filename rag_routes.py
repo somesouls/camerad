@@ -17,6 +17,8 @@ Gating akses diatur di app_core (_route_area): /rag & /api/rag/chat = area
 Daftarkan dengan:  import rag_routes; rag_routes.register(app)
 """
 import json
+import os
+import threading
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -87,8 +89,12 @@ async def api_rag_lab(request: Request):
     if not isinstance(sumber, list):
         sumber = None
     history = body.get("history") if isinstance(body.get("history"), list) else []
+    # Opsi \"mode produksi\": jalankan uji mengikuti mode NYATA profil (mis.
+    # chatbot = cepat/tanpa loop verifikasi) alih-alih memaksa pipeline penuh.
+    prod_mode = bool(body.get("prod_mode"))
     try:
-        res = await run_in_threadpool(rag_engine.jawab_lab, question, profil, sumber, history)
+        res = await run_in_threadpool(
+            rag_engine.jawab_lab, question, profil, sumber, history, prod_mode)
         return JSONResponse(res)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
@@ -127,6 +133,31 @@ async def api_profile_save(request: Request):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+def _warmup_intent_semantic():
+    """Bangun indeks embedding katalog intent di latar belakang saat boot agar
+    query pertama tidak lambat. Nonaktif via RAG_INTENT_SEMANTIC_WARMUP=0.
+    Gagal-anggun: kegagalan apa pun hanya dicatat, tidak menghentikan server."""
+    if str(os.environ.get("RAG_INTENT_SEMANTIC_WARMUP", "1")).strip().lower() in (
+            "0", "false", "no", "off"):
+        return
+
+    def _bg():
+        try:
+            import rag_intent_semantic as ris
+            ris.warmup()
+            print("[warmup] indeks semantik intent siap.", flush=True)
+        except Exception as e:
+            try:
+                print("[warmup] rag_intent_semantic dilewati:", e, flush=True)
+            except Exception:
+                pass
+
+    try:
+        threading.Thread(target=_bg, name="warmup-intent-semantic", daemon=True).start()
+    except Exception:
+        pass
+
+
 def register(app):
     app.add_api_route("/rag", page_rag, methods=["GET"])
     app.add_api_route("/api/rag/chat", api_rag_chat, methods=["POST"])
@@ -135,3 +166,5 @@ def register(app):
     app.add_api_route("/api/rag/profiles", api_profiles, methods=["GET"])
     app.add_api_route("/api/rag/profile", api_profile_get, methods=["POST"])
     app.add_api_route("/api/rag/profile/save", api_profile_save, methods=["POST"])
+    # Warm-up mesin semantik intent di latar belakang saat modul didaftarkan.
+    _warmup_intent_semantic()
