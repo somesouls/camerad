@@ -34,6 +34,16 @@ def init_client():
     if _client is not None:
         return
 
+    # Muat variabel .env untuk skrip MANDIRI (probe/eval yang tidak lewat
+    # web_app). web_app sudah memuat .env lebih dulu; pemanggilan kedua ini
+    # idempoten dan aman. Tanpa ini, skrip bare-shell gagal dengan pesan
+    # "OPENAI_API_KEY/AZURE_OPENAI_API_KEY belum diisi di .env".
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+    except Exception:
+        pass
+
     provider = (_cfg("LLM_PROVIDER", "openai") or "").strip().lower()
     _provider = provider
 
