@@ -57,6 +57,25 @@ except Exception:            # pragma: no cover
 
 MAKS_KONTEKS = 6500
 
+# Anggaran karakter PER-SUMBER saat merakit konteks (ganti potong-ekor global).
+# Tiap sumber diisi mengikuti prioritas router, dibatasi ini, hingga total ~
+# MAKS_KONTEKS. Override: RAG_SUMBER_BUDGET (per sumber), RAG_MAKS_KONTEKS.
+_SUMBER_BUDGET_DEFAULT = 3500
+
+# Status peraturan yang boleh masuk konteks. Sertakan "diubah" (mis. PP 55/2022,
+# UU 28/2007) yang dulu tak terjangkau karena filter ("berlaku",) saja.
+# Override: env PERATURAN_STATUS (dipisah koma).
+_PERATURAN_STATUS_DEFAULT = ("berlaku", "diubah")
+
+
+def _peraturan_status():
+    raw = os.environ.get("PERATURAN_STATUS")
+    if raw is None or not str(raw).strip():
+        return _PERATURAN_STATUS_DEFAULT
+    vals = tuple(x.strip().lower() for x in str(raw).split(",") if x.strip())
+    return vals or _PERATURAN_STATUS_DEFAULT
+
+
 # Budget potong isi pasal peraturan (per blok). Agent perlu lebih panjang agar
 # pasal tidak terpotong; chatbot cukup ringkas. Diset per-request oleh answer()
 # lewat contextvar (aman untuk banyak request paralel).
@@ -428,7 +447,7 @@ def _ctx_peraturan(q, limit=4):
     if pdb is None:
         return "", []
     try:
-        rows = pdb.search(q, limit, ("berlaku",))
+        rows = pdb.search(q, limit, _peraturan_status())
     except Exception:
         rows = []
     clip_isi = _clip_peraturan_ctx.get()
@@ -539,19 +558,33 @@ def effective_sources(profile, override=None):
 
 
 def _assemble(keys, cache, q):
-    parts, sources, n = [], [], 0
+    """Rakit konteks dengan ANGGARAN PER-SUMBER (bukan potong-ekor global).
+    Kembalikan (body, sources, used); 'sources'/'used' hanya memuat sumber yang
+    teksnya benar-benar masuk konteks (memperbaiki 'kebohongan sumber')."""
+    total_cap = _env_int("RAG_MAKS_KONTEKS", MAKS_KONTEKS) or MAKS_KONTEKS
+    per_cap = _env_int("RAG_SUMBER_BUDGET", _SUMBER_BUDGET_DEFAULT) or _SUMBER_BUDGET_DEFAULT
+    parts, sources, used, n = [], [], [], 0
+    remaining = total_cap
     for key in keys:
+        if remaining <= 0:
+            break
         if key not in cache:
             cache[key] = _retrieve_one(key, q)
         t, s = cache[key]
-        if t and t.strip():
-            n += 1
-            parts.append("### Sumber %d - %s\n%s" % (n, rcfg.SUMBER_LABEL.get(key, key), t))
-            sources.extend(s)
+        if not (t and t.strip()):
+            continue
+        block = t.strip()
+        cap = min(per_cap, remaining)
+        if len(block) > cap:
+            block = block[:cap].rstrip() + "\u2026"
+        n += 1
+        piece = "### Sumber %d - %s\n%s" % (n, rcfg.SUMBER_LABEL.get(key, key), block)
+        parts.append(piece)
+        sources.extend(s)
+        used.append(key)
+        remaining -= len(piece) + 2
     body = "\n\n".join(parts)
-    if MAKS_KONTEKS and len(body) > MAKS_KONTEKS:
-        body = body[:MAKS_KONTEKS].rstrip() + "\u2026"
-    return body, sources
+    return body, sources, used
 
 
 def _dedup_sources(sources):
@@ -602,6 +635,44 @@ def _verify(q, context):
     return {"cukup": True, "butuh_peraturan": False, "alasan": "format tak terbaca"}
 
 
+# Pola sitasi yang kerap DIKARANG LLM (nomor peraturan/halaman) untuk guardrail
+# anti-karang: sitasi yang tak ada di konteks dianggap ungrounded.
+_POLA_SITASI = [
+    re.compile(r"\bPER\s*[-/]?\s*\d+\s*/\s*PJ\s*/\s*\d{4}\b", re.I),
+    re.compile(r"\bKEP\s*[-/]?\s*\d+\s*/\s*[A-Z.]+\s*/\s*\d{4}\b", re.I),
+    re.compile(r"\bSE\s*[-/]?\s*\d+\s*/\s*PJ\s*/\s*\d{4}\b", re.I),
+    re.compile(r"\bPP\s+(?:No\.?\s*)?\d+\s+Tahun\s+\d{4}\b", re.I),
+    re.compile(r"\bPMK\s+(?:No\.?\s*)?\d+\s+Tahun\s+\d{4}\b", re.I),
+    re.compile(r"\b\d+\s*/\s*PMK\.?\s*\d+\s*/\s*\d{4}\b", re.I),
+    re.compile(r"\bUU\s+(?:No\.?\s*)?\d+\s+Tahun\s+\d{4}\b", re.I),
+    re.compile(r"\bhalaman\s+\d+\b", re.I),
+]
+
+
+def _norm_sitasi(s):
+    s = re.sub(r"(?i)\b(tahun|nomor|no)\b", " ", s or "")
+    return re.sub(r"[^0-9a-z]", "", s.lower())
+
+
+def _ungrounded_citations(answer_text, context):
+    """Daftar sitasi spesifik pada jawaban yang TIDAK ada di konteks. Gagal-anggun -> []."""
+    try:
+        ctx_norm = _norm_sitasi(context or "")
+        found, seen = [], set()
+        for pola in _POLA_SITASI:
+            for m in pola.findall(answer_text or ""):
+                frag = m if isinstance(m, str) else " ".join(x for x in m if x)
+                key = _norm_sitasi(frag)
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                if key not in ctx_norm:
+                    found.append(frag.strip())
+        return found
+    except Exception:
+        return []
+
+
 def _render_prompt(tmpl, context, sumber_txt, fallback):
     t = tmpl or ""
     blok = "=== KONTEKS INTERNAL ===\n" + context + "\n=== AKHIR KONTEKS INTERNAL ==="
@@ -626,6 +697,25 @@ def _env_int(name, default=None):
         return int(str(v).strip())
     except Exception:
         return default
+
+
+def _env_flag(name, default=False):
+    v = os.environ.get(name)
+    if v is None or str(v).strip() == "":
+        return bool(default)
+    return str(v).strip().lower() in ("1", "true", "yes", "on", "ya")
+
+
+def _anti_halusinasi_on():
+    """True bila guardrail anti-karang MENEGAKKAN penggantian jawaban (default OFF:
+    hanya deteksi & catat). Aktifkan via env RAG_ANTI_HALUSINASI."""
+    return _env_flag("RAG_ANTI_HALUSINASI", False)
+
+
+def _skip_peraturan_aplikasi():
+    """True (default) = lewati retrieval Peraturan untuk domain 'aplikasi' saat
+    mode cepat/llm (hasilnya selalu di luar konteks). Matikan via RAG_SKIP_PERATURAN_APLIKASI=0."""
+    return _env_flag("RAG_SKIP_PERATURAN_APLIKASI", True)
 
 
 def _fast_profiles():
@@ -826,11 +916,17 @@ def answer(question, profile, override=None, history=None, diagnostics=False,
     defer = set()
     if "peraturan" in ordered and r["domain"] in ("aplikasi", "umum") and maks_loop > 0:
         defer.add("peraturan")
+    # Mode cepat/llm tak menjalankan loop verifikasi, jadi Peraturan tak akan
+    # 'menyusul'. Untuk domain 'aplikasi' hasil Peraturan terbukti selalu di luar
+    # jendela konteks -> lewati retrievalnya demi hemat latensi.
+    if (fast and r["domain"] == "aplikasi" and "peraturan" in ordered
+            and _skip_peraturan_aplikasi()):
+        defer.add("peraturan")
     active = [s for s in ordered if s not in defer]
 
     # [2] Retrieval awal
     cache = {}
-    context, sources = _assemble(active, cache, q)
+    context, sources, used = _assemble(active, cache, q)
 
     # [3] Verifikasi + eskalasi (loop maksimal maks_loop)
     loops = 0
@@ -846,7 +942,7 @@ def answer(question, profile, override=None, history=None, diagnostics=False,
         if v.get("butuh_peraturan") and "peraturan" in defer:
             defer.discard("peraturan")
             active = [s for s in ordered if s not in defer]
-            context, sources = _assemble(active, cache, q)
+            context, sources, used = _assemble(active, cache, q)
             diag["eskalasi"].append("putaran %d: tambah sumber Peraturan" % (loops + 1))
             added = True
         if not added:
@@ -861,7 +957,7 @@ def answer(question, profile, override=None, history=None, diagnostics=False,
             "jumlah": len(s), "dipakai": bool((t or "").strip()),
             "hits": [{"judul": x.get("judul", ""), "ref": x.get("ref", "")} for x in s[:5]],
         })
-    diag["sumber_dipakai"] = [k for k in active if (cache.get(k, ("", []))[0] or "").strip()]
+    diag["sumber_dipakai"] = list(used)
 
     # [5] Post-check: tanpa konteks -> fallback
     if not context.strip():
@@ -887,11 +983,27 @@ def answer(question, profile, override=None, history=None, diagnostics=False,
         ans = llm_client.chat(msgs, system=pii_mask.mask_text(system),
                               max_new_tokens=800, temperature=float(profile.get("suhu") or 0.3))
     except Exception as e:
-        return {"ok": False, "error": str(e)}
+        res = {"ok": False, "error": str(e),
+               "profil": profile.get("id"), "domain": r["domain"]}
+        if diagnostics:
+            res["diagnostics"] = diag
+        return res
     if not (ans or "").strip():
         ans = fallback
 
-    res = {"ok": True, "answer": ans, "grounded": True,
+    # Guardrail anti-karang: sitasi spesifik yang TIDAK ada di konteks -> tanda
+    # halusinasi. Selalu dicatat ke diagnostics; penegakan (ganti ke fallback)
+    # hanya bila RAG_ANTI_HALUSINASI aktif agar bisa diuji tanpa ubah produksi.
+    grounded = True
+    sitasi_karang = _ungrounded_citations(ans, context)
+    if sitasi_karang:
+        diag["halusinasi_sitasi"] = sitasi_karang
+        if _anti_halusinasi_on():
+            ans = fallback
+            grounded = False
+            diag["halusinasi_ditindak"] = True
+
+    res = {"ok": True, "answer": ans, "grounded": grounded,
            "profil": profile.get("id"), "domain": r["domain"]}
     if profile.get("tampil_sumber") or diagnostics:
         res["sources"] = _dedup_sources(sources)

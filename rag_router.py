@@ -34,7 +34,12 @@ KW_REG = (
 )
 
 PRIORITAS = {
-    "aplikasi": ["sop", "sosmed", "awe", "intent", "peraturan"],
+    # 'intent' didahulukan untuk domain aplikasi: audit empiris menunjukkan blok
+    # Intent (Training Phrase) adalah sumber jawaban paling akurat, tetapi dulu
+    # berada di urutan #4 sehingga sering terpotong sebelum sampai ke LLM.
+    # 'sop' diturunkan ke urutan terakhir: korpus SOP masih kosong sehingga
+    # menempatkannya di #1 hanya membuang slot prioritas untuk sumber hampa.
+    "aplikasi": ["intent", "sosmed", "awe", "peraturan", "sop"],
     "peraturan": ["peraturan", "sop", "intent", "sosmed", "awe"],
     "umum": ["intent", "sosmed", "awe", "sop", "peraturan"],
     "campuran": ["sop", "peraturan", "sosmed", "awe", "intent"],
