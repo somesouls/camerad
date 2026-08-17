@@ -4,6 +4,9 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Live Chat Pajak - Camerad</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root{ --biru:#1976d2; --biru-tua:#1565c0; --kuning:#ffc91b; --kuning2:#ffe804; }
   *{ box-sizing:border-box; }
@@ -54,11 +57,11 @@
 
   /* Form */
   .grup{ margin-bottom:11px; }
-  .grup input, .grup select{ width:100%; padding:11px 12px; border:1px solid #d6dde3; border-radius:9px; font-size:14px; outline:none; transition:all .15s; background:#fff; }
+  .grup input, .grup select{ width:100%; padding:11px 12px; border:1px solid #d6dde3; border-radius:9px; font-size:14px; outline:none; transition:all .15s; background:#fff; font-family:inherit; }
   .grup input:focus, .grup select:focus{ border-color:var(--biru); box-shadow:0 0 0 3px rgba(25,118,210,.15); }
   .err{ color:#e53935; font-size:12px; text-align:center; min-height:16px; margin:2px 0 8px; }
 
-  .tombol{ width:100%; border:none; border-radius:24px; padding:12px; font-size:14px; font-weight:600; cursor:pointer; margin-top:8px; transition:all .15s; }
+  .tombol{ width:100%; border:none; border-radius:24px; padding:12px; font-size:14px; font-weight:600; cursor:pointer; margin-top:8px; transition:all .15s; font-family:inherit; }
   .tombol-primer{ background:var(--biru); color:#fff; }
   .tombol-primer:hover{ background:var(--biru-tua); }
   .tombol-sekunder{ background:#eceff1; color:#455a64; }
@@ -73,11 +76,18 @@
   #layar-chat{ padding:0; display:none; flex-direction:column; }
   #layar-chat.aktif{ display:flex; }
   .chat-body{ flex:1; padding:15px; overflow-y:auto; background:#fafafa; }
-  .pesan{ margin-bottom:14px; padding:10px 14px; border-radius:15px; max-width:82%; line-height:1.45; font-size:14px; white-space:pre-wrap; }
+  .pesan{ margin-bottom:14px; padding:10px 14px; border-radius:15px; max-width:82%; line-height:1.45; font-size:14px; white-space:pre-wrap; word-wrap:break-word; }
   .pesan.bot{ background:#e3f2fd; color:#0d47a1; border-bottom-left-radius:2px; }
   .pesan.user{ background:var(--biru); color:#fff; margin-left:auto; border-bottom-right-radius:2px; }
   .pesan.bot.menunggu{ background:#eceff1; color:#546e7a; font-style:italic; }
   .pesan.bot.fallback{ background:#fff3e0; color:#e65100; border:1px dashed #ffb74d; }
+  .pesan.agen{ background:#e8f5e9; color:#1b5e20; border-bottom-left-radius:2px; }
+  .pesan.sistem{ background:#fff8e1; color:#8d6e00; border:1px dashed #ffca28; font-size:12.5px; max-width:100%; text-align:center; font-style:italic; }
+  /* Format kaya (ciri khas LLM): tebal / miring / kode / tautan */
+  .pesan b, .pesan strong{ font-weight:700; }
+  .pesan i, .pesan em{ font-style:italic; }
+  .pesan a{ color:inherit; text-decoration:underline; word-break:break-all; }
+  .pesan code{ background:rgba(0,0,0,.08); padding:1px 5px; border-radius:5px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
   .meta-waktu{ font-size:11px; color:#90a4ae; margin:-8px 0 14px 4px; }
   .meta-waktu.fallback{ color:#ef6c00; }
   .typing{ display:inline-flex; align-items:center; gap:4px; }
@@ -85,7 +95,7 @@
   .typing .dot:nth-child(2){ animation-delay:.2s; } .typing .dot:nth-child(3){ animation-delay:.4s; }
   @keyframes blink{ 0%,80%,100%{opacity:.2;} 40%{opacity:1;} }
   .chat-input{ padding:10px; border-top:1px solid #e3e8ec; display:flex; background:#fff; }
-  .chat-input input{ flex:1; padding:11px; border:1px solid #d6dde3; border-radius:22px; outline:none; }
+  .chat-input input{ flex:1; padding:11px; border:1px solid #d6dde3; border-radius:22px; outline:none; font-family:inherit; font-size:14px; }
   .chat-input button{ background:var(--biru); color:#fff; border:none; width:42px; height:42px; margin-left:8px; border-radius:50%; cursor:pointer; font-size:16px; }
   .chat-input button:disabled{ opacity:.5; cursor:not-allowed; }
 </style>
@@ -197,7 +207,10 @@
       'greet':(n)=>`Halo ${n||'Kawan Pajak'}! Ada yang bisa saya bantu hari ini?`,
       'wait':'⏳ Mohon tunggu sebentar…','timeout':'Maaf, jawaban terlalu lama disiapkan. Silakan coba lagi.',
       'meta.backend':'backend','meta.masuk':'pesan masuk → jawaban siap','meta.layar':'layar','meta.cadangan':'⚠ jawaban cadangan (bukan dari mesin RAG)',
-      'putus':'Koneksi terputus.','kosong':'(balasan kosong dari server)' },
+      'putus':'Koneksi terputus.','kosong':'(balasan kosong dari server)',
+      'agen.sub':'Terhubung ke Agen Live Chat',
+      'agen.ph':'Ketik pesan untuk agen…',
+      'agen.connect':(q)=>`🔗 Anda sedang dihubungkan ke Agen Live Chat Kring Pajak 1500200${q?(' — antrean: '+q):''}. Mohon tunggu, agen kami akan segera melayani Anda.` },
     en:{ 'lang.info':'Please choose a language first.','lang.pilih':'Choose Your Language',
       'id.pilih':'Choose Your Identity','id.isi':'Fill in Your Details','id.topikPh':'Choose Question Type',
       'btn.next':'Next','btn.prev':'Back','btn.start':'Start Conversation','btn.changeLang':'Change Language',
@@ -206,14 +219,34 @@
       'greet':(n)=>`Hi ${n||'there'}! How can I help you today?`,
       'wait':'⏳ Please wait a moment…','timeout':'Sorry, the answer is taking too long. Please try again.',
       'meta.backend':'backend','meta.masuk':'received → answer ready','meta.layar':'screen','meta.cadangan':'⚠ fallback answer (not from RAG engine)',
-      'putus':'Connection lost.','kosong':'(empty reply from server)' }
+      'putus':'Connection lost.','kosong':'(empty reply from server)',
+      'agen.sub':'Connected to Live Chat Agent',
+      'agen.ph':'Type a message for the agent…',
+      'agen.connect':(q)=>`🔗 You are being connected to a Kring Pajak 1500200 Live Chat Agent${q?(' — queue: '+q):''}. Please wait, our agent will assist you shortly.` }
   };
   let lang = 'id';
   function tr(k){ return (T[lang] && T[lang][k]) || (T.id[k]) || k; }
   function applyLang(){
     document.querySelectorAll('[data-i18n]').forEach(el=>{ const k=el.getAttribute('data-i18n'); const v=tr(k); if(typeof v==='string') el.textContent=v; });
-    document.getElementById('input-pesan').placeholder = tr('chat.ph');
-    document.getElementById('sub-judul').textContent = tr('sub');
+    document.getElementById('input-pesan').placeholder = modeAgen ? tr('agen.ph') : tr('chat.ph');
+    document.getElementById('sub-judul').textContent = modeAgen ? tr('agen.sub') : tr('sub');
+  }
+
+  // ====== Format kaya (markdown ringan khas LLM) ======
+  function escHtml(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function fmtRich(teks){
+    let s = escHtml(teks);
+    // Tautan http(s) -> anchor
+    s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
+    // **tebal** dan __tebal__ (ciri khas LLM)
+    s = s.replace(/\*\*([^\n*]+?)\*\*/g, '<b>$1</b>');
+    s = s.replace(/__([^\n_]+?)__/g, '<b>$1</b>');
+    // *miring* dan _miring_ (hindari bentrok dgn tebal yg sudah diproses)
+    s = s.replace(/(^|[\s(])\*([^\n*]+?)\*(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>');
+    s = s.replace(/(^|[\s(])_([^\n_]+?)_(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>');
+    // `kode`
+    s = s.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
+    return s;
   }
 
   // ====== Navigasi layar ======
@@ -252,6 +285,7 @@
   // Data identitas + sesi
   const identitas = {};
   const sessionId = "wp-" + Math.random().toString(36).substr(2,9);
+  let modeAgen = false;   // true setelah handoff ke agen langsung
 
   el('btn-mulai').addEventListener('click', ()=>{
     const nama = el('f-nama').value.trim();
@@ -270,7 +304,8 @@
   const btnKirim = el('btn-kirim');
 
   function scrollBawah(){ chatBody.scrollTop = chatBody.scrollHeight; }
-  function tambahBubbleBot(teks){ const d=document.createElement('div'); d.className='pesan bot'; d.textContent=teks; chatBody.appendChild(d); scrollBawah(); return d; }
+  function tambahBubbleBot(teks){ const d=document.createElement('div'); d.className='pesan bot'; d.innerHTML=fmtRich(teks); chatBody.appendChild(d); scrollBawah(); return d; }
+  function bubbleSistem(teks){ const d=document.createElement('div'); d.className='pesan sistem'; d.innerHTML=fmtRich(teks); chatBody.appendChild(d); scrollBawah(); return d; }
   function tampilkanMengetik(){ const d=document.createElement('div'); d.className='pesan bot typing-wrap'; d.innerHTML='<span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>'; chatBody.appendChild(d); scrollBawah(); return d; }
 
   function tambahMeta(durasiBackend, durasiTotal, isFallback){
@@ -284,9 +319,20 @@
   function selesaikan(){ btnKirim.disabled=false; inputPesan.disabled=false; inputPesan.focus(); scrollBawah(); }
   function tampilkanJawaban(elm, data, t0){
     elm.classList.remove('typing-wrap','menunggu');
-    elm.textContent = (data && data.reply) ? data.reply : tr('kosong');
+    if(modeAgen) elm.classList.add('agen');
+    elm.innerHTML = fmtRich((data && data.reply) ? data.reply : tr('kosong'));
     if(data && data.is_fallback) elm.classList.add('fallback');
     tambahMeta(data?data.durasi_backend:null, (performance.now()-t0)/1000, !!(data&&data.is_fallback));
+  }
+
+  // Beralih ke "mode agen" (handoff live chat), meniru transisi widget Avaya.
+  function masukModeAgen(data){
+    if(modeAgen) return;
+    modeAgen = true;
+    const antre = (data && data.agent_queue) ? data.agent_queue : '';
+    bubbleSistem(tr('agen.connect')(antre));
+    inputPesan.placeholder = tr('agen.ph');
+    el('sub-judul').textContent = tr('agen.sub');
   }
 
   async function kirimPesan(){
@@ -302,10 +348,10 @@
         body:JSON.stringify({ text:teks, session_id:sessionId, lang:lang, nama:identitas.nama, topik:identitas.topik }) });
       const data=await resp.json();
       if(data && data.error){ mengetik.classList.remove('typing-wrap'); mengetik.classList.add('fallback'); mengetik.textContent='Error: '+data.error; tambahMeta(null,(performance.now()-t0)/1000,true); return selesaikan(); }
-      if(data && data.ready){ tampilkanJawaban(mengetik,data,t0); return selesaikan(); }
+      if(data && data.ready){ tampilkanJawaban(mengetik,data,t0); if(data.handoff) masukModeAgen(data); return selesaikan(); }
       // PENDING -> ACK jadi bubble 1, lalu polling echo utk bubble 2
       mengetik.classList.remove('typing-wrap'); mengetik.classList.add('menunggu');
-      mengetik.textContent = (data && data.reply) ? data.reply : tr('wait');
+      mengetik.innerHTML = fmtRich((data && data.reply) ? data.reply : tr('wait'));
       const typing2=tampilkanMengetik();
       pollJawaban(t0, typing2, 0);
     }catch(e){ mengetik.classList.remove('typing-wrap'); mengetik.classList.add('fallback'); mengetik.textContent=tr('putus'); tambahMeta(null,(performance.now()-t0)/1000,true); selesaikan(); }
@@ -317,7 +363,7 @@
       try{
         const resp=await fetch(API+'/api/chat/detect',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ text:SENTINEL_POLL, session_id:sessionId }) });
         const data=await resp.json();
-        if(data && data.ready){ tampilkanJawaban(typingEl,data,t0); return selesaikan(); }
+        if(data && data.ready){ tampilkanJawaban(typingEl,data,t0); if(data.handoff) masukModeAgen(data); return selesaikan(); }
         pollJawaban(t0, typingEl, attempt+1);
       }catch(e){ pollJawaban(t0, typingEl, attempt+1); }
     }, POLL_INTERVAL);
