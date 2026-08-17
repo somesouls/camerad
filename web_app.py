@@ -268,6 +268,13 @@ sop_routes.register(app)
 import rag_kamus_routes
 rag_kamus_routes.register(app)
 
+# --- Menu Perutean Layanan (Handoff): kelola tabel handoff_routing TANPA
+#     redeploy (intent LAYANAN + kanal mandiri/agent/KPP + frasa pemicu).
+#     Perutean diterapkan oleh handoff_routing_patch; halaman ini hanya CRUD.
+#     Memakai app_core.render_page, jadi didaftarkan bersama menu chatbot. ---
+import handoff_routes
+handoff_routes.register(app)
+
 import studio_routes
 studio_routes.register(
     app,
