@@ -57,19 +57,14 @@ except Exception:            # pragma: no cover
 
 MAKS_KONTEKS = 6500
 
-# --- Perbaikan perakitan konteks (audit empiris) --------------------------
-# Anggaran karakter per-sumber saat merakit konteks. Menggantikan pemotongan
-# EKOR global yang dulu membuang sumber berprioritas tinggi (mis. Intent) hanya
-# karena berada di belakang string gabungan. Sekarang tiap sumber diisi
-# mengikuti urutan prioritas router, dibatasi anggaran ini, hingga total
-# mendekati MAKS_KONTEKS. Override: env RAG_SUMBER_BUDGET (per sumber),
-# RAG_MAKS_KONTEKS (total).
+# Anggaran karakter PER-SUMBER saat merakit konteks (ganti potong-ekor global).
+# Tiap sumber diisi mengikuti prioritas router, dibatasi ini, hingga total ~
+# MAKS_KONTEKS. Override: RAG_SUMBER_BUDGET (per sumber), RAG_MAKS_KONTEKS.
 _SUMBER_BUDGET_DEFAULT = 3500
 
-# Status peraturan yang boleh masuk konteks. Dulu hanya ("berlaku",) sehingga
-# pasal berstatus "diubah" (mis. PP 55/2022, UU 28/2007) tak pernah terjangkau
-# padahal masih menjadi rujukan relevan. Sertakan "diubah". Override: env
-# PERATURAN_STATUS (dipisah koma).
+# Status peraturan yang boleh masuk konteks. Sertakan "diubah" (mis. PP 55/2022,
+# UU 28/2007) yang dulu tak terjangkau karena filter ("berlaku",) saja.
+# Override: env PERATURAN_STATUS (dipisah koma).
 _PERATURAN_STATUS_DEFAULT = ("berlaku", "diubah")
 
 
@@ -362,3 +357,674 @@ def _ctx_awe(q, limit=3):
     scored.sort(key=lambda x: -x[0])
     blocks, sources = [], []
     for score, d in scored[:limit]:
+        try:
+            tx = json.loads(d.get("transkrip_json") or "[]")
+        except Exception:
+            tx = []
+        cust, agent = [], []
+        for seg in tx:
+            if not isinstance(seg, dict):
+                continue
+            role = seg.get("role", "")
+            text = seg.get("text", "")
+            if not text:
+                continue
+            try:
+                is_agent = avdb._is_agent(role, text)
+            except Exception:
+                is_agent = False
+            (agent if is_agent else cust).append(str(text))
+        if not agent:
+            continue
+        label = d.get("jenis_layanan") or d.get("mapped_intent") or d.get("topik") or "Percakapan AWE"
+        blocks.append("Topik: %s\nPertanyaan pelanggan: %s\nJawaban petugas: %s"
+                      % (label, _clip(" ".join(cust), 300) or "-", _clip(" ".join(agent), 500)))
+        sources.append({"sumber": "Percakapan AWE", "judul": str(label),
+                        "ref": ("SID " + str(d.get("sid") or "")).strip()})
+    return "\n\n".join(blocks), sources
+
+
+def _sosmed_url(p):
+    """Rangkai URL publik yang bisa diklik untuk item sosmed.
+
+    Utamakan permalink; bila kosong, rakit dari platform + handle + external_id
+    (mis. X/Twitter -> https://x.com/<handle>/status/<id>).
+    """
+    p = p or {}
+    permalink = str(p.get("permalink") or "").strip()
+    if permalink.startswith("http"):
+        return permalink
+    platform = str(p.get("platform") or "").strip().lower()
+    handle = str(p.get("author_handle") or "").strip().lstrip("@")
+    ext = str(p.get("external_id") or "").strip()
+    if platform in ("x", "twitter") and ext:
+        return "https://x.com/%s/status/%s" % (handle or "i", ext)
+    return permalink
+
+
+def _ctx_sosmed(q, limit=3):
+    if sdb is None:
+        return "", []
+    toks = _tokens(q, k=10)
+    if not toks:
+        return "", []
+    try:
+        c = sdb.init_db(sdb.connect())
+    except Exception:
+        return "", []
+    try:
+        fp = sdb.faq_pairs(c, only_answered=True, limit=2000)
+        pairs = fp.get("pairs") or []
+    except Exception:
+        pairs = []
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+    scored = []
+    for p in pairs:
+        jawaban = (p.get("jawaban_draf") or "").strip()
+        if not jawaban:
+            continue
+        hay = ((p.get("pertanyaan") or "") + " " + str(p.get("topik") or "")).lower()
+        score = sum(hay.count(t) for t in toks)
+        if score > 0:
+            scored.append((score, p))
+    scored.sort(key=lambda x: -x[0])
+    blocks, sources = [], []
+    for score, p in scored[:limit]:
+        label = p.get("topik") or "Data Sosmed"
+        blocks.append("Topik: %s\nPertanyaan: %s\nJawaban resmi: %s"
+                      % (label, _clip(p.get("pertanyaan"), 300), _clip(p.get("jawaban_draf"), 500)))
+        sources.append({"sumber": "Data Sosmed", "judul": str(label),
+                        "ref": str(p.get("platform") or "").upper(),
+                        "url": _sosmed_url(p)})
+    return "\n\n".join(blocks), sources
+
+
+def _ctx_peraturan(q, limit=4):
+    if pdb is None:
+        return "", []
+    try:
+        rows = pdb.search(q, limit, _peraturan_status())
+    except Exception:
+        rows = []
+    clip_isi = _clip_peraturan_ctx.get()
+    blocks, sources = [], []
+    for r in rows:
+        try:
+            d = r if isinstance(r, dict) else dict(r)
+        except Exception:
+            continue
+        isi = str(d.get("isi") or "").strip()
+        if not isi:
+            continue
+        jenis = str(d.get("jenis_peraturan") or "").strip()
+        nomor = str(d.get("nomor") or "").strip()
+        tahun = str(d.get("tahun") or "").strip()
+        pasal = str(d.get("pasal") or "").strip()
+        judul = str(d.get("judul") or "").strip()
+        hierarchy = str(d.get("hierarchy") or "").strip()
+        reference = str(d.get("reference") or "").strip()
+        tajuk = " ".join(x for x in [jenis, nomor,
+                                     ("Tahun " + tahun) if tahun else ""] if x).strip()
+        head = tajuk or judul or "Peraturan"
+        if pasal:
+            head += " - Pasal " + pasal
+        piece = "Peraturan: " + head
+        if judul and judul.lower() not in head.lower():
+            piece += "\nTentang: " + _clip(judul, 200)
+        piece += "\nIsi: " + _clip(isi, clip_isi)
+        blocks.append(piece)
+        sources.append({"sumber": "Peraturan", "judul": head,
+                        "ref": (reference or hierarchy),
+                        "url": str(d.get("source_url") or "").strip()})
+    return "\n\n".join(blocks), sources
+
+
+def _ctx_sop(q, limit=4):
+    if sopdb is None:
+        return "", []
+    try:
+        rows = sopdb.search(q, limit, ("aktif",))
+    except Exception:
+        rows = []
+    blocks, sources = [], []
+    for r in rows:
+        try:
+            d = r if isinstance(r, dict) else dict(r)
+        except Exception:
+            continue
+        isi = str(d.get("isi") or "").strip()
+        if not isi:
+            continue
+        judul = str(d.get("judul") or "").strip()
+        kategori = str(d.get("kategori") or "").strip()
+        bagian = str(d.get("bagian") or "").strip()
+        head = judul or "SOP"
+        if kategori:
+            head = "%s (%s)" % (head, kategori)
+        piece = "Dokumen: " + head
+        if bagian:
+            piece += "\nBagian: " + _clip(bagian, 160)
+        piece += "\nIsi: " + _clip(isi, 700)
+        blocks.append(piece)
+        sources.append({"sumber": "SOP & Proses Bisnis", "judul": head,
+                        "ref": str(d.get("source_file") or "")})
+    return "\n\n".join(blocks), sources
+
+
+_DISPATCH = {
+    "intent": _ctx_dialogflow,
+    "awe": _ctx_awe,
+    "sosmed": _ctx_sosmed,
+    "peraturan": _ctx_peraturan,
+    "sop": _ctx_sop,
+}
+
+
+def _retrieve_one(key, q):
+    fn = _DISPATCH.get(key)
+    if not fn:
+        return "", []
+    try:
+        return fn(q)
+    except Exception:
+        return "", []
+
+
+# ==========================================================================
+# Sumber efektif, perakitan konteks, verifikasi, render prompt.
+# ==========================================================================
+def effective_sources(profile, override=None):
+    """Tentukan sumber yang boleh dipakai mesin retrieval.
+
+    - override (dari playground /rag-lab): daftar centang admin -> dipakai apa
+      adanya.
+    - produksi (chat): daftar 'sumber' (checkbox pada halaman \"RAG Agent -
+      Konfigurasi\") BERSIFAT OTORITATIF. Sumber yang TIDAK dicentang tidak akan
+      dipanggil maupun dikutip.
+
+    Catatan perbaikan: dulu chip @sumber di dalam prompt (mis. \"@intent\")
+    menimpa pilihan checkbox sehingga sumber yang sudah di-uncheck tetap
+    terpakai. Sekarang chip pada prompt murni panduan naratif untuk LLM dan
+    TIDAK lagi menentukan sumber retrieval.
+    """
+    valid = list(rcfg.SUMBER_VALID)
+    if override is not None:
+        return [s for s in override if s in valid]
+    return [s for s in (profile.get("sumber") or []) if s in valid]
+
+
+def _assemble(keys, cache, q):
+    """Rakit konteks dengan ANGGARAN PER-SUMBER (bukan potong-ekor global).
+    Kembalikan (body, sources, used); 'sources'/'used' hanya memuat sumber yang
+    teksnya benar-benar masuk konteks (memperbaiki 'kebohongan sumber')."""
+    total_cap = _env_int("RAG_MAKS_KONTEKS", MAKS_KONTEKS) or MAKS_KONTEKS
+    per_cap = _env_int("RAG_SUMBER_BUDGET", _SUMBER_BUDGET_DEFAULT) or _SUMBER_BUDGET_DEFAULT
+    parts, sources, used, n = [], [], [], 0
+    remaining = total_cap
+    for key in keys:
+        if remaining <= 0:
+            break
+        if key not in cache:
+            cache[key] = _retrieve_one(key, q)
+        t, s = cache[key]
+        if not (t and t.strip()):
+            continue
+        block = t.strip()
+        cap = min(per_cap, remaining)
+        if len(block) > cap:
+            block = block[:cap].rstrip() + "\u2026"
+        n += 1
+        piece = "### Sumber %d - %s\n%s" % (n, rcfg.SUMBER_LABEL.get(key, key), block)
+        parts.append(piece)
+        sources.extend(s)
+        used.append(key)
+        remaining -= len(piece) + 2
+    body = "\n\n".join(parts)
+    return body, sources, used
+
+
+def _dedup_sources(sources):
+    seen, out = set(), []
+    for s in sources or []:
+        key = (s.get("sumber", ""), s.get("judul", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(s)
+    return out
+
+
+def _format_sumber(sources):
+    lines = []
+    for s in _dedup_sources(sources):
+        line = "- [%s] %s" % (s.get("sumber", ""), s.get("judul", ""))
+        ref = (s.get("ref") or "").strip()
+        if ref:
+            line += " (%s)" % ref
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _verify(q, context):
+    """Tahap 3: nilai kecukupan konteks. Fail-open (cukup=True) bila LLM error."""
+    try:
+        sys = (
+            "Anda penilai konteks RAG. Diberi PERTANYAAN dan KONTEKS. Nilai "
+            "apakah KONTEKS memuat cukup informasi untuk menjawab dengan benar. "
+            "Jawab HANYA JSON valid: "
+            '{\"cukup\":true/false,\"butuh_peraturan\":true/false,\"alasan\":\"singkat\"}. '
+            "'butuh_peraturan' true bila jawaban memerlukan dasar hukum/pasal "
+            "yang belum ada di konteks."
+        )
+        u = "PERTANYAAN:\n%s\n\nKONTEKS:\n%s" % (q, (context or "")[:4000])
+        out = llm_client.chat([{"role": "user", "content": u}], system=sys,
+                              max_new_tokens=120, temperature=0.0)
+        m = re.search(r"\{.*\}", out or "", re.S)
+        if m:
+            d = json.loads(m.group(0))
+            return {"cukup": bool(d.get("cukup")),
+                    "butuh_peraturan": bool(d.get("butuh_peraturan")),
+                    "alasan": str(d.get("alasan") or "")[:200]}
+    except Exception as e:
+        return {"cukup": True, "butuh_peraturan": False,
+                "alasan": "verifikasi dilewati: " + str(e)[:120]}
+    return {"cukup": True, "butuh_peraturan": False, "alasan": "format tak terbaca"}
+
+
+# Pola sitasi yang kerap DIKARANG LLM (nomor peraturan/halaman) untuk guardrail
+# anti-karang: sitasi yang tak ada di konteks dianggap ungrounded.
+_POLA_SITASI = [
+    re.compile(r"\bPER\s*[-/]?\s*\d+\s*/\s*PJ\s*/\s*\d{4}\b", re.I),
+    re.compile(r"\bKEP\s*[-/]?\s*\d+\s*/\s*[A-Z.]+\s*/\s*\d{4}\b", re.I),
+    re.compile(r"\bSE\s*[-/]?\s*\d+\s*/\s*PJ\s*/\s*\d{4}\b", re.I),
+    re.compile(r"\bPP\s+(?:No\.?\s*)?\d+\s+Tahun\s+\d{4}\b", re.I),
+    re.compile(r"\bPMK\s+(?:No\.?\s*)?\d+\s+Tahun\s+\d{4}\b", re.I),
+    re.compile(r"\b\d+\s*/\s*PMK\.?\s*\d+\s*/\s*\d{4}\b", re.I),
+    re.compile(r"\bUU\s+(?:No\.?\s*)?\d+\s+Tahun\s+\d{4}\b", re.I),
+    re.compile(r"\bhalaman\s+\d+\b", re.I),
+]
+
+
+def _norm_sitasi(s):
+    s = re.sub(r"(?i)\b(tahun|nomor|no)\b", " ", s or "")
+    return re.sub(r"[^0-9a-z]", "", s.lower())
+
+
+def _ungrounded_citations(answer_text, context):
+    """Daftar sitasi spesifik pada jawaban yang TIDAK ada di konteks. Gagal-anggun -> []."""
+    try:
+        ctx_norm = _norm_sitasi(context or "")
+        found, seen = [], set()
+        for pola in _POLA_SITASI:
+            for m in pola.findall(answer_text or ""):
+                frag = m if isinstance(m, str) else " ".join(x for x in m if x)
+                key = _norm_sitasi(frag)
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                if key not in ctx_norm:
+                    found.append(frag.strip())
+        return found
+    except Exception:
+        return []
+
+
+def _render_prompt(tmpl, context, sumber_txt, fallback):
+    t = tmpl or ""
+    blok = "=== KONTEKS INTERNAL ===\n" + context + "\n=== AKHIR KONTEKS INTERNAL ==="
+    if "{{konteks}}" in t:
+        t = t.replace("{{konteks}}", blok)
+    else:
+        t = t + "\n\n" + blok
+    if "{{sumber}}" in t:
+        t = t.replace("{{sumber}}", sumber_txt or "(tidak ada sumber)")
+    t = t.replace("{{fallback}}", fallback or "")
+    return t
+
+
+# ==========================================================================
+# Profil 'cepat' & budget konteks per-profil.
+# ==========================================================================
+def _env_int(name, default=None):
+    v = os.environ.get(name)
+    if v is None or str(v).strip() == "":
+        return default
+    try:
+        return int(str(v).strip())
+    except Exception:
+        return default
+
+
+def _env_flag(name, default=False):
+    v = os.environ.get(name)
+    if v is None or str(v).strip() == "":
+        return bool(default)
+    return str(v).strip().lower() in ("1", "true", "yes", "on", "ya")
+
+
+def _anti_halusinasi_on():
+    """True bila guardrail anti-karang MENEGAKKAN penggantian jawaban (default OFF:
+    hanya deteksi & catat). Aktifkan via env RAG_ANTI_HALUSINASI."""
+    return _env_flag("RAG_ANTI_HALUSINASI", False)
+
+
+def _skip_peraturan_aplikasi():
+    """True (default) = lewati retrieval Peraturan untuk domain 'aplikasi' saat
+    mode cepat/llm (hasilnya selalu di luar konteks). Matikan via RAG_SKIP_PERATURAN_APLIKASI=0."""
+    return _env_flag("RAG_SKIP_PERATURAN_APLIKASI", True)
+
+
+def _fast_profiles():
+    """Kumpulan id profil yang dijalankan mode 'cepat'. Default: {'chatbot'}.
+    Override via env RAG_FAST_PROFILES (dipisah koma; kosongkan untuk nonaktif)."""
+    raw = os.environ.get("RAG_FAST_PROFILES")
+    if raw is None:
+        return {"chatbot"}
+    return {x.strip().lower() for x in raw.split(",") if x.strip()}
+
+
+def _is_fast_profile(profile):
+    pid = str((profile or {}).get("id") or "").strip().lower()
+    return bool(pid) and pid in _fast_profiles()
+
+
+def _clip_peraturan_for(profile):
+    """Budget potong isi pasal peraturan untuk profil ini.
+    Prioritas: env PERATURAN_CLIP_<ID> > env PERATURAN_CLIP > default
+    (agent=1300 agar pasal panjang tak terpotong; lainnya=700)."""
+    pid = str((profile or {}).get("id") or "").strip()
+    n = _env_int("PERATURAN_CLIP_" + pid.upper())
+    if n is None:
+        n = _env_int("PERATURAN_CLIP")
+    if n is None:
+        n = 1300 if pid.lower() == "agent" else _CLIP_PERATURAN_DEFAULT
+    return n if (isinstance(n, int) and n > 0) else _CLIP_PERATURAN_DEFAULT
+
+
+def _fastpath_intent(q, profile, require_env=True):
+    """Jalur cepat ala Dialogflow: jawab LANGSUNG dari intent katalog yang sudah
+    diverifikasi analis & punya jawaban cuplikan, tanpa retrieval/LLM sintesis.
+
+    Sengaja konservatif: hanya aktif bila env RAG_FASTPATH_INTENT=1 (kecuali
+    require_env=False, mis. mode 'tanpa_llm' yang eksplisit meminta jalur ini),
+    intent terverifikasi (terverifikasi=1), dan ada jawaban_cuplikan.
+    Gagal-anggun -> None.
+    """
+    if require_env and str(os.environ.get("RAG_FASTPATH_INTENT", "0")).strip().lower() not in (
+            "1", "true", "yes", "on"):
+        return None
+    if imdb is None:
+        return None
+    ql = (q or "").strip()
+    if len(ql) < 3:
+        return None
+    try:
+        c = imdb.init_db(imdb.connect())
+    except Exception:
+        return None
+    try:
+        try:
+            imdb.init_catalog(c)
+        except Exception:
+            pass
+        try:
+            rows = imdb.match_catalog(c, ql, limit=1) or []
+        except Exception:
+            rows = []
+    finally:
+        try:
+            c.close()
+        except Exception:
+            pass
+    if not rows:
+        return None
+    d = rows[0]
+    if int(d.get("terverifikasi") or 0) != 1:
+        return None
+    ans = str(d.get("jawaban_cuplikan") or "").strip()
+    intent = str(d.get("intent") or "").strip()
+    if not ans or not intent:
+        return None
+    return {"answer": ans,
+            "sources": [{"sumber": "Training Phrase & Intent", "judul": intent, "ref": ""}]}
+
+
+def _resolve_mode(profile):
+    """Mode mesin per-profil (disetel via switch di halaman Webhook Chatbot).
+    Kembalikan '' (auto), 'tanpa_llm', 'llm', atau 'full'."""
+    m = str((profile or {}).get("mode") or "").strip().lower()
+    return m if m in ("tanpa_llm", "llm", "full") else ""
+
+
+def _answer_no_llm(q, profile, allowed):
+    """Mode 'tanpa LLM': jawab TANPA memanggil LLM generatif sama sekali.
+
+    Urutan: (1) jalur cepat intent (jawaban cuplikan terverifikasi); (2) cuplikan
+    teratas hasil retrieval dari sumber lain; (3) kalimat fallback. Router LLM &
+    sintesis LLM sengaja dilewati. Catatan: retrieval tetap boleh memakai
+    embedding/reranker (bukan LLM generatif) bila diaktifkan.
+    """
+    # (1) Jalur cepat intent - abaikan gerbang env karena mode ini eksplisit.
+    if "intent" in allowed:
+        fp = _fastpath_intent(q, profile, require_env=False)
+        if fp:
+            res = {"ok": True, "answer": fp["answer"], "grounded": True,
+                   "profil": profile.get("id"), "domain": "intent", "jalur": "tanpa_llm"}
+            if profile.get("tampil_sumber"):
+                res["sources"] = _dedup_sources(fp["sources"])
+            return res
+    # (2) Cuplikan teratas dari sumber lain (tanpa sintesis LLM).
+    order = [s for s in ("intent", "sop", "sosmed", "awe", "peraturan") if s in allowed]
+    for key in order:
+        t, s = _retrieve_one(key, q)
+        if t and t.strip():
+            res = {"ok": True, "answer": _clip(t, 1200), "grounded": True,
+                   "profil": profile.get("id"),
+                   "domain": ("peraturan" if key == "peraturan" else "umum"),
+                   "jalur": "tanpa_llm"}
+            if profile.get("tampil_sumber"):
+                res["sources"] = _dedup_sources(s)
+            return res
+    # (3) Fallback.
+    fallback = profile.get("fallback") or rcfg.FALLBACK_DEFAULT
+    return {"ok": True, "answer": fallback, "grounded": False,
+            "profil": profile.get("id"), "domain": "umum",
+            "jalur": "tanpa_llm", "sources": []}
+
+
+# ==========================================================================
+# Orkestrasi pipeline.
+# ==========================================================================
+def answer(question, profile, override=None, history=None, diagnostics=False,
+           honor_mode=False):
+    q = (question or "").strip()
+    fallback = profile.get("fallback") or rcfg.FALLBACK_DEFAULT
+    if not q:
+        return {"ok": False, "error": "Pertanyaan kosong."}
+
+    # Mode mesin per-profil (switch di halaman \"Webhook Chatbot\"):
+    #   ''(auto)    -> ikut env (profil 'cepat' seperti perilaku bawaan)
+    #   'tanpa_llm' -> TANPA LLM generatif (jalur cepat intent + cuplikan retrieval)
+    #   'llm'       -> pakai LLM tapi hemat (tanpa loop verifikasi & AI-rewrite)
+    #   'full'      -> pipeline penuh (AI-rewrite + loop verifikasi + sintesis)
+    # Playground /rag-lab (diagnostics=True) biasanya memaksa pipeline penuh.
+    # Namun bila honor_mode=True (opsi \"mode produksi\" di RAG Lab), tetap ikuti
+    # mode NYATA profil (mis. 'cepat' untuk chatbot) supaya diagnostik
+    # mencerminkan perilaku produksi sebenarnya.
+    mode = _resolve_mode(profile)
+    if diagnostics and not honor_mode:
+        no_llm, fast = False, False
+    elif mode == "full":
+        no_llm, fast = False, False
+    elif mode == "llm":
+        no_llm, fast = False, True
+    elif mode == "tanpa_llm":
+        no_llm, fast = True, False
+    else:
+        no_llm, fast = False, _is_fast_profile(profile)
+
+    # Budget potong isi pasal peraturan per-profil (agent lebih longgar) ->
+    # dibaca _ctx_peraturan lewat contextvar.
+    try:
+        _clip_peraturan_ctx.set(_clip_peraturan_for(profile))
+    except Exception:
+        pass
+    # Tandai profil aktif ke modul rewrite; AI-rewrite (LLM) dilewati untuk mode
+    # 'cepat' maupun 'tanpa_llm'. Aman bila modul tak tersedia.
+    if rag_rewrite is not None:
+        try:
+            rag_rewrite.set_context(profile.get("id"), fast=(fast or no_llm))
+        except Exception:
+            pass
+
+    # [1] Sumber efektif (checkbox profil / override playground).
+    allowed = effective_sources(profile, override)
+
+    # Mode TANPA LLM: jawab tanpa memanggil LLM generatif sama sekali.
+    if no_llm:
+        return _answer_no_llm(q, profile, allowed)
+
+    diag = {"router": None, "retrieval": [], "verifikasi": [],
+            "sumber_dipakai": [], "eskalasi": []}
+
+    # [1b] Jalur cepat FAQ/intent (ala Dialogflow): jawab langsung dari intent
+    # terverifikasi tanpa retrieval/LLM. Opt-in via RAG_FASTPATH_INTENT=1.
+    if fast and "intent" in allowed:
+        fp = _fastpath_intent(q, profile)
+        if fp:
+            res = {"ok": True, "answer": fp["answer"], "grounded": True,
+                   "profil": profile.get("id"), "domain": "intent", "jalur": "cepat"}
+            if profile.get("tampil_sumber"):
+                res["sources"] = _dedup_sources(fp["sources"])
+            return res
+
+    r = rag_router.route(q, allowed)
+    diag["router"] = r
+    # Jaga-jaga: kunci urutan router agar tidak pernah keluar dari daftar sumber
+    # yang diizinkan (checkbox). Ini menjamin sumber yang di-uncheck benar-benar
+    # tidak dipakai, apa pun keluaran router.
+    ordered = [s for s in r["ordered"] if s in allowed]
+
+    # Tunda Peraturan bila domain bukan hukum -> biar loop verifikasi yang
+    # memicu pencarian peraturan (persis skenario yang diminta). Untuk profil
+    # cepat, maks_loop dipaksa 0 (tanpa loop verifikasi LLM).
+    maks_loop = 0 if fast else int(profile.get("maks_loop") or 0)
+    defer = set()
+    if "peraturan" in ordered and r["domain"] in ("aplikasi", "umum") and maks_loop > 0:
+        defer.add("peraturan")
+    # Mode cepat/llm tak menjalankan loop verifikasi, jadi Peraturan tak akan
+    # 'menyusul'. Untuk domain 'aplikasi' hasil Peraturan terbukti selalu di luar
+    # jendela konteks -> lewati retrievalnya demi hemat latensi.
+    if (fast and r["domain"] == "aplikasi" and "peraturan" in ordered
+            and _skip_peraturan_aplikasi()):
+        defer.add("peraturan")
+    active = [s for s in ordered if s not in defer]
+
+    # [2] Retrieval awal
+    cache = {}
+    context, sources, used = _assemble(active, cache, q)
+
+    # [3] Verifikasi + eskalasi (loop maksimal maks_loop)
+    loops = 0
+    while loops < maks_loop:
+        if context.strip():
+            v = _verify(q, context)
+        else:
+            v = {"cukup": False, "butuh_peraturan": True, "alasan": "konteks kosong"}
+        diag["verifikasi"].append(dict(putaran=loops + 1, **v))
+        if v.get("cukup"):
+            break
+        added = False
+        if v.get("butuh_peraturan") and "peraturan" in defer:
+            defer.discard("peraturan")
+            active = [s for s in ordered if s not in defer]
+            context, sources, used = _assemble(active, cache, q)
+            diag["eskalasi"].append("putaran %d: tambah sumber Peraturan" % (loops + 1))
+            added = True
+        if not added:
+            break
+        loops += 1
+
+    # Diagnostik retrieval
+    for key in active:
+        t, s = cache.get(key, ("", []))
+        diag["retrieval"].append({
+            "sumber": key, "label": rcfg.SUMBER_LABEL.get(key, key),
+            "jumlah": len(s), "dipakai": bool((t or "").strip()),
+            "hits": [{"judul": x.get("judul", ""), "ref": x.get("ref", "")} for x in s[:5]],
+        })
+    diag["sumber_dipakai"] = list(used)
+
+    # [5] Post-check: tanpa konteks -> fallback
+    if not context.strip():
+        res = {"ok": True, "answer": fallback, "grounded": False,
+               "profil": profile.get("id"), "domain": r["domain"], "sources": []}
+        if diagnostics:
+            res["diagnostics"] = diag
+        return res
+
+    # [4] Sintesis grounded
+    sumber_txt = _format_sumber(sources)
+    system = _render_prompt(profile.get("system_prompt"), context, sumber_txt, fallback)
+    msgs = []
+    for h in (history or [])[-6:]:
+        if not isinstance(h, dict):
+            continue
+        role = (h.get("role") or "").lower()
+        content = (h.get("content") or "").strip()
+        if role in ("user", "assistant") and content:
+            msgs.append({"role": role, "content": pii_mask.mask_text(content)})
+    msgs.append({"role": "user", "content": pii_mask.mask_text(q)})
+    try:
+        ans = llm_client.chat(msgs, system=pii_mask.mask_text(system),
+                              max_new_tokens=800, temperature=float(profile.get("suhu") or 0.3))
+    except Exception as e:
+        res = {"ok": False, "error": str(e),
+               "profil": profile.get("id"), "domain": r["domain"]}
+        if diagnostics:
+            res["diagnostics"] = diag
+        return res
+    if not (ans or "").strip():
+        ans = fallback
+
+    # Guardrail anti-karang: sitasi spesifik yang TIDAK ada di konteks -> tanda
+    # halusinasi. Selalu dicatat ke diagnostics; penegakan (ganti ke fallback)
+    # hanya bila RAG_ANTI_HALUSINASI aktif agar bisa diuji tanpa ubah produksi.
+    grounded = True
+    sitasi_karang = _ungrounded_citations(ans, context)
+    if sitasi_karang:
+        diag["halusinasi_sitasi"] = sitasi_karang
+        if _anti_halusinasi_on():
+            ans = fallback
+            grounded = False
+            diag["halusinasi_ditindak"] = True
+
+    res = {"ok": True, "answer": ans, "grounded": grounded,
+           "profil": profile.get("id"), "domain": r["domain"]}
+    if profile.get("tampil_sumber") or diagnostics:
+        res["sources"] = _dedup_sources(sources)
+    if diagnostics:
+        res["diagnostics"] = diag
+        res["prompt_final"] = system[:4000]
+    return res
+
+
+def jawab_chat(question, history=None, profil="chatbot"):
+    p = rcfg.get_profile(profil) or rcfg.get_profile("chatbot")
+    if not p:
+        return {"ok": False, "error": "Profil RAG belum tersedia."}
+    return answer(question, p, override=None, history=history, diagnostics=False)
+
+
+def jawab_lab(question, profil, sumber_override, history=None, prod_mode=False):
+    p = rcfg.get_profile(profil) or rcfg.get_profile("chatbot")
+    if not p:
+        return {"ok": False, "error": "Profil RAG belum tersedia."}
+    if sumber_override is not None and not isinstance(sumber_override, list):
+        sumber_override = None
+    return answer(question, p, override=sumber_override, history=history,
+                  diagnostics=True, honor_mode=bool(prod_mode))
