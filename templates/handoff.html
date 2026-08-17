@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Perutean Layanan · Camerad Studio{% endblock %}
+{% block content %}
+<div style="max-width:1100px;margin:0 auto;padding:24px 28px 60px;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+    <h1 style="margin:0;font-size:22px;font-weight:800;letter-spacing:-0.02em;">🔀 Perutean Layanan (Handoff)</h1>
+  </div>
+  <p style="color:var(--text-muted);margin:0 0 20px;font-size:14px;">
+    Kelola intent <b>LAYANAN</b> yang perlu diarahkan ke kanal penyelesaian (mandiri / Live Chat Agent / KPP) beserta <b>frasa pemicu</b>-nya. Saat pertanyaan pengguna cocok frasa pemicu, panduan kanal otomatis disisipkan ke jawaban chatbot. Intent yang tidak terdaftar di sini tetap dijawab RAG normatif seperti biasa.
+  </p>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:22px;">
+    <div class="kpi" id="kpiHandoff">—</div>
+  </div>
+
+  <section style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:18px 20px;">
+    <h2 style="margin:0 0 12px;font-size:16px;" id="formTitle">➕ Tambah / Ubah Intent Layanan</h2>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;">
+      <input id="fIntent" placeholder="Nama top-intent (mis. Lupa EFIN)" class="inp">
+      <label style="font-size:13px;color:var(--text-muted);display:flex;gap:6px;align-items:center;white-space:nowrap;"><input type="checkbox" id="fAktif" checked> Aktif</label>
+    </div>
+    <input id="fPemicu" placeholder="Frasa pemicu, pisahkan koma (mis. lupa efin, efin hilang, kehilangan efin)" class="inp" style="margin-top:10px;width:100%;">
+
+    <div style="margin-top:16px;border-top:1px solid var(--panel-border);padding-top:14px;">
+      <div style="font-size:13px;font-weight:600;color:var(--text-muted);margin-bottom:8px;">Kanal penyelesaian</div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:10px;">
+        <label style="font-size:13.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="fKM"> 🧑‍💻 Mandiri (self-service)</label>
+        <label style="font-size:13.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="fKA"> 💬 Live Chat Agent</label>
+        <label style="font-size:13.5px;display:flex;gap:6px;align-items:center;"><input type="checkbox" id="fKK"> 🏢 KPP</label>
+      </div>
+      <textarea id="fInstrM" rows="2" placeholder="Instruksi mandiri (mis. ajukan lewat email lupa.efin@pajak.go.id sesuai ketentuan)" class="inp" style="width:100%;"></textarea>
+      <input id="fPrasyarat" placeholder="Prasyarat mandiri (mis. memiliki email &amp; identitas untuk verifikasi)" class="inp" style="margin-top:10px;width:100%;">
+      <textarea id="fInstrK" rows="2" placeholder="Instruksi KPP (mis. datang ke KPP terdaftar membawa identitas)" class="inp" style="margin-top:10px;width:100%;"></textarea>
+    </div>
+
+    <input id="fCatatan" placeholder="Catatan (opsional)" class="inp" style="margin-top:10px;width:100%;">
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
+      <input type="hidden" id="fId">
+      <button id="btnSimpan" class="btnp">Simpan</button>
+      <button id="btnReset" class="btns">Bersihkan</button>
+      <span id="saveMsg" style="font-size:13px;color:var(--text-muted);"></span>
+    </div>
+    <p style="color:var(--text-muted);margin:12px 0 0;font-size:12.5px;">Catatan: bila <b>Live Chat Agent</b> tidak dicentang, chatbot secara eksplisit dilarang menawarkan hubungan ke petugas untuk intent ini (mis. Aktivasi EFIN yang wajib ke KPP).</p>
+  </section>
+
+  <section style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:18px 20px;margin-top:24px;">
+    <h2 style="margin:0 0 12px;font-size:16px;">🗂️ Daftar Intent Layanan</h2>
+    <div style="display:flex;gap:10px;">
+      <input id="cari" placeholder="Cari intent / frasa pemicu…" class="inp" style="flex:1;">
+      <button id="btnCari" class="btns">Cari</button>
+    </div>
+    <div id="tabel" style="margin-top:14px;overflow-x:auto;"></div>
+  </section>
+</div>
+
+<style>
+.kpi{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;padding:10px 14px;font-size:13px;color:var(--text-main);}
+.inp{padding:9px 12px;border-radius:10px;border:1px solid var(--panel-border);background:var(--bg-base);color:var(--text-main);font-family:inherit;font-size:14px;}
+.btnp{padding:9px 16px;border-radius:10px;border:none;background:var(--accent,#4f46e5);color:#fff;font-weight:600;cursor:pointer;font-size:14px;}
+.btns{padding:9px 14px;border-radius:10px;border:1px solid var(--panel-border);background:transparent;color:var(--text-main);cursor:pointer;font-size:14px;}
+.htab{width:100%;border-collapse:collapse;font-size:13px;}
+.htab th,.htab td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--panel-border);vertical-align:top;}
+.htab th{color:var(--text-muted);font-weight:600;}
+.chip{display:inline-block;background:rgba(79,70,229,0.12);color:var(--text-main);border-radius:6px;padding:1px 7px;margin:1px 3px 1px 0;font-size:12px;}
+.badge{display:inline-block;border-radius:6px;padding:1px 7px;margin:1px 3px 1px 0;font-size:12px;font-weight:600;}
+.b-m{background:var(--c-green);color:var(--c-green-txt);}
+.b-a{background:var(--c-blue);color:var(--c-blue-txt);}
+.b-k{background:var(--c-orange);color:var(--c-orange-txt);}
+.linkbtn{border:none;background:transparent;color:var(--accent,#4f46e5);cursor:pointer;font-size:12.5px;padding:2px 4px;}
+.linkbtn.del{color:#dc2626;}
+</style>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var esc=function(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+  function post(url,body){return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body||{})}).then(function(r){return r.json();});}
+
+  function loadStats(){
+    fetch('/api/handoff/stats').then(function(r){return r.json();}).then(function(d){
+      if(!d||!d.ok)return;
+      $('kpiHandoff').innerHTML='🔀 Intent layanan aktif: <b>'+(d.aktif||0)+'</b> / '+(d.total||0);
+    }).catch(function(){});
+  }
+
+  function isi(r){
+    $('fId').value=r.id||'';
+    $('fIntent').value=r.top_intent||'';
+    $('fPemicu').value=(r.pemicu_list||[]).join(', ');
+    $('fKM').checked=!!r.kanal_mandiri;
+    $('fKA').checked=!!r.kanal_agent;
+    $('fKK').checked=!!r.kanal_kpp;
+    $('fInstrM').value=r.instruksi_mandiri||'';
+    $('fPrasyarat').value=r.prasyarat_mandiri||'';
+    $('fInstrK').value=r.instruksi_kpp||'';
+    $('fCatatan').value=r.catatan||'';
+    $('fAktif').checked=(r.aktif==null?true:!!r.aktif);
+    $('formTitle').textContent='✏️ Ubah: '+(r.top_intent||'');
+    window.scrollTo({top:0,behavior:'smooth'});
+  }
+  function reset(){
+    $('fId').value='';$('fIntent').value='';$('fPemicu').value='';
+    $('fKM').checked=false;$('fKA').checked=false;$('fKK').checked=false;
+    $('fInstrM').value='';$('fPrasyarat').value='';$('fInstrK').value='';
+    $('fCatatan').value='';$('fAktif').checked=true;$('saveMsg').textContent='';
+    $('formTitle').textContent='➕ Tambah / Ubah Intent Layanan';
+  }
+
+  function kanalBadges(r){
+    var h='';
+    if(r.kanal_mandiri) h+='<span class="badge b-m">Mandiri</span>';
+    if(r.kanal_agent) h+='<span class="badge b-a">Agent</span>';
+    if(r.kanal_kpp) h+='<span class="badge b-k">KPP</span>';
+    return h||'<span style="color:var(--text-muted);">—</span>';
+  }
+
+  function loadList(){
+    post('/api/handoff/list',{q:($('cari').value||'').trim()}).then(function(d){
+      var box=$('tabel');
+      if(!d||!d.ok){box.innerHTML='<p style="color:#dc2626;">'+esc(d&&d.error||'Gagal memuat.')+'</p>';return;}
+      if(!d.rows.length){box.innerHTML='<p style="color:var(--text-muted);">Belum ada intent layanan.</p>';return;}
+      var h='<table class="htab"><thead><tr><th>Intent</th><th>Frasa pemicu</th><th>Kanal</th><th>Aktif</th><th></th></tr></thead><tbody>';
+      d.rows.forEach(function(r){
+        var chips=(r.pemicu_list||[]).map(function(s){return '<span class="chip">'+esc(s)+'</span>';}).join('')||'<span style="color:var(--text-muted);">—</span>';
+        h+='<tr><td><b>'+esc(r.top_intent)+'</b></td><td>'+chips+'</td><td>'+kanalBadges(r)+'</td><td>'+(r.aktif?'✅':'—')+'</td>'+
+           '<td style="white-space:nowrap;"><button class="linkbtn" data-ed=\''+esc(JSON.stringify(r))+'\'>Ubah</button><button class="linkbtn del" data-del="'+r.id+'">Hapus</button></td></tr>';
+      });
+      h+='</tbody></table>';
+      box.innerHTML=h;
+      box.querySelectorAll('[data-ed]').forEach(function(b){b.onclick=function(){try{isi(JSON.parse(b.getAttribute('data-ed')));}catch(e){}};});
+      box.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){if(!confirm('Hapus intent ini?'))return;post('/api/handoff/delete',{id:b.getAttribute('data-del')}).then(function(){loadList();loadStats();});};});
+    });
+  }
+
+  $('btnSimpan').onclick=function(){
+    var body={
+      id:$('fId').value||null,
+      top_intent:$('fIntent').value.trim(),
+      pemicu:$('fPemicu').value,
+      kanal_mandiri:$('fKM').checked?1:0,
+      kanal_agent:$('fKA').checked?1:0,
+      kanal_kpp:$('fKK').checked?1:0,
+      instruksi_mandiri:$('fInstrM').value.trim(),
+      prasyarat_mandiri:$('fPrasyarat').value.trim(),
+      instruksi_kpp:$('fInstrK').value.trim(),
+      catatan:$('fCatatan').value.trim(),
+      aktif:$('fAktif').checked?1:0
+    };
+    if(!body.top_intent){$('saveMsg').textContent='Nama intent wajib diisi.';return;}
+    $('saveMsg').textContent='Menyimpan…';
+    post('/api/handoff/save',body).then(function(d){if(d&&d.ok){$('saveMsg').textContent='Tersimpan.';reset();loadList();loadStats();}else{$('saveMsg').textContent=(d&&d.error)||'Gagal.';}});
+  };
+  $('btnReset').onclick=reset;
+  $('btnCari').onclick=loadList;
+  $('cari').addEventListener('keydown',function(e){if(e.key==='Enter')loadList();});
+
+  loadStats();loadList();
+})();
+</script>
+{% endblock %}
