@@ -21,6 +21,12 @@ try:
 except Exception:
     dfw = None
 
+# Klien LLM (Azure/OpenAI/Gemini) untuk terjemahan jalur bahasa. Fail-open.
+try:
+    import llm_client
+except Exception:
+    llm_client = None
+
 # Teks penanda giliran echo/poll (harus sama dengan webhook & chat.html).
 SENTINEL_POLL = getattr(dfw, "SENTINEL_POLL", "__CAMERAD_POLL__")
 
@@ -34,6 +40,69 @@ HANDOFF_INTENT_HINTS = (
     "hubungi agent", "hubungi agen", "live agent", "agent connector",
     "agent-foll", "hubungi agent connector",
 )
+
+# ---- Jalur bahasa: terjemahan "di tepi" (edge translation) ------------------
+# Basis pengetahuan + mesin RAG berjalan dalam Bahasa Indonesia sebagai sumber
+# kebenaran. Bahasa mengikuti pilihan tombol di chat.html (id/en), disimpan per
+# session_id (poll tidak membawa 'lang'). Untuk user yang memilih English:
+#   - INPUT  : pertanyaan EN -> ID sebelum detect_intent + RAG (retrieval akurat)
+#   - OUTPUT : jawaban ID -> EN sebelum dikirim balik ke frontend
+# Profil agent tidak diterjemahkan (agent menerjemahkan sendiri).
+TRANSLATE_AKTIF = (
+    os.environ.get("CAMERAD_TRANSLATE", "1").strip().lower()
+    not in ("0", "false", "no", "")
+)
+TRANSLATE_MAX_TOKENS = int(
+    os.environ.get("CAMERAD_TRANSLATE_MAX_TOKENS", "1200") or "1200"
+)
+
+# Peta session_id -> bahasa ("id"/"en") sesuai pilihan user di chat.html.
+SESSION_LANG = {}
+
+_LANG_NAMA = {"en": "English", "id": "Indonesian (Bahasa Indonesia)"}
+
+
+def _sess_lang(session_id, fallback="id"):
+    """Bahasa efektif sesi (default 'id')."""
+    v = SESSION_LANG.get(session_id) or fallback or "id"
+    v = str(v).strip().lower()
+    return "en" if v == "en" else "id"
+
+
+def _translate(text, target):
+    """Terjemahkan `text` ke `target` ('en'/'id') via LLM. Fail-open:
+    kembalikan teks asli bila translator nonaktif/tak tersedia/gagal."""
+    t = (text or "").strip()
+    if not t or not TRANSLATE_AKTIF or llm_client is None:
+        return text
+    if target not in ("en", "id"):
+        return text
+    # Lewati token yang jelas bukan kalimat (angka murni / sangat pendek),
+    # mis. pemicu handoff "1500200".
+    if t.isdigit() or len(t) < 2:
+        return text
+    nama = _LANG_NAMA.get(target, "English")
+    system = (
+        "You are a professional translator for an Indonesian tax (DJP / Kring "
+        "Pajak) chatbot. Translate the user's message into " + nama + ". "
+        "Preserve meaning and tone. Keep numbers, currency, dates, tax terms, "
+        "regulation codes (e.g. PER-..., PMK-..., UU ...), URLs, emails, and "
+        "markdown formatting (**bold**, *italic*, lists, line breaks) exactly. "
+        "Do NOT translate or alter any line that starts with '[' - these are "
+        "internal reference tags; keep them verbatim. If the text is already in "
+        "the target language, return it unchanged. Return ONLY the translated "
+        "text, with no quotes, notes, or preamble."
+    )
+    try:
+        out = llm_client.generate(
+            [t], max_new_tokens=TRANSLATE_MAX_TOKENS, system=system,
+            temperature=0.0,
+        )
+        res = ((out[0] if out else "") or "").strip()
+        return res or text
+    except Exception as exc:  # noqa: BLE001
+        print(f"[translate] gagal ({target}): {exc}", flush=True)
+        return text
 
 
 def _to_dict(msg):
@@ -134,15 +203,21 @@ def register(app):
 
     # --- 2. Endpoint pesan: menangani PERTANYAAN maupun POLL (echo) ---
     # Frontend memanggil endpoint yang sama:
-    #   - kirim pertanyaan  : { text: "<pertanyaan user>", session_id }
+    #   - kirim pertanyaan  : { text: "<pertanyaan user>", session_id, lang }
     #   - poll (echo)       : { text: SENTINEL_POLL, session_id }
     # Hasil jawaban + durasi backend dibaca dari job-store (sumber kebenaran),
     # sedangkan detect_intent tetap dijalankan agar giliran terekam di Avaya.
     #
+    # JALUR BAHASA (edge translation): bahasa mengikuti tombol di chat.html.
+    # Untuk user English: pertanyaan diterjemahkan EN->ID sebelum detect/RAG,
+    # dan jawaban diterjemahkan ID->EN sebelum dikirim balik. Basis pengetahuan
+    # + RAG tetap berbahasa Indonesia sebagai sumber kebenaran.
+    #
     # Bila giliran ini memicu intent handoff (mis. user ketik 1500200 ->
     # "System_System_Hubungi Agent Connector"), respons menyertakan
     # handoff=True + agent_queue (nilai $agent_kring_pajak) + payload enrichment
-    # agar frontend beralih ke mode agen — meniru perilaku widget Avaya netlify.
+    # agar frontend beralih ke mode agen; teks connector TIDAK diterjemahkan
+    # karena frontend menyembunyikannya.
     @app.post("/api/chat/detect")
     async def detect_intent_chat(request: Request):
         data = await request.json()
@@ -150,8 +225,29 @@ def register(app):
         session_id = data.get("session_id", str(uuid.uuid4()))
         is_poll = (text == SENTINEL_POLL)
 
+        # Bahasa mengikuti tombol di chat.html; poll tak membawa 'lang' sehingga
+        # kita simpan pada giliran pertama (per session_id).
+        lang_in = (data.get("lang") or "").strip().lower()
+        if not is_poll and lang_in:
+            SESSION_LANG[session_id] = "en" if lang_in == "en" else "id"
+        eff_lang = _sess_lang(session_id)
+
+        async def _out(resp):
+            """Terjemahkan reply ID -> EN sebelum dikirim (hanya user English)."""
+            if eff_lang == "en" and isinstance(resp, dict) and resp.get("reply"):
+                resp["reply"] = await run_in_threadpool(
+                    _translate, resp["reply"], "en"
+                )
+            return resp
+
         try:
-            response = await run_in_threadpool(_detect_df, session_id, text)
+            # INPUT: user English -> terjemahkan pertanyaan ke ID agar intent
+            # matching + retrieval RAG bekerja pada konten Indonesia.
+            teks_df = text
+            if (not is_poll) and eff_lang == "en" and text and not str(text).isdigit():
+                teks_df = await run_in_threadpool(_translate, text, "id")
+
+            response = await run_in_threadpool(_detect_df, session_id, teks_df)
             qr = response.query_result
             reply = qr.fulfillment_text or ""
             intent_name = getattr(qr.intent, "display_name", "") or ""
@@ -176,7 +272,7 @@ def register(app):
 
             # Handoff terpicu -> pakai fulfillment intent handoff apa adanya,
             # abaikan job RAG lama (bila ada) agar tidak menampilkan jawaban
-            # basi. Frontend akan beralih ke mode agen.
+            # basi. Teks connector TIDAK diterjemahkan (frontend sembunyikan).
             if handoff and not is_poll:
                 return {
                     "reply": reply,
@@ -192,7 +288,7 @@ def register(app):
 
             # Jawaban sudah siap (baik fast-path giliran-1 maupun echo).
             if job and job.get("status") == "done":
-                return {
+                return await _out({
                     "reply": job.get("jawaban") or reply,
                     "session_id": session_id,
                     "ready": True,
@@ -200,9 +296,10 @@ def register(app):
                     "durasi_backend": job.get("durasi_backend"),
                     "is_fallback": bool(job.get("is_fallback")),
                     **meta,
-                }
+                })
 
-            # Masih dihitung di latar belakang -> minta frontend polling.
+            # Masih dihitung di latar belakang -> minta frontend polling. Reply
+            # interim tidak ditampilkan frontend, jadi tak perlu diterjemahkan.
             if job and job.get("status") == "pending":
                 return {
                     "reply": reply or "",
@@ -218,7 +315,7 @@ def register(app):
             # nonaktif / balasan statis) -> pakai balasan Dialogflow apa adanya.
             if is_poll:
                 return {"session_id": session_id, "ready": False, "pending": True}
-            return {
+            return await _out({
                 "reply": reply,
                 "session_id": session_id,
                 "ready": True,
@@ -226,6 +323,6 @@ def register(app):
                 "durasi_backend": None,
                 "is_fallback": _is_fallback_reply(reply),
                 **meta,
-            }
+            })
         except Exception as e:
             return JSONResponse(status_code=500, content={"error": str(e)})
