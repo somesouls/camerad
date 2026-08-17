@@ -176,6 +176,12 @@ import rag_calibration_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     membungkus versi answer/_render_prompt terakhir. ---
 import rag_grounding_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Pembersihan knowledge AWE: monkey-patch rag_engine._ctx_awe agar retrieval
+#     Percakapan AWE MEMBUANG giliran Bot / CCAI dan MENGABAIKAN percakapan
+#     full-bot (kolom Agent = "Chatbot, Google"). Hanya giliran pelanggan +
+#     agent manusia yang dijadikan konteks. WAJIB setelah rag_grounding_patch. ---
+import awe_botfilter_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe_routes
 awe_routes.register(
     app,
