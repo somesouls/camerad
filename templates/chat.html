@@ -79,8 +79,6 @@
   .pesan{ margin-bottom:14px; padding:10px 14px; border-radius:15px; max-width:82%; line-height:1.45; font-size:14px; white-space:pre-wrap; word-wrap:break-word; }
   .pesan.bot{ background:#e3f2fd; color:#0d47a1; border-bottom-left-radius:2px; }
   .pesan.user{ background:var(--biru); color:#fff; margin-left:auto; border-bottom-right-radius:2px; }
-  .pesan.bot.menunggu{ background:#eceff1; color:#546e7a; font-style:italic; }
-  .pesan.bot.fallback{ background:#fff3e0; color:#e65100; border:1px dashed #ffb74d; }
   .pesan.agen{ background:#e8f5e9; color:#1b5e20; border-bottom-left-radius:2px; }
   .pesan.sistem{ background:#fff8e1; color:#8d6e00; border:1px dashed #ffca28; font-size:12.5px; max-width:100%; text-align:center; font-style:italic; }
   /* Format kaya (ciri khas LLM): tebal / miring / kode / tautan */
@@ -89,7 +87,6 @@
   .pesan a{ color:inherit; text-decoration:underline; word-break:break-all; }
   .pesan code{ background:rgba(0,0,0,.08); padding:1px 5px; border-radius:5px; font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
   .meta-waktu{ font-size:11px; color:#90a4ae; margin:-8px 0 14px 4px; }
-  .meta-waktu.fallback{ color:#ef6c00; }
   .typing{ display:inline-flex; align-items:center; gap:4px; }
   .typing .dot{ width:7px; height:7px; border-radius:50%; background:#64b5f6; animation:blink 1.2s infinite ease-in-out both; }
   .typing .dot:nth-child(2){ animation-delay:.2s; } .typing .dot:nth-child(3){ animation-delay:.4s; }
@@ -205,8 +202,8 @@
       'err.lang':'Pilih salah satu bahasa','err.id':'Pilih salah satu identitas','err.form':'Nama dan Jenis Pertanyaan wajib diisi',
       'chat.ph':'Ketik pesan Anda...','sub':'Camerad · RAG Kring Pajak',
       'greet':(n)=>`Halo ${n||'Kawan Pajak'}! Ada yang bisa saya bantu hari ini?`,
-      'wait':'⏳ Mohon tunggu sebentar…','timeout':'Maaf, jawaban terlalu lama disiapkan. Silakan coba lagi.',
-      'meta.backend':'backend','meta.masuk':'pesan masuk → jawaban siap','meta.layar':'layar','meta.cadangan':'⚠ jawaban cadangan (bukan dari mesin RAG)',
+      'timeout':'Maaf, jawaban terlalu lama disiapkan. Silakan coba lagi.',
+      'meta.backend':'backend','meta.masuk':'pesan masuk → jawaban siap','meta.layar':'layar',
       'putus':'Koneksi terputus.','kosong':'(balasan kosong dari server)',
       'agen.sub':'Terhubung ke Agen Live Chat',
       'agen.ph':'Ketik pesan untuk agen…',
@@ -217,8 +214,8 @@
       'err.lang':'Please select a language','err.id':'Please select an identity','err.form':'Name and Question Type are required',
       'chat.ph':'Type your message...','sub':'Camerad · Kring Pajak RAG',
       'greet':(n)=>`Hi ${n||'there'}! How can I help you today?`,
-      'wait':'⏳ Please wait a moment…','timeout':'Sorry, the answer is taking too long. Please try again.',
-      'meta.backend':'backend','meta.masuk':'received → answer ready','meta.layar':'screen','meta.cadangan':'⚠ fallback answer (not from RAG engine)',
+      'timeout':'Sorry, the answer is taking too long. Please try again.',
+      'meta.backend':'backend','meta.masuk':'received → answer ready','meta.layar':'screen',
       'putus':'Connection lost.','kosong':'(empty reply from server)',
       'agen.sub':'Connected to Live Chat Agent',
       'agen.ph':'Type a message for the agent…',
@@ -308,31 +305,34 @@
   function bubbleSistem(teks){ const d=document.createElement('div'); d.className='pesan sistem'; d.innerHTML=fmtRich(teks); chatBody.appendChild(d); scrollBawah(); return d; }
   function tampilkanMengetik(){ const d=document.createElement('div'); d.className='pesan bot typing-wrap'; d.innerHTML='<span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>'; chatBody.appendChild(d); scrollBawah(); return d; }
 
-  function tambahMeta(durasiBackend, durasiTotal, isFallback){
-    const m=document.createElement('div'); m.className='meta-waktu'+(isFallback?' fallback':'');
+  function tambahMeta(durasiBackend, durasiTotal){
+    const m=document.createElement('div'); m.className='meta-waktu';
     let t='';
     if(durasiBackend!==null && durasiBackend!==undefined) t+='⏱ '+tr('meta.backend')+' '+Number(durasiBackend).toFixed(2)+' dtk ('+tr('meta.masuk')+')';
     if(durasiTotal!==null && durasiTotal!==undefined) t+=(t?' · ':'⏱ ')+tr('meta.layar')+' '+Number(durasiTotal).toFixed(2)+' dtk';
-    if(isFallback) t+=' · '+tr('meta.cadangan');
     m.textContent=t; chatBody.appendChild(m); scrollBawah();
   }
   function selesaikan(){ btnKirim.disabled=false; inputPesan.disabled=false; inputPesan.focus(); scrollBawah(); }
   function tampilkanJawaban(elm, data, t0){
-    elm.classList.remove('typing-wrap','menunggu');
+    elm.classList.remove('typing-wrap');
     if(modeAgen) elm.classList.add('agen');
+    // Jawaban fallback Dialogflow (mesin RAG telat) ditampilkan seperti jawaban
+    // biasa (biru), tanpa gaya/label khusus, sesuai permintaan.
     elm.innerHTML = fmtRich((data && data.reply) ? data.reply : tr('kosong'));
-    if(data && data.is_fallback) elm.classList.add('fallback');
-    tambahMeta(data?data.durasi_backend:null, (performance.now()-t0)/1000, !!(data&&data.is_fallback));
+    tambahMeta(data?data.durasi_backend:null, (performance.now()-t0)/1000);
   }
 
   // Beralih ke "mode agen" (handoff live chat), meniru transisi widget Avaya.
+  // Teks intent connector (mis. daftar opsi bahasa Inggris) TIDAK ditampilkan;
+  // cukup pesan "mohon menunggu, sedang dihubungkan ke agen".
   function masukModeAgen(data){
-    if(modeAgen) return;
-    modeAgen = true;
     const antre = (data && data.agent_queue) ? data.agent_queue : '';
+    if(!modeAgen){
+      modeAgen = true;
+      inputPesan.placeholder = tr('agen.ph');
+      el('sub-judul').textContent = tr('agen.sub');
+    }
     bubbleSistem(tr('agen.connect')(antre));
-    inputPesan.placeholder = tr('agen.ph');
-    el('sub-judul').textContent = tr('agen.sub');
   }
 
   async function kirimPesan(){
@@ -347,23 +347,24 @@
       const resp=await fetch(API+'/api/chat/detect',{ method:'POST', headers:{'Content-Type':'application/json'},
         body:JSON.stringify({ text:teks, session_id:sessionId, lang:lang, nama:identitas.nama, topik:identitas.topik }) });
       const data=await resp.json();
-      if(data && data.error){ mengetik.classList.remove('typing-wrap'); mengetik.classList.add('fallback'); mengetik.textContent='Error: '+data.error; tambahMeta(null,(performance.now()-t0)/1000,true); return selesaikan(); }
-      if(data && data.ready){ tampilkanJawaban(mengetik,data,t0); if(data.handoff) masukModeAgen(data); return selesaikan(); }
-      // PENDING -> ACK jadi bubble 1, lalu polling echo utk bubble 2
-      mengetik.classList.remove('typing-wrap'); mengetik.classList.add('menunggu');
-      mengetik.innerHTML = fmtRich((data && data.reply) ? data.reply : tr('wait'));
-      const typing2=tampilkanMengetik();
-      pollJawaban(t0, typing2, 0);
-    }catch(e){ mengetik.classList.remove('typing-wrap'); mengetik.classList.add('fallback'); mengetik.textContent=tr('putus'); tambahMeta(null,(performance.now()-t0)/1000,true); selesaikan(); }
+      if(data && data.error){ mengetik.remove(); bubbleSistem('Error: '+data.error); return selesaikan(); }
+      // HANDOFF: langsung alihkan ke mode agen, jangan tampilkan teks intent connector.
+      if(data && data.handoff){ mengetik.remove(); masukModeAgen(data); return selesaikan(); }
+      if(data && data.ready){ tampilkanJawaban(mengetik,data,t0); return selesaikan(); }
+      // PENDING -> cukup pertahankan animasi "mengetik" (titik-titik), lalu polling.
+      // TIDAK menampilkan teks penunda / fallback sementara dari Dialogflow.
+      pollJawaban(t0, mengetik, 0);
+    }catch(e){ mengetik.remove(); bubbleSistem(tr('putus')); selesaikan(); }
   }
 
   function pollJawaban(t0, typingEl, attempt){
-    if(attempt>=POLL_MAX){ typingEl.classList.remove('typing-wrap'); typingEl.classList.add('fallback'); typingEl.textContent=tr('timeout'); tambahMeta(null,(performance.now()-t0)/1000,true); return selesaikan(); }
+    if(attempt>=POLL_MAX){ typingEl.remove(); bubbleSistem(tr('timeout')); return selesaikan(); }
     setTimeout(async ()=>{
       try{
         const resp=await fetch(API+'/api/chat/detect',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ text:SENTINEL_POLL, session_id:sessionId }) });
         const data=await resp.json();
-        if(data && data.ready){ tampilkanJawaban(typingEl,data,t0); if(data.handoff) masukModeAgen(data); return selesaikan(); }
+        if(data && data.handoff){ typingEl.remove(); masukModeAgen(data); return selesaikan(); }
+        if(data && data.ready){ tampilkanJawaban(typingEl,data,t0); return selesaikan(); }
         pollJawaban(t0, typingEl, attempt+1);
       }catch(e){ pollJawaban(t0, typingEl, attempt+1); }
     }, POLL_INTERVAL);
