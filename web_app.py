@@ -182,6 +182,13 @@ import rag_grounding_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     agent manusia yang dijadikan konteks. WAJIB setelah rag_grounding_patch. ---
 import awe_botfilter_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Perutean layanan (handoff): monkey-patch rag_engine.answer agar bila
+#     pertanyaan pengguna cocok dengan intent LAYANAN pada tabel handoff_routing,
+#     panduan kanal (mandiri/agent/KPP) disisipkan ke prompt. Pertanyaan
+#     informasi murni tetap dijawab RAG biasa. WAJIB setelah rag_grounding_patch
+#     & awe_botfilter_patch agar membungkus versi answer terakhir. ---
+import handoff_routing_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe_routes
 awe_routes.register(
     app,
@@ -255,35 +262,4 @@ peraturan_routes.register(app)
 import sop_routes
 sop_routes.register(app)
 
-# --- Menu Kamus & Rewriting (Tahap 5): kelola kamus sinonim/istilah pajak +
-#     alat uji rewriting otomatis AI (peraturan/pasal). Memakai app_core.render_page
-#     & mesin RAG, jadi didaftarkan bersama menu Peraturan/SOP. ---
-import rag_kamus_routes
-rag_kamus_routes.register(app)
-
-import studio_routes
-studio_routes.register(
-    app,
-    base_dir=BASE_DIR,
-    render_page=render_page,
-    llm_client=llm_client,
-    kctx=kctx,
-    xlsx_mime=XLSX_MIME,
-)
-
-
-if __name__ == "__main__":
-    import uvicorn
-    host = os.environ.get("WEB_HOST", "0.0.0.0")
-    port = int(os.environ.get("WEB_PORT", "8080"))
-    os.makedirs(CONFIG["runs_dir"], exist_ok=True)
-    start_scheduler()
-    shown = "localhost" if host in ("0.0.0.0", "::") else host
-    print("=" * 64)
-    print(" Dialogflow + Avaya Pipeline (FastAPI) - FRONTEND / UI")
-    print(" BUKA DI BROWSER : http://%s:%d/" % (shown, port))
-    print(" (JANGAN buka http://0.0.0.0:%d - itu cuma alamat bind, bukan URL)" % port)
-    print(" Dari PC lain LAN: http://<IP-PC-INI>:%d/" % port)
-    print(" Backend internal (jangan dibuka manual): %s" % CONFIG["local_api_base"])
-    print("=" * 64)
-    uvicorn.run(app, host=host, port=port)
+# --- Menu Kamus & Rewriting (Tahap
