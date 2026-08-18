@@ -1,8 +1,14 @@
 # -*- coding: utf-8 -*-
 """pipeline_helpers.py — Helper leaf (state/artefak, Google auth, HTTP, XLSX)
-yang dipakai pipeline_routes.py. Dipisah dari file utama agar pipeline_routes.py
-tetap ringkas dan mudah dikelola. Perilaku fungsi TIDAK berubah — dipindah apa
-adanya dari pipeline_routes.py.
+yang dipakai pipeline_routes.py.
+
+PENYIMPANAN (diubah pada migrasi DB): state & artefak tidak lagi disimpan sebagai
+folder _runs/<run>/state.json + file Excel. Sekarang SUMBER KEBENARAN ada di
+database (pipeline_store.py). Folder _runs/<run>/ tetap dipakai HANYA sebagai
+CACHE disk agar kode step lama yang membaca file (open(...)) tetap berjalan tanpa
+diubah. 'run' kini berperan sebagai kunci dataset (dkey = start__end__lang).
+
+Helper HTTP/Google/XLSX di bawah TIDAK berubah.
 """
 import os
 import re
@@ -20,46 +26,102 @@ from openpyxl.utils import get_column_letter
 
 from app_core import CONFIG, XLSX_MIME, BASE_DIR
 
+import pipeline_store as pstore
+
 
 # =============================================================
-# State & artifact (pengganti _runs/<run>/state.json)
+# State & artifact — kini DB-backed (pipeline_store) + cache disk
 # =============================================================
+def _store():
+    return pstore.init_db(pstore.connect())
+
+
+def _parse_dkey(run):
+    """run diharapkan berformat 'start__end__lang'. Bila tidak, kembalikan blank."""
+    parts = str(run or "").split("__")
+    if len(parts) == 3 and parts[0] and parts[1]:
+        return parts[0], parts[1], (parts[2] or "id")
+    return "", "", "id"
+
+
+def _resolve_dataset(conn, run, create=True):
+    """Petakan 'run' (string) -> baris dataset. run adalah dkey."""
+    if run is None or str(run).strip() == "":
+        return None
+    ds = pstore.get_dataset_by_key(conn, str(run))
+    if ds or not create:
+        return ds
+    rs, re_, lg = _parse_dkey(run)
+    if rs and re_:
+        return pstore.get_or_create_dataset(conn, rs, re_, lg)
+    # 'run' bukan format dkey standar (mis. Run ID lama): buat dataset dgn dkey=run.
+    now = _dt.datetime.now().isoformat()
+    conn.execute(
+        "INSERT OR IGNORE INTO datasets(dkey,range_start,range_end,lang,label,status,"
+        "ngrok_url,meta,created_at,updated_at) VALUES(?,?,?,?,?,'active','','{}',?,?)",
+        (str(run), "", "", lg, str(run), now, now),
+    )
+    conn.commit()
+    return pstore.get_dataset_by_key(conn, str(run))
+
+
 def run_dir(cfg, run, create=True):
-    d = os.path.join(cfg["runs_dir"].rstrip("/"), run)
+    d = os.path.join(cfg["runs_dir"].rstrip("/"), str(run))
     if create and not os.path.isdir(d):
         os.makedirs(d, exist_ok=True)
     return d
 
 
 def state_path(cfg, run):
+    # Dipertahankan untuk kompatibilitas impor; tidak lagi jadi sumber kebenaran.
     return os.path.join(run_dir(cfg, run), "state.json")
 
 
-def load_state(cfg, run):
-    p = state_path(cfg, run)
-    if os.path.isfile(p):
+def _materialize(cfg, run, dataset, conn):
+    """Tulis bytes artefak DB ke cache disk bila file belum ada / beda ukuran."""
+    if not dataset:
+        return
+    d = run_dir(cfg, run)
+    for a in pstore.list_artifacts(conn, dataset["id"]):
+        fname = "step%s.%s" % (a["step"], a.get("ext") or "bin")
+        p = os.path.join(d, fname)
         try:
-            with open(p, "r", encoding="utf-8") as f:
-                d = json.load(f)
-            if isinstance(d, dict):
-                if not isinstance(d.get("steps"), dict):
-                    d["steps"] = {}
-                return d
+            if os.path.isfile(p) and os.path.getsize(p) == (a.get("size") or -1):
+                continue
         except Exception:
             pass
-    return {"run": run, "created": _dt.datetime.now().isoformat(), "steps": {}}
+        b = pstore.get_artifact_bytes(conn, dataset["id"], a["step"])
+        if b is not None:
+            with open(p, "wb") as f:
+                f.write(b)
+
+
+def load_state(cfg, run):
+    conn = _store()
+    try:
+        ds = _resolve_dataset(conn, run, create=False)
+        if not ds:
+            return {"run": run, "created": _dt.datetime.now().isoformat(), "steps": {}}
+        _materialize(cfg, run, ds, conn)
+        return pstore.build_state(conn, ds)
+    finally:
+        conn.close()
 
 
 def save_state(cfg, run, state):
-    with open(state_path(cfg, run), "w", encoding="utf-8") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    """Kompat: hanya ngrok_url yang perlu dipersist. 'steps' dikelola save_artifact."""
+    conn = _store()
+    try:
+        ds = _resolve_dataset(conn, run, create=True)
+        if ds and state is not None and state.get("ngrok_url") is not None:
+            pstore.set_ngrok(conn, ds["id"], state.get("ngrok_url") or "")
+    finally:
+        conn.close()
 
 
 def set_step(cfg, run, n, data):
-    state = load_state(cfg, run)
-    state["steps"][str(n)] = data
-    save_state(cfg, run, state)
-    return state
+    """Kompat: artefak sudah tersimpan via save_artifact; kembalikan state terbaru."""
+    return load_state(cfg, run)
 
 
 def get_state(cfg, run):
@@ -72,6 +134,16 @@ def get_state(cfg, run):
 
 
 def reset_run(cfg, run):
+    """Reset = SOFT (arsipkan dataset di DB) + bersihkan cache disk. Data tetap aman."""
+    archived = False
+    conn = _store()
+    try:
+        ds = _resolve_dataset(conn, run, create=False)
+        if ds:
+            pstore.archive_dataset(conn, ds["id"])
+            archived = True
+    finally:
+        conn.close()
     d = run_dir(cfg, run, create=False)
     if os.path.isdir(d):
         for name in os.listdir(d):
@@ -83,13 +155,17 @@ def reset_run(cfg, run):
             os.rmdir(d)
         except Exception:
             pass
-    return {"cleared": True}
+    return {"cleared": True, "archived": archived}
 
 
 def save_ngrok(cfg, run, url):
-    state = load_state(cfg, run)
-    state["ngrok_url"] = url
-    save_state(cfg, run, state)
+    conn = _store()
+    try:
+        ds = _resolve_dataset(conn, run, create=True)
+        if ds:
+            pstore.set_ngrok(conn, ds["id"], url or "")
+    finally:
+        conn.close()
 
 
 def mime_for_ext(ext):
@@ -104,21 +180,55 @@ def mime_for_ext(ext):
 def save_artifact(cfg, run, n, ext, data_bytes, download_name, summary):
     if isinstance(data_bytes, str):
         data_bytes = data_bytes.encode("utf-8")
+    mime = mime_for_ext(ext)
+    # 1) Simpan ke DB (sumber kebenaran, upsert — versi terbaru menang).
+    conn = _store()
+    try:
+        ds = _resolve_dataset(conn, run, create=True)
+        pstore.save_artifact(conn, ds["id"], int(n), ext, download_name, mime, data_bytes, summary)
+    finally:
+        conn.close()
+    # 2) Tulis juga ke cache disk agar kode step yang membaca file tetap jalan.
     fname = "step%s.%s" % (n, ext)
-    with open(os.path.join(run_dir(cfg, run), fname), "wb") as f:
-        f.write(data_bytes)
-    data = {
+    try:
+        with open(os.path.join(run_dir(cfg, run), fname), "wb") as f:
+            f.write(data_bytes)
+    except Exception:
+        pass
+    return {
         "status": "done",
         "file": fname,
         "name": download_name,
         "ext": ext,
-        "mime": mime_for_ext(ext),
+        "mime": mime,
         "size": len(data_bytes),
         "summary": summary,
         "at": _dt.datetime.now().isoformat(),
     }
-    set_step(cfg, run, n, data)
-    return data
+
+
+# ---- Akses artefak berbasis DB (dipakai handler unduh & step yg regenerasi) ----
+def artifact_bytes(cfg, run, n):
+    """Ambil bytes artefak step n dari DB (sumber kebenaran)."""
+    conn = _store()
+    try:
+        ds = _resolve_dataset(conn, run, create=False)
+        if not ds:
+            return None
+        return pstore.get_artifact_bytes(conn, ds["id"], int(n))
+    finally:
+        conn.close()
+
+
+def artifact_meta(cfg, run, n):
+    conn = _store()
+    try:
+        ds = _resolve_dataset(conn, run, create=False)
+        if not ds:
+            return None
+        return pstore.get_artifact_meta(conn, ds["id"], int(n))
+    finally:
+        conn.close()
 
 
 def resolve_input_bytes(cfg, ctx, upload_field, allowed_exts):
@@ -139,13 +249,16 @@ def resolve_input_bytes(cfg, ctx, upload_field, allowed_exts):
         src = state["steps"].get(str(from_step))
         if not src or not src.get("file"):
             raise Exception("Hasil Step %d belum tersedia." % from_step)
-        p = os.path.join(run_dir(cfg, ctx.run), src["file"])
-        if not os.path.isfile(p):
-            raise Exception("File hasil Step %d hilang dari server." % from_step)
         if allowed_exts and str(src.get("ext", "")).lower() not in allowed_exts:
             raise Exception("Hasil Step %d bukan format yang dibutuhkan (%s)." % (from_step, ", ".join(allowed_exts)))
-        with open(p, "rb") as f:
-            return f.read(), src.get("name", "")
+        b = artifact_bytes(cfg, ctx.run, from_step)
+        if b is None:
+            p = os.path.join(run_dir(cfg, ctx.run), src["file"])
+            if not os.path.isfile(p):
+                raise Exception("File hasil Step %d hilang dari server." % from_step)
+            with open(p, "rb") as f:
+                b = f.read()
+        return b, src.get("name", "")
     raise Exception("Tidak ada input. Unggah file atau pilih hasil step sebelumnya.")
 
 
