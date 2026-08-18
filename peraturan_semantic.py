@@ -6,8 +6,19 @@ Embedder semantik untuk korpus PERATURAN (menu Peraturan / sumber #5 RAG).
 
 Bahasa peraturan bersifat formal/kaku sementara pertanyaan pengguna memakai
 bahasa sehari-hari. Untuk pencocokan "pertanyaan pendek -> pasal panjang" kita
-memakai model e5 (intfloat/multilingual-e5-base) yang dirancang untuk retrieval
-asimetris dengan prefix 'query:' / 'passage:'.
+memakai model retrieval asimetris.
+
+Model default (Fase 0): **BAAI/bge-m3** (1024-d, multilingual, kuat untuk
+Bahasa Indonesia; mengungguli multilingual-e5-base pada benchmark retrieval
+multilingual). Model lama `intfloat/multilingual-e5-base` tetap didukung —
+set env PERATURAN_EMBED_MODEL untuk mengganti.
+
+Prefix teks (PENTING, beda antar-model):
+  * Keluarga e5 : WAJIB prefix 'query: ' (pertanyaan) & 'passage: ' (dokumen).
+  * bge-m3      : TANPA prefix (dilatih tanpa prefix ala e5; menambahkannya
+                  justru menurunkan kualitas).
+Prefix dipilih otomatis dari nama model; bisa dioverride manual lewat env
+PERATURAN_EMBED_QUERY_PREFIX / PERATURAN_EMBED_PASSAGE_PREFIX.
 
 Berbeda dari jakai (yang menyimpan vektor di sqlite-vec/vec0), modul ini
 mengembalikan vektor sebagai numpy float32 biasa; peraturan_db.py menyimpannya
@@ -17,10 +28,15 @@ extension sqlite-vec di lingkungan camerad.
 Gagal-anggun: bila numpy / sentence-transformers / model tak tersedia,
 is_available()=False dan embed_*()=None sehingga retrieval jatuh ke FTS5/LIKE.
 
+PENTING setelah ganti model: vektor lama TIDAK kompatibel. Jalankan reindex:
+    python phase0_upgrade.py --reindex-all
+
 Konfigurasi (env):
-  PERATURAN_EMBED           '1' (default) aktif; '0' matikan.
-  PERATURAN_EMBED_MODEL     default 'intfloat/multilingual-e5-base'
-  PERATURAN_EMBED_DEVICE    '' auto (cuda bila ada) / 'cuda' / 'cpu'
+  PERATURAN_EMBED                 '1' (default) aktif; '0' matikan.
+  PERATURAN_EMBED_MODEL           default 'BAAI/bge-m3'
+  PERATURAN_EMBED_DEVICE          '' auto (cuda bila ada) / 'cuda' / 'cpu'
+  PERATURAN_EMBED_QUERY_PREFIX    override prefix query ('' = tanpa prefix)
+  PERATURAN_EMBED_PASSAGE_PREFIX  override prefix dokumen ('' = tanpa prefix)
 """
 import os
 
@@ -29,10 +45,21 @@ try:
 except Exception:
     np = None
 
-EMBED_DIM = 768  # multilingual-e5-base
+# Konstanta fallback (model default v14). Untuk deteksi dinamis per-model,
+# gunakan embed_dim().
+EMBED_DIM = 1024  # BAAI/bge-m3
 
 _MODEL = None
 _MODEL_TRIED = False
+
+# Peta dimensi fallback berdasar nama model (dipakai bila model belum termuat).
+_DIM_BY_NAME = {
+    "bge-m3": 1024,
+    "multilingual-e5-large": 1024,
+    "multilingual-e5-base": 768,
+    "multilingual-e5-small": 384,
+    "paraphrase-multilingual-mpnet-base-v2": 768,
+}
 
 
 def _enabled():
@@ -41,7 +68,46 @@ def _enabled():
 
 
 def model_id():
-    return os.environ.get("PERATURAN_EMBED_MODEL", "intfloat/multilingual-e5-base")
+    return os.environ.get("PERATURAN_EMBED_MODEL", "BAAI/bge-m3")
+
+
+def _prefix_env(name):
+    """Kembalikan None bila env tak diset; '' berarti eksplisit tanpa prefix."""
+    v = os.environ.get(name)
+    return v if v is not None else None
+
+
+def query_prefix():
+    """Prefix untuk pertanyaan. e5 -> 'query: '; bge-m3 -> '' (tanpa prefix)."""
+    v = _prefix_env("PERATURAN_EMBED_QUERY_PREFIX")
+    if v is not None:
+        return v
+    return "query: " if "e5" in model_id().lower() else ""
+
+
+def passage_prefix():
+    """Prefix untuk dokumen. e5 -> 'passage: '; bge-m3 -> '' (tanpa prefix)."""
+    v = _prefix_env("PERATURAN_EMBED_PASSAGE_PREFIX")
+    if v is not None:
+        return v
+    return "passage: " if "e5" in model_id().lower() else ""
+
+
+def embed_dim():
+    """Dimensi embedding model aktif. Bila model sudah termuat, baca langsung
+    dari model; kalau belum, tebak dari nama model (fallback). 0 = tak tahu."""
+    if _MODEL is not None:
+        try:
+            d = _MODEL.get_sentence_embedding_dimension()
+            if d:
+                return int(d)
+        except Exception:
+            pass
+    mid = model_id().lower()
+    for key, d in _DIM_BY_NAME.items():
+        if key in mid:
+            return d
+    return 0
 
 
 def _load_model():
@@ -60,6 +126,8 @@ def _load_model():
         if not dev:
             dev = "cuda" if torch.cuda.is_available() else "cpu"
         _MODEL = SentenceTransformer(model_id(), device=dev)
+        print("[peraturan_semantic] model=%s device=%s dim=%s"
+              % (model_id(), dev, embed_dim()), flush=True)
     except Exception:
         _MODEL = None
     return _MODEL
@@ -84,19 +152,19 @@ def _encode(text):
 
 
 def embed_query(text):
-    """Vektor pertanyaan (prefix e5 'query: ')."""
+    """Vektor pertanyaan (prefix otomatis sesuai model)."""
     t = (text or "").strip()
     if not t:
         return None
-    return _encode("query: " + t)
+    return _encode(query_prefix() + t)
 
 
 def embed_passage(text):
-    """Vektor teks peraturan (prefix e5 'passage: ')."""
+    """Vektor teks peraturan (prefix otomatis sesuai model)."""
     t = (text or "").strip()
     if not t:
         return None
-    return _encode("passage: " + t)
+    return _encode(passage_prefix() + t)
 
 
 def embed_passages(texts):
@@ -104,8 +172,9 @@ def embed_passages(texts):
     m = _load_model()
     if m is None or np is None:
         return None
+    pp = passage_prefix()
     try:
-        arr = m.encode(["passage: " + (t or "") for t in texts],
+        arr = m.encode([pp + (t or "") for t in texts],
                        normalize_embeddings=True, convert_to_numpy=True,
                        batch_size=32, show_progress_bar=False)
         return np.asarray(arr, dtype="float32")

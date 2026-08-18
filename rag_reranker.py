@@ -1,19 +1,21 @@
 # -*- coding: utf-8 -*-
 """rag_reranker.py — Cross-encoder reranker untuk retrieval RAG (Tahap 5).
 
-Retrieval hybrid (FTS5 + e5 bi-encoder) menghasilkan kandidat secara cepat,
+Retrieval hybrid (FTS5 + bi-encoder) menghasilkan kandidat secara cepat,
 tetapi urutannya belum tentu paling relevan. Reranker cross-encoder membaca
 pasangan (pertanyaan, kandidat) sekaligus lalu memberi skor relevansi yang jauh
 lebih akurat — inilah tahap yang meniru cara mesin pencari modern mengurutkan
 "paling relevan -> kurang relevan".
 
-Model default multilingual & ringan (mmarco-mMiniLMv2). Memakai
-sentence-transformers.CrossEncoder yang SUDAH menjadi dependency (dipakai e5),
-jadi tidak ada paket baru.
+Model default (Fase 0): BAAI/bge-reranker-v2-m3 — reranker multilingual modern,
+jauh lebih akurat untuk pasangan pertanyaan–pasal berbahasa Indonesia daripada
+mmarco-mMiniLMv2 (2021). Tetap memakai sentence-transformers.CrossEncoder yang
+SUDAH menjadi dependency (dipakai embedder), jadi tidak ada paket baru.
+Model lama tetap bisa dipakai dengan set env RAG_RERANK_MODEL.
 
 Konfigurasi (env):
   RAG_RERANK          '1' (default) aktif; '0' matikan.
-  RAG_RERANK_MODEL    default 'cross-encoder/mmarco-mMiniLMv2-L12-H384-v1'
+  RAG_RERANK_MODEL    default 'BAAI/bge-reranker-v2-m3'
   RAG_RERANK_POOL     jumlah kandidat maksimum yang dinilai ulang (default 30)
   RAG_RERANK_DEVICE   '' auto (cuda bila ada) / 'cuda' / 'cpu'
 
@@ -31,7 +33,7 @@ def _enabled():
 
 
 def model_id():
-    return os.environ.get("RAG_RERANK_MODEL", "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1")
+    return os.environ.get("RAG_RERANK_MODEL", "BAAI/bge-reranker-v2-m3")
 
 
 def _pool():
