@@ -128,14 +128,15 @@ input[type=file]{padding:8px}
       </div>
     </div>
     <div class="runchip">
-      <span class="chip" id="runLabel">run: &mdash;</span>
-      <button class="btn-ghost" id="resetBtn">Reset Run</button>
+      <span class="chip" id="runLabel">dataset: &mdash;</span>
+      <button class="btn-ghost" id="loadDsBtn">Muat Dataset</button>
+      <button class="btn-ghost" id="resetBtn">Arsipkan</button>
     </div>
   </div>
 
   <div class="intro">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>
-    <div>Klik lingkaran step untuk membuka formnya. Setiap step berdiri sendiri: kalau ada yang gagal, step lain yang sudah sukses tidak hilang. Setelah sebuah step selesai, step berikutnya bisa langsung memakai hasilnya tanpa upload ulang.</div>
+    <div>Klik lingkaran step untuk membuka formnya. Penyimpanan kini berbasis <b>dataset</b> (rentang tanggal log + bahasa) di database &mdash; bukan lagi Run ID. Setiap step berdiri sendiri: kalau ada yang gagal, step lain yang sudah sukses tidak hilang. Edit di Step 6/9 langsung tersimpan ke database, dan Excel di-generate ulang saat diunduh. "Arsipkan" menyimpan dataset agar bisa dimuat lagi lewat "Muat Dataset".</div>
   </div>
 
 <div id="flows-container"></div>

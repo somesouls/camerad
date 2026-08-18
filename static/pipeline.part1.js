@@ -18,14 +18,35 @@ const STEPS = [
   {n:16, title:'Avaya - Ekspor Excel', sub:'Workbook multi-sheet', type:'avaya16'},
 ];
 
-let RUN = localStorage.getItem('dfp_run');
-if(!RUN){ RUN = 'run_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,7); localStorage.setItem('dfp_run', RUN); }
+// Penyimpanan kini berbasis DATASET (kunci = rentang tanggal log + bahasa),
+// menggantikan "Run ID" acak. RUN menyimpan kunci dataset aktif (dkey).
+let RUN = localStorage.getItem('dfp_run') || '';
 let STATE = {steps:{}};
+
+function adoptRun(res){
+  if(res && res.run && res.run !== RUN){
+    RUN = res.run;
+    localStorage.setItem('dfp_run', RUN);
+    const p = String(RUN).split('__');
+    if(p.length===3){ STATE.range_start=p[0]; STATE.range_end=p[1]; STATE.lang=p[2]; }
+    updateRunLabel();
+  }
+}
+
+function updateRunLabel(){
+  const el=document.getElementById('runLabel');
+  if(!el) return;
+  if(!RUN){ el.textContent='dataset: (belum ada \u2014 jalankan Step 1)'; return; }
+  let txt = RUN;
+  if(STATE.range_start && STATE.range_end){ txt = STATE.range_start+' \u2192 '+STATE.range_end+' ('+(STATE.lang||'id')+')'; }
+  el.textContent = 'dataset: ' + txt;
+}
 
 const checkSvg = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
 
 function api(action, opts){
-  const u = ENDPOINT + '?action=' + action + '&run=' + encodeURIComponent(RUN);
+  let u = ENDPOINT + '?action=' + action;
+  if(RUN) u += '&run=' + encodeURIComponent(RUN);
   return fetch(u, opts||{}).then(async r=>{
     const text = await r.text();
     try { return JSON.parse(text); }
@@ -103,7 +124,7 @@ function renderRail(){
     container.appendChild(wrap);
   });
   const db = document.getElementById('diagBtn'); if(db) db.onclick = checkServer;
-  document.getElementById('runLabel').textContent = 'run: ' + RUN;
+  updateRunLabel();
 }
 
 function checkServer(){
@@ -135,6 +156,57 @@ function checkServer(){
 
 function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
+function openDatasetPicker(){
+  const modal = document.getElementById('modal');
+  modal.classList.remove('wide');
+  modal.innerHTML =
+    '<div class="mhead"><div class="mbadge">\u2261</div>'+
+      '<div><h2>Muat Dataset</h2><p>Pilih dataset (rentang tanggal + bahasa) untuk dimuat</p></div>'+
+      '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>'+
+    '<div class="mbody" id="dsbody"><div class="status show run"><span class="sp"></span>Memuat daftar...</div></div>'+
+    '<div class="mfoot"><button class="btn btn-sec" id="closeBtn2">Tutup</button></div>';
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('mxBtn').onclick = closeModal;
+  document.getElementById('closeBtn2').onclick = closeModal;
+  api('datasets',{}).then(res=>{
+    const list = (res && res.datasets) || [];
+    if(!list.length){ document.getElementById('dsbody').innerHTML='<div class="hint">Belum ada dataset. Jalankan Step 1 untuk membuat dataset baru.</div>'; return; }
+    let html='<div class="summary show" style="display:block">';
+    list.forEach(d=>{
+      const act = d.active ? ' <span class="s6pill t">aktif</span>' : '';
+      const arch = (d.status==='archived') ? ' <span class="s6pill n">arsip</span>' : '';
+      const label = (d.range_start && d.range_end) ? (esc(d.range_start)+' \u2192 '+esc(d.range_end)+' ('+esc(d.lang||'id')+')') : esc(d.label||d.run);
+      html+='<div class="row"><span class="k">'+label+act+arch+'</span>'+
+            '<span class="v"><button class="btn btn-sec s6load" data-run="'+esc(d.run)+'" style="padding:5px 12px;font-size:12.5px">Muat</button></span></div>';
+    });
+    html+='</div>';
+    document.getElementById('dsbody').innerHTML=html;
+    document.querySelectorAll('.s6load').forEach(b=>{ b.onclick=()=>loadDataset(b.getAttribute('data-run')); });
+  }).catch(e=>{ document.getElementById('dsbody').innerHTML='<div class="status show err">\u26A0 '+esc(e.message||e)+'</div>'; });
+}
+
+function loadDataset(run){
+  const oldRun = RUN;
+  RUN = run;
+  api('activate',{}).then(res=>{
+    if(res && res.ok){
+      localStorage.setItem('dfp_run', RUN);
+      STATE = {steps: res.steps || {}};
+      STATE.range_start = res.range_start || '';
+      STATE.range_end = res.range_end || '';
+      STATE.lang = res.lang || '';
+      STATE.label = res.label || '';
+      if(res.ngrok_url) STATE.ngrok_url = res.ngrok_url;
+      updateRunLabel();
+      renderRail();
+      closeModal();
+    } else {
+      RUN = oldRun;
+      alert('Gagal memuat dataset: ' + ((res&&res.error)||'tidak diketahui'));
+    }
+  }).catch(e=>{ RUN = oldRun; alert('Gagal memuat dataset: ' + (e.message||e)); });
+}
+
 function srcToggle(group, opts){
   let html='<div class="srcbox" data-group="'+group+'">';
   let firstEnabledDone=false;
@@ -153,7 +225,7 @@ function formHtml(n){
   if(n===1){
     return ''+
      '<div class="field"><label>Start Date</label><input type="date" id="f_start"></div>'+
-     '<div class="field"><label>End Date</label><input type="date" id="f_end"><div class="hint">Rentang maksimal 31 hari, dan harus sebelum hari ini (WIB).</div></div>'+
+     '<div class="field"><label>End Date</label><input type="date" id="f_end"><div class="hint">Rentang maksimal 31 hari, dan harus sebelum hari ini (WIB). Rentang tanggal + bahasa ini menjadi kunci dataset (pengganti Run ID).</div></div>'+
      '<div class="field"><label>Bahasa</label><select id="f_lang"><option value="id">id</option><option value="en">en</option></select></div>'+
      '<div class="field"><label>Access Token Google <span style="font-weight:400;color:var(--text2)">(opsional)</span></label><input type="text" id="f_token" placeholder="Kosongkan bila pakai service-account.json"><div class="hint">Isi bila server tidak memakai service-account.json.</div></div>';
   }

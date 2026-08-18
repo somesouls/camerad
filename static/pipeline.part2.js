@@ -62,6 +62,7 @@ function runStep(n){
   api('step'+n, {method:'POST', body:fd}).then(res=>{
     rb.disabled=false;
     if(res && res.ok){
+      adoptRun(res);
       STATE.steps[n]=res.artifact;
       setStatus('ok','\u2714 Step '+n+' selesai.');
       showSummary(n, res.artifact);
