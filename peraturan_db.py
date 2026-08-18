@@ -742,16 +742,35 @@ def search(query, k=10, status_list=("berlaku",), conn=None):
             conn.close()
 
 
-def reindex(conn=None, batch=64):
-    """(Re)hitung embedding e5 untuk seluruh baris. Perlu model tersedia."""
+def reindex(conn=None, batch=64, resume=True):
+    """(Re)hitung embedding untuk baris peraturan_unit. Perlu model tersedia.
+
+    resume=True (default) -> hanya proses baris yang BELUM punya vektor
+        berdimensi model aktif (dibaca dari peraturan_vec.dim). Aman dilanjutkan
+        setelah Ctrl+C/interupsi dan hemat waktu saat ganti model: unit yang
+        sudah di-embed model baru dilewati.
+    resume=False -> embed ulang SEMUA baris (mode penuh; dipakai --force).
+    """
     own = conn is None
     conn = conn or init_db(connect())
     try:
         if not psem.is_available():
             return {"ok": False, "error": "Model embedding tidak tersedia.", "n": 0}
         rows = conn.execute("SELECT id, judul, isi FROM peraturan_unit").fetchall()
-        ids = [r["id"] for r in rows]
-        texts = [((r["judul"] or "") + " " + (r["isi"] or "")).strip() for r in rows]
+        skip = set()
+        if resume:
+            try:
+                dim_model = int(psem.embed_dim() or 0)
+            except Exception:
+                dim_model = 0
+            if dim_model:
+                for r in conn.execute(
+                        "SELECT id FROM peraturan_vec WHERE dim=?",
+                        (dim_model,)).fetchall():
+                    skip.add(r["id"])
+        todo = [r for r in rows if r["id"] not in skip]
+        ids = [r["id"] for r in todo]
+        texts = [((r["judul"] or "") + " " + (r["isi"] or "")).strip() for r in todo]
         n = 0
         for i in range(0, len(ids), batch):
             chunk_ids = ids[i:i + batch]
@@ -769,7 +788,8 @@ def reindex(conn=None, batch=64):
                 n += 1
             conn.commit()
         _vec_cache_clear()
-        return {"ok": True, "n": n}
+        return {"ok": True, "n": n, "skipped": len(rows) - len(todo),
+                "total": len(rows)}
     finally:
         if own:
             conn.close()

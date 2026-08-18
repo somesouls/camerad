@@ -35,6 +35,8 @@ Konfigurasi (env):
   PERATURAN_EMBED                 '1' (default) aktif; '0' matikan.
   PERATURAN_EMBED_MODEL           default 'BAAI/bge-m3'
   PERATURAN_EMBED_DEVICE          '' auto (cuda bila ada) / 'cuda' / 'cpu'
+  PERATURAN_EMBED_BATCH           batch size encode saat reindex (default 32;
+                                  naikkan ke 64-128 di GPU untuk mempercepat)
   PERATURAN_EMBED_QUERY_PREFIX    override prefix query ('' = tanpa prefix)
   PERATURAN_EMBED_PASSAGE_PREFIX  override prefix dokumen ('' = tanpa prefix)
 """
@@ -102,7 +104,12 @@ def embed_dim():
             if d:
                 return int(d)
         except Exception:
-            pass
+            try:
+                d = _MODEL.get_embedding_dimension()
+                if d:
+                    return int(d)
+            except Exception:
+                pass
     mid = model_id().lower()
     for key, d in _DIM_BY_NAME.items():
         if key in mid:
@@ -168,15 +175,22 @@ def embed_passage(text):
 
 
 def embed_passages(texts):
-    """Batch encode untuk reindex. Kembalikan np.ndarray[N, dim] atau None."""
+    """Batch encode untuk reindex. Kembalikan np.ndarray[N, dim] atau None.
+
+    Batch size via env PERATURAN_EMBED_BATCH (default 32). Di GPU, batch lebih
+    besar (64-128) umumnya memangkas waktu reindex 2-4x."""
     m = _load_model()
     if m is None or np is None:
         return None
     pp = passage_prefix()
     try:
+        bs = int(os.environ.get("PERATURAN_EMBED_BATCH", "32") or "32")
+    except Exception:
+        bs = 32
+    try:
         arr = m.encode([pp + (t or "") for t in texts],
                        normalize_embeddings=True, convert_to_numpy=True,
-                       batch_size=32, show_progress_bar=False)
+                       batch_size=max(1, bs), show_progress_bar=False)
         return np.asarray(arr, dtype="float32")
     except Exception:
         return None
