@@ -161,6 +161,31 @@ def _active_run(cfg):
         conn.close()
 
 
+def _dataset_exists(run):
+    """True bila 'run' (dkey) cocok dengan dataset yang BENAR-BENAR ada di DB."""
+    if not run:
+        return False
+    conn = _pconn()
+    try:
+        return pstore.get_dataset_by_key(conn, str(run)) is not None
+    finally:
+        conn.close()
+
+
+def _resolve_run_or_active(cfg, run):
+    """Kembalikan 'run' bila dataset-nya ada; kalau tidak, pakai dataset AKTIF.
+
+    Melindungi dari nilai RUN basi di sisi browser (mis. Run ID lama pra-migrasi
+    yang masih tersimpan di localStorage, atau file JS lama yang ter-cache)
+    yang tidak lagi cocok dataset mana pun. Tanpa ini, unduhan Step 1 akan 404
+    dan input step (mis. Step 2) melapor 'Hasil Step N belum tersedia' padahal
+    datanya ada di DB di bawah dataset AKTIF.
+    """
+    if run and _dataset_exists(run):
+        return run
+    return _active_run(cfg)
+
+
 def _prep_step1_run(cfg, ctx):
     """Step 1 menentukan dataset dari form (rentang tanggal + bahasa). Buat/
     aktifkan dataset lalu set ctx.run = dkey. Bila field belum lengkap, biarkan
@@ -239,9 +264,11 @@ def dispatch(action, cfg, ctx):
     # --- Step 1 menetapkan dataset dari form-nya ---
     if action == "step1":
         _prep_step1_run(cfg, ctx)
-    # --- Aksi lain: bila run kosong, pakai dataset AKTIF ---
-    if not ctx.run:
-        ctx.run = _active_run(cfg)
+    else:
+        # --- Aksi lain: bila run kosong ATAU tidak cocok dataset yang ada
+        #     (nilai RUN basi dari browser/localStorage/JS ter-cache), jatuh ke
+        #     dataset AKTIF supaya unduhan & input step tetap ketemu datanya. ---
+        ctx.run = _resolve_run_or_active(cfg, ctx.run)
 
     handlers = {
         "state": lambda: _state_result(cfg, ctx.run),
@@ -308,6 +335,10 @@ def handle_download(cfg, request: Request):
     if run and not re.match(r"^[A-Za-z0-9_\-]{1,64}$", run):
         return PlainTextResponse("Run ID tidak valid.", status_code=400)
     if not run:
+        run = _active_run(cfg)
+    elif not _dataset_exists(run):
+        # RUN basi (tak cocok dataset mana pun, mis. Run ID lama pra-migrasi
+        # yang masih ada di localStorage) -> pakai dataset AKTIF.
         run = _active_run(cfg)
     part = q.get("part", "")
     d = run_dir(cfg, run, create=False)
