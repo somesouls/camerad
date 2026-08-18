@@ -12,10 +12,19 @@ Dokumen yang hanya memproses sesaat, hasil di sini menetap di basis data.
 
 Keputusan teknis mengikuti peraturan_db.py:
   * TANPA sqlite-vec: vektor e5 disimpan BLOB pada sop_vec, cosine dihitung di
-    Python (numpy). Embedder dipakai ULANG dari peraturan_semantic (model e5).
+    Python (numpy). Embedder dipakai ULANG dari peraturan_semantic.
   * Retrieval hybrid = FTS5 (lexical) + vektor e5 (semantik), digabung RRF.
   * Gagal-anggun: tanpa FTS5 -> LIKE; tanpa embedding -> FTS/LIKE saja.
   * Koneksi WAL + busy_timeout 30 dtk untuk menekan 'database is locked'.
+
+Fase 1 — FTS v2 (ternormalisasi + bm25 berbobot), mengikuti peraturan_db:
+  * Tabel meta `sop_meta` menyimpan penanda versi indeks.
+  * `rebuild_fts_norm()` membangun ulang `sop_fts` dengan konten TERNORMALISASI
+    via text_norm (lowercase + buang diakritik + buang stopword + stemming
+    Sastrawi bila ada). Idempoten.
+  * Setelah migrasi (meta fts_version='2'), _fts_ids otomatis memakai query
+    token ternormalisasi + bm25 BERBOBOT: judul 10x, bagian 4x, isi 1x.
+  * Sebelum migrasi: perilaku persis seperti versi lama (transisi aman).
 
 Model data: satu berkas = satu \"dokumen\" (dokumen_id stabil dari source_id /
 nama berkas). Tiap bagian (hasil pemotongan per-heading) menjadi satu baris
@@ -26,6 +35,11 @@ import re
 import sqlite3
 
 import peraturan_semantic as psem
+
+try:
+    import text_norm as tnorm
+except Exception:            # pragma: no cover
+    tnorm = None
 
 try:
     import numpy as np
@@ -134,6 +148,11 @@ def init_db(conn, force=False):
             catatan    TEXT,
             ts         TEXT DEFAULT (datetime('now'))
         );
+
+        CREATE TABLE IF NOT EXISTS sop_meta (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        );
         """
     )
     if _fts_available(conn):
@@ -193,6 +212,112 @@ def _load_vectors(conn):
     return ids, mat
 
 
+# --------------------------------------------------------------- FTS v2 (Fase 1)
+def _norm_text(t):
+    """Teks ternormalisasi via text_norm; fallback lowercase bila modul absen."""
+    if tnorm is not None:
+        try:
+            return tnorm.normalize(t)
+        except Exception:
+            pass
+    return (t or "").lower()
+
+
+_FTS_V2_CACHE = {"v": None}
+
+
+def _fts_v2(conn):
+    """True bila FTS sudah dimigrasi ke v2 (konten ternormalisasi). Versi
+    disimpan di sop_meta (key='fts_version')."""
+    if _FTS_V2_CACHE["v"] is not None:
+        return _FTS_V2_CACHE["v"]
+    v = False
+    try:
+        r = conn.execute(
+            "SELECT value FROM sop_meta WHERE key='fts_version'").fetchone()
+        v = bool(r and str(r[0]) == "2")
+    except Exception:
+        v = False
+    _FTS_V2_CACHE["v"] = v
+    return v
+
+
+def fts_v2_refresh():
+    """Bersihkan cache versi FTS (dipanggil rebuild_fts_norm setelah migrasi)."""
+    _FTS_V2_CACHE["v"] = None
+
+
+def fts_info(conn=None):
+    """Diagnosis versi & cakupan indeks FTS (dipakai phase1_upgrade)."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        v2 = _fts_v2(conn)
+        try:
+            n = conn.execute("SELECT COUNT(*) FROM sop_fts").fetchone()[0]
+        except Exception:
+            n = 0
+        info = {"fts_version": "2" if v2 else "1", "fts_rows": int(n or 0),
+                "norm_modul": tnorm is not None}
+        if tnorm is not None:
+            try:
+                info["stemming"] = bool(tnorm.info().get("sastrawi"))
+            except Exception:
+                info["stemming"] = False
+        return info
+    finally:
+        if own:
+            conn.close()
+
+
+def rebuild_fts_norm(conn=None, batch=500, progress=True):
+    """Migrasi FTS -> v2: DROP & buat ulang sop_fts (kolom tetap id, judul,
+    bagian, isi) dengan konten TERNORMALISASI, lalu isi ulang dari sop_unit dan
+    tandai meta fts_version='2'.
+
+    Idempoten; aman dijalankan kapan saja; TIDAK butuh model embedding/GPU.
+    Setelah sukses, _fts_ids otomatis memakai query ternormalisasi + bm25
+    berbobot (judul > bagian > isi). SEBAIKNYA tidak dijalankan bersamaan
+    dengan reindex embedding (menulis DB yang sama)."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        if not _fts_available(conn):
+            return {"ok": False, "error": "FTS5 tidak tersedia.", "n": 0}
+        conn.execute("DROP TABLE IF EXISTS sop_fts")
+        conn.execute(
+            "CREATE VIRTUAL TABLE sop_fts USING fts5("
+            "id UNINDEXED, judul, bagian, isi, "
+            "tokenize='unicode61 remove_diacritics 2')")
+        rows = conn.execute(
+            "SELECT id, judul, bagian, isi FROM sop_unit").fetchall()
+        n = 0
+        for i in range(0, len(rows), batch):
+            for r in rows[i:i + batch]:
+                conn.execute(
+                    "INSERT INTO sop_fts(id, judul, bagian, isi) "
+                    "VALUES (?, ?, ?, ?)",
+                    (r["id"], _norm_text(r["judul"]),
+                     _norm_text(r["bagian"]), _norm_text(r["isi"])),
+                )
+                n += 1
+            conn.commit()
+            if progress:
+                print("[sop_db] rebuild FTS v2: %d/%d" % (n, len(rows)),
+                      flush=True)
+        conn.execute(
+            "INSERT INTO sop_meta(key, value) VALUES('fts_version', '2') "
+            "ON CONFLICT(key) DO UPDATE SET value='2'")
+        conn.commit()
+        fts_v2_refresh()
+        return {"ok": True, "n": n}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "n": 0}
+    finally:
+        if own:
+            conn.close()
+
+
 # --------------------------------------------------------------------- upsert
 def _norm(data):
     out = {}
@@ -216,14 +341,22 @@ def _norm(data):
 
 
 def _sync_fts(conn, id_, judul, bagian, isi):
+    """Sinkronkan satu baris ke indeks FTS. Format konten mengikuti versi indeks:
+    v2 -> ternormalisasi; v1 -> mentah (perilaku lama)."""
     if not _fts_available(conn):
         return
     try:
         conn.execute("DELETE FROM sop_fts WHERE id = ?", (id_,))
-        conn.execute(
-            "INSERT INTO sop_fts(id, judul, bagian, isi) VALUES (?, ?, ?, ?)",
-            (id_, judul or "", bagian or "", isi or ""),
-        )
+        if _fts_v2(conn):
+            conn.execute(
+                "INSERT INTO sop_fts(id, judul, bagian, isi) VALUES (?, ?, ?, ?)",
+                (id_, _norm_text(judul), _norm_text(bagian), _norm_text(isi)),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO sop_fts(id, judul, bagian, isi) VALUES (?, ?, ?, ?)",
+                (id_, judul or "", bagian or "", isi or ""),
+            )
     except Exception:
         pass
 
@@ -480,6 +613,25 @@ def _like_ids(conn, query, limit=50):
 def _fts_ids(conn, query, limit=50):
     if not _fts_available(conn):
         return _like_ids(conn, query, limit)
+    if _fts_v2(conn):
+        # FTS v2: query token TERNORMALISASI + bm25 berbobot (judul > bagian > isi).
+        try:
+            toks = tnorm.norm_tokens(query, k=16) if tnorm is not None else []
+        except Exception:
+            toks = []
+        if not toks:
+            toks = re.findall(r"\w+", (query or "").lower())[:16]
+        if toks:
+            fq = " OR ".join('"%s"' % t for t in toks)
+            try:
+                rows = conn.execute(
+                    "SELECT id FROM sop_fts WHERE sop_fts MATCH ? "
+                    "ORDER BY bm25(sop_fts, 0.0, 10.0, 4.0, 1.0) LIMIT ?",
+                    (fq, limit),
+                ).fetchall()
+                return [r["id"] for r in rows]
+            except Exception:
+                pass
     fq = _fts_query(query)
     if not fq:
         return []
