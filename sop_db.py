@@ -442,8 +442,7 @@ def stats(conn=None):
         ).fetchone()
         triase = {}
         if has_log:
-            frow = conn.execute(
-                "SELECT status, COUNT(*) AS n FROM sop_impor_log GROUP BY status").fetchall()
+            frow = conn.execute("SELECT status, COUNT(*) AS n FROM sop_impor_log GROUP BY status").fetchall()
             triase = {r["status"]: r["n"] for r in frow}
         out["triase"] = triase
         return out
@@ -557,17 +556,34 @@ def search(query, k=8, status_list=("aktif",), conn=None):
             conn.close()
 
 
-def reindex(conn=None, batch=64):
-    """(Re)hitung embedding e5 untuk seluruh baris. Perlu model tersedia."""
+def reindex(conn=None, batch=64, resume=True):
+    """(Re)hitung embedding untuk baris sop_unit. Perlu model tersedia.
+
+    resume=True (default) -> hanya proses baris yang BELUM punya vektor
+        berdimensi model aktif (aman dilanjutkan setelah Ctrl+C/interupsi).
+    resume=False -> embed ulang SEMUA baris (dipakai --force).
+    """
     own = conn is None
     conn = conn or init_db(connect())
     try:
         if not psem.is_available():
             return {"ok": False, "error": "Model embedding tidak tersedia.", "n": 0}
         rows = conn.execute("SELECT id, judul, bagian, isi FROM sop_unit").fetchall()
-        ids = [r["id"] for r in rows]
+        skip = set()
+        if resume:
+            try:
+                dim_model = int(psem.embed_dim() or 0)
+            except Exception:
+                dim_model = 0
+            if dim_model:
+                for r in conn.execute(
+                        "SELECT id FROM sop_vec WHERE dim=?",
+                        (dim_model,)).fetchall():
+                    skip.add(r["id"])
+        todo = [r for r in rows if r["id"] not in skip]
+        ids = [r["id"] for r in todo]
         texts = [((r["judul"] or "") + " " + (r["bagian"] or "") + " " + (r["isi"] or "")).strip()
-                 for r in rows]
+                 for r in todo]
         n = 0
         for i in range(0, len(ids), batch):
             chunk_ids = ids[i:i + batch]
@@ -585,7 +601,8 @@ def reindex(conn=None, batch=64):
                 n += 1
             conn.commit()
         _vec_cache_clear()
-        return {"ok": True, "n": n}
+        return {"ok": True, "n": n, "skipped": len(rows) - len(todo),
+                "total": len(rows)}
     finally:
         if own:
             conn.close()

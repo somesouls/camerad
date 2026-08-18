@@ -8,14 +8,19 @@ Dijalankan di MESIN LOKAL tempat camerad berjalan:
      (bge-m3 ~2,2 GB; bge-reranker-v2-m3 ~1,1 GB) — butuh koneksi internet.
   2. Deteksi mismatch dimensi vektor tersimpan vs model aktif (terjadi setelah
      ganti model, mis. e5-base 768-d -> bge-m3 1024-d).
-  3. Reindex embedding peraturan & SOP bila diminta/diperlukan.
+  3. Reindex embedding peraturan & SOP bila diminta/diperlukan. Reindex bersifat
+     RESUME: unit yang sudah berdimensi model aktif dilewati, jadi Ctrl+C /
+     interupsi TIDAK kehilangan progres — jalankan ulang untuk melanjutkan.
   4. Tampilkan panduan langkah berikutnya (kalibrasi ambang via /rag-eval).
 
 Pemakaian:
   python phase0_upgrade.py                  # cek saja (tanpa reindex)
-  python phase0_upgrade.py --reindex-all    # reindex peraturan + SOP bila perlu
-  python phase0_upgrade.py --force          # reindex penuh meski dimensi cocok
+  python phase0_upgrade.py --reindex-all    # reindex peraturan + SOP (resume)
+  python phase0_upgrade.py --force          # reindex PENUH (embed ulang semua)
   python phase0_upgrade.py --peraturan-only / --sop-only
+
+Tips kecepatan (GPU): naikkan batch encode, mis. PowerShell:
+  $env:PERATURAN_EMBED_BATCH=96 ; python phase0_upgrade.py --reindex-all
 """
 import argparse
 import sys
@@ -88,29 +93,37 @@ def reindex_satu(nama, mod, tabel_vec, dim_model, force=False):
     print("Vektor tersimpan: %s" % (dims or "(kosong)"), flush=True)
     mismatch = bool(dims) and bool(dim_model) and any(d != dim_model for d in dims)
     if not dims:
-        print("Belum ada vektor -> reindex penuh.", flush=True)
+        print("Belum ada vektor -> reindex penuh (resume).", flush=True)
     elif not dim_model:
         print("Dimensi model tak diketahui -> reindex penuh (amankan).", flush=True)
     elif mismatch:
-        print("MISMATCH dimensi (tersimpan %s vs model %d) -> WAJIB reindex."
-              % (sorted(dims), dim_model), flush=True)
+        print("MISMATCH dimensi (tersimpan %s vs model %d) -> reindex RESUME "
+              "(unit yang sudah %d-d dilewati; Ctrl+C aman, jalankan ulang "
+              "untuk melanjutkan)." % (sorted(dims), dim_model, dim_model),
+              flush=True)
     elif force:
-        print("Dimensi cocok, tapi --force diminta -> reindex penuh.", flush=True)
+        print("Dimensi cocok, tapi --force diminta -> reindex PENUH.", flush=True)
     else:
         print("Dimensi cocok (%d). Lewati (pakai --force bila ingin tetap reindex)."
               % dim_model, flush=True)
         return
     t0 = time.time()
     try:
-        res = mod.reindex()
+        res = mod.reindex(resume=(not force))
+    except TypeError:
+        res = mod.reindex()  # kompatibilitas modul lama tanpa argumen resume
     except Exception as e:
         print("[X] reindex gagal: %s" % e, flush=True)
         return
     dt = time.time() - t0
     if isinstance(res, dict) and res.get("ok"):
         n = res.get("n", 0)
-        print("[OK] %d unit di-embed ulang dalam %.1f dtk (%.2f unit/dtk)."
-              % (n, dt, (n / dt) if dt > 0 else 0), flush=True)
+        extra = ""
+        if res.get("skipped"):
+            extra = " (lewati %d dari %d unit yang sudah sesuai)" % (
+                res.get("skipped"), res.get("total", 0))
+        print("[OK] %d unit di-embed dalam %.1f dtk (%.2f unit/dtk)%s."
+              % (n, dt, (n / dt) if dt > 0 else 0, extra), flush=True)
     else:
         print("[X] reindex bermasalah: %s" % res, flush=True)
 
@@ -132,15 +145,19 @@ def panduan_berikutnya():
 4. Pantau log startup: pastikan baris [peraturan_semantic] & [rag_reranker]
    menunjukkan device=cuda bila GPU tersedia. Bila VRAM terbatas, set
    PERATURAN_EMBED_DEVICE=cpu dan/atau RAG_RERANK_DEVICE=cpu.
+5. Tips kecepatan reindex di GPU: naikkan batch encode sebelum menjalankan
+   skrip, mis. PowerShell:  $env:PERATURAN_EMBED_BATCH=96
+6. Reindex bersifat RESUME: Ctrl+C / interupsi TIDAK kehilangan progres —
+   jalankan ulang perintah yang sama untuk melanjutkan sisa unit.
 """, flush=True)
 
 
 def main():
     ap = argparse.ArgumentParser(description="Eksekutor Fase 0 upgrade RAG camerad")
     ap.add_argument("--reindex-all", action="store_true",
-                    help="reindex peraturan & SOP bila dimensi vektor tak cocok")
+                    help="reindex peraturan & SOP (resume: hanya unit yang perlu)")
     ap.add_argument("--force", action="store_true",
-                    help="paksa reindex penuh meski dimensi cocok")
+                    help="paksa reindex PENUH (embed ulang semua unit)")
     ap.add_argument("--peraturan-only", action="store_true")
     ap.add_argument("--sop-only", action="store_true")
     args = ap.parse_args()
