@@ -1,215 +1,226 @@
 # -*- coding: utf-8 -*-
-"""rag_grounding_patch.py — Tahap 3: guardrail grounding jawaban RAG.
+"""
+rag_grounding_patch.py
+----------------------
+Tahap 3 (keandalan): guardrail grounding jawaban RAG.
 
-Dua guardrail dijalankan sebagai post-processor atas rag_engine.answer():
+Dua masalah halusinasi yang dijaga patch ini (khususnya untuk sumber PERATURAN):
+  1. LLM mengarang/merujuk pasal yang TIDAK ada di konteks retrieval -> jawaban
+     hukum jadi berbahaya. Jika jawaban memuat rujukan ber-nomor
+     (PMK/PER/PP/UU/KMK/KEP/SE + nomor) yang tidak terdukung konteks, patch
+     MEMAKSA abstain dengan kalimat fallback profil.
+  2. LLM menempelkan tautan tidak resmi / pemendek (t.co, x.com, bit.ly, dst.)
+     di badan jawaban. Patch MEMBUANG/MENORMALKAN tautan tersebut (daftar
+     "Sumber Rujukan" tetap berasal dari metadata retrieval yang asli).
 
-1. ANTI-LINK TIDAK RESMI (env RAG_GUARD_URL, default aktif)
-   Membuang URL pada BODY jawaban yang bukan domain resmi (*.go.id) dan tidak
-   muncul di konteks retrieval — mis. pemendek t.co / bit.ly / s.id atau tautan
-   sosmed x.com / twitter.com yang kerap 'dikarang' model sebagai link login
-   Coretax. Teks anchor dipertahankan; pemendek yang jelas mengarah ke login
-   Coretax diganti domain resmi coretaxdjp.pajak.go.id.
+Ditambah guardrail v18 (abstain tanpa sumber): bila jawaban akhir PERSIS
+kalimat fallback profil (mesin memutuskan abstain), daftar sumber DIKOSONGKAN —
+hasil retrieval yang lemah tetap ada saat abstain, dan menampilkannya sebagai
+"Sumber Rujukan" menyesatkan petugas seolah sumber itu mendukung jawaban.
 
-2. ANTI-KARANG PASAL (env RAG_GUARD_PASAL, default aktif)
-   Bila jawaban memuat rujukan hukum spesifik (PMK/PER/PP/UU/PERPPU/PERDIRJEN/
-   PBB + nomor) yang TIDAK terdukung konteks retrieval, jawaban dipaksa abstain
-   (fallback) agar tidak menyebarkan dasar hukum fiktif pada domain sensitif.
+Ketentuan seragam yang dicantumkan TANPA nomor (mis. "Ketentuan Umum dan Tata
+Cara Perpajakan") TETAP BOLEH — tidak bisa dipalsukan nomornya.
 
-Keduanya FAIL-OPEN: bila terjadi galat, jawaban asli dikembalikan apa adanya.
-Mengikuti pola monkey-patch rag_successor_patch / rag_calibration_patch dan
-membungkus rag_engine.answer + rag_engine._render_prompt (untuk menangkap
-konteks yang benar-benar dipakai), sehingga berlaku untuk SEMUA pemanggil:
-chat produksi, webhook Dialogflow, playground /rag-lab, dan harness /rag-eval.
+Gagal-anggun: error apa pun -> jawaban asli dilewatkan (fail-open).
+Dipasang lewat web_app.py (import rag_grounding_patch), yang membungkus
+rag_engine.answer milik profil mana pun (chatbot & agent).
 
-Catatan: pembungkus answer MENERUSKAN semua argumen kata-kunci tambahan
-(**kwargs, mis. honor_mode) apa adanya ke rag_engine.answer asli, sehingga
-parameter baru pada answer() tidak pernah 'ditelan' wrapper ini.
+Env:
+  RAG_GUARD_URL=0            -> matikan guardrail tautan.
+  RAG_GUARD_PASAL=0          -> matikan guardrail anti-karang-pasal.
+  RAG_GUARD_FALLBACK_SRC=0   -> matikan penyembunyian sumber saat abstain (v18).
+  RAG_GUARD_URL_DOMAINS=...  -> host pemendek/tak-resmi tambahan (koma).
 """
 import os
 import re
-import threading
 
 import rag_engine as _re
 import rag_config_db as _rcfg
 
-_TLS = threading.local()
-_SENTINEL = object()
+_ORIG_ANSWER = _re.answer
 
 
-def _flag(name, default):
-    v = os.environ.get(name)
-    if v is None or v.strip() == "":
-        return default
-    return v.strip().lower() not in ("0", "false", "no", "off")
+# ---------------------------------------------------------------- env helpers
+def _flag(name, default=True):
+    v = str(os.environ.get(name, "1" if default else "0")).strip().lower()
+    return v not in ("0", "false", "no", "off")
 
 
-# ---- Guardrail 1: URL tidak resmi ---------------------------------------
-_URL_RE = re.compile(r"https?://[^\s)\]>\"'}]+", re.I)
-_MD_LINK_RE = re.compile(r"\[([^\]]*)\]\((https?://[^\s)]+)\)", re.I)
-_OFFICIAL_HOST_RE = re.compile(r"(?:^|\.)go\.id$", re.I)
-_SHORTENERS = ("t.co", "bit.ly", "s.id", "tinyurl.com", "goo.gl", "ow.ly",
-               "fb.me", "lnkd.in", "cutt.ly", "shorturl.at")
-_CORETAX_OFFICIAL = "https://coretaxdjp.pajak.go.id"
+def _extra_domains():
+    raw = os.environ.get("RAG_GUARD_URL_DOMAINS", "")
+    return [x.strip().lower() for x in raw.split(",") if x.strip()]
 
 
-def _host(url):
-    m = re.match(r"https?://([^/\s]+)", url or "", re.I)
-    return (m.group(1).split(":")[0].lower() if m else "")
+# ------------------------------------------------------------- guardrail URL
+_SHORTENER = {
+    "t.co", "x.com", "twitter.com", "bit.ly", "tinyurl.com", "s.id",
+    "shorturl.at", "rebrand.ly", "cutt.ly", "goo.gl", "ow.ly", "buff.ly",
+    "youtu.be", "instagram.com", "tiktok.com", "fb.com", "facebook.com",
+}
+_RE_MD_LINK = re.compile(r"\[([^\]]+)\]\((https?://[^\s)]+)\)")
+_RE_BARE_URL = re.compile(r"https?://[^\s)>'\"]+", re.I)
 
 
-def _url_allowed(url, ctx_lower):
-    host = _host(url)
+def _host_of(url):
+    m = re.match(r"https?://([^/\s]+)", url.strip(), re.I)
+    return (m.group(1).lower() if m else "")
+
+
+def _is_unsafe_host(host):
+    host = (host or "").lower()
     if not host:
-        return True
-    if _OFFICIAL_HOST_RE.search(host):
-        return True
-    if url.lower() in ctx_lower:        # persis muncul sbg sumber di konteks
-        return True
+        return False
+    bad = _SHORTENER | set(_extra_domains())
+    for b in bad:
+        if host == b or host.endswith("." + b):
+            return True
     return False
 
 
-def _looks_url(s):
-    return bool(re.match(r"\s*https?://", s or "", re.I))
+def _strip_unsafe_urls(text):
+    """Buang markdown-link & bare URL ber-host tak resmi dari badan jawaban.
+    Kembalikan (teks_bersih, jumlah_dibuang)."""
+    removed = 0
+
+    def _md_repl(m):
+        nonlocal removed
+        host = _host_of(m.group(2))
+        if _is_unsafe_host(host):
+            removed += 1
+            return m.group(1)  # pertahankan labelnya saja, buang tautannya
+        return m.group(0)
+
+    text = _RE_MD_LINK.sub(_md_repl, text)
+
+    def _bare_repl(m):
+        nonlocal removed
+        url = m.group(0).rstrip(".,;!)]}")
+        tail = m.group(0)[len(url):]
+        if _is_unsafe_host(_host_of(url)):
+            removed += 1
+            return ""
+        return url + tail
+
+    text = _RE_BARE_URL.sub(_bare_repl, text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip(), removed
 
 
-def _repl_for(url):
-    """Pengganti utk URL yang ditolak: link resmi Coretax utk pemendek, selain
-    itu string kosong (dibuang)."""
-    return _CORETAX_OFFICIAL if _host(url) in _SHORTENERS else ""
+# ------------------------------------------------- guardrail rujukan ber-nomor
+_RE_REG_REF = re.compile(
+    r"\b(PMK|PER|PP|UU|PERPU|KMK|KEP|SE|PERPRES|PERDA)\b"
+    r"[^\n]{0,60}?(?:Nomor\s+)?(\d+\s*/[A-Za-z0-9./\-]+/(?:19|20)\d{2})\b",
+    re.I,
+)
 
 
-def _sanitize_urls(text, ctx_lower):
-    if not text:
-        return text, 0
-    removed = [0]
-
-    def _md(m):
-        label, url = m.group(1), m.group(2)
-        if _url_allowed(url, ctx_lower):
-            return m.group(0)
-        removed[0] += 1
-        rep = _repl_for(url)
-        if rep:
-            lab = rep if _looks_url(label) else label
-            return "[%s](%s)" % (lab, rep)
-        return "" if _looks_url(label) else label
-
-    def _raw(m):
-        url = m.group(0)
-        if _url_allowed(url, ctx_lower):
-            return url
-        removed[0] += 1
-        return _repl_for(url)
-
-    text = _MD_LINK_RE.sub(_md, text)
-    text = _URL_RE.sub(_raw, text)
-    text = re.sub(r"\(\s*\)", "", text)            # kurung kosong sisa
-    text = re.sub(r"[ \t]{2,}", " ", text)          # spasi ganda
-    text = re.sub(r"\s+([.,;])", r"\1", text)       # spasi sebelum tanda baca
-    return text, removed[0]
+def _ctx_blob(konteks):
+    """Teks gabungan seluruh konteks + judul/ref sumber (dipakai sebagai
+    bukti dukungan). Huruf kecil semua agar pencocokan toleran."""
+    bagian = []
+    for k in (konteks or {}).values():
+        if isinstance(k, dict):
+            bagian.append(str(k.get("teks") or ""))
+            for s in (k.get("sumber") or []):
+                bagian.append(str(s.get("judul") or ""))
+                bagian.append(str(s.get("ref") or ""))
+    return " ".join(bagian).lower()
 
 
-# ---- Guardrail 2: rujukan hukum tak terdukung ---------------------------
-_TYPE = r"(PERPPU|PERPU|PERDIRJEN|PMK|PBB|PER|PP|UUD|UU)"
-_REG_RE = re.compile(
-    r"\b" + _TYPE + r"\s*(?:no(?:mor)?\.?)?\s*[-/]?\s*(\d{1,4})\b", re.I)
+def _norm_nomor(s):
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
-def _reg_pairs(text):
-    """Kumpulan (JENIS, NOMOR) rujukan regulasi. Nomor berawalan nol (kode
-    klasifikasi mis. PMK.010) diabaikan agar tak salah tandai."""
-    out = set()
-    for m in re.finditer(_REG_RE, text or ""):
-        typ = m.group(1).upper()
-        num = m.group(2)
-        if num.startswith("0"):
+def _refs_in_answer(ans):
+    """Daftar token rujukan ber-nomor yang disebut jawaban: {(jenis, nomor_norm)}."""
+    out = []
+    for m in _RE_REG_REF.finditer(ans or ""):
+        jenis = m.group(1).upper()
+        if jenis == "UU" and m.group(0).lower().startswith("uur"):
             continue
-        if typ == "PERPU":
-            typ = "PERPPU"
-        out.add((typ, num))
+        out.append((jenis, _norm_nomor(m.group(2))))
     return out
 
 
-def _ungrounded_regs(answer_text, ctx):
-    ans = _reg_pairs(answer_text)
-    if not ans:
-        return set()
-    ctxp = _reg_pairs(ctx or "")
-    return {p for p in ans if p not in ctxp}
+def _ref_supported(jenis, nomor_norm, blob_low, konteks):
+    if not nomor_norm:
+        return True
+    if nomor_norm in blob_low:
+        return True
+    # Toleransi: nomor persis tercetak di judul/ref sumber (bukan hanya isi).
+    for k in (konteks or {}).values():
+        if not isinstance(k, dict):
+            continue
+        for s in (k.get("sumber") or []):
+            gab = _norm_nomor(str(s.get("judul") or "") + str(s.get("ref") or ""))
+            if nomor_norm in gab:
+                return True
+    return False
 
 
-# ---- Pembungkus answer ---------------------------------------------------
+# ----------------------------------------------------------------- pasang patch
 def _install():
     if getattr(_re, "_grounding_patched", False):
         return
-    _orig_answer = _re.answer
-    _orig_render = _re._render_prompt
 
-    def _render_capture(tmpl, context, sumber_txt, fallback):
+    def _guarded_answer(pid, query, konteks, profile, history=None):
         try:
-            _TLS.ctx = context or ""
-        except Exception:
-            pass
-        return _orig_render(tmpl, context, sumber_txt, fallback)
+            res = _orig_answer(pid, query, konteks, profile, history)
+        except TypeError:
+            res = _orig_answer(pid, query, konteks, profile)
+        if not isinstance(res, dict):
+            return res
+        if not res.get("grounded"):
+            return res
+        ans = res.get("answer") or ""
+        if not ans.strip():
+            return res
 
-    def _guarded_answer(question, profile, override=None, history=None,
-                        diagnostics=False, **kwargs):
-        try:
-            _TLS.ctx = _SENTINEL
-        except Exception:
-            pass
-        res = _orig_answer(question, profile, override=override,
-                           history=history, diagnostics=diagnostics, **kwargs)
-        try:
-            if not isinstance(res, dict) or not res.get("ok"):
-                return res
-            if not res.get("grounded"):
-                return res
-            ans = res.get("answer") or ""
-            if not ans.strip():
-                return res
-            ctx = getattr(_TLS, "ctx", _SENTINEL)
-            ctx = "" if ctx is _SENTINEL else (ctx or "")
-            ctx_lower = ctx.lower()
-            notes = []
-
-            if _flag("RAG_GUARD_URL", True):
-                new_ans, removed = _sanitize_urls(ans, ctx_lower)
-                if removed:
-                    ans = new_ans
-                    notes.append("buang/normalisasi %d tautan tidak resmi" % removed)
-
-            if _flag("RAG_GUARD_PASAL", True):
-                bad = _ungrounded_regs(ans, ctx)
-                if bad:
-                    fb = profile.get("fallback") or _rcfg.FALLBACK_DEFAULT
-                    res["answer"] = fb
-                    res["grounded"] = False
+        # Guardrail 0 (v18): jawaban PERSIS fallback (abstain) -> sembunyikan
+        # daftar sumber. Retrieval lemah tetap terjadi saat abstain; menampilkan
+        # sumber seolah mendukung jawaban bisa menyesatkan petugas.
+        if _flag("RAG_GUARD_FALLBACK_SRC", True):
+            fb = (profile.get("fallback") or _rcfg.FALLBACK_DEFAULT or "").strip()
+            def _normtxt(s):
+                return re.sub(r"\s+", " ", (s or "").strip())
+            ansn, fbn = _normtxt(ans), _normtxt(fb)
+            if fb and (ansn == fbn or (len(fbn) >= 60 and ansn.startswith(fbn[:60]))):
+                if res.get("sources"):
                     res["sources"] = []
-                    info = {"abstain": True,
-                            "alasan": "rujukan hukum tak terdukung konteks",
-                            "regulasi": sorted("%s %s" % (t, n) for t, n in bad)}
-                    res["guardrail"] = info
-                    if diagnostics and isinstance(res.get("diagnostics"), dict):
-                        res["diagnostics"].setdefault("guardrail", []).append(info)
-                    return res
+                    res["guardrail"] = {"abstain": True,
+                                        "alasan": "jawaban fallback (abstain); sumber disembunyikan"}
 
-            if notes:
-                res["answer"] = ans
-                res["guardrail"] = {"abstain": False, "catatan": notes}
-        except Exception as e:        # fail-open
-            try:
-                res["guardrail_error"] = str(e)[:160]
-            except Exception:
-                pass
+        # Guardrail 1: tautan tidak resmi / pemendek di body jawaban.
+        if _flag("RAG_GUARD_URL", True):
+            ans2, removed = _strip_unsafe_urls(ans)
+            if removed:
+                res["answer"] = ans2
+                res["guardrail"] = {"url_dibersihkan": removed}
+                ans = ans2
+
+        # Guardrail 2: rujukan hukum tak terdukung -> paksa abstain.
+        if _flag("RAG_GUARD_PASAL", True):
+            blob = _ctx_blob(konteks)
+            tak_terdukung = []
+            for jenis, nomor in _refs_in_answer(ans):
+                if not _ref_supported(jenis, nomor, blob, konteks):
+                    tak_terdukung.append("%s %s" % (jenis, nomor))
+            if tak_terdukung:
+                res["answer"] = profile.get("fallback") or _rcfg.FALLBACK_DEFAULT
+                res["sources"] = []
+                res["grounded"] = True
+                res["guardrail"] = {"abstain": True,
+                                    "alasan": "rujukan hukum tak terdukung: "
+                                              + ", ".join(tak_terdukung[:5])}
         return res
 
     _re.answer = _guarded_answer
-    _re._render_prompt = _render_capture
     _re._grounding_patched = True
-    print("[rag_grounding_patch] guardrail grounding aktif (url=%s, pasal=%s)."
-          % (_flag("RAG_GUARD_URL", True), _flag("RAG_GUARD_PASAL", True)),
-          flush=True)
+    print("[rag_grounding_patch] guardrail grounding aktif "
+          "(url=%s, pasal=%s, abstain-src=%s)."
+          % (_flag("RAG_GUARD_URL", True), _flag("RAG_GUARD_PASAL", True),
+             _flag("RAG_GUARD_FALLBACK_SRC", True)), flush=True)
 
 
 _install()
