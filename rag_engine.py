@@ -15,6 +15,12 @@ rag_routes.py untuk endpoint chat (produksi) dan playground admin (/rag-lab).
 v28: parameter "Maks. token / jawaban" (kartu Batas Penggunaan Harian di menu
 Konfigurasi profil) kini BENAR-BENAR dibaca mesin — sebelumnya disimpan ke DB
 tapi sintesis memakai max_new_tokens=800 hardcode. 0/kosong = default (800).
+
+v30: sertakan konteks mentah hasil retrieval di kunci privat
+"_konteks_internal" pada hasil (dibaca lalu LANGSUNG di-pop oleh
+rag_grounding_patch sebelum respons keluar) agar guardrail anti-karang-pasal
+menilai dukungan rujukan terhadap SELURUH konteks — bukan hanya judul/ref
+sumber (akar abstain semu "gimana cara aktivasi EFIN?", 19 Agu 2026).
 """
 import re
 import json
@@ -730,6 +736,8 @@ def _answer_no_llm(q, profile, allowed):
                    "profil": profile.get("id"), "domain": "intent", "jalur": "tanpa_llm"}
             if profile.get("tampil_sumber"):
                 res["sources"] = _dedup_sources(fp["sources"])
+            # v30: jawaban cuplikan terverifikasi analis merangkap bukti.
+            res["_konteks_internal"] = fp["answer"]
             return res
     # (2) Cuplikan teratas dari sumber lain (tanpa sintesis LLM).
     order = [s for s in ("intent", "sop", "sosmed", "awe", "peraturan") if s in allowed]
@@ -742,6 +750,8 @@ def _answer_no_llm(q, profile, allowed):
                    "jalur": "tanpa_llm"}
             if profile.get("tampil_sumber"):
                 res["sources"] = _dedup_sources(s)
+            # v30: cuplikan retrieval sebagai bukti dukungan guardrail.
+            res["_konteks_internal"] = t
             return res
     # (3) Fallback.
     fallback = profile.get("fallback") or rcfg.FALLBACK_DEFAULT
@@ -827,6 +837,8 @@ def answer(question, profile, override=None, history=None, diagnostics=False,
                    "profil": profile.get("id"), "domain": "intent", "jalur": "cepat"}
             if profile.get("tampil_sumber"):
                 res["sources"] = _dedup_sources(fp["sources"])
+            # v30: jawaban cuplikan terverifikasi analis merangkap bukti.
+            res["_konteks_internal"] = fp["answer"]
             return res
 
     r = rag_router.route(q, allowed)
@@ -911,6 +923,10 @@ def answer(question, profile, override=None, history=None, diagnostics=False,
 
     res = {"ok": True, "answer": ans, "grounded": True,
            "profil": profile.get("id"), "domain": r["domain"]}
+    # v30: teruskan konteks mentah ke rag_grounding_patch lewat kunci privat
+    # (patch SELALU mem-pop kunci ini sebelum respons keluar — tak bocor ke
+    # klien) agar bukti dukungan rujukan = SELURUH konteks, bukan judul/ref saja.
+    res["_konteks_internal"] = context
     if profile.get("tampil_sumber") or diagnostics:
         res["sources"] = _dedup_sources(sources)
     if diagnostics:
