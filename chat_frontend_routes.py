@@ -1,3 +1,26 @@
+# -*- coding: utf-8 -*-
+"""chat_frontend_routes.py — Endpoint widget Live Chat (/livechat) + jembatan
+Dialogflow ES (Opsi B echo/poll) untuk chat.html.
+
+Alur Opsi B:
+  - Giliran PERTANYAAN (bukan sentinel): diteruskan ke Dialogflow
+    (detect_intent). Intent dengan fulfillment akan memanggil /api/df/webhook
+    yang MEMULAI komputasi RAG di latar belakang (job-store per-sesi) & merekam
+    percakapan (mis. Avaya). Handoff ke agen langsung juga terdeteksi di sini.
+  - Giliran ECHO/POLL (teks == SENTINEL_POLL): frontend menanyakan \"jawaban
+    sudah siap?\".
+
+v31 (perbaikan \"looping\" /livechat):
+  Sebelumnya SETIAP poll ikut memanggil Dialogflow detect_intent, sehingga tiap
+  1,5 dtk memicu SATU callback /api/df/webhook — membuat badai pasangan
+  detect+webhook tak berujung (terlihat sebagai \"looping\" di log) dan menodai
+  transkrip Avaya dengan teks sentinel. Karena jawaban RAG sudah dihitung &
+  disimpan oleh webhook giliran-pertanyaan, POLL kini membaca job-store LANGSUNG
+  (in-process, via dfw.ambil_job) TANPA menyentuh Dialogflow. Hasil: satu
+  pertanyaan = tepat satu panggilan Dialogflow + satu webhook; deteksi
+  \"selesai\" jadi deterministik. Giliran pertanyaan pertama TETAP lewat
+  Dialogflow (mulai job + rekam + handoff).
+"""
 import os
 import uuid
 from fastapi import Request
@@ -177,8 +200,9 @@ def register(app):
         return render_page(request, "chat.html")
 
     # --- Helper: panggil Dialogflow detect_intent (SINKRON/blocking gRPC) ---
-    # SELALU lewat Dialogflow, baik untuk pertanyaan maupun echo/poll, agar
-    # seluruh percakapan TEREKAM (mis. ke Avaya via konektor CCAI).
+    # Dipakai HANYA untuk giliran PERTANYAAN (bukan poll). Ini yang memicu
+    # fulfillment /api/df/webhook (memulai job RAG) sekaligus merekam giliran
+    # ke Avaya via konektor CCAI.
     def _detect_df(session_id, text):
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = CONFIG["camerad_service_account_file"]
         project_id = CONFIG.get("camerad_project_id")
@@ -205,19 +229,17 @@ def register(app):
     # Frontend memanggil endpoint yang sama:
     #   - kirim pertanyaan  : { text: "<pertanyaan user>", session_id, lang }
     #   - poll (echo)       : { text: SENTINEL_POLL, session_id }
-    # Hasil jawaban + durasi backend dibaca dari job-store (sumber kebenaran),
-    # sedangkan detect_intent tetap dijalankan agar giliran terekam di Avaya.
+    #
+    # v31: POLL TIDAK lagi memanggil Dialogflow. Ia membaca job-store LANGSUNG
+    # (dfw.ambil_job, proses sama) untuk tahu apakah jawaban sudah siap. Ini
+    # menghentikan badai callback /api/df/webhook (satu poll = satu webhook)
+    # yang membuat /livechat tampak "looping", dan menjaga transkrip Avaya bersih
+    # dari teks sentinel. Giliran PERTANYAAN tetap lewat Dialogflow agar webhook
+    # memulai komputasi RAG (Opsi B), percakapan terekam, & handoff terdeteksi.
     #
     # JALUR BAHASA (edge translation): bahasa mengikuti tombol di chat.html.
     # Untuk user English: pertanyaan diterjemahkan EN->ID sebelum detect/RAG,
-    # dan jawaban diterjemahkan ID->EN sebelum dikirim balik. Basis pengetahuan
-    # + RAG tetap berbahasa Indonesia sebagai sumber kebenaran.
-    #
-    # Bila giliran ini memicu intent handoff (mis. user ketik 1500200 ->
-    # "System_System_Hubungi Agent Connector"), respons menyertakan
-    # handoff=True + agent_queue (nilai $agent_kring_pajak) + payload enrichment
-    # agar frontend beralih ke mode agen; teks connector TIDAK diterjemahkan
-    # karena frontend menyembunyikannya.
+    # dan jawaban diterjemahkan ID->EN sebelum dikirim balik.
     @app.post("/api/chat/detect")
     async def detect_intent_chat(request: Request):
         data = await request.json()
@@ -226,7 +248,7 @@ def register(app):
         is_poll = (text == SENTINEL_POLL)
 
         # Bahasa mengikuti tombol di chat.html; poll tak membawa 'lang' sehingga
-        # kita simpan pada giliran pertama (per session_id).
+        # disimpan pada giliran pertama (per session_id).
         lang_in = (data.get("lang") or "").strip().lower()
         if not is_poll and lang_in:
             SESSION_LANG[session_id] = "en" if lang_in == "en" else "id"
@@ -240,11 +262,32 @@ def register(app):
                 )
             return resp
 
+        # =================================================================
+        # Giliran ECHO/POLL (v31): baca job-store LANGSUNG, TANPA Dialogflow.
+        # =================================================================
+        if is_poll:
+            job = dfw.ambil_job(session_id) if dfw else None
+            if job and job.get("status") == "done":
+                return await _out({
+                    "reply": job.get("jawaban") or "",
+                    "session_id": session_id,
+                    "ready": True,
+                    "pending": False,
+                    "durasi_backend": job.get("durasi_backend"),
+                    "is_fallback": bool(job.get("is_fallback")),
+                })
+            # Belum ada job / masih dihitung -> minta frontend lanjut polling.
+            return {"session_id": session_id, "ready": False, "pending": True}
+
+        # =================================================================
+        # Giliran PERTANYAAN BARU: lewat Dialogflow (mulai job via webhook +
+        # rekam percakapan + deteksi handoff).
+        # =================================================================
         try:
             # INPUT: user English -> terjemahkan pertanyaan ke ID agar intent
             # matching + retrieval RAG bekerja pada konten Indonesia.
             teks_df = text
-            if (not is_poll) and eff_lang == "en" and text and not str(text).isdigit():
+            if eff_lang == "en" and text and not str(text).isdigit():
                 teks_df = await run_in_threadpool(_translate, text, "id")
 
             response = await run_in_threadpool(_detect_df, session_id, teks_df)
@@ -271,9 +314,9 @@ def register(app):
             }
 
             # Handoff terpicu -> pakai fulfillment intent handoff apa adanya,
-            # abaikan job RAG lama (bila ada) agar tidak menampilkan jawaban
-            # basi. Teks connector TIDAK diterjemahkan (frontend sembunyikan).
-            if handoff and not is_poll:
+            # abaikan job RAG lama (bila ada). Teks connector TIDAK diterjemahkan
+            # (frontend menyembunyikannya).
+            if handoff:
                 return {
                     "reply": reply,
                     "session_id": session_id,
@@ -286,7 +329,7 @@ def register(app):
 
             job = dfw.ambil_job(session_id) if dfw else None
 
-            # Jawaban sudah siap (baik fast-path giliran-1 maupun echo).
+            # Jawaban sudah siap (fast-path giliran-1 selesai dalam deadline).
             if job and job.get("status") == "done":
                 return await _out({
                     "reply": job.get("jawaban") or reply,
@@ -310,11 +353,8 @@ def register(app):
                     **meta,
                 }
 
-            # Tidak ada job. Untuk poll -> anggap masih pending (frontend akan
-            # berhenti setelah batas percobaan). Untuk pertanyaan (mis. webhook
-            # nonaktif / balasan statis) -> pakai balasan Dialogflow apa adanya.
-            if is_poll:
-                return {"session_id": session_id, "ready": False, "pending": True}
+            # Tidak ada job (webhook nonaktif / balasan statis) -> pakai balasan
+            # Dialogflow apa adanya.
             return await _out({
                 "reply": reply,
                 "session_id": session_id,
