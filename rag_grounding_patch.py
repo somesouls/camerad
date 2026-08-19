@@ -28,6 +28,15 @@ Catatan v22 lain: wrapper tidak menerima konteks mentah, jadi penilaian
 dukungan rujukan (guardrail 2) memakai SUMBER yang dikembalikan mesin
 (judul+ref+url memuat nomor rujukan) sebagai bukti.
 
+Perbaikan v30: bukti dukungan Guardrail 2 kini = KONTEKS MENTAH retrieval
+(dikirim rag_engine lewat kunci privat "_konteks_internal", SELALU di-pop di
+sini agar tak pernah ikut terkirim ke klien) + judul/ref/url sumber, dengan
+pencocokan ternormalisasi ("PER-06/PJ/2019" -> "per06pj2019" memuat
+"06pj2019"). Sebelum v30 bukti hanya judul/ref sumber, sehingga rujukan sah
+yang muncul di ISI konteks (mis. pasal yang dikutip jawaban sosmed/Q2Q)
+diancam tak terdukung -> abstain semu (kasus "gimana cara aktivasi EFIN?",
+19 Agu 2026).
+
 Ketentuan seragam yang dicantumkan TANPA nomor (mis. "Ketentuan Umum dan Tata
 Cara Perpajakan") TETAP BOLEH — tidak bisa dipalsukan nomornya.
 
@@ -153,10 +162,15 @@ def _refs_in_answer(ans):
     return out
 
 
-def _ref_supported(jenis, nomor_norm, blob_low, konteks):
+def _ref_supported(jenis, nomor_norm, blob_low, konteks, blob_norm=None):
     if not nomor_norm:
         return True
     if nomor_norm in blob_low:
+        return True
+    # v30: pencocokan TERNORMALISASI atas seluruh bukti — tanda baca dibuang
+    # ("PER-06/PJ/2019" -> "per06pj2019") sehingga nomor yang muncul di ISI
+    # konteks (bukan hanya judul/ref sumber) ikut diakui sebagai dukungan.
+    if blob_norm and nomor_norm in blob_norm:
         return True
     # Toleransi: nomor persis tercetak di judul/ref sumber (bukan hanya isi).
     for k in (konteks or {}).values():
@@ -188,6 +202,9 @@ def _install():
             res = _orig_answer(question, profile)
         if not isinstance(res, dict):
             return res
+        # v30: kunci privat konteks mentah dari rag_engine — SELALU di-pop
+        # secepatnya agar tak pernah bocor ke respons klien; dipakai Guardrail 2.
+        ctx_raw = res.pop("_konteks_internal", "")
         if not res.get("grounded"):
             return res
         ans = res.get("answer") or ""
@@ -217,14 +234,19 @@ def _install():
                 ans = ans2
 
         # Guardrail 2: rujukan hukum tak terdukung -> paksa abstain.
-        # v22: wrapper tidak menerima konteks mentah; dukungan dinilai dari
-        # sumber yang DIKEMBALIKAN mesin (judul+ref+url memuat nomor rujukan).
+        # v30: dukungan dinilai dari KONTEKS MENTAH retrieval (kunci privat
+        # "_konteks_internal", sudah di-pop di atas) + judul/ref/url sumber —
+        # sebelumnya (v22) hanya judul/ref sumber, sehingga rujukan sah yang
+        # hanya muncul di ISI konteks (mis. pasal yang dikutip jawaban
+        # sosmed/Q2Q) keliru dianggap karangan -> abstain semu.
         if _flag("RAG_GUARD_PASAL", True):
-            bukti = {"_": {"teks": "", "sumber": res.get("sources") or []}}
+            bukti = {"_": {"teks": str(ctx_raw or ""),
+                           "sumber": res.get("sources") or []}}
             blob = _ctx_blob(bukti)
+            blob_norm = _norm_nomor(blob)
             tak_terdukung = []
             for jenis, nomor in _refs_in_answer(ans):
-                if not _ref_supported(jenis, nomor, blob, bukti):
+                if not _ref_supported(jenis, nomor, blob, bukti, blob_norm):
                     tak_terdukung.append("%s %s" % (jenis, nomor))
             if tak_terdukung:
                 res["answer"] = profile.get("fallback") or _rcfg.FALLBACK_DEFAULT
