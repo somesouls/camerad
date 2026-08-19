@@ -291,7 +291,19 @@ a.ss-card:hover { border-color:var(--accent); transform:translateY(-1px); box-sh
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: text, history: history })
       });
-      const data = await r.json();
+      let data;
+      try {
+        data = await r.json();
+      } catch(parseErr) {
+        // Edge/proxy domain publik menjawab halaman HTML (bukan JSON) saat
+        // batas waktunya terlampaui — beri pesan yang bisa ditindaklanjuti.
+        typing.remove();
+        s.messages.push({ role:'assistant', content:'\u26A0 Koneksi terputus sebelum jawaban tiba (HTTP '+r.status+' — kemungkinan batas waktu domain publik/proxy). Silakan kirim ulang pertanyaan yang sama; bila berulang, uji lewat http://localhost:8080 langsung di PC server.' });
+        s.updated = Date.now();
+        saveSessions(); renderChat(); renderSidebar(); setSending(false);
+        if(!pendingFeedback()) el('input').focus();
+        return;
+      }
       typing.remove();
 
       if(r.status===429 || (data && data.limit)){
