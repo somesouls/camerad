@@ -21,6 +21,7 @@ accelerate>=0.34.0
 sentence-transformers>=3.0
 sentencepiece
 rapidfuzz
+Sastrawi>=1.0.1            # stemming Bahasa Indonesia utk FTS ternormalisasi (Fase 1); opsional, fail-soft bila absen
 
 # Data
 openpyxl>=3.1.5

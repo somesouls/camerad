@@ -189,6 +189,15 @@ import awe_botfilter_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     & awe_botfilter_patch agar membungkus versi answer terakhir. ---
 import handoff_routing_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Fase 1 (pemerataan retrieval): monkey-patch sumber SOP/AWE/Sosmed agar
+#     memakai perluasan kamus + skor token TERNORMALISASI (text_norm; stemming
+#     Sastrawi bila ada) + rerank cross-encoder. SOP lewat pembungkus
+#     sop_db.search (perluasan kamus + AI rewrite); AWE/Sosmed lewat pengganti
+#     _DISPATCH (bot-filter AWE dari awe_botfilter_patch DIPERTAHANKAN).
+#     WAJIB setelah awe_botfilter_patch & handoff_routing_patch agar membungkus
+#     versi terakhir masing-masing sumber. ---
+import rag_sources_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe_routes
 awe_routes.register(
     app,
