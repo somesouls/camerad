@@ -20,6 +20,10 @@ Kolom profil:
   mode          TEXT  mode mesin: ''(auto)|tanpa_llm|llm|full (untuk pengujian)
   updated_at    TEXT
 
+v30: migrasi lunak tambahan — bila prompt profil chatbot ternyata PERSIS prompt
+bawaan AGENT (salah-isi bawaan lama), dikembalikan ke prompt bawaan chatbot
+(anti over-abstain). Prompt kustom admin tidak disentuh.
+
 Env: PIPELINE_RAG_DB_FILE atau 'rag.db'.
 """
 import os
@@ -177,6 +181,19 @@ def init_db(conn):
     try:
         r = conn.execute("SELECT system_prompt FROM rag_profile WHERE id='chatbot'").fetchone()
         if r and (r[0] or "").strip() == _PROMPT_CHATBOT_LAMA.strip():
+            conn.execute(
+                "UPDATE rag_profile SET system_prompt=?, updated_at=? WHERE id='chatbot'",
+                (_PROMPT_CHATBOT, now),
+            )
+    except Exception:
+        pass
+    # Migrasi lunak v30: bila prompt profil chatbot ternyata PERSIS prompt bawaan
+    # AGENT (salah-isi bawaan lama — teramati 19 Agu 2026: uji profil chatbot
+    # memakai persona \"asisten untuk petugas\"), kembalikan ke prompt bawaan
+    # chatbot. Prompt kustom admin TIDAK diubah.
+    try:
+        r = conn.execute("SELECT system_prompt FROM rag_profile WHERE id='chatbot'").fetchone()
+        if r and (r[0] or "").strip() == _PROMPT_AGENT.strip():
             conn.execute(
                 "UPDATE rag_profile SET system_prompt=?, updated_at=? WHERE id='chatbot'",
                 (_PROMPT_CHATBOT, now),
