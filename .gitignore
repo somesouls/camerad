@@ -11,3 +11,8 @@ _runs/
 
 aturan/
 camerad-service-account.json
+
+# artefak & backup
+*.bak
+*.bak_*
+*.pyc
