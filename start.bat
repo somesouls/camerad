@@ -1,6 +1,12 @@
 @echo off
 REM ================================================================
-REM  Jalankan Backend (FastAPI) + Frontend (FastAPI/web_app.py).
+REM  Jalankan dua proses Python:
+REM    1) API ANALISIS INTERNAL (llm_fix_final_combined.py, port 8000)
+REM       -> dipanggil via HTTP oleh pipeline Dialogflow/Avaya
+REM          (Step 1-16). BUKAN mesin RAG. Tidak dibuka di browser.
+REM    2) APLIKASI WEB + MESIN RAG (web_app.py, port 8080)
+REM       -> seluruh UI + mesin RAG (jawaban chat, retrieval, model
+REM          embedding/reranker, indeks Q&A) berjalan in-process di sini.
 REM  Keduanya Python - tidak butuh PHP lagi.
 REM  Buka dari PC lain: http://<IP-PC-INI>:8080/
 REM ================================================================
@@ -21,14 +27,14 @@ if "%PIPELINE_API_KEY%"=="" set "PIPELINE_API_KEY=sam-n8n-secret"
 if "%WEB_PORT%"=="" set "WEB_PORT=8080"
 set "WEB_HOST=0.0.0.0"
 
-echo Menjalankan backend Python (FastAPI)...
-start "Backend Python (FastAPI)" cmd /k python llm_fix_final_combined.py
+echo Menjalankan API analisis internal (llm_fix_final_combined.py, port 8000)...
+start "API Analisis Internal (port 8000) - pipeline Dialogflow/Avaya" cmd /k python llm_fix_final_combined.py
 
-echo Menunggu backend siap (10 detik)...
+echo Menunggu API analisis siap (10 detik)...
 timeout /t 10 /nobreak >nul
 
-echo Menjalankan frontend (FastAPI/web UI) ...
-start "Frontend (FastAPI)" cmd /k python web_app.py
+echo Menjalankan aplikasi web + mesin RAG (web_app.py, port %WEB_PORT%) ...
+start "Aplikasi Web + Mesin RAG (port %WEB_PORT%) - buka localhost:%WEB_PORT%" cmd /k python web_app.py
 
 echo.
 echo ================================================================
