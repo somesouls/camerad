@@ -24,6 +24,9 @@ history=None, diagnostics=False, honor_mode=False). Penulisan v18 memakai
 signature lama yang tidak menerima kwarg override/diagnostics/honor_mode,
 sehingga SEMUA pemanggil (jawab_chat, jawab_lab, eval harness) melempar
 TypeError. Kini seluruh kwarg diteruskan apa adanya ke fungsi asli.
+Catatan v22 lain: wrapper tidak menerima konteks mentah, jadi penilaian
+dukungan rujukan (guardrail 2) memakai SUMBER yang dikembalikan mesin
+(judul+ref+url memuat nomor rujukan) sebagai bukti.
 
 Ketentuan seragam yang dicantumkan TANPA nomor (mis. "Ketentuan Umum dan Tata
 Cara Perpajakan") TETAP BOLEH — tidak bisa dipalsukan nomornya.
@@ -214,12 +217,14 @@ def _install():
                 ans = ans2
 
         # Guardrail 2: rujukan hukum tak terdukung -> paksa abstain.
+        # v22: wrapper tidak menerima konteks mentah; dukungan dinilai dari
+        # sumber yang DIKEMBALIKAN mesin (judul+ref+url memuat nomor rujukan).
         if _flag("RAG_GUARD_PASAL", True):
-            blob = _ctx_blob(konteks) if False else None  # konteks tak diteruskan pemanggil; penilaian memakai sumber res
-            blob = _ctx_blob({"_": {"teks": "", "sumber": res.get("sources") or []}})
+            bukti = {"_": {"teks": "", "sumber": res.get("sources") or []}}
+            blob = _ctx_blob(bukti)
             tak_terdukung = []
             for jenis, nomor in _refs_in_answer(ans):
-                if not _ref_supported(jenis, nomor, blob, {"_": {"teks": "", "sumber": res.get("sources") or []}}):
+                if not _ref_supported(jenis, nomor, blob, bukti):
                     tak_terdukung.append("%s %s" % (jenis, nomor))
             if tak_terdukung:
                 res["answer"] = profile.get("fallback") or _rcfg.FALLBACK_DEFAULT
