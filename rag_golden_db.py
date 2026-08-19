@@ -41,7 +41,7 @@ def default_db_path():
 
 
 def _now():
-    return _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+    return _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def gid(query):
@@ -78,6 +78,9 @@ def init_db(conn):
 # ------------------------------------------------------------ seed bawaan
 # Catatan: ekspektasi nomor dinormalisasi saat pencocokan, jadi variasi
 # penulisan (PMK 28 TAHUN 2024 vs PMK No. 28 Tahun 2024) tetap cocok.
+# v20: dua ekspektasi dilonggarkan berdasar temuan uji pertama (angka di pasal
+# ditulis lengkap "183 (seratus delapan puluh tiga) hari"; istilah BKP tidak
+# selalu dieja "barang kena pajak" pada unit yang sama).
 _DEFAULT_SEED = [
     # ---- HIT: harus menemukan rujukan ----
     ("peraturan yang mengatur SPLN", "hit",
@@ -94,13 +97,15 @@ _DEFAULT_SEED = [
       "gold": "Ketentuan yang memuat kedua istilah sekaligus"},
      ""),
     ("kriteria orang pribadi menjadi subjek pajak dalam negeri", "hit",
-     {"keywords": ["183 hari", "bertempat tinggal"],
+     {"keywords": ["183", "bertempat tinggal"],
       "gold": "Kriteria SPDN orang pribadi (tinggal/183 hari/niat)"},
-     ""),
+     "v20: keyword '183 hari' dilonggarkan jadi '183' (pasal menulis angka "
+     "lengkap dalam teks)."),
     ("ketentuan penyerahan BKP dari luar daerah pabean ke kawasan berikat", "hit",
-     {"keywords": ["kawasan berikat", "barang kena pajak"],
+     {"keywords": ["kawasan berikat"],
       "gold": "Ketentuan PPN penyerahan TLDDP -> kawasan berikat"},
-     "Query acuan audit (ejaan informal: pabedan -> pabean)."),
+     "Query acuan audit (ejaan informal: pabedan -> pabean). v20: keyword "
+     "dilonggarkan (BKP tak selalu dieja penuh pada unit yang sama)."),
     ("fasilitas PPN penyerahan ke kawasan berikat", "hit",
      {"keywords": ["kawasan berikat", "pajak pertambahan nilai"],
       "gold": "Fasilitas PPN kawasan berikat"},
@@ -116,11 +121,12 @@ _DEFAULT_SEED = [
      "Dokumen teramati ada di basis data."),
     ("bunyi pasal 19 PER-23/PJ/2016", "hit",
      {"nomor": ["PER-23/PJ/2016"], "gold": "PER-23/PJ/2016 Pasal 19"},
-     "Dokumen teramati ada di basis data."),
+     "Dokumen teramati ada di basis data. Query bernomor exact — menguji FTS v3 "
+     "(kolom nomor)."),
     ("ketentuan peralihan PER-8/PJ/2025", "hit",
      {"nomor": ["PER-8/PJ/2025", "8/PJ/2025"],
       "gold": "PER-8/PJ/2025 — ketentuan peralihan"},
-     "Dokumen teramati ada di basis data."),
+     "Dokumen teramati ada di basis data. Query bernomor exact — menguji FTS v3."),
     ("pengertian pengusaha kena pajak", "hit",
      {"keywords": ["pengusaha kena pajak"], "gold": "Definisi PKP"}, ""),
 
@@ -136,6 +142,20 @@ _DEFAULT_SEED = [
     ("cara instal windows 11", "abstain", {"gold": "Di luar domain"}, ""),
     ("siapa presiden indonesia tahun 2040", "abstain", {"gold": "Di luar domain"}, ""),
 ]
+
+# v20: perbaikan ekspektasi untuk entri yang SUDAH ter-seed versi lama (v19).
+# Hanya menyentuh entri yang expect-nya MASIH versi lama — suntingan admin
+# tidak pernah ditimpa.
+_SEED_V2_FIX = (
+    ("kriteria orang pribadi menjadi subjek pajak dalam negeri",
+     ["183 hari", "bertempat tinggal"],
+     {"nomor": [], "keywords": ["183", "bertempat tinggal"],
+      "gold": "Kriteria SPDN orang pribadi (tinggal/183 hari/niat)"}),
+    ("ketentuan penyerahan BKP dari luar daerah pabean ke kawasan berikat",
+     ["kawasan berikat", "barang kena pajak"],
+     {"nomor": [], "keywords": ["kawasan berikat"],
+      "gold": "Ketentuan PPN penyerahan TLDDP -> kawasan berikat"}),
+)
 
 
 # --------------------------------------------------------------------- CRUD
@@ -223,6 +243,39 @@ def seed_default(conn=None):
         if n:
             print("[rag_golden_db] seed merge: +%d entri bawaan" % n, flush=True)
         return n
+    finally:
+        if own:
+            conn.close()
+
+
+def fix_seed_v2(conn=None):
+    """v20: longgarkan ekspektasi yang terbukti terlalu ketat pada uji pertama
+    (lihat _SEED_V2_FIX). Hanya menyentuh entri yang expect-nya MASIH versi
+    lama; suntingan admin tidak pernah ditimpa. Kembalikan {'updated': n}."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    n = 0
+    try:
+        for q, kw_lama, expect_baru in _SEED_V2_FIX:
+            r = conn.execute("SELECT expect_json FROM rag_golden WHERE id=?",
+                             (gid(q),)).fetchone()
+            if not r:
+                continue
+            try:
+                ex = json.loads(r["expect_json"] or "{}")
+            except Exception:
+                continue
+            if ex.get("keywords") != kw_lama:
+                continue  # sudah versi baru / disunting admin
+            conn.execute(
+                "UPDATE rag_golden SET expect_json=? WHERE id=?",
+                (json.dumps(expect_baru, ensure_ascii=False), gid(q)))
+            n += 1
+        conn.commit()
+        if n:
+            print("[rag_golden_db] fix seed v2: %d ekspektasi dilonggarkan" % n,
+                  flush=True)
+        return {"updated": n}
     finally:
         if own:
             conn.close()

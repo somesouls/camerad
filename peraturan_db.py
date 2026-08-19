@@ -16,12 +16,19 @@ app/index.py). Perbedaan utama vs jakai:
 
 Fase 1 — FTS v2 (ternormalisasi + bm25 berbobot):
   * Tabel meta `peraturan_meta` menyimpan penanda versi indeks.
-  * `rebuild_fts_norm()` membangun ulang `peraturan_fts` menjadi kolom
-    (id, judul, hierarchy, isi) berisi teks TERNORMALISASI via text_norm
-    (lowercase + buang diakritik + buang stopword + stemming Sastrawi bila ada).
-  * Setelah migrasi (meta fts_version='2'), _fts_ids otomatis memakai query
-    token ternormalisasi + bm25 BERBOBOT: judul 10x, hierarchy 4x, isi 1x.
-  * Sebelum migrasi: perilaku persis seperti versi lama (transisi aman).
+  * `rebuild_fts_norm()` membangun ulang indeks dengan konten TERNORMALISASI via
+    text_norm (lowercase + buang diakritik + buang stopword + stemming Sastrawi
+    bila ada). Setelah migrasi, query token ternormalisasi + bm25 BERBOBOT.
+
+v20 — FTS v3 (kolom NOMOR ikut terindeks):
+  * Temuan golden set Fase 4: query bernomor exact ("bunyi pasal 19
+    PER-23/PJ/2016") tidak bisa cocok leksikal karena kolom `nomor` tidak masuk
+    indeks FTS. v3 menambah kolom `nomor` (jenis+nomor, normalisasi ringan —
+    identifier tanpa stopword/stemming) dengan bobot bm25 TERTINGGI (12x;
+    judul 8x, hierarchy 4x, isi 1x).
+  * Versi indeks dibaca dari peraturan_meta; _sync_fts menulis sesuai versi
+    tabel yang terpasang (v1/v2/v3) — transisi aman, tanpa migrasi paksa.
+  * Target versi = FTS_TARGET_VERSION (dipakai phase1_upgrade).
 
 Fase 2 — legal intelligence:
   * Kolom baru peraturan_unit: `topik`, `entitas` (JSON), `jenis_unit`
@@ -307,7 +314,11 @@ def _load_vectors(conn):
     return ids, mat
 
 
-# --------------------------------------------------------------- FTS v2 (Fase 1)
+# --------------------------------------------------------------- FTS berversi
+# Versi indeks yang dibentuk rebuild_fts_norm. v3 (v20) menambah kolom `nomor`
+# (bobot bm25 tertinggi) agar query bernomor exact cocok secara leksikal.
+FTS_TARGET_VERSION = "3"
+
 def _norm_text(t):
     """Teks ternormalisasi via text_norm; fallback lowercase bila modul absen."""
     if tnorm is not None:
@@ -318,28 +329,29 @@ def _norm_text(t):
     return (t or "").lower()
 
 
-_FTS_V2_CACHE = {"v": None}
+_FTS_VER_CACHE = {"v": None}
 
 
-def _fts_v2(conn):
-    """True bila FTS sudah dimigrasi ke v2 (konten ternormalisasi + kolom
-    hierarchy). Versi disimpan di peraturan_meta (key='fts_version')."""
-    if _FTS_V2_CACHE["v"] is not None:
-        return _FTS_V2_CACHE["v"]
-    v = False
+def _fts_ver(conn):
+    """Versi indeks FTS terpasang: '1' legacy (id,judul,isi) / '2' ternormalisasi
+    +hierarchy / '3' +kolom nomor. Dibaca dari peraturan_meta."""
+    if _FTS_VER_CACHE["v"] is not None:
+        return _FTS_VER_CACHE["v"]
+    v = "1"
     try:
         r = conn.execute(
             "SELECT value FROM peraturan_meta WHERE key='fts_version'").fetchone()
-        v = bool(r and str(r[0]) == "2")
+        if r and str(r[0]) in ("2", "3"):
+            v = str(r[0])
     except Exception:
-        v = False
-    _FTS_V2_CACHE["v"] = v
+        v = "1"
+    _FTS_VER_CACHE["v"] = v
     return v
 
 
 def fts_v2_refresh():
     """Bersihkan cache versi FTS (dipanggil rebuild_fts_norm setelah migrasi)."""
-    _FTS_V2_CACHE["v"] = None
+    _FTS_VER_CACHE["v"] = None
 
 
 def fts_info(conn=None):
@@ -347,13 +359,13 @@ def fts_info(conn=None):
     own = conn is None
     conn = conn or init_db(connect())
     try:
-        v2 = _fts_v2(conn)
+        ver = _fts_ver(conn)
         try:
             n = conn.execute("SELECT COUNT(*) FROM peraturan_fts").fetchone()[0]
         except Exception:
             n = 0
-        info = {"fts_version": "2" if v2 else "1", "fts_rows": int(n or 0),
-                "norm_modul": tnorm is not None}
+        info = {"fts_version": ver, "target": FTS_TARGET_VERSION,
+                "fts_rows": int(n or 0), "norm_modul": tnorm is not None}
         if tnorm is not None:
             try:
                 info["stemming"] = bool(tnorm.info().get("sastrawi"))
@@ -366,14 +378,14 @@ def fts_info(conn=None):
 
 
 def rebuild_fts_norm(conn=None, batch=500, progress=True):
-    """Migrasi FTS -> v2: DROP & buat ulang peraturan_fts dengan kolom
-    (id, judul, hierarchy, isi) berisi teks TERNORMALISASI, lalu isi ulang dari
-    peraturan_unit dan tandai meta fts_version='2'.
+    """Bangun ulang peraturan_fts menjadi v%s: kolom (id, nomor, judul,
+    hierarchy, isi) — judul/hierarchy/isi TERNORMALISASI (text_norm), sedangkan
+    nomor (jenis+nomor) memakai normalisasi ringan (identifier: tanpa stopword/
+    stemming) agar token nomor cocok persis. Tandai meta fts_version.
 
     Idempoten; aman dijalankan kapan saja; TIDAK butuh model embedding/GPU.
-    Setelah sukses, _fts_ids otomatis memakai query ternormalisasi + bm25
-    berbobot (judul > hierarchy > isi). SEBAIKNYA tidak dijalankan bersamaan
-    dengan reindex embedding (menulis DB yang sama)."""
+    SEBAIKNYA tidak dijalankan bersamaan dengan reindex embedding (menulis DB
+    yang sama).""" % FTS_TARGET_VERSION
     own = conn is None
     conn = conn or init_db(connect())
     try:
@@ -382,30 +394,34 @@ def rebuild_fts_norm(conn=None, batch=500, progress=True):
         conn.execute("DROP TABLE IF EXISTS peraturan_fts")
         conn.execute(
             "CREATE VIRTUAL TABLE peraturan_fts USING fts5("
-            "id UNINDEXED, judul, hierarchy, isi, "
+            "id UNINDEXED, nomor, judul, hierarchy, isi, "
             "tokenize='unicode61 remove_diacritics 2')")
         rows = conn.execute(
-            "SELECT id, judul, hierarchy, isi FROM peraturan_unit").fetchall()
+            "SELECT id, jenis_peraturan, nomor, judul, hierarchy, isi "
+            "FROM peraturan_unit").fetchall()
         n = 0
         for i in range(0, len(rows), batch):
             for r in rows[i:i + batch]:
+                nomor_txt = _light_norm(
+                    "%s %s" % (r["jenis_peraturan"] or "", r["nomor"] or ""))
                 conn.execute(
-                    "INSERT INTO peraturan_fts(id, judul, hierarchy, isi) "
-                    "VALUES (?, ?, ?, ?)",
-                    (r["id"], _norm_text(r["judul"]),
+                    "INSERT INTO peraturan_fts(id, nomor, judul, hierarchy, isi) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (r["id"], nomor_txt, _norm_text(r["judul"]),
                      _norm_text(r["hierarchy"]), _norm_text(r["isi"])),
                 )
                 n += 1
             conn.commit()
             if progress:
-                print("[peraturan_db] rebuild FTS v2: %d/%d" % (n, len(rows)),
-                      flush=True)
+                print("[peraturan_db] rebuild FTS v%s: %d/%d"
+                      % (FTS_TARGET_VERSION, n, len(rows)), flush=True)
         conn.execute(
-            "INSERT INTO peraturan_meta(key, value) VALUES('fts_version', '2') "
-            "ON CONFLICT(key) DO UPDATE SET value='2'")
+            "INSERT INTO peraturan_meta(key, value) VALUES('fts_version', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (FTS_TARGET_VERSION,))
         conn.commit()
         fts_v2_refresh()
-        return {"ok": True, "n": n}
+        return {"ok": True, "n": n, "fts_version": FTS_TARGET_VERSION}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200], "n": 0}
     finally:
@@ -669,14 +685,23 @@ def _norm(data):
     return out
 
 
-def _sync_fts(conn, id_, judul, isi, hierarchy=""):
-    """Sinkronkan satu baris ke indeks FTS. Format konten mengikuti versi indeks:
-    v2 -> ternormalisasi (4 kolom); v1 -> mentah (3 kolom, perilaku lama)."""
+def _sync_fts(conn, id_, judul, isi, hierarchy="", nomor=""):
+    """Sinkronkan satu baris ke indeks FTS; format konten mengikuti versi tabel:
+    v3 -> +kolom nomor (normalisasi ringan); v2 -> ternormalisasi 4 kolom;
+    v1 -> mentah 3 kolom (legacy)."""
     if not _fts_available(conn):
         return
     try:
         conn.execute("DELETE FROM peraturan_fts WHERE id = ?", (id_,))
-        if _fts_v2(conn):
+        ver = _fts_ver(conn)
+        if ver == "3":
+            conn.execute(
+                "INSERT INTO peraturan_fts(id, nomor, judul, hierarchy, isi) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (id_, _light_norm(nomor), _norm_text(judul),
+                 _norm_text(hierarchy), _norm_text(isi)),
+            )
+        elif ver == "2":
             conn.execute(
                 "INSERT INTO peraturan_fts(id, judul, hierarchy, isi) "
                 "VALUES (?, ?, ?, ?)",
@@ -738,7 +763,8 @@ def upsert_peraturan(data, conn=None):
             % (",".join(cols), ph, updates),
             tuple(d[c] for c in cols),
         )
-        _sync_fts(conn, d["id"], d.get("judul"), d.get("isi"), d.get("hierarchy"))
+        _sync_fts(conn, d["id"], d.get("judul"), d.get("isi"), d.get("hierarchy"),
+                  nomor="%s %s" % (d.get("jenis_peraturan") or "", d.get("nomor") or ""))
         vec_ok = _sync_vec(conn, d["id"], "%s %s" % (d.get("judul") or "", d.get("isi") or ""))
         conn.commit()
         return {"id": d["id"], "vec_ok": vec_ok}
@@ -1080,8 +1106,9 @@ def _like_ids(conn, query, limit=50):
 def _fts_ids(conn, query, limit=50):
     if not _fts_available(conn):
         return _like_ids(conn, query, limit)
-    if _fts_v2(conn):
-        # FTS v2: query token TERNORMALISASI + bm25 berbobot (judul > hierarchy > isi).
+    ver = _fts_ver(conn)
+    if ver in ("2", "3"):
+        # Query token TERNORMALISASI + bm25 berbobot kolom.
         try:
             toks = tnorm.norm_tokens(query, k=16) if tnorm is not None else []
         except Exception:
@@ -1091,11 +1118,21 @@ def _fts_ids(conn, query, limit=50):
         if toks:
             fq = " OR ".join('"%s"' % t for t in toks)
             try:
-                rows = conn.execute(
-                    "SELECT id FROM peraturan_fts WHERE peraturan_fts MATCH ? "
-                    "ORDER BY bm25(peraturan_fts, 0.0, 10.0, 4.0, 1.0) LIMIT ?",
-                    (fq, limit),
-                ).fetchall()
+                if ver == "3":
+                    # bobot kolom: id(diabaikan) 0, nomor 12x, judul 8x,
+                    # hierarchy 4x, isi 1x — nomor exact paling dominan.
+                    rows = conn.execute(
+                        "SELECT id FROM peraturan_fts WHERE peraturan_fts MATCH ? "
+                        "ORDER BY bm25(peraturan_fts, 0.0, 12.0, 8.0, 4.0, 1.0) LIMIT ?",
+                        (fq, limit),
+                    ).fetchall()
+                else:
+                    # v2: judul 10x, hierarchy 4x, isi 1x
+                    rows = conn.execute(
+                        "SELECT id FROM peraturan_fts WHERE peraturan_fts MATCH ? "
+                        "ORDER BY bm25(peraturan_fts, 0.0, 10.0, 4.0, 1.0) LIMIT ?",
+                        (fq, limit),
+                    ).fetchall()
                 return [r["id"] for r in rows]
             except Exception:
                 pass

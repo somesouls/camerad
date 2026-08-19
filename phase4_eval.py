@@ -6,9 +6,10 @@ Mengukur kualitas RETRIEVAL (bukan jawaban) secara deterministik:
   * recall@k : fraksi query 'hit' yang rujukan harapannya muncul di top-k.
   * MRR      : Mean Reciprocal Rank posisi rujukan harapan.
   * Proksi abstain: untuk query 'abstain', dilaporkan cosine teratas hasil
-    retrieval + penanda 'berisiko lolos gerbang' bila >= RAG_MIN_COS aktif.
-    (Penilaian abstain END-TO-END tetap lewat /rag-eval jenis=golden — skrip
-    ini sengaja tidak memanggil LLM agar murah & bisa jadi gerbang cepat.)
+    retrieval (via rag_calibration.skor_peraturan) + penanda 'berisiko lolos
+    gerbang' bila >= RAG_MIN_COS aktif. (Penilaian abstain END-TO-END tetap
+    lewat /rag-eval jenis=golden — skrip ini sengaja tidak memanggil LLM agar
+    murah & bisa jadi gerbang cepat.)
 
 Rantai yang diukur = rantai produksi: patch diimpor dengan urutan yang sama
 seperti web_app.py (successor -> rerank -> kalibrasi -> domain).
@@ -55,6 +56,10 @@ try:
     import rag_calibration as _cal
 except Exception:            # pragma: no cover
     _cal = None
+
+
+def _utcnow():
+    return _dt.datetime.now(_dt.timezone.utc)
 
 
 # ------------------------------------------------------------------ matching
@@ -157,15 +162,14 @@ def run_eval(k=10, limit=None, quiet=False):
             rows = []
         max_cos = None
         if rows and _cal is not None:
-            best = 0.0
-            for r in rows:
-                try:
-                    c = _cal.cos01(q, r.get("judul"), r.get("isi"))
-                    if c is not None and c > best:
-                        best = c
-                except Exception:
-                    pass
-            max_cos = best
+            try:
+                ids = [r.get("id") for r in rows if isinstance(r, dict) and r.get("id")]
+                skor = _cal.skor_peraturan(q, ids) or {}
+                vals = [float(v) for v in skor.values() if v is not None]
+                if vals:
+                    max_cos = max(vals)
+            except Exception:
+                max_cos = None
         risk = bool(mc_gate and max_cos is not None and max_cos >= mc_gate)
         abs_rows.append({"query": q, "n_hasil": len(rows),
                          "max_cos": (round(max_cos, 4) if max_cos is not None else None),
@@ -178,7 +182,7 @@ def run_eval(k=10, limit=None, quiet=False):
               flush=True)
 
     return {
-        "ts": _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "ts": _utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
         "k": int(k),
         "n_hit_queries": len(hits),
         "n_abstain_queries": len(abst),
@@ -195,7 +199,7 @@ def _save_report(rep):
     try:
         os.makedirs(outdir, exist_ok=True)
         path = os.path.join(outdir, "golden_eval_%s.json"
-                            % _dt.datetime.utcnow().strftime("%Y%m%d_%H%M%S"))
+                            % _utcnow().strftime("%Y%m%d_%H%M%S"))
         with open(path, "w", encoding="utf-8") as f:
             json.dump(rep, f, ensure_ascii=False, indent=2)
         print("\nLaporan tersimpan: %s" % path, flush=True)
@@ -277,6 +281,12 @@ def main():
     if args.seed:
         n = gdb.seed_default()
         print("Seed golden set: +%d entri bawaan." % n)
+        try:
+            fx = gdb.fix_seed_v2()
+            if fx.get("updated"):
+                print("Ekspektasi dilonggarkan (v20): %d entri." % fx["updated"])
+        except Exception:
+            pass
         m = gdb.mirror_to_eval()
         print("Cermin ke /rag-eval (eval_sample jenis=golden): %s" % m)
         if not any([args.mine, args.baseline_save, args.baseline_check]):
