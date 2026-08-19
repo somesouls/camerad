@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""rag_routes.py — Halaman & API mesin RAG (chat produksi + playground admin).
+"""rag_routes.py — Halaman & API mesin RAG (chat produksi + backend form uji).
 
 Rute:
   GET  /rag                  -> ChatBot Pajak untuk Wajib Pajak (profil 'chatbot')
   POST /api/rag/chat         -> jawab chat produksi
-  GET  /rag-lab              -> Playground admin: uji kombinasi sumber & profil
-  POST /api/rag/lab          -> jalankan uji (pilih profil + centang sumber + diagnostik)
+  POST /api/rag/lab          -> backend uji on-demand — dipakai form "Uji Cepat"
+                                di /rag-chatbot & /rag-agent (halaman /rag-lab
+                                sendiri sudah DIHAPUS v22)
   GET  /api/rag/profiles     -> daftar profil (admin)
   POST /api/rag/profile      -> ambil satu profil {id} (admin)
   POST /api/rag/profile/save -> simpan profil/prompt (admin)
@@ -48,13 +49,6 @@ async def page_rag(request: Request):
     return render_page(request, "rag.html", "rag")
 
 
-async def page_rag_lab(request: Request):
-    return render_page(request, "rag_lab.html", "rag_lab", {
-        "sumber_valid": list(rcfg.SUMBER_VALID),
-        "sumber_label": rcfg.SUMBER_LABEL,
-    })
-
-
 # --------------------------------------------------------------------------
 # API chat produksi
 # --------------------------------------------------------------------------
@@ -77,7 +71,7 @@ async def api_rag_chat(request: Request):
 
 
 # --------------------------------------------------------------------------
-# API playground admin
+# API backend form uji (dipakai /rag-chatbot & /rag-agent)
 # --------------------------------------------------------------------------
 async def api_rag_lab(request: Request):
     body = await _body(request)
@@ -89,7 +83,7 @@ async def api_rag_lab(request: Request):
     if not isinstance(sumber, list):
         sumber = None
     history = body.get("history") if isinstance(body.get("history"), list) else []
-    # Opsi \"mode produksi\": jalankan uji mengikuti mode NYATA profil (mis.
+    # Opsi "mode produksi": jalankan uji mengikuti mode NYATA profil (mis.
     # chatbot = cepat/tanpa loop verifikasi) alih-alih memaksa pipeline penuh.
     prod_mode = bool(body.get("prod_mode"))
     try:
@@ -176,7 +170,8 @@ def _warmup_intent_semantic():
 def register(app):
     app.add_api_route("/rag", page_rag, methods=["GET"])
     app.add_api_route("/api/rag/chat", api_rag_chat, methods=["POST"])
-    app.add_api_route("/rag-lab", page_rag_lab, methods=["GET"])
+    # Catatan v22: halaman /rag-lab DIHAPUS. API /api/rag/lab DIPERTAHANKAN —
+    # ia adalah backend form "Uji Cepat" di /rag-chatbot & /rag-agent.
     app.add_api_route("/api/rag/lab", api_rag_lab, methods=["POST"])
     app.add_api_route("/api/rag/profiles", api_profiles, methods=["GET"])
     app.add_api_route("/api/rag/profile", api_profile_get, methods=["POST"])

@@ -18,6 +18,13 @@ kalimat fallback profil (mesin memutuskan abstain), daftar sumber DIKOSONGKAN �
 hasil retrieval yang lemah tetap ada saat abstain, dan menampilkannya sebagai
 "Sumber Rujukan" menyesatkan petugas seolah sumber itu mendukung jawaban.
 
+Perbaikan v22 (PENTING): signature pembungkus _guarded_answer disamakan PERSIS
+dengan rag_engine.answer asli — (question, profile, override=None,
+history=None, diagnostics=False, honor_mode=False). Penulisan v18 memakai
+signature lama yang tidak menerima kwarg override/diagnostics/honor_mode,
+sehingga SEMUA pemanggil (jawab_chat, jawab_lab, eval harness) melempar
+TypeError. Kini seluruh kwarg diteruskan apa adanya ke fungsi asli.
+
 Ketentuan seragam yang dicantumkan TANPA nomor (mis. "Ketentuan Umum dan Tata
 Cara Perpajakan") TETAP BOLEH — tidak bisa dipalsukan nomornya.
 
@@ -164,11 +171,18 @@ def _install():
     if getattr(_re, "_grounding_patched", False):
         return
 
-    def _guarded_answer(pid, query, konteks, profile, history=None):
+    # v22: signature disamakan PERSIS dengan rag_engine.answer asli:
+    #   answer(question, profile, override=None, history=None,
+    #          diagnostics=False, honor_mode=False)
+    # Semua kwarg diteruskan apa adanya; fallback TypeError tetap fail-open.
+    def _guarded_answer(question, profile, override=None, history=None,
+                        diagnostics=False, honor_mode=False):
         try:
-            res = _orig_answer(pid, query, konteks, profile, history)
+            res = _orig_answer(question, profile, override=override,
+                               history=history, diagnostics=diagnostics,
+                               honor_mode=honor_mode)
         except TypeError:
-            res = _orig_answer(pid, query, konteks, profile)
+            res = _orig_answer(question, profile)
         if not isinstance(res, dict):
             return res
         if not res.get("grounded"):
@@ -201,10 +215,11 @@ def _install():
 
         # Guardrail 2: rujukan hukum tak terdukung -> paksa abstain.
         if _flag("RAG_GUARD_PASAL", True):
-            blob = _ctx_blob(konteks)
+            blob = _ctx_blob(konteks) if False else None  # konteks tak diteruskan pemanggil; penilaian memakai sumber res
+            blob = _ctx_blob({"_": {"teks": "", "sumber": res.get("sources") or []}})
             tak_terdukung = []
             for jenis, nomor in _refs_in_answer(ans):
-                if not _ref_supported(jenis, nomor, blob, konteks):
+                if not _ref_supported(jenis, nomor, blob, {"_": {"teks": "", "sumber": res.get("sources") or []}}):
                     tak_terdukung.append("%s %s" % (jenis, nomor))
             if tak_terdukung:
                 res["answer"] = profile.get("fallback") or _rcfg.FALLBACK_DEFAULT
