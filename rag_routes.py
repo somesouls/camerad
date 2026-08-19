@@ -128,10 +128,11 @@ async def api_profile_save(request: Request):
 
 
 def _warmup_intent_semantic():
-    """Bangun indeks embedding katalog intent + pramuat model reranker di latar
-    belakang saat boot agar query pertama tidak lambat. Nonaktif via
-    RAG_INTENT_SEMANTIC_WARMUP=0 (khusus indeks semantik). Gagal-anggun:
-    kegagalan apa pun hanya dicatat, tidak menghentikan server."""
+    """Bangun indeks embedding katalog intent + pramuat model reranker & model
+    embedding korpus (bge-m3) di latar belakang saat boot agar query pertama
+    tidak lambat. Nonaktif via RAG_INTENT_SEMANTIC_WARMUP=0 (khusus indeks
+    semantik). Gagal-anggun: kegagalan apa pun hanya dicatat, tidak menghentikan
+    server."""
     if str(os.environ.get("RAG_INTENT_SEMANTIC_WARMUP", "1")).strip().lower() in (
             "0", "false", "no", "off"):
         return
@@ -160,6 +161,25 @@ def _warmup_intent_semantic():
                 print("[warmup] rag_reranker dilewati:", e, flush=True)
             except Exception:
                 pass
+        # Pramuat model embedding korpus (bge-m3): request RAG pertama memicu
+        # lazy-load yang bisa puluhan detik; bila klien lewat proxy bertimeout,
+        # request diputus sebelum jawaban terkirim (UI: "Gagal terhubung").
+        # Muat model + satu embed pemanasan di sini agar request pertama cepat.
+        try:
+            import peraturan_semantic as psem
+            if psem.is_available():
+                try:
+                    psem.embed_query("pemanasan")
+                except Exception:
+                    pass
+                print("[warmup] model embedding korpus (bge-m3) siap.", flush=True)
+            else:
+                print("[warmup] embedding korpus nonaktif/tak tersedia (dilewati).", flush=True)
+        except Exception as e:
+            try:
+                print("[warmup] peraturan_semantic dilewati:", e, flush=True)
+            except Exception:
+                pass
 
     try:
         threading.Thread(target=_bg, name="warmup-intent-semantic", daemon=True).start()
@@ -176,5 +196,5 @@ def register(app):
     app.add_api_route("/api/rag/profiles", api_profiles, methods=["GET"])
     app.add_api_route("/api/rag/profile", api_profile_get, methods=["POST"])
     app.add_api_route("/api/rag/profile/save", api_profile_save, methods=["POST"])
-    # Warm-up mesin semantik intent + reranker di latar belakang saat didaftarkan.
+    # Warm-up mesin semantik intent + reranker + embedding korpus saat didaftarkan.
     _warmup_intent_semantic()
