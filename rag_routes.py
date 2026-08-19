@@ -128,11 +128,14 @@ async def api_profile_save(request: Request):
 
 
 def _warmup_intent_semantic():
-    """Bangun indeks embedding katalog intent + pramuat model reranker & model
-    embedding korpus (bge-m3) di latar belakang saat boot agar query pertama
-    tidak lambat. Nonaktif via RAG_INTENT_SEMANTIC_WARMUP=0 (khusus indeks
-    semantik). Gagal-anggun: kegagalan apa pun hanya dicatat, tidak menghentikan
-    server."""
+    """Pramuat seluruh artefak berat mesin RAG di latar belakang saat boot:
+    indeks semantik intent, model reranker, model embedding korpus (bge-m3),
+    MATRIKS vektor peraturan (puluhan MB blob -> numpy), dan matriks indeks
+    Q&A historis. Tanpa ini, artefak-matriks dimuat MALAS di request pertama
+    pasca-restart — jawaban bisa melampaui batas waktu proxy/domain publik
+    (edge menjawab halaman HTML -> UI menampilkan 'Unexpected token <').
+    Nonaktif via RAG_INTENT_SEMANTIC_WARMUP=0 (khusus indeks semantik).
+    Gagal-anggun: kegagalan apa pun hanya dicatat, tidak menghentikan server."""
     if str(os.environ.get("RAG_INTENT_SEMANTIC_WARMUP", "1")).strip().lower() in (
             "0", "false", "no", "off"):
         return
@@ -180,6 +183,28 @@ def _warmup_intent_semantic():
                 print("[warmup] peraturan_semantic dilewati:", e, flush=True)
             except Exception:
                 pass
+        # v27: pramuat MATRIKS vektor peraturan (33 ribu+ blob -> numpy,
+        # puluhan MB dari SQLite) + matriks indeks Q&A historis. Keduanya
+        # lazy-load di pencarian pertama; satu pencarian kecil di sini memicu
+        # muat penuhnya saat boot, bukan saat request pengguna pertama.
+        try:
+            import peraturan_db as pdb
+            pdb.search("pemanasan", 1, ("berlaku",))
+            print("[warmup] matriks vektor peraturan siap.", flush=True)
+        except Exception as e:
+            try:
+                print("[warmup] matriks peraturan dilewati:", e, flush=True)
+            except Exception:
+                pass
+        try:
+            import qa_index_db as _qa
+            _qa.search("pemanasan", k=1)
+            print("[warmup] matriks indeks Q&A siap.", flush=True)
+        except Exception as e:
+            try:
+                print("[warmup] indeks Q&A dilewati:", e, flush=True)
+            except Exception:
+                pass
 
     try:
         threading.Thread(target=_bg, name="warmup-intent-semantic", daemon=True).start()
@@ -196,5 +221,5 @@ def register(app):
     app.add_api_route("/api/rag/profiles", api_profiles, methods=["GET"])
     app.add_api_route("/api/rag/profile", api_profile_get, methods=["POST"])
     app.add_api_route("/api/rag/profile/save", api_profile_save, methods=["POST"])
-    # Warm-up mesin semantik intent + reranker + embedding korpus saat didaftarkan.
+    # Warm-up semua artefak berat (model + matriks vektor) saat didaftarkan.
     _warmup_intent_semantic()
