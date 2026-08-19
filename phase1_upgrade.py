@@ -2,21 +2,25 @@
 """phase1_upgrade.py — Migrasi FTS ternormalisasi (Fase 1) untuk Peraturan & SOP.
 
 Yang dikerjakan skrip ini:
-  * Membangun ulang indeks FTS5 menjadi "v2": konten TERNORMALISASI (lowercase,
-    tanpa diakritik, tanpa stopword; + stemming Sastrawi bila paket terpasang).
-    Untuk peraturan, kolom `hierarchy` ikut diindeks.
+  * Membangun ulang indeks FTS5 ke versi TARGET modul (peraturan_db /
+    sop_db.FTS_TARGET_VERSION bila ada; default '2'):
+      - v2: konten TERNORMALISASI (lowercase, tanpa diakritik, tanpa stopword;
+        + stemming Sastrawi bila paket terpasang) + kolom hierarchy (peraturan).
+      - v3 (peraturan, v20): + kolom `nomor` berbobot bm25 tertinggi agar query
+        bernomor exact ("PER-23/PJ/2016") cocok secara leksikal.
   * Setelah migrasi, retrieval lexical otomatis memakai bm25 BERBOBOT
-    (judul > hierarchy/bagian > isi) — tidak perlu mengubah kode apa pun.
+    (nomor > judul > hierarchy/bagian > isi) — tidak perlu mengubah kode apa pun.
 
 Aman dijalankan kapan saja (idempoten); TIDAK butuh model embedding / GPU /
-koneksi internet. Untuk hasil terbaik pasang Sastrawi dulu:  pip install Sastrawi
+koneksi internet; TIDAK menyentuh vektor (tanpa reindex embedding).
+Untuk hasil terbaik pasang Sastrawi dulu:  pip install Sastrawi
 
 PENTING: jangan jalankan bersamaan dengan reindex embedding Fase 0
 (phase0_upgrade.py) — keduanya menulis ke berkas DB yang sama.
 
 Pemakaian:
-  python phase1_upgrade.py            # migrasi indeks yang belum v2
-  python phase1_upgrade.py --force    # bangun ulang walau sudah v2
+  python phase1_upgrade.py            # migrasi indeks yang belum di versi target
+  python phase1_upgrade.py --force    # bangun ulang walau sudah di versi target
 """
 import argparse
 import sys
@@ -42,16 +46,17 @@ def _cek_norm():
 
 
 def _migrasi(nama, mod, force=False):
-    _hr("MIGRASI FTS v2: %s" % nama)
+    target = str(getattr(mod, "FTS_TARGET_VERSION", "2"))
+    _hr("MIGRASI FTS (target v%s): %s" % (target, nama))
     try:
         info = mod.fts_info()
     except Exception as e:
         print("[X] fts_info gagal: %s" % e, flush=True)
         return
     print("Sebelum: %s" % info, flush=True)
-    if info.get("fts_version") == "2" and not force:
-        print("Sudah v2 — dilewati (pakai --force untuk membangun ulang).",
-              flush=True)
+    if str(info.get("fts_version")) == target and not force:
+        print("Sudah v%s — dilewati (pakai --force untuk membangun ulang)."
+              % target, flush=True)
         return
     t0 = time.time()
     res = mod.rebuild_fts_norm()
@@ -70,7 +75,7 @@ def _migrasi(nama, mod, force=False):
 def main():
     ap = argparse.ArgumentParser(description="Migrasi FTS ternormalisasi (Fase 1)")
     ap.add_argument("--force", action="store_true",
-                    help="bangun ulang indeks walau sudah v2")
+                    help="bangun ulang indeks walau sudah di versi target")
     args = ap.parse_args()
     _hr("CEK NORMALISASI")
     _cek_norm()
@@ -86,11 +91,13 @@ def main():
         print("[X] sop_db tak dapat diimpor: %s" % e, flush=True)
     _hr("SELESAI")
     print("""\
-Retrieval lexical kini memakai FTS v2 (ternormalisasi + bm25 berbobot).
-Bentuk kata berimbuhan kini disamakan: menyerahkan/penyerahan/diserahkan.
+Retrieval lexical kini memakai FTS ternormalisasi + bm25 berbobot
+(v3: kolom nomor ikut terindeks — bobot tertinggi — utk query bernomor exact).
+Bentuk kata berimbuhan disamakan: menyerahkan/penyerahan/diserahkan.
 Uji di /rag-lab, mis.:
   - "ketentuan penyerahan BKP dari luar daerah pabean ke kawasan berikat"
   - "peraturan yang mengatur SPLN"
+  - "bunyi pasal 19 PER-23/PJ/2016"
 """, flush=True)
     return 0
 
