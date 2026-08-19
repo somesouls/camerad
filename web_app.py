@@ -205,6 +205,13 @@ import handoff_routing_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     versi terakhir masing-masing sumber. ---
 import rag_sources_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Fase 5 (Q2Q): indeks PERTANYAAN historis Sosmed/AWE sebagai vektor
+#     (kemiripan pertanyaan, bukan jawaban), lalu tautkan rujukan peraturan
+#     yang terdeteksi di jawaban historis ke basis peraturan yang rapi.
+#     Membungkus _ctx_awe/_ctx_sosmed versi v16; fail-soft bila qa.db belum
+#     dibangun (python phase5_qa_build.py). WAJIB setelah rag_sources_patch. ---
+import rag_qa_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe_routes
 awe_routes.register(
     app,
