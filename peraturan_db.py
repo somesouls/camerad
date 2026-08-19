@@ -23,6 +23,17 @@ Fase 1 — FTS v2 (ternormalisasi + bm25 berbobot):
     token ternormalisasi + bm25 BERBOBOT: judul 10x, hierarchy 4x, isi 1x.
   * Sebelum migrasi: perilaku persis seperti versi lama (transisi aman).
 
+Fase 2 — legal intelligence:
+  * Kolom baru peraturan_unit: `topik`, `entitas` (JSON), `jenis_unit`
+    (batang_tubuh/penjelasan/lampiran) — migrasi lunak via ALTER TABLE.
+  * Tabel `peraturan_relasi` (from_source -> to_source, jenis penerus/pendahulu)
+    dibangun oleh build_relasi() dari kolom status_terkait/history_terkait.
+  * trace_successor(): penelusuran rantai penerus MULTI-HOP sampai dokumen
+    berstatus 'berlaku' (dipakai rag_successor_patch v2).
+  * tag_unit()/backfill_tags(): pengisian entitas/topik dictionary-driven
+    (kamus_sinonim + taksonomi topik bawaan); auto-tag juga berjalan saat
+    upsert_peraturan.
+
 Kolom relasi status (diisi parser dari HTML TKB):
   * status_terkait  : JSON daftar peraturan TERBARU yang mengubah/mencabut
     (dari kotak legenda_status), urut dari atas. Tiap item memuat tanggal,
@@ -41,6 +52,7 @@ Pola koneksi mengikuti modul *_db.py camerad lain (sqlite3 + WAL).
 """
 import os
 import re
+import json
 import sqlite3
 
 import peraturan_semantic as psem
@@ -69,6 +81,7 @@ PERATURAN_KOLOM = [
     "dicabut_oleh", "diubah_oleh", "jenis_perubahan", "target_pasal",
     "status_terkait", "history_terkait",
     "kekuatan_hukum", "can_cite", "source_url", "source_file", "source_id",
+    "topik", "entitas", "jenis_unit",
 ]
 
 _INT_FIELDS = ("tahun", "kekuatan_hukum", "can_cite")
@@ -77,6 +90,9 @@ _INT_FIELDS = ("tahun", "kekuatan_hukum", "can_cite")
 _KOLOM_TAMBAHAN = (
     ("status_terkait", "TEXT"),
     ("history_terkait", "TEXT"),
+    ("topik", "TEXT"),
+    ("entitas", "TEXT"),
+    ("jenis_unit", "TEXT"),
 )
 
 IMPOR_KOLOM = [
@@ -216,6 +232,21 @@ def init_db(conn, force=False):
             key   TEXT PRIMARY KEY,
             value TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS peraturan_relasi (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            from_source   TEXT,
+            to_source     TEXT,
+            jenis_relasi  TEXT,
+            tanggal       TEXT,
+            nomor_tujuan  TEXT,
+            judul_tujuan  TEXT,
+            link          TEXT,
+            deskripsi     TEXT,
+            UNIQUE(from_source, to_source, jenis_relasi)
+        );
+        CREATE INDEX IF NOT EXISTS idx_relasi_from ON peraturan_relasi(from_source, jenis_relasi);
+        CREATE INDEX IF NOT EXISTS idx_relasi_to ON peraturan_relasi(to_source, jenis_relasi);
         """
     )
     _migrasi_kolom(conn)
@@ -382,6 +413,240 @@ def rebuild_fts_norm(conn=None, batch=500, progress=True):
             conn.close()
 
 
+# --------------------------------------------------------------- Fase 2: tagging
+# Tagger ringan (TANPA stemming — cukup lowercase + rapikan non-alfanumerik)
+# agar cocok dipakai saat upsert batch besar maupun backfill.
+def _light_norm(t):
+    return re.sub(r"[^a-z0-9]+", " ", str(t or "").lower())
+
+
+# Taksonomi topik bawaan (keyword pada teks ternormalisasi ringan). Admin bisa
+# memperkaya ENTITAS lewat menu Kamus (kamus_sinonim) — tagger otomatis ikut.
+_TOPIK_RULES = [
+    ("PPN", ["pajak pertambahan nilai", "ppn", "ppnbm", "barang kena pajak",
+             "jasa kena pajak", "faktur pajak", "kawasan berikat",
+             "daerah pabean", "pengusaha kena pajak"]),
+    ("PPh", ["pajak penghasilan", "pph pasal", "subjek pajak",
+             "penghasilan kena pajak", "penghasilan tidak kena pajak",
+             "bentuk usaha tetap", "p3b", "penghindaran pajak berganda"]),
+    ("KUP", ["ketentuan umum dan tata cara perpajakan", "surat pemberitahuan",
+             "ketetapan pajak", "keberatan", "banding", "gugatan",
+             "nomor pokok wajib pajak", "npwp"]),
+    ("Kepabeanan", ["pabean", "cukai", "tempat penimbunan berikat",
+                    "bea masuk", "pemberitahuan impor barang",
+                    "pemberitahuan ekspor barang"]),
+    ("PBB_BPHTB", ["pajak bumi dan bangunan", "pbb",
+                   "perolehan hak atas tanah", "bphtb"]),
+    ("Bea Meterai", ["bea meterai", "meterai"]),
+    ("Sanksi & Penagihan", ["sanksi administrasi", "denda", "bunga",
+                            "surat paksa", "penagihan", "juru sita"]),
+    ("Insentif & Fasilitas", ["insentif", "fasilitas", "dibebaskan",
+                              "tidak dipungut", "pengurangan", "tax holiday"]),
+]
+
+_TAGGER = {"built": False, "rx": None, "form2istilah": {}}
+
+
+def _build_tagger():
+    """Bangun peta bentuk->istilah dari kamus_sinonim + regex gabungan (lazy,
+    fail-soft). Bentuk diambil mentah dari kamus lalu di-light-normalize."""
+    if _TAGGER["built"]:
+        return
+    _TAGGER["built"] = True
+    forms = {}
+    try:
+        import rag_kamus_db as kdb
+        for e in (kdb.all_active() or []):
+            ist = str(e.get("istilah") or "").strip()
+            if not ist:
+                continue
+            for f in (e.get("forms") or []):
+                fl = _light_norm(f).strip()
+                if len(fl) >= 2:
+                    forms.setdefault(fl, ist)
+    except Exception:
+        forms = {}
+    _TAGGER["form2istilah"] = forms
+    if forms:
+        try:
+            pat = "|".join(re.escape(f) for f in sorted(forms, key=len, reverse=True))
+            _TAGGER["rx"] = re.compile(r"(?<![0-9a-z])(" + pat + r")(?![0-9a-z])")
+        except Exception:
+            _TAGGER["rx"] = None
+
+
+def tag_unit(judul, hierarchy, isi):
+    """Kembalikan (entitas_json, topik_json) untuk satu unit.
+
+    entitas: daftar istilah kamus yang bentuknya muncul di teks.
+    topik  : daftar topik taksonomi bawaan yang keyword-nya muncul.
+    """
+    _build_tagger()
+    txt = _light_norm(" ".join(x for x in [judul, hierarchy, isi] if x))
+    ent = []
+    rx = _TAGGER["rx"]
+    if rx and txt:
+        try:
+            for m in rx.finditer(txt):
+                ist = _TAGGER["form2istilah"].get(m.group(1))
+                if ist and ist not in ent:
+                    ent.append(ist)
+        except Exception:
+            pass
+    topik = []
+    for nama, kws in _TOPIK_RULES:
+        for kw in kws:
+            if kw in txt:
+                topik.append(nama)
+                break
+    return (json.dumps(ent, ensure_ascii=False) if ent else None,
+            json.dumps(topik, ensure_ascii=False) if topik else None)
+
+
+def backfill_tags(conn=None, batch=500, progress=True):
+    """Fase 2: isi kolom entitas & topik untuk seluruh unit (idempoten).
+    Tanpa model/GPU; satu regex gabungan per unit."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        rows = conn.execute(
+            "SELECT id, judul, hierarchy, isi FROM peraturan_unit").fetchall()
+    except Exception as e:
+        if own:
+            conn.close()
+        return {"ok": False, "error": str(e)[:200], "n": 0}
+    n = 0
+    try:
+        for i in range(0, len(rows), batch):
+            for r in rows[i:i + batch]:
+                ent_j, top_j = tag_unit(r["judul"], r["hierarchy"], r["isi"])
+                conn.execute(
+                    "UPDATE peraturan_unit SET entitas=?, topik=? WHERE id=?",
+                    (ent_j, top_j, r["id"]))
+                n += 1
+            conn.commit()
+            if progress:
+                print("[peraturan_db] backfill tags: %d/%d" % (n, len(rows)),
+                      flush=True)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "n": n}
+    finally:
+        if own:
+            conn.close()
+    return {"ok": True, "n": n}
+
+
+# --------------------------------------------------------------- Fase 2: relasi
+def build_relasi(conn=None, progress=True):
+    """Fase 2: bangun tabel peraturan_relasi dari status_terkait/history_terkait.
+
+    Satu baris sumber per DOKUMEN (distinct source_id; kolom JSON diisi parser
+    TKB):
+      status_terkait  -> jenis 'penerus'   (dokumen LEBIH BARU yang
+                                             mengubah/mencabut dokumen ini)
+      history_terkait -> jenis 'pendahulu' (dokumen terkait yang lebih lama)
+    Idempoten (UNIQUE(from_source,to_source,jenis_relasi) + INSERT OR IGNORE)."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    n_add = 0
+    try:
+        rows = conn.execute(
+            "SELECT source_id, MAX(status_terkait) AS st, MAX(history_terkait) AS hs "
+            "FROM peraturan_unit WHERE source_id IS NOT NULL AND TRIM(source_id)<>'' "
+            "GROUP BY source_id").fetchall()
+    except Exception as e:
+        if own:
+            conn.close()
+        return {"ok": False, "error": str(e)[:200], "n": 0}
+    try:
+        for idx, r in enumerate(rows, start=1):
+            sid = r["source_id"]
+            for col, jenis in (("st", "penerus"), ("hs", "pendahulu")):
+                try:
+                    items = json.loads(r[col] or "[]")
+                except Exception:
+                    items = []
+                if not isinstance(items, list):
+                    continue
+                for it in items:
+                    if not isinstance(it, dict):
+                        continue
+                    try:
+                        cur = conn.execute(
+                            "INSERT OR IGNORE INTO peraturan_relasi "
+                            "(from_source, to_source, jenis_relasi, tanggal, "
+                            " nomor_tujuan, judul_tujuan, link, deskripsi) "
+                            "VALUES (?,?,?,?,?,?,?,?)",
+                            (sid, str(it.get("source_id") or ""), jenis,
+                             str(it.get("tanggal") or ""), str(it.get("nomor") or ""),
+                             str(it.get("judul") or ""), str(it.get("link") or ""),
+                             str(it.get("deskripsi") or "")))
+                        n_add += cur.rowcount or 0
+                    except Exception:
+                        pass
+            conn.commit()
+            if progress and (idx % 200 == 0 or idx == len(rows)):
+                print("[peraturan_db] build relasi: %d/%d dokumen (+%d relasi)"
+                      % (idx, len(rows), n_add), flush=True)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "n": n_add}
+    finally:
+        if own:
+            conn.close()
+    return {"ok": True, "n": n_add, "dokumen": len(rows)}
+
+
+def trace_successor(source_id, maks_lompatan=3, conn=None):
+    """Telusuri rantai 'penerus' dari source_id sampai dokumen berstatus
+    'berlaku' atau batas lompatan tercapai (multi-hop).
+
+    Kembalikan list langkah berurut:
+      [{source_id, nomor, judul, tanggal, status}]
+    Langkah terakhir idealnya dokumen pengganti yang berlaku. List kosong bila
+    tabel relasi belum dibangun / rantai tak ada."""
+    out = []
+    if not source_id:
+        return out
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        cur_sid = source_id
+        seen = {source_id}
+        for _ in range(max(1, int(maks_lompatan))):
+            try:
+                r = conn.execute(
+                    "SELECT to_source, nomor_tujuan, judul_tujuan, tanggal "
+                    "FROM peraturan_relasi "
+                    "WHERE from_source=? AND jenis_relasi='penerus' "
+                    "ORDER BY tanggal DESC, id DESC LIMIT 1", (cur_sid,)).fetchone()
+            except Exception:
+                r = None
+            if not r:
+                break
+            nxt = str(r["to_source"] or "").strip()
+            if not nxt or nxt in seen:
+                break
+            seen.add(nxt)
+            try:
+                info = induk_info(nxt, conn=conn) or {}
+            except Exception:
+                info = {}
+            out.append({"source_id": nxt,
+                        "nomor": str(r["nomor_tujuan"] or ""),
+                        "judul": str(r["judul_tujuan"] or info.get("judul") or ""),
+                        "tanggal": str(r["tanggal"] or ""),
+                        "status": str(info.get("status") or "")})
+            if str(info.get("status") or "").lower() == "berlaku":
+                break
+            cur_sid = nxt
+    except Exception:
+        pass
+    finally:
+        if own:
+            conn.close()
+    return out
+
+
 # --------------------------------------------------------------------- upsert
 def _norm(data):
     out = {}
@@ -454,6 +719,16 @@ def upsert_peraturan(data, conn=None):
     conn = conn or init_db(connect())
     try:
         d = _norm(data)
+        # Fase 2: auto-tag entitas/topik bila belum diisi eksplisit.
+        try:
+            if d.get("isi") and (not d.get("entitas") or not d.get("topik")):
+                ent_j, top_j = tag_unit(d.get("judul"), d.get("hierarchy"), d.get("isi"))
+                if not d.get("entitas"):
+                    d["entitas"] = ent_j
+                if not d.get("topik"):
+                    d["topik"] = top_j
+        except Exception:
+            pass
         cols = PERATURAN_KOLOM
         ph = ",".join("?" for _ in cols)
         updates = ",".join("%s=excluded.%s" % (c, c) for c in cols if c != "id")
@@ -757,6 +1032,11 @@ def stats(conn=None):
         }
         srow = conn.execute("SELECT status, COUNT(*) AS n FROM peraturan_unit GROUP BY status").fetchall()
         out["status"] = {r["status"]: r["n"] for r in srow}
+        try:
+            out["total_relasi"] = _c("SELECT COUNT(*) FROM peraturan_relasi")
+            out["unit_bertag"] = _c("SELECT COUNT(*) FROM peraturan_unit WHERE entitas IS NOT NULL")
+        except Exception:
+            pass
         has_log = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='impor_log'"
         ).fetchone()

@@ -168,6 +168,13 @@ import rag_rerank_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     agar ikut membungkus dispatch peraturan versi successor. ---
 import rag_calibration_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Fase 2 (sinyal domain hukum di ranking + filter temporal as-of):
+#     membungkus peraturan_db.search versi terakhir (gate -> rerank -> hybrid)
+#     agar kekuatan_hukum/recency/entitas/definisi ikut menentukan urutan akhir,
+#     dan query bertahun ("... tahun 2019") difilter as-of. WAJIB setelah
+#     rag_calibration_patch agar membungkus rantai terakhir. ---
+import rag_domain_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 # --- Tahap 3 (guardrail grounding jawaban): monkey-patch rag_engine.answer agar
 #     (a) membuang/menormalkan tautan tidak resmi/pemendek (t.co/x.com/bit.ly)
 #     dari body jawaban, dan (b) memaksa abstain bila jawaban memuat rujukan

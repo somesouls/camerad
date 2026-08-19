@@ -5,6 +5,13 @@ Port dari jakai (app/parsers/tkb_djp.py). Menelusuri sel <td> pada .isi-aturan,
 melacak konteks BAB/Bagian/Pasal, dan memproduksi satu unit per-Pasal (default)
 atau per-ayat. Keluaran cocok untuk kolom tabel peraturan_unit (peraturan_db).
 
+Fase 2: parser mengenali awal bagian PENJELASAN (termasuk bentuk huruf
+berjarak "P E N J E L A S A N"). Unit yang berada di bagian penjelasan diberi
+jenis_unit='penjelasan' dan hierarchy berprefix "PENJELASAN > ..." sehingga
+bisa dibedakan dari batang tubuh — berguna untuk ranking (boost pasal definisi)
+dan audit. ID unit penjelasan memakai suffix '-penj-pX' agar tidak bentrok
+dengan unit batang tubuh pasal yang sama.
+
 == Status & relasi peraturan ==
 Halaman TKB DJP memuat status terkini pada <div class="cabut-aturan">:
   * "perubahan atau penyempurnaan" -> status "diubah"
@@ -249,6 +256,7 @@ class Unit:
     judul_bagian: str = ""
     hierarchy: str = ""
     isi: str = ""
+    jenis_unit: str = "batang_tubuh"   # batang_tubuh | penjelasan
 
 
 def _walk(cells: list, per_ayat: bool = False) -> list:
@@ -258,6 +266,7 @@ def _walk(cells: list, per_ayat: bool = False) -> list:
     pending = ""
     cur = None
     cur_ayat = None
+    in_penjelasan = False   # Fase 2: True setelah header PENJELASAN ditemukan
 
     def bab_full() -> str:
         return _clean(f"{bab} {bab_judul}")
@@ -272,6 +281,21 @@ def _walk(cells: list, per_ayat: bool = False) -> list:
             h += f" ayat ({ayat})"
         return h
 
+    def _mk(pasal: str, ayat: str = "") -> "Unit":
+        """Unit baru dengan konteks saat ini; mode penjelasan memberi prefix
+        hierarchy + jenis_unit='penjelasan'."""
+        h = hierarchy_for(pasal, ayat)
+        if in_penjelasan:
+            h = "PENJELASAN > " + h
+        return Unit(
+            pasal=pasal, ayat=ayat,
+            bab=bab_full() if not in_penjelasan else "",
+            bagian=bagian if not in_penjelasan else "",
+            judul_bagian=bagian_judul if not in_penjelasan else "",
+            hierarchy=h,
+            jenis_unit=("penjelasan" if in_penjelasan else "batang_tubuh"),
+        )
+
     def flush():
         nonlocal cur, cur_ayat
         if per_ayat:
@@ -285,6 +309,17 @@ def _walk(cells: list, per_ayat: bool = False) -> list:
     for raw in cells:
         c = raw.strip()
         if not c:
+            continue
+
+        # Fase 2: deteksi awal bagian PENJELASAN (juga bentuk huruf berjarak
+        # "P E N J E L A S A N"). Bukan Bab/Bagian/Pasal -> cek sebelum itu.
+        cc = c.replace(" ", "")
+        if not in_penjelasan and len(c) <= 120 and cc.upper().startswith("PENJELASAN"):
+            flush()
+            in_penjelasan = True
+            bab = bab_judul = bagian = bagian_judul = ""
+            mode_title = None
+            pending = ""
             continue
 
         if RE_BAB.match(c):
@@ -306,10 +341,7 @@ def _walk(cells: list, per_ayat: bool = False) -> list:
         if mp:
             flush()
             pasal_no = mp.group(1)
-            cur = Unit(
-                pasal=pasal_no, bab=bab_full(), bagian=bagian, judul_bagian=bagian_judul,
-                hierarchy=hierarchy_for(pasal_no),
-            )
+            cur = _mk(pasal_no)
             cur_ayat = None
             mode_title = None
             pending = ""
@@ -331,10 +363,7 @@ def _walk(cells: list, per_ayat: bool = False) -> list:
         if ma and per_ayat:
             if cur_ayat and cur_ayat.isi.strip():
                 units.append(cur_ayat)
-            cur_ayat = Unit(
-                pasal=cur.pasal, ayat=ma.group(1), bab=cur.bab, bagian=cur.bagian,
-                judul_bagian=cur.judul_bagian, hierarchy=hierarchy_for(cur.pasal, ma.group(1)),
-            )
+            cur_ayat = _mk(cur.pasal, ma.group(1))
             pending = ""
             continue
 
@@ -346,10 +375,7 @@ def _walk(cells: list, per_ayat: bool = False) -> list:
         pending = ""
         target = cur_ayat if (per_ayat and cur_ayat is not None) else cur
         if per_ayat and cur_ayat is None:
-            cur_ayat = Unit(
-                pasal=cur.pasal, ayat="", bab=cur.bab, bagian=cur.bagian,
-                judul_bagian=cur.judul_bagian, hierarchy=hierarchy_for(cur.pasal),
-            )
+            cur_ayat = _mk(cur.pasal, "")
             target = cur_ayat
         target.isi = _clean(f"{target.isi} {seg}")
 
@@ -387,7 +413,12 @@ def to_rows(html: str, per_ayat: bool = False, jenis_hint: Optional[str] = None)
     hs_json = related_json(meta.history_terkait, meta.source_url)
     rows = []
     for u in units:
-        suffix = f"p{u.pasal.lower()}" if u.pasal else "utuh"
+        # Fase 2: unit penjelasan memakai prefix id berbeda agar tidak bentrok
+        # dengan unit batang tubuh pasal yang sama.
+        if u.jenis_unit == "penjelasan":
+            suffix = f"penj-p{u.pasal.lower()}" if u.pasal else "penj-utuh"
+        else:
+            suffix = f"p{u.pasal.lower()}" if u.pasal else "utuh"
         if per_ayat and u.ayat:
             suffix += f"a{u.ayat.lower()}"
         rows.append({
@@ -402,6 +433,7 @@ def to_rows(html: str, per_ayat: bool = False, jenis_hint: Optional[str] = None)
             "ayat": u.ayat,
             "hierarchy": u.hierarchy,
             "isi": u.isi,
+            "jenis_unit": u.jenis_unit,
             "status": status,
             "valid_from": meta.valid_from,
             "kekuatan_hukum": kekuatan,
@@ -427,6 +459,7 @@ def to_rows(html: str, per_ayat: bool = False, jenis_hint: Optional[str] = None)
                 "ayat": "",
                 "hierarchy": "(dokumen utuh - tanpa struktur Pasal)",
                 "isi": body[:20000],
+                "jenis_unit": "batang_tubuh",
                 "status": status,
                 "valid_from": meta.valid_from,
                 "kekuatan_hukum": kekuatan,
