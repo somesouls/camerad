@@ -11,6 +11,11 @@ hasil Q2Q bisa DIEKSPANSI dengan tanya-jawab lanjutan dalam utas yang sama
 ("penggalian sampai bawah") via siblings(). Pasangan nyaris-tanpa-isi
 (sapaan saja, < 3 token bermakna) dibuang saat build.
 
+Perbaikan v26: urutan migrasi di init_db — ALTER TABLE ADD COLUMN conv_id harus
+MENDAHULUI pembuatan indeks idx_qa_conv; pada qa.db lama (Fase 5) kolom itu
+belum ada sehingga CREATE INDEX di dalam executescript gagal
+("no such column: conv_id"). Kini: tabel dasar -> migrasi kolom -> indeks.
+
 Penyimpanan (pola peraturan_db / sop_db):
   * qa_unit : id, sumber ('sosmed'|'awe'), ref_id, conv_id, question, answer,
               topik, url, reg_json (rujukan terdeteksi+teresolusi saat build),
@@ -65,6 +70,7 @@ def connect(db_path=None):
 
 
 def init_db(conn):
+    # v26: tabel dasar dulu (tanpa indeks utas)...
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS qa_unit (
@@ -80,7 +86,6 @@ def init_db(conn):
             created_at  TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_qa_sumber ON qa_unit(sumber);
-        CREATE INDEX IF NOT EXISTS idx_qa_conv ON qa_unit(conv_id);
 
         CREATE TABLE IF NOT EXISTS qa_vec (
             id  TEXT PRIMARY KEY,
@@ -94,11 +99,16 @@ def init_db(conn):
         );
         """
     )
-    # Migrasi ringan (Fase 6): DB lama belum punya kolom conv_id.
+    # ...lalu migrasi kolom (DB lama Fase 5 belum punya conv_id)...
     try:
         cols = [r[1] for r in conn.execute("PRAGMA table_info(qa_unit)").fetchall()]
         if "conv_id" not in cols:
             conn.execute("ALTER TABLE qa_unit ADD COLUMN conv_id TEXT DEFAULT ''")
+    except Exception:
+        pass
+    # ...baru setelah kolom pasti ada: indeks utas.
+    try:
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_qa_conv ON qa_unit(conv_id)")
     except Exception:
         pass
     conn.commit()
