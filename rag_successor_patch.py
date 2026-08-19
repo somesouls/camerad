@@ -14,10 +14,16 @@ Patch ini mengganti _ctx_peraturan sehingga:
   1. Tetap hanya melampirkan ISI peraturan yang BERLAKU (aman, tak berubah).
   2. Melakukan probe lintas-status untuk mendeteksi apakah kandidat TERMIRIP
      justru berstatus dicabut/diubah.
-  3. Bila ya: menelusuri peraturan PENGGANTI terbaru lewat kolom
-     status_terkait / dicabut_oleh / diubah_oleh, menarik ISI pengganti yang
-     BERLAKU ke konteks, dan menyisipkan CATATAN STATUS HUKUM agar LLM tidak
-     mendasarkan jawaban pada aturan yang sudah tak berlaku.
+  3. Bila ya: menelusuri peraturan PENGGANTI terbaru, menarik ISI pengganti
+     yang BERLAKU ke konteks, dan menyisipkan CATATAN STATUS HUKUM agar LLM
+     tidak mendasarkan jawaban pada aturan yang sudah tak berlaku.
+
+Fase 2 (v2): penelusuran pengganti menjadi MULTI-HOP bila tabel
+peraturan_relasi sudah dibangun (phase2_upgrade) — rantai A(dicabut) ->
+B(diubah) -> C(berlaku) ditelusuri sampai ujung yang berlaku, dan penarikan
+ISI diprioritaskan dari dokumen ujung yang berlaku. Bila tabel relasi belum
+ada/kosong, perilaku kembali ke jalur JSON 1-lompatan (status_terkait /
+dicabut_oleh) persis seperti v1.
 
 Gagal-anggun: bila bagian penelusuran error, jatuh kembali ke perilaku
 'berlaku saja'.
@@ -102,28 +108,56 @@ def _ctx_peraturan_tracing(q, limit=4):
             if pasal:
                 head_usang += " - Pasal " + pasal
 
-            # Referensi pengganti dari status_terkait (JSON), lalu fallback ke
-            # kolom teks dicabut_oleh / diubah_oleh.
-            terkait = _json_list(usang.get("status_terkait"))
+            # Fase 2: coba telusur MULTI-HOP lewat tabel peraturan_relasi dulu
+            # (dibangun phase2_upgrade). Rantai A(dicabut) -> B(diubah) ->
+            # C(berlaku) ditelusuri sampai ujung. Bila tabel relasi belum ada /
+            # kosong -> fallback ke jalur JSON 1-lompatan (perilaku v1).
             refs = []
-            for it in terkait[:2]:
-                if not isinstance(it, dict):
-                    continue
-                rnom = str(it.get("nomor") or "").strip()
-                rjud = str(it.get("judul") or "").strip()
-                rtgl = str(it.get("tanggal") or "").strip()
-                lab = " ".join(x for x in [rnom, rjud] if x).strip() \
-                    or str(it.get("deskripsi") or "").strip()
-                if not lab:
-                    continue
-                if rtgl:
-                    lab = "%s (%s)" % (lab, rtgl)
-                refs.append((lab, it))
+            langkah = []
+            try:
+                get_tr = getattr(pdb, "trace_successor", None)
+                sid_usang = str(usang.get("source_id") or "").strip()
+                if callable(get_tr) and sid_usang:
+                    langkah = get_tr(sid_usang, 3) or []
+            except Exception:
+                langkah = []
+            if langkah:
+                for st in langkah:
+                    lab = " ".join(x for x in [str(st.get("nomor") or "").strip(),
+                                               str(st.get("judul") or "").strip()] if x).strip()
+                    if not lab:
+                        lab = str(st.get("source_id") or "")
+                    tgl = str(st.get("tanggal") or "").strip()
+                    if tgl:
+                        lab = "%s (%s)" % (lab, tgl)
+                    if lab:
+                        refs.append((lab, st))
+                # Prioritaskan penarikan ISI dari dokumen berstatus 'berlaku'
+                # (ujung rantai), bukan perantara yang masih diubah/dicabut.
+                refs.sort(key=lambda x: 0 if str((x[1] or {}).get("status") or "").lower() == "berlaku" else 1)
+
             if not refs:
-                teks = str(usang.get("dicabut_oleh") or
-                           usang.get("diubah_oleh") or "").strip()
-                if teks:
-                    refs.append((teks, None))
+                # Referensi pengganti dari status_terkait (JSON), lalu fallback
+                # ke kolom teks dicabut_oleh / diubah_oleh.
+                terkait = _json_list(usang.get("status_terkait"))
+                for it in terkait[:2]:
+                    if not isinstance(it, dict):
+                        continue
+                    rnom = str(it.get("nomor") or "").strip()
+                    rjud = str(it.get("judul") or "").strip()
+                    rtgl = str(it.get("tanggal") or "").strip()
+                    lab = " ".join(x for x in [rnom, rjud] if x).strip() \
+                        or str(it.get("deskripsi") or "").strip()
+                    if not lab:
+                        continue
+                    if rtgl:
+                        lab = "%s (%s)" % (lab, rtgl)
+                    refs.append((lab, it))
+                if not refs:
+                    teks = str(usang.get("dicabut_oleh") or
+                               usang.get("diubah_oleh") or "").strip()
+                    if teks:
+                        refs.append((teks, None))
 
             # Tarik ISI peraturan pengganti yang BERLAKU (maks 1) ke konteks.
             ditarik = 0
@@ -152,12 +186,21 @@ def _ctx_peraturan_tracing(q, limit=4):
                         break
 
             ref_txt = "; ".join(x[0] for x in refs) if refs else "tidak tercatat"
-            catatan.append(
-                "CATATAN STATUS HUKUM: Ketentuan yang paling sesuai dengan "
-                "pertanyaan, yaitu " + head_usang + ", berstatus " + stat + ". "
-                "JANGAN jadikan dasar jawaban. Gunakan peraturan pengganti yang "
-                "berlaku: " + ref_txt + "."
-            )
+            if langkah:
+                catatan.append(
+                    "CATATAN STATUS HUKUM: Ketentuan yang paling sesuai dengan "
+                    "pertanyaan, yaitu " + head_usang + ", berstatus " + stat + ". "
+                    "JANGAN jadikan dasar jawaban. Rantai perubahan berurutan: "
+                    + ref_txt + ". Gunakan dokumen terbaru yang berlaku di ujung "
+                    "rantai tersebut."
+                )
+            else:
+                catatan.append(
+                    "CATATAN STATUS HUKUM: Ketentuan yang paling sesuai dengan "
+                    "pertanyaan, yaitu " + head_usang + ", berstatus " + stat + ". "
+                    "JANGAN jadikan dasar jawaban. Gunakan peraturan pengganti yang "
+                    "berlaku: " + ref_txt + "."
+                )
     except Exception:
         pass
 
@@ -177,4 +220,5 @@ try:
 except Exception:
     pass
 
-print("[rag_successor_patch] _ctx_peraturan successor-tracing aktif")
+print("[rag_successor_patch] _ctx_peraturan successor-tracing aktif "
+      "(multi-hop bila peraturan_relasi terisi)")
