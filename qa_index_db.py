@@ -1,14 +1,20 @@
 # -*- coding: utf-8 -*-
-"""qa_index_db.py — Indeks Q&A historis (Sosmed FAQ + Livechat AWE) — Fase 5.
+"""qa_index_db.py — Indeks Q&A historis (Sosmed FAQ + Livechat AWE) — Fase 5/6.
 
 Gagasan: pertanyaan user baru bahasanya MIRIP pertanyaan historis. Jadi yang
 di-embed adalah PERTANYAAN (bukan jawaban) — question-to-question (Q2Q).
 Jawaban historis hanya jadi jembatan: rujukan peraturan yang terdeteksi di
 dalamnya (regref) diresolusi ke basis peraturan yang rapi.
 
+Fase 6: tiap pasangan kini menyimpan conv_id (id percakapan/utas asal), sehingga
+hasil Q2Q bisa DIEKSPANSI dengan tanya-jawab lanjutan dalam utas yang sama
+("penggalian sampai bawah") via siblings(). Pasangan nyaris-tanpa-isi
+(sapaan saja, < 3 token bermakna) dibuang saat build.
+
 Penyimpanan (pola peraturan_db / sop_db):
-  * qa_unit : id, sumber ('sosmed'|'awe'), ref_id, question, answer, topik,
-              url, reg_json (rujukan terdeteksi+teresolusi saat build), created_at
+  * qa_unit : id, sumber ('sosmed'|'awe'), ref_id, conv_id, question, answer,
+              topik, url, reg_json (rujukan terdeteksi+teresolusi saat build),
+              created_at
   * qa_vec  : id, dim, emb (BLOB float32; cosine numpy, tanpa sqlite-vec)
   * qa_meta : key/value (penanda build)
 
@@ -65,6 +71,7 @@ def init_db(conn):
             id          TEXT PRIMARY KEY,
             sumber      TEXT,
             ref_id      TEXT,
+            conv_id     TEXT DEFAULT '',
             question    TEXT,
             answer      TEXT,
             topik       TEXT,
@@ -73,6 +80,7 @@ def init_db(conn):
             created_at  TEXT DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_qa_sumber ON qa_unit(sumber);
+        CREATE INDEX IF NOT EXISTS idx_qa_conv ON qa_unit(conv_id);
 
         CREATE TABLE IF NOT EXISTS qa_vec (
             id  TEXT PRIMARY KEY,
@@ -86,6 +94,13 @@ def init_db(conn):
         );
         """
     )
+    # Migrasi ringan (Fase 6): DB lama belum punya kolom conv_id.
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(qa_unit)").fetchall()]
+        if "conv_id" not in cols:
+            conn.execute("ALTER TABLE qa_unit ADD COLUMN conv_id TEXT DEFAULT ''")
+    except Exception:
+        pass
     conn.commit()
     return conn
 
@@ -107,6 +122,15 @@ def _norm_q(t):
         except Exception:
             pass
     return (t or "").lower()
+
+
+def _cukup_informatif(q):
+    """Buang pasangan nyaris-tanpa-isi (sapaan/ucapan saja) agar tidak mencemari
+    hasil Q2Q: wajib >= 3 token bermakna pasca-normalisasi."""
+    try:
+        return len([t for t in _norm_q(q).split() if t]) >= 3
+    except Exception:
+        return True
 
 
 def _regs(conn_per, text):
@@ -134,7 +158,8 @@ def _regs(conn_per, text):
 
 # ------------------------------------------------------------------ kolektor
 def collect_sosmed(limit=2000):
-    """Pasangan Q&A dari FAQ Sosmed terjawab (balasan akun resmi)."""
+    """Pasangan Q&A dari FAQ Sosmed terjawab (balasan akun resmi).
+    Fase 6: conv_id = conversation_id utas X (untuk ekspansi utas)."""
     out = []
     try:
         import sosmed_db as sdb
@@ -150,7 +175,9 @@ def collect_sosmed(limit=2000):
             if not q or not a:
                 continue
             rid = "%s:%s" % (p.get("platform") or "x", p.get("external_id") or p.get("id") or "")
-            out.append({"sumber": "sosmed", "ref_id": rid, "question": q,
+            out.append({"sumber": "sosmed", "ref_id": rid,
+                        "conv_id": str(p.get("conversation_id") or ""),
+                        "question": q,
                         "answer": a, "topik": str(p.get("topik") or ""),
                         "url": str(p.get("permalink") or "")})
     except Exception:
@@ -167,7 +194,7 @@ def collect_sosmed(limit=2000):
 def collect_awe(limit=1500):
     """Pasangan Q&A dari percakapan AWE: giliran pelanggan -> pertanyaan,
     giliran petugas manusia -> jawaban. Bot/CCAI & full-bot dibuang (helper
-    awe_botfilter_patch dipakai ulang)."""
+    awe_botfilter_patch dipakai ulang). conv_id = sid percakapan."""
     out = []
     try:
         import avaya_db as avdb
@@ -210,7 +237,7 @@ def collect_awe(limit=1500):
             cust, agent = [], []
             for seg in tx:
                 if not isinstance(seg, dict):
-                        continue
+                    continue
                 role, text = seg.get("role", ""), seg.get("text", "")
                 if not text:
                     continue
@@ -225,7 +252,8 @@ def collect_awe(limit=1500):
             a = " ".join(agent).strip()
             if not q or not a:
                 continue
-            out.append({"sumber": "awe", "ref_id": "awe:%s" % (d.get("sid") or ""),
+            sid = str(d.get("sid") or "")
+            out.append({"sumber": "awe", "ref_id": "awe:%s" % sid, "conv_id": sid,
                         "question": q, "answer": a,
                         "topik": str(d.get("jenis_layanan") or d.get("topik") or ""),
                         "url": ""})
@@ -260,6 +288,9 @@ def build_index(batch=64, limit_sosmed=2000, limit_awe=1500, progress=True):
                 have.add(r["id"])
 
         mentah = collect_sosmed(limit_sosmed) + collect_awe(limit_awe)
+        n_awal = len(mentah)
+        mentah = [it for it in mentah if _cukup_informatif(it.get("question") or "")]
+        n_buang = n_awal - len(mentah)
         # dedup per (sumber, pertanyaan ternormalisasi); simpan jawaban terpanjang
         per_key = {}
         for it in mentah:
@@ -268,8 +299,9 @@ def build_index(batch=64, limit_sosmed=2000, limit_awe=1500, progress=True):
                 per_key[key] = it
         items = list(per_key.values())
         if progress:
-            print("[qa_index_db] koleksi: %d mentah -> %d unik (sosmed+awe)"
-                  % (len(mentah), len(items)), flush=True)
+            print("[qa_index_db] koleksi: %d mentah -> %d unik (sosmed+awe); "
+                  "nyaris-tanpa-isi dibuang: %d" % (n_awal, len(items), n_buang),
+                  flush=True)
 
         n_new = n_vec = n_skip = 0
         todo = []
@@ -279,12 +311,13 @@ def build_index(batch=64, limit_sosmed=2000, limit_awe=1500, progress=True):
             a_m = _mask(it["answer"])
             regs = _regs(conn_per, q_m + " " + a_m)
             conn.execute(
-                "INSERT INTO qa_unit(id, sumber, ref_id, question, answer, topik, url, reg_json) "
-                "VALUES(?,?,?,?,?,?,?,?) "
+                "INSERT INTO qa_unit(id, sumber, ref_id, conv_id, question, answer, topik, url, reg_json) "
+                "VALUES(?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(id) DO UPDATE SET question=excluded.question, "
                 "answer=excluded.answer, topik=excluded.topik, url=excluded.url, "
-                "reg_json=excluded.reg_json",
-                (qid, it["sumber"], it["ref_id"], q_m, a_m, it.get("topik") or "",
+                "conv_id=excluded.conv_id, reg_json=excluded.reg_json",
+                (qid, it["sumber"], it["ref_id"], it.get("conv_id") or "",
+                 q_m, a_m, it.get("topik") or "",
                  it.get("url") or "", json.dumps(regs, ensure_ascii=False)),
             )
             if qid in have:
@@ -320,7 +353,7 @@ def build_index(batch=64, limit_sosmed=2000, limit_awe=1500, progress=True):
         conn.commit()
         _vec_cache_clear()
         return {"ok": True, "unit": n_new, "vec_baru": n_vec, "vec_skip": n_skip,
-                "unik": len(items)}
+                "unik": len(items), "buang_pendek": n_buang}
     except Exception as e:
         return {"ok": False, "error": str(e)[:200]}
     finally:
@@ -424,6 +457,28 @@ def search(query, k=3, conn=None):
             conn.close()
 
 
+def siblings(conv_id, exclude_id, sumber="sosmed", limit=4, conn=None):
+    """Fase 6: pasangan lain dalam percakapan/utas yang sama (ekspansi
+    'penggalian sampai bawah'). Diurutkan kronologis mendekati: ref_id sosmed
+    memuat external_id (snowflake X) dengan panjang digit seragam sehingga
+    urutan leksikal ~ urutan waktu."""
+    if not conv_id:
+        return []
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        rows = conn.execute(
+            "SELECT id, question, answer, url FROM qa_unit "
+            "WHERE conv_id=? AND sumber=? AND id != ? ORDER BY ref_id ASC LIMIT ?",
+            (str(conv_id), sumber, str(exclude_id or ""), int(limit or 4))).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+    finally:
+        if own:
+            conn.close()
+
+
 def stats(conn=None):
     own = conn is None
     conn = conn or init_db(connect())
@@ -434,6 +489,7 @@ def stats(conn=None):
                 "total_vec": _c("SELECT COUNT(*) FROM qa_vec"),
                 "sosmed": _c("SELECT COUNT(*) FROM qa_unit WHERE sumber='sosmed'"),
                 "awe": _c("SELECT COUNT(*) FROM qa_unit WHERE sumber='awe'"),
+                "dengan_utas": _c("SELECT COUNT(DISTINCT conv_id) FROM qa_unit WHERE conv_id != ''"),
                 "dengan_rujukan": _c("SELECT COUNT(*) FROM qa_unit WHERE reg_json NOT IN ('','[]') AND reg_json IS NOT NULL")}
     finally:
         if own:

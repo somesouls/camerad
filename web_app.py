@@ -175,6 +175,14 @@ import rag_calibration_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     rag_calibration_patch agar membungkus rantai terakhir. ---
 import rag_domain_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Fase 6 (v25): drill-down ketentuan PELAKSANA — bila kandidat teratas
+#     peraturan berlevel UU/PERPU/PERPRES/PP (umum), cari dokumen berlevel lebih
+#     rendah (PMK/PER/SE, dst.) yang TERVERIFIKASI merujuk nomor induknya
+#     (regex multi-format regref atas isi), lalu sertakan sebagai blok
+#     "Ketentuan pelaksana". WAJIB setelah rag_domain_patch (membungkus
+#     _ctx_peraturan versi terakhir). ---
+import rag_drilldown_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 # --- Tahap 3 (guardrail grounding jawaban): monkey-patch rag_engine.answer agar
 #     (a) membuang/menormalkan tautan tidak resmi/pemendek (t.co/x.com/bit.ly)
 #     dari body jawaban, dan (b) memaksa abstain bila jawaban memuat rujukan
@@ -208,8 +216,9 @@ import rag_sources_patch  # noqa: F401  (menerapkan patch saat diimpor)
 # --- Fase 5 (Q2Q): indeks PERTANYAAN historis Sosmed/AWE sebagai vektor
 #     (kemiripan pertanyaan, bukan jawaban), lalu tautkan rujukan peraturan
 #     yang terdeteksi di jawaban historis ke basis peraturan yang rapi.
-#     Membungkus _ctx_awe/_ctx_sosmed versi v16; fail-soft bila qa.db belum
-#     dibangun (python phase5_qa_build.py). WAJIB setelah rag_sources_patch. ---
+#     Fase 6: hasil Q2Q Sosmed diekspansi dengan tanya-jawab lanjutan dalam
+#     utas yang sama (conv_id). Fail-soft bila qa.db belum dibangun
+#     (python phase5_qa_build.py). WAJIB setelah rag_sources_patch. ---
 import rag_qa_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 import awe_routes
