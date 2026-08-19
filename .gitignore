@@ -3,10 +3,10 @@ __pycache__/
 .env
 service-account.json
 *.db
+*.db-shm
+*.db-wal
 _runs/
 
-*.zip
-=======
 *.zip
 
 aturan/
