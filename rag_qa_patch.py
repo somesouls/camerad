@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""rag_qa_patch.py — Fase 5: retrieval Q2Q (question-to-question) utk AWE & Sosmed.
+"""rag_qa_patch.py — Fase 5/6: retrieval Q2Q (question-to-question) utk AWE & Sosmed.
 
 Gagasan (usulan pengguna, 19 Agu 2026): data Sosmed & Livechat SUDAH berbentuk
 pertanyaan-jawaban asli pengguna berbulan-bulan — bahasanya sangat mirip dengan
@@ -9,6 +9,10 @@ dan rujukan peraturan yang terdeteksi di dalamnya (regref: "PMK 10 2025",
 "PMK Nomor 10 Tahun 2025", "PMK No 10 TH 2025", dst.) ditautkan otomatis ke
 basis peraturan yang rapi (jenis/nomor/tahun/pasal) — isi pasal ikut disertakan
 sebagai konteks terverifikasi.
+
+Fase 6 (usulan pengguna berikutnya): hasil Q2Q Sosmed DIEKSPANSI dengan
+tanya-jawab lanjutan dalam UTAS yang sama (conv_id) — "penggalian sampai
+bawah" mengikuti cabang jawaban historis, bukan hanya pasangan pertamanya.
 
 Cara pasang: membungkus _ctx_awe/_ctx_sosmed versi terakhir (v16,
 rag_sources_patch) — jalur leksikal tetap jalan, hasil Q2Q DITAMBAHKAN.
@@ -20,6 +24,7 @@ Env:
   RAG_QA_MIN_COS=0.50 -> ambang cosine kemiripan pertanyaan.
   RAG_QA_TOPK=3       -> maks pasangan Q&A historis per query.
   RAG_QA_LINK_REG=0   -> jangan tautkan rujukan peraturan.
+  RAG_QA_THREAD=0     -> matikan ekspansi utas (Fase 6).
 
 Diimpor di web_app.py SETELAH rag_sources_patch.
 """
@@ -54,6 +59,11 @@ def _topk():
 
 def _link_reg_on():
     return str(os.environ.get("RAG_QA_LINK_REG", "1")).strip().lower() not in (
+        "0", "false", "no", "off")
+
+
+def _thread_on():
+    return str(os.environ.get("RAG_QA_THREAD", "1")).strip().lower() not in (
         "0", "false", "no", "off")
 
 
@@ -135,6 +145,23 @@ def _qa_blocks(q, sumber):
         blok = ("Pertanyaan serupa dari riwayat (kemiripan %.2f):\nTanya: %s\n"
                 "Jawaban petugas saat itu: %s"
                 % (float(h.get("cos") or 0.0), qtext, atext))
+        # Fase 6: ekspansi utas — sertakan tanya-jawab lanjutan dalam
+        # percakapan yang sama ("penggalian sampai bawah").
+        if _thread_on() and h.get("conv_id"):
+            try:
+                sibs = _qa.siblings(h.get("conv_id"), h.get("id") or "",
+                                    sumber=sumber, limit=4)
+            except Exception:
+                sibs = []
+            lines = []
+            for sb in sibs or []:
+                qs = _re._clip(sb.get("question"), 180)
+                ans = _re._clip(sb.get("answer"), 240)
+                if qs and ans:
+                    lines.append("Tanya lanjutan: %s\nJawaban: %s" % (qs, ans))
+            if lines:
+                blok += ("\n\nPenggalian dalam utas yang sama:\n"
+                         + "\n\n".join(lines))
         blocks.append(blok)
         src = {"sumber": ("Percakapan AWE" if sumber == "awe" else "Data Sosmed"),
                "judul": ("Q&A serupa: " + _re._clip(qtext, 60)),
@@ -200,10 +227,10 @@ def _install():
         n = (_qa.stats() or {}).get("total_vec", 0) if _qa is not None else 0
     except Exception:
         n = 0
-    print("[rag_qa_patch] Q2Q aktif (min_cos=%.2f, topk=%d, tautan_reg=%s; "
+    print("[rag_qa_patch] Q2Q aktif (min_cos=%.2f, topk=%d, tautan_reg=%s, utas=%s; "
           "indeks Q&A: %s vektor). Bangun indeks: python phase5_qa_build.py"
           % (_qa.min_cos() if _qa is not None else 0.0, _topk(),
-             _link_reg_on(), n if n else "BELUM ADA"), flush=True)
+             _link_reg_on(), _thread_on(), n if n else "BELUM ADA"), flush=True)
 
 
 _install()
