@@ -11,6 +11,10 @@ Tahap:
 
 Profil (persona/prompt/sumber) diambil dari rag_config_db. Dipakai oleh
 rag_routes.py untuk endpoint chat (produksi) dan playground admin (/rag-lab).
+
+v28: parameter "Maks. token / jawaban" (kartu Batas Penggunaan Harian di menu
+Konfigurasi profil) kini BENAR-BENAR dibaca mesin — sebelumnya disimpan ke DB
+tapi sintesis memakai max_new_tokens=800 hardcode. 0/kosong = default (800).
 """
 import re
 import json
@@ -191,8 +195,8 @@ def _ctx_dialogflow(q):
             cat_rows = []
 
         # (A) Peringkat LEKSIKAL — hitung kemunculan token (kuat utk kata kunci).
-        # (4) Untuk kueri PENDEK (sedikit token bermakna, mis. "coretax",
-        # "lupa efin"), kueri biasanya merujuk LANGSUNG ke nama intent atau
+        # (4) Untuk kueri PENDEK (sedikit token bermakna, mis. \"coretax\",
+        # \"lupa efin\"), kueri biasanya merujuk LANGSUNG ke nama intent atau
         # contoh training phrase, bukan uraian panjang. Maka beri bobot lebih
         # besar pada kecocokan NAMA-INTENT & TRAINING PHRASE untuk kueri pendek.
         short_n = _env_int("RAG_INTENT_SHORTQ_TOKENS", 3) or 3
@@ -704,7 +708,7 @@ def _fastpath_intent(q, profile, require_env=True):
 
 
 def _resolve_mode(profile):
-    """Mode mesin per-profil (disetel via switch di halaman Webhook Chatbot).
+    """Mode mesin per-profil (disetel via switch di halaman \"Webhook Chatbot\").
     Kembalikan '' (auto), 'tanpa_llm', 'llm', atau 'full'."""
     m = str((profile or {}).get("mode") or "").strip().lower()
     return m if m in ("tanpa_llm", "llm", "full") else ""
@@ -744,6 +748,19 @@ def _answer_no_llm(q, profile, allowed):
     return {"ok": True, "answer": fallback, "grounded": False,
             "profil": profile.get("id"), "domain": "umum",
             "jalur": "tanpa_llm", "sources": []}
+
+
+def _maks_token_for(profile):
+    """v28: baca \"Maks. token / jawaban\" dari kartu Batas Penggunaan Harian
+    (menu Konfigurasi profil; tersimpan di kuota agent_log_db per target =
+    id profil). 0/kosong/error -> default mesin 800. Gagal-anggun penuh."""
+    try:
+        import agent_log_db as _aldb
+        q = _aldb.get_quota(str((profile or {}).get("id") or ""))
+        mt = int((q or {}).get("maks_token") or 0)
+        return mt if mt > 0 else 800
+    except Exception:
+        return 800
 
 
 # ==========================================================================
@@ -885,7 +902,8 @@ def answer(question, profile, override=None, history=None, diagnostics=False,
     msgs.append({"role": "user", "content": pii_mask.mask_text(q)})
     try:
         ans = llm_client.chat(msgs, system=pii_mask.mask_text(system),
-                              max_new_tokens=800, temperature=float(profile.get("suhu") or 0.3))
+                              max_new_tokens=_maks_token_for(profile),
+                              temperature=float(profile.get("suhu") or 0.3))
     except Exception as e:
         return {"ok": False, "error": str(e)}
     if not (ans or "").strip():
