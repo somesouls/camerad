@@ -18,12 +18,12 @@ kalimat fallback profil (mesin memutuskan abstain), daftar sumber DIKOSONGKAN �
 hasil retrieval yang lemah tetap ada saat abstain, dan menampilkannya sebagai
 "Sumber Rujukan" menyesatkan petugas seolah sumber itu mendukung jawaban.
 
-Perbaikan v22 (PENTING): signature pembungkus _guarded_answer disamakan PERSIS
-dengan rag_engine.answer asli — (question, profile, override=None,
-history=None, diagnostics=False, honor_mode=False). Penulisan v18 memakai
-signature lama yang tidak menerima kwarg override/diagnostics/honor_mode,
-sehingga SEMUA pemanggil (jawab_chat, jawab_lab, eval harness) melempar
-TypeError. Kini seluruh kwarg diteruskan apa adanya ke fungsi asli.
+Perbaikan v22: signature pembungkus _guarded_answer disamakan PERSIS dengan
+rag_engine.answer asli — (question, profile, override=None, history=None,
+diagnostics=False, honor_mode=False); seluruh kwarg diteruskan apa adanya.
+Perbaikan v23: penamaan konstanta fungsi asli dikonsistenkan (_orig_answer) —
+sebelumnya tertulis _ORIG_ANSWER di level modul tapi dipanggil _orig_answer di
+dalam fungsi -> NameError saat jawaban pertama diproses.
 Catatan v22 lain: wrapper tidak menerima konteks mentah, jadi penilaian
 dukungan rujukan (guardrail 2) memakai SUMBER yang dikembalikan mesin
 (judul+ref+url memuat nomor rujukan) sebagai bukti.
@@ -47,7 +47,7 @@ import re
 import rag_engine as _re
 import rag_config_db as _rcfg
 
-_ORIG_ANSWER = _re.answer
+_orig_answer = _re.answer
 
 
 # ---------------------------------------------------------------- env helpers
