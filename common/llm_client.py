@@ -6,6 +6,7 @@ Provider dipilih lewat variabel di file .env:
     LLM_PROVIDER=openai   -> pakai OpenAI (default)
     LLM_PROVIDER=gemini   -> pakai Google Gemini
     LLM_PROVIDER=azure    -> pakai Microsoft Azure OpenAI
+    LLM_PROVIDER=local    -> pakai server lokal OpenAI-compatible (mis. vLLM)
 
 Fungsi utama:
     init_client()                      -> inisialisasi + validasi kunci API
@@ -78,6 +79,22 @@ def init_client():
             api_version=_cfg("AZURE_OPENAI_API_VERSION", "2024-06-01"),
         )
 
+    elif provider in ("local", "vllm"):
+        # Server lokal OpenAI-compatible (vLLM / TGI / llama.cpp server).
+        # Dipakai untuk menyajikan Qwen2.5-7B-Instruct + LoRA adapter camerad.
+        from openai import OpenAI
+        base_url = _cfg("VLLM_BASE_URL") or _cfg(
+            "LOCAL_LLM_BASE_URL", "http://127.0.0.1:8001/v1"
+        )
+        # vLLM tidak memvalidasi API key, tapi klien OpenAI butuh string non-kosong.
+        api_key = _cfg("VLLM_API_KEY") or _cfg("LOCAL_LLM_API_KEY", "sk-local")
+        # _model bisa berupa nama base model ATAU nama LoRA module
+        # (mis. 'camerad-grounded') yang didaftarkan vLLM lewat --lora-modules.
+        _model = _cfg("VLLM_MODEL") or _cfg(
+            "LOCAL_LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"
+        )
+        _client = OpenAI(api_key=api_key, base_url=base_url)
+
     elif provider in ("gemini", "google"):
         import google.generativeai as genai
         api_key = _cfg("GEMINI_API_KEY") or _cfg("GOOGLE_API_KEY")
@@ -91,7 +108,8 @@ def init_client():
 
     else:
         raise RuntimeError(
-            f"LLM_PROVIDER tidak dikenal: '{provider}'. Pakai 'openai' atau 'gemini'."
+            f"LLM_PROVIDER tidak dikenal: '{provider}'. "
+            "Pakai 'openai', 'azure', 'gemini', atau 'local' (vLLM)."
         )
 
     print(f"[LLM] Provider={_provider} model={_model} siap.", flush=True)
@@ -103,7 +121,7 @@ def _generate_one(system, user, max_new_tokens, temperature):
     last_err = None
     for attempt in range(1, max_retries + 1):
         try:
-            if _provider in ("openai", "azure", "azure_openai", "azureopenai"):
+            if _provider in ("openai", "azure", "azure_openai", "azureopenai", "local", "vllm"):
                 messages = []
                 if system:
                     messages.append({"role": "system", "content": system})
@@ -163,7 +181,7 @@ def chat(messages, system=None, max_new_tokens=1024, temperature=0.4):
     last_err = None
     for attempt in range(1, max_retries + 1):
         try:
-            if _provider in ("openai", "azure", "azure_openai", "azureopenai"):
+            if _provider in ("openai", "azure", "azure_openai", "azureopenai", "local", "vllm"):
                 msgs = []
                 if sys_txt:
                     msgs.append({"role": "system", "content": sys_txt})
