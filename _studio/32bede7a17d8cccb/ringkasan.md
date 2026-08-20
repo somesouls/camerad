@@ -1,6 +1,0 @@
-Dokumen ini adalah Keputusan Kepala Kantor Layanan Informasi dan Pengaduan Nomor KEP-59/LIP/2026 tentang pemindahan Tenaga Penyuluh Pajak tahun 2026. Namun, dari isi yang diberikan, **nama “Samsul Hidayatullah” tidak muncul secara eksplisit**, sehingga dokumen ini **tidak memuat informasi tujuan pemindahan Samsul Hidayatullah**. Dokumen hanya menyatakan bahwa pegawai yang namanya tercantum dalam **lampiran** dipindahkan ke jabatan dan tempat kedudukan baru sesuai lajur 6, tetapi lampiran yang memuat daftar nama tidak disertakan dalam konteks ini.
-
-- Dokumen menetapkan pemindahan Tenaga Penyuluh Pajak di lingkungan Kantor Layanan Informasi dan Pengaduan tahun 2026.
-- Pemindahan berlaku untuk pegawai yang namanya tercantum dalam lampiran, dengan jabatan dan tempat kedudukan baru sesuai lajur 6.
-- Dokumen berlaku sejak tanggal ditetapkan, yaitu 3 Juli 2026, dan berlaku surut sejak 1 Juli 2026.
-- Nama “Samsul Hidayatullah” tidak tercantum dalam isi dokumen yang उपलब्ध, sehingga tujuan/tujuan pindahnya tidak dapat dipastikan dari dokumen ini.
