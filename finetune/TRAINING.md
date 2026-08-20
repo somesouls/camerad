@@ -1,45 +1,66 @@
-# Training QLoRA + Serving vLLM
+# Training QLoRA + Serving vLLM (WSL2)
 
 Alur: **build dataset -> train bertahap (Unsloth QLoRA) -> serve (vLLM) -> daftar provider `local`**.
 
-## 0. Prasyarat GPU (RTX 5060 Ti 16GB, Blackwell sm_120)
+> **PENTING (Windows):** vLLM **tidak didukung Windows native** — hanya Linux.
+> RTX 5060 Ti (Blackwell sm_120) juga butuh CUDA 12.8. Jalur yang didukung penuh
+> untuk training **dan** serving adalah **WSL2 Ubuntu** dengan GPU passthrough.
+> Jangan pasang torch/vllm ke `.venv` aplikasi — versinya bentrok & bisa merusak app.
 
-Blackwell butuh build CUDA 12.8+. torch cu128 sudah terpasang. Pin paket berikut
-saat menyiapkan environment training (idealnya venv terpisah dari app):
+## 0. Prasyarat GPU di WSL2 (RTX 5060 Ti 16GB, Blackwell sm_120)
 
+1. Pastikan driver NVIDIA Windows terbaru terpasang (WSL CUDA passthrough otomatis).
+2. Di dalam WSL2 Ubuntu, cek GPU kebaca: `nvidia-smi` harus menampilkan RTX 5060 Ti.
+3. Buat venv Linux **terpisah** di dalam repo (repo Windows bisa diakses via
+   `/mnt/c/Users/USER/chatbot/pipeline_lokal`, atau clone ulang di home WSL):
+
+```bash
+python3 -m venv .venv-train
+source .venv-train/bin/activate
+pip install --upgrade pip
+
+# torch CUDA cu128 untuk Blackwell. WAJIB versi <2.12 karena Unsloth mematoknya.
+pip install "torch<2.12" torchvision --index-url https://download.pytorch.org/whl/cu128
+
+# stack training + serving (Linux mendukung vllm)
+pip install unsloth unsloth_zoo "trl>=0.9" "transformers>=4.44" "datasets>=2.20" \
+            "peft>=0.12" "accelerate>=0.33" "bitsandbytes>=0.43.3" vllm
 ```
-pip install "torch" --index-url https://download.pytorch.org/whl/cu128   # sudah ada
-pip install unsloth unsloth_zoo
-pip install "trl>=0.9" "transformers>=4.44" "datasets>=2.20" "peft>=0.12" "accelerate>=0.33"
-pip install "bitsandbytes>=0.43.3"   # perlu build yang mendukung sm_120
-# vLLM untuk serving (butuh wheel yang mendukung Blackwell/cu128):
-pip install "vllm>=0.6.2"
+
+Cek torch benar-benar melihat GPU (harus muncul `...+cu128 True`):
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available())"
 ```
 
-> Catatan Blackwell: jika `bitsandbytes` / `flash-attn` / `vllm` prebuilt belum
-> mendukung sm_120, pakai wheel nightly/cu128 atau build dari source. QLoRA 4-bit
-> butuh bitsandbytes yang benar; kalau bermasalah, sementara pakai LoRA 16-bit
-> (`FINETUNE_LOAD_IN_4BIT=0`) dengan max_seq_len lebih kecil.
+> Kalau `False`: torch-nya CPU-only (salah index). Ulangi langkah `pip install torch`
+> dengan `--index-url https://download.pytorch.org/whl/cu128`. JANGAN `pip install torch`
+> polos — itu ambil wheel CPU dari PyPI dan Unsloth akan error
+> "cannot find any torch accelerator".
 
 ## 1. Build dataset (tanpa GPU)
 
-```
+```bash
 python -m finetune.build_all
 ```
 
 Hasil di `_runs/finetune/`: `intent.jsonl`, `faq.jsonl`, `grounded.jsonl` (+ `.val.jsonl`) + `manifest.json`.
 
+> **Sudah pernah build di Windows?** File `_runs/finetune/*.jsonl` bisa dipakai ulang
+> dari WSL2 asalkan kamu menjalankan dari folder repo yang sama
+> (mis. lewat `/mnt/c/...`). Tak perlu build ulang; langsung ke langkah 2.
+
 ## 2. Training bertahap (kumulatif)
 
 Data terbersih dulu, lalu menumpuk perilaku di atasnya:
 
-```
+```bash
 python -m finetune.train_qlora --staged
 ```
 
 Setara dengan:
 
-```
+```bash
 python -m finetune.train_qlora --dataset intent
 python -m finetune.train_qlora --dataset faq      --resume-from _runs/finetune/adapters/intent
 python -m finetune.train_qlora --dataset grounded --resume-from _runs/finetune/adapters/faq
@@ -54,9 +75,9 @@ Untuk perbandingan RAG vs LoRA, kamu bisa latih **dua varian**:
 - `intent`+`faq` saja  -> profil **LoRA chatbot** (gaya jawab + FAQ + follow-up).
 - +`grounded`          -> profil **LoRA agent** (disiplin sitasi peraturan/SOP).
 
-## 3. Serving vLLM
+## 3. Serving vLLM (di WSL2)
 
-```
+```bash
 python -m finetune.serve_vllm --print   # lihat perintah + adapter terdeteksi
 python -m finetune.serve_vllm           # jalankan
 ```
@@ -64,7 +85,10 @@ python -m finetune.serve_vllm           # jalankan
 Otomatis mendaftarkan tiap adapter di `_runs/finetune/adapters/*` sebagai LoRA
 module bernama `camerad-<dataset>` (mis. `camerad-grounded`).
 
-## 4. Daftar sebagai provider `local` (di .env)
+## 4. Daftar sebagai provider `local` (di .env aplikasi)
+
+Aplikasi tetap jalan di Windows; dia cukup bicara ke vLLM di WSL2 lewat HTTP.
+`localhost` di Windows sudah diforward ke WSL2 secara default:
 
 ```
 LLM_PROVIDER=local
@@ -81,3 +105,12 @@ lewat jalur OpenAI-compatible (fungsi `chat()` / `generate()` tetap sama).
 - Mode live side-by-side: RAG-only / LoRA-only / LoRA+RAG.
 - Batch scorecard via `evaluation/`: groundedness/sitasi, akurasi intent,
   halusinasi, fallback rate, latency, biaya.
+
+## Troubleshooting
+
+- **`Unsloth cannot find any torch accelerator? You need a GPU.`** -> torch CPU-only.
+  Install ulang torch dari index cu128 (lihat langkah 0).
+- **vllm error/aneh saat `serve` di PowerShell** -> vLLM tidak jalan di Windows
+  native. Serve dari WSL2.
+- **Bentrok versi torch dgn Unsloth** -> Unsloth butuh `torch<2.12`. Jangan pakai
+  nightly `2.12.dev` milik `.venv` aplikasi; pakai cu128 stabil `<2.12` di venv training.
