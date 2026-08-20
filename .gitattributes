@@ -1,3 +1,39 @@
-# Skrip shell WAJIB berakhiran LF agar tidak rusak saat dijalankan di Git Bash (Windows).
-*.sh text eol=lf
+# ==== Normalisasi line-ending (fix churn CRLF di Windows) ====
+# Default: semua file teks disimpan LF di repo DAN di working tree.
+* text=auto eol=lf
+
+# Skrip Windows wajib CRLF
 *.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Skrip shell wajib LF
+*.sh text eol=lf
+
+# ==== Berkas biner: jangan diproses EOL ====
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.pkl binary
+*.pt binary
+*.pth binary
+*.bin binary
+*.npy binary
+*.npz binary
+*.safetensors binary
+*.onnx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.xlsx binary
+*.xls binary
+*.zip binary
+*.gz binary
+*.7z binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
