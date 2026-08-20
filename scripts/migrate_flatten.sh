@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# PR-21: migrasi SEKALI-JALAN. Alihkan semua import nama-flat -> jalur paket, lalu
-# hapus semua shim root. Ter-gate (import web_app) + rollback otomatis bila gagal.
+# PR-22: migrasi SEKALI-JALAN. Alihkan semua import nama-flat -> jalur paket, lalu
+# hapus semua shim root. GATE = py_compile (interpreter-agnostic) + verifikasi target
+# + cek residu; rollback otomatis (git reset --hard) bila gagal.
 #   bash scripts/migrate_flatten.sh           -> PREVIEW peta (read-only)
 #   bash scripts/migrate_flatten.sh --apply   -> eksekusi penuh (commit lokal, belum push)
 set -euo pipefail
@@ -14,7 +15,7 @@ for c in python py python3; do
   fi
 done
 [ -n "$PY" ] || { echo "ABORT: python tak ditemukan."; exit 1; }
-echo "Python runner: $PY"
+echo "Python runner (codemod/py_compile): $PY"
 
 MODE="${1:-preview}"
 
@@ -32,15 +33,16 @@ fi
 BASE="$(git rev-parse --short HEAD)"
 rollback() { echo "ROLLBACK -> git reset --hard $BASE"; git reset --hard "$BASE" >/dev/null 2>&1 || true; }
 
-echo "== 1/4 tulis-ulang import =="
-if ! $PY scripts/oneoff/migrate_flatten.py --rewrite; then
-  echo "GAGAL: rewrite/residu."; rollback; exit 2
-fi
+echo "== 1/5 tulis-ulang import (+ cek residu) =="
+$PY scripts/oneoff/migrate_flatten.py --rewrite || { echo "GAGAL: rewrite/residu."; rollback; exit 2; }
 
-echo "== 2/4 GATE import web_app (pra-hapus) =="
-if ! $PY -c "import web_app"; then echo "GATE pra gagal."; rollback; exit 3; fi
+echo "== 2/5 verifikasi semua target paket ada =="
+$PY scripts/oneoff/migrate_flatten.py --verify-targets || { echo "GAGAL: target paket hilang."; rollback; exit 3; }
 
-echo "== 3/4 hapus semua shim =="
+echo "== 3/5 GATE py_compile semua .py (pra-hapus) =="
+$PY scripts/oneoff/migrate_flatten.py --compile || { echo "GAGAL: py_compile pra."; rollback; exit 4; }
+
+echo "== 4/5 hapus semua shim =="
 SHIMS="$($PY scripts/oneoff/migrate_flatten.py --list-shims)"
 N=0
 if [ -n "$SHIMS" ]; then
@@ -49,12 +51,16 @@ if [ -n "$SHIMS" ]; then
 fi
 echo "  $N shim di-git rm."
 
-echo "== 4/4 GATE import web_app (pasca-hapus) + py_compile web_app.py =="
-if ! $PY -c "import web_app"; then echo "GATE pasca gagal."; rollback; exit 4; fi
-if ! $PY -m py_compile web_app.py; then echo "py_compile gagal."; rollback; exit 5; fi
+echo "== 5/5 GATE py_compile semua .py (pasca-hapus) =="
+$PY scripts/oneoff/migrate_flatten.py --compile || { echo "GAGAL: py_compile pasca."; rollback; exit 5; }
 
-git add -A
-git commit --quiet -m "PR-21: alihkan semua import ke jalur paket + hapus ${N} shim root (root bersih)"
+git add -u
+git commit --quiet -m "PR-22: alihkan semua import ke jalur paket + hapus ${N} shim root (root bersih)"
 echo ""
-echo "OK: commit PR-21 dibuat LOKAL (belum di-push). Shim dihapus: ${N}."
-echo "Boot: $PY web_app.py -> pastikan boot hijau & 'indeks Q&A: 2645 vektor' -> git push"
+echo "OK: commit LOKAL dibuat (belum push). Shim dihapus: ${N}. HEAD-sebelumnya: ${BASE}"
+echo ""
+echo "PENTING: gate di skrip ini hanya py_compile (bash/WSL tak punya deps app)."
+echo "Verifikasi RUNTIME sekarang pakai venv Windows kamu:"
+echo "   python web_app.py    # pastikan boot hijau & 'indeks Q&A: 2645 vektor'"
+echo "Kalau boot HIJAU  -> git push"
+echo "Kalau boot GAGAL  -> git reset --hard ${BASE}   (batalkan migrasi, balik bersih)"

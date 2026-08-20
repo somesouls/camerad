@@ -4,21 +4,24 @@
 Peta lama->baru diturunkan OTOMATIS dari tiap shim root (baris `import <dotted> as _mod`).
 
 Mode:
-  (default)     ringkasan peta + jumlah (tanpa mengubah berkas)
-  --map         cetak peta 'flat -> dotted'
-  --list-shims  cetak nama berkas shim (utk git rm)
-  --rewrite     tulis-ulang import di semua .py (kecuali berkas shim). Setelah itu
-                cek RESIDU; keluar kode !=0 bila masih ada import nama-flat tersisa.
+  (default)         ringkasan peta
+  --map             cetak peta 'flat -> dotted'
+  --list-shims      cetak nama berkas shim (utk git rm)
+  --rewrite         tulis-ulang import di semua .py (kecuali shim); cek RESIDU, exit!=0 bila sisa
+  --verify-targets  pastikan tiap modul tujuan (pkg/mod.py atau pkg/__init__.py) ADA; exit!=0 bila hilang
+  --compile         py_compile semua .py (kecuali venv/_legacy); exit!=0 bila ada yang gagal.
+                    Interpreter-agnostic: TIDAK mengimpor dependensi pihak-ketiga.
 """
 import os
 import re
 import sys
+import py_compile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 SHIM_MARKER = "sys.modules[__name__]"
 NEVER = {"web_app.py", "app_core.py"}
-SKIP_DIRS = {".git", "__pycache__", ".venv", "node_modules", "_legacy"}
+SKIP_DIRS = {".git", "__pycache__", ".venv", "venv", "node_modules", "_legacy"}
 
 
 def read(p):
@@ -32,7 +35,6 @@ def write(p, s):
 
 
 def root_shims():
-    """map flat_name -> dotted_target"""
     out = {}
     for name in sorted(os.listdir(ROOT)):
         if not name.endswith(".py") or name in NEVER:
@@ -58,7 +60,6 @@ def py_files():
 
 
 def _rewrite_code(code, mapping):
-    """rewrite satu 'bagian kode' (tanpa komentar) dari sebuah baris import. return (new, changed)"""
     m = re.match(r"^(\s*)from\s+([A-Za-z_][\w.]*)(\s+import\s+.*)$", code)
     if m:
         ind, mod, rest = m.groups()
@@ -75,7 +76,7 @@ def _rewrite_code(code, mapping):
             mm = re.match(r"^([A-Za-z_][\w.]*)(\s+as\s+([A-Za-z_]\w*))?$", part)
             if mm and mm.group(1) in mapping:
                 mod = mm.group(1)
-                alias = mm.group(3) or mod  # pertahankan binding nama lama
+                alias = mm.group(3) or mod
                 newparts.append("%s as %s" % (mapping[mod], alias))
                 touched = True
             else:
@@ -100,8 +101,7 @@ def _rewrite_line(line, mapping):
     new, changed = _rewrite_code(code, mapping)
     if not changed:
         return line, False
-    rebuilt = new + pad + comment + ("\r" if cr else "")
-    return rebuilt, True
+    return new + pad + comment + ("\r" if cr else ""), True
 
 
 def _rewrite_dynamic(txt, mapping):
@@ -122,10 +122,9 @@ def apply_rewrite(mapping):
         if p in shim_paths:
             continue
         txt = read(p)
-        lines = txt.split("\n")
         out = []
         changed = False
-        for ln in lines:
+        for ln in txt.split("\n"):
             nl, ch = _rewrite_line(ln, mapping)
             out.append(nl)
             changed = changed or ch
@@ -148,21 +147,41 @@ def residual(mapping):
         if p in shim_paths:
             continue
         for i, ln in enumerate(read(p).split("\n"), 1):
-            core = ln.rstrip("\r")
-            code = core.split("#", 1)[0]
+            code = ln.rstrip("\r").split("#", 1)[0]
             m = re.match(r"^\s*from\s+([\w.]+)\s+import\s+", code)
             if m and m.group(1) in flats:
-                hits.append((p, i, core)); continue
+                hits.append((p, i, code)); continue
             m2 = re.match(r"^\s*import\s+(.+?)\s*$", code)
             if m2:
                 for part in m2.group(1).split(","):
                     tok = (part.strip().split() or [""])[0]
                     if tok in flats:
-                        hits.append((p, i, core)); break
+                        hits.append((p, i, code)); break
             for dm in re.finditer(r"(?:__import__|import_module)\(\s*['\"]([\w.]+)['\"]", code):
                 if dm.group(1) in flats:
-                    hits.append((p, i, core)); break
+                    hits.append((p, i, code)); break
     return hits
+
+
+def verify_targets(mapping):
+    missing = []
+    for flat, dotted in mapping.items():
+        rel = dotted.replace(".", os.sep)
+        pyf = os.path.join(ROOT, rel + ".py")
+        pkg = os.path.join(ROOT, rel, "__init__.py")
+        if not (os.path.isfile(pyf) or os.path.isfile(pkg)):
+            missing.append((flat, dotted))
+    return missing
+
+
+def compile_all():
+    errs = []
+    for p in py_files():
+        try:
+            py_compile.compile(p, doraise=True)
+        except py_compile.PyCompileError as e:
+            errs.append((p, str(e).strip().splitlines()[-1] if str(e).strip() else "error"))
+    return errs
 
 
 def main():
@@ -176,6 +195,20 @@ def main():
         for k in sorted(mapping):
             print(k + ".py")
         return 0
+    if "--verify-targets" in args:
+        miss = verify_targets(mapping)
+        for f, d in miss:
+            print("MISSING %s -> %s" % (f, d))
+        if miss:
+            print("[migrate] %d target paket HILANG." % len(miss)); return 4
+        print("[migrate] semua %d target paket ada." % len(mapping)); return 0
+    if "--compile" in args:
+        errs = compile_all()
+        for p, e in errs[:40]:
+            print("COMPILE-FAIL %s: %s" % (os.path.relpath(p, ROOT).replace(os.sep, "/"), e))
+        if errs:
+            print("[migrate] %d berkas gagal compile." % len(errs)); return 5
+        print("[migrate] py_compile OK untuk semua .py."); return 0
     if "--rewrite" in args:
         n = apply_rewrite(mapping)
         print("[migrate] %d shim dipetakan; %d berkas .py ditulis-ulang." % (len(mapping), n))
