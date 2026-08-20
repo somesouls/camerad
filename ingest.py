@@ -26,7 +26,7 @@ import time
 import argparse
 import datetime as _dt
 
-import analytics_db as adb
+import db.analytics_db as adb
 
 
 # ---------------------------------------------------------------------

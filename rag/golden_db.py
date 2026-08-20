@@ -304,7 +304,7 @@ def mirror_to_eval(conn=None):
     sehingga ikut dinilai LLM-judge di menu /rag-eval (run dengan jenis=golden).
     Kembalikan jumlah entri yang dicerminkan."""
     try:
-        import eval_db
+        import evaluation.db as eval_db
     except Exception as e:
         return {"ok": False, "error": "eval_db tak tersedia: %s" % e, "n": 0}
     n = 0
@@ -336,7 +336,7 @@ def mine_feedback(limit=400):
     Kembalikan daftar {question, n_down, n_fallback, n_total, last_ts} urut
     prioritas (paling bermasalah dulu)."""
     try:
-        import agent_log_db as alog
+        import db.agent_log_db as alog
     except Exception as e:
         return {"ok": False, "error": "agent_log_db tak tersedia: %s" % e, "items": []}
     agg = {}

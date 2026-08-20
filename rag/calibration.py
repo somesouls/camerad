@@ -70,8 +70,8 @@ def skor_peraturan(query, ids):
     if np is None or not ids:
         return out
     try:
-        import peraturan_semantic as psem
-        import peraturan_db as pdb
+        import peraturan.semantic as psem
+        import peraturan.db as pdb
     except Exception:
         return out
     try:
@@ -121,7 +121,7 @@ def skor_intent_terbaik(query):
     if np is None:
         return None
     try:
-        import knowledge_semantic as ksem
+        import knowledge.semantic as ksem
     except Exception:
         return None
     try:

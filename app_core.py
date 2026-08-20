@@ -18,7 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, RedirectResponse
 from urllib.parse import quote as _quote
 
-import users_db as usr
+import db.users_db as usr
 
 try:
     from dotenv import load_dotenv
@@ -51,7 +51,7 @@ app = FastAPI(title="Camerad Studio")
 # satu server (web_app.py:8080). Fail-soft: bila dependency Avaya belum siap,
 # route lain tetap boot.
 try:
-    import avaya_web_bootstrap
+    import avaya.web_bootstrap as avaya_web_bootstrap
     avaya_web_bootstrap.register(app)
 except Exception as _avaya_web_exc:
     print("[AVAYA-WEB] bootstrap dilewati:", _avaya_web_exc, flush=True)

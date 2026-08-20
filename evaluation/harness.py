@@ -19,12 +19,12 @@ import uuid
 import threading
 import traceback
 
-import eval_db
-import eval_judge
-import rag_engine
-import eval_holdout
-import rag_config_db as rcfg
-import rag_calibration as _cal
+import evaluation.db as eval_db
+import evaluation.judge as eval_judge
+import rag.engine as rag_engine
+import evaluation.holdout as eval_holdout
+import rag.config_db as rcfg
+import rag.calibration as _cal
 
 _LOCK = threading.Lock()
 _JOBS = {}   # run_id -> {"stop": bool, "thread": Thread}

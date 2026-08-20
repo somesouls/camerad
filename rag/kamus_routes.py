@@ -24,18 +24,18 @@ from starlette.concurrency import run_in_threadpool
 
 from app_core import render_page
 
-import rag_kamus_db as kdb
+import rag.kamus_db as kdb
 
 try:
-    import rag_rewrite as rw
+    import rag.rewrite as rw
 except Exception:            # pragma: no cover
     rw = None
 try:
-    import rag_reranker as rr
+    import rag.reranker as rr
 except Exception:            # pragma: no cover
     rr = None
 try:
-    import peraturan_db as pdb
+    import peraturan.db as pdb
 except Exception:            # pragma: no cover
     pdb = None
 

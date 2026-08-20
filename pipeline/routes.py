@@ -34,21 +34,21 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.concurrency import run_in_threadpool
 from urllib.parse import quote as _quote
 
-import llm_client
-import users_db as usr
-import analytics_db as adb
-import avaya_db as avdb
-import avaya_client as avc
+import common.llm_client as llm_client
+import db.users_db as usr
+import db.analytics_db as adb
+import avaya.db as avdb
+import avaya.client as avc
 import threading as _threading
 import uuid as _uuid
 import ingest
-import glossary_db as gdb
-import disambig_db as ddb
-import intentmap_db as imdb
-import knowledge_ctx as kctx  # gabungan konteks 3 pustaka utk prompt
-import pustaka_stats as pstats  # statistik pemakaian pustaka
-import intent_describe as idesc  # job deskripsi AI utk katalog intent
-import pii_mask  # masking PII sebelum teks dikirim ke LLM (Fase A)
+import knowledge.glossary_db as gdb
+import knowledge.disambig_db as ddb
+import knowledge.intentmap_db as imdb
+import knowledge.ctx as kctx  # gabungan konteks 3 pustaka utk prompt
+import knowledge.stats as pstats  # statistik pemakaian pustaka
+import common.intent_describe as idesc  # job deskripsi AI utk katalog intent
+import common.pii_mask as pii_mask  # masking PII sebelum teks dikirim ke LLM (Fase A)
 from pipeline import store as pstore  # penyimpanan persisten (DB) pengganti Run ID
 
 from openpyxl import Workbook, load_workbook

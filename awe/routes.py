@@ -8,7 +8,7 @@ avaya2_pull_intents, avaya3_start, avaya3_fetch, api_endpoint, curl_json_raw)
 masih berada di web_app.py sampai langkah 6, jadi di-inject lewat register().
 
 Daftarkan dengan:
-    import awe_routes
+    import awe.routes as awe_routes
     awe_routes.register(app, save_artifact=..., load_state=..., ...)
 """
 import re
@@ -20,8 +20,8 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
-import avaya_db as avdb
-import avaya_client as avc
+import avaya.db as avdb
+import avaya.client as avc
 from app_core import CONFIG, render_page
 
 # Helper pipeline studio yang di-inject dari web_app.py saat register() (lihat langkah 6).

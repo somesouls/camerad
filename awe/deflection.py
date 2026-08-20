@@ -27,8 +27,8 @@ import json as _json
 import datetime as _dt
 from collections import Counter
 
-import avaya_db as avdb
-import knowledge_semantic as ks
+import avaya.db as avdb
+import knowledge.semantic as ks
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool

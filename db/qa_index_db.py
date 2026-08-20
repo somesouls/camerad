@@ -36,19 +36,19 @@ import os
 import json
 import sqlite3
 
-import peraturan_semantic as psem
-import regref
+import peraturan.semantic as psem
+import common.regref as regref
 
 try:
     import numpy as np
 except Exception:            # pragma: no cover
     np = None
 try:
-    import pii_mask
+    import common.pii_mask as pii_mask
 except Exception:            # pragma: no cover
     pii_mask = None
 try:
-    import text_norm as tnorm
+    import common.text_norm as tnorm
 except Exception:            # pragma: no cover
     tnorm = None
 
@@ -172,7 +172,7 @@ def collect_sosmed(limit=2000):
     Fase 6: conv_id = conversation_id utas X (untuk ekspansi utas)."""
     out = []
     try:
-        import sosmed_db as sdb
+        import sosmed.db as sdb
     except Exception:
         return out
     c = None
@@ -207,11 +207,11 @@ def collect_awe(limit=1500):
     awe_botfilter_patch dipakai ulang). conv_id = sid percakapan."""
     out = []
     try:
-        import avaya_db as avdb
+        import avaya.db as avdb
     except Exception:
         return out
     try:
-        import awe_botfilter_patch as bf
+        import awe.botfilter_patch as bf
         _is_bot_agent, _is_bot_turn = bf._is_bot_agent, bf._is_bot_turn
     except Exception:
         def _is_bot_agent(name):
@@ -282,7 +282,7 @@ def build_index(batch=64, limit_sosmed=2000, limit_awe=1500, progress=True):
     conn = init_db(connect())
     conn_per = None
     try:
-        import peraturan_db as pdb
+        import peraturan.db as pdb
         conn_per = pdb.init_db(pdb.connect())
     except Exception:
         conn_per = None

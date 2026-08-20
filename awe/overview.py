@@ -12,7 +12,7 @@ sub-menu AWE lainnya. Jika awe_analytics tak tersedia, pakai resolver lokal.
 from collections import Counter
 
 try:
-    import avaya_db as avdb
+    import avaya.db as avdb
 except Exception:  # pragma: no cover - hanya untuk lingkungan uji terisolasi
     avdb = None
 
@@ -174,7 +174,7 @@ def overview(conn, start=None, end=None, channel=None):
 def _resolve_range(preset, start, end):
     """Pakai resolver awe_analytics bila ada; jika tidak, resolver lokal ringan."""
     try:
-        import awe_analytics as _an
+        import awe.analytics as _an
         return _an.resolve_range(preset, start, end)
     except Exception:
         pass
@@ -200,7 +200,7 @@ def _resolve_range(preset, start, end):
 
 def _bounds(conn):
     try:
-        import awe_analytics as _an
+        import awe.analytics as _an
         if hasattr(_an, "data_bounds"):
             return _an.data_bounds(conn)
     except Exception:

@@ -28,7 +28,7 @@ def _hr(t):
 
 def main():
     try:
-        import peraturan_db as pdb
+        import peraturan.db as pdb
     except Exception as e:
         print("[X] peraturan_db tak dapat diimpor: %s" % e, flush=True)
         return 1

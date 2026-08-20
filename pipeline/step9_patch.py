@@ -28,7 +28,7 @@ dispatch() memakai late-binding global sehingga otomatis memakai versi ini.
 """
 import os
 import json
-import pipeline_routes as pr
+import pipeline.routes as pr
 
 # Kandidat nama kolom identitas rekaman (Nomor Rekaman). Urutan = prioritas.
 ID_REKAMAN_HEADERS = ["ID Rekaman", "ID Percakapan", "id_rekaman", "ID trace", "ID Trace", "IDtrace"]

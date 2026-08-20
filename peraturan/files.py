@@ -54,7 +54,7 @@ try:
 except Exception:  # pragma: no cover
     BeautifulSoup = None  # type: ignore
 
-import peraturan_parser as tkb_djp
+import peraturan.parser as tkb_djp
 
 # Ambang minimal karakter "berarti" per halaman agar PDF dianggap ada teks.
 MIN_CHAR_PER_HAL = 80

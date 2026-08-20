@@ -21,7 +21,7 @@ import json
 import re
 import datetime as _dt
 
-import analytics_db as adb  # pakai ulang connect() / default_db_path()
+import db.analytics_db as adb  # pakai ulang connect() / default_db_path()
 
 KATEGORI = [
     "Identitas", "Autentikasi", "Perubahan Data", "Pelaporan",

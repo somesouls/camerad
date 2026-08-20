@@ -8,7 +8,7 @@ Tujuan: menerima kiriman NDJSON/JSON dari ekstensi browser (tombol "Kirim ke
 Dibuat sebagai MODUL TERPISAH agar tidak perlu mengubah file besar
 (sosmed_db.py / sosmed_routes.py). Cukup daftarkan di web_app.py:
 
-    import sosmed_ingest
+    import sosmed.ingest as sosmed_ingest
     sosmed_ingest.register(app)
 
 Endpoint:
@@ -28,7 +28,7 @@ import datetime as _dt
 from fastapi import Request
 from fastapi.responses import JSONResponse, Response
 
-import sosmed_db as sdb
+import sosmed.db as sdb
 
 _CORS = {
     "Access-Control-Allow-Origin": "*",

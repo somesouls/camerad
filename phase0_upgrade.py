@@ -33,7 +33,7 @@ def _hr(t):
 
 def cek_model_embedding():
     try:
-        import peraturan_semantic as psem
+        import peraturan.semantic as psem
     except Exception as e:
         print("[X] peraturan_semantic tak dapat diimpor: %s" % e, flush=True)
         return None
@@ -54,7 +54,7 @@ def cek_model_embedding():
 
 def cek_reranker():
     try:
-        import rag_reranker as rr
+        import rag.reranker as rr
     except Exception as e:
         print("[X] rag_reranker tak dapat diimpor: %s" % e, flush=True)
         return None

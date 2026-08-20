@@ -33,7 +33,7 @@ def _hr(t):
 
 def _cek_norm():
     try:
-        import text_norm as tn
+        import common.text_norm as tn
         info = tn.info()
         print("text_norm: stemming=%s sastrawi=%s stopwords=%d"
               % (info.get("stem_enabled"), info.get("sastrawi"),
@@ -80,12 +80,12 @@ def main():
     _hr("CEK NORMALISASI")
     _cek_norm()
     try:
-        import peraturan_db
+        import peraturan.db as peraturan_db
         _migrasi("PERATURAN", peraturan_db, force=args.force)
     except Exception as e:
         print("[X] peraturan_db tak dapat diimpor: %s" % e, flush=True)
     try:
-        import sop_db
+        import sop.db as sop_db
         _migrasi("SOP", sop_db, force=args.force)
     except Exception as e:
         print("[X] sop_db tak dapat diimpor: %s" % e, flush=True)

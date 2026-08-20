@@ -32,9 +32,9 @@ from starlette.concurrency import run_in_threadpool
 
 from app_core import render_page
 
-import eval_chatbot as ec
-import eval_recall_map as erm
-import rag_config_db as rcfg
+import evaluation.chatbot as ec
+import evaluation.recall_map as erm
+import rag.config_db as rcfg
 
 
 async def _body(request):

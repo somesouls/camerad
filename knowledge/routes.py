@@ -12,13 +12,13 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-import analytics_db as adb
+import db.analytics_db as adb
 from knowledge import glossary_db as gdb
 from knowledge import disambig_db as ddb
 from knowledge import intentmap_db as imdb
 from knowledge import ctx as kctx
-import llm_client
-import pii_mask
+import common.llm_client as llm_client
+import common.pii_mask as pii_mask
 
 
 def _extract_sql(raw):

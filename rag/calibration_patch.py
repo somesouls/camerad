@@ -16,9 +16,9 @@ Dua gerbang (menyaring HANYA saat ambang > 0):
 GAGAL-ANGGUN: bila numpy/model/vektor tak tersedia, gerbang tidak menyaring.
 Dipasang lewat web_app.py (import) SETELAH rag_successor_patch.
 """
-import rag_engine as _re
-import peraturan_db as _pdb
-import rag_calibration as _cal
+import rag.engine as _re
+import peraturan.db as _pdb
+import rag.calibration as _cal
 
 
 # ---- (1) Gerbang PERATURAN: bungkus peraturan_db.search ----------------------

@@ -17,7 +17,7 @@ sehingga run paralel tak saling menimpa. Bila SID tidak diset (mis. produksi),
 delegasikan ke fungsi asli -> perilaku produksi TIDAK berubah.
 
 Pakai:
-  import eval_holdout
+  import evaluation.holdout as eval_holdout
   eval_holdout.set_holdout_sid(sid)   # sebelum memanggil rag_engine.answer
   ...
   eval_holdout.reset_holdout_sid()    # sesudahnya (harness memakai finally)
@@ -25,10 +25,10 @@ Pakai:
 import json
 import threading
 
-import rag_engine as _re
+import rag.engine as _re
 
 try:
-    import avaya_db as avdb
+    import avaya.db as avdb
 except Exception:            # pragma: no cover
     avdb = None
 

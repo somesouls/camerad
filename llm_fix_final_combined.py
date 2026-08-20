@@ -168,8 +168,8 @@ from transformers import AutoTokenizer
 import uvicorn
 
 # Client LLM cloud (OpenAI / Gemini) — pengganti Qwen lokal.
-import llm_client
-import knowledge_ctx as kctx  # penyambung 3 pustaka pengetahuan ke prompt
+import common.llm_client as llm_client
+import knowledge.ctx as kctx  # penyambung 3 pustaka pengetahuan ke prompt
 
 # --- Tambahan untuk analisis rekomendasi (SBERT + BGE reranker) ---
 import gc
@@ -2994,7 +2994,7 @@ API_HOST = os.environ.get("PIPELINE_API_HOST", "127.0.0.1")
 # avaya_pipeline.py ada di folder ini. Memakai LLM cloud yang sama.
 # ============================================================
 try:
-    import avaya_pipeline
+    import avaya.pipeline as avaya_pipeline
 
     def _avaya_generate(prompts, max_new_tokens=256):
         """Generasi teks-bebas memakai LLM cloud (untuk sentimen dll)."""
@@ -3012,13 +3012,13 @@ try:
     #  - speedpatch: reranker singleton + fp16 + checkpoint resumable
     #  - dashpatch : ringkasan tabel dashboard + tombol "Lihat detail"
     try:
-        import avaya_speedpatch
+        import avaya.speedpatch as avaya_speedpatch
         avaya_speedpatch.apply()
         print("[AVAYA] speedpatch aktif.")
     except Exception as _sp_exc:
         print("[AVAYA] speedpatch dilewati:", _sp_exc)
     try:
-        import avaya_dashpatch
+        import avaya.dashpatch as avaya_dashpatch
         avaya_dashpatch.apply()
         print("[AVAYA] dashpatch aktif.")
     except Exception as _dp_exc:

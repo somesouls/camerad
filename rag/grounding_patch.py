@@ -53,8 +53,8 @@ Env:
 import os
 import re
 
-import rag_engine as _re
-import rag_config_db as _rcfg
+import rag.engine as _re
+import rag.config_db as _rcfg
 
 _orig_answer = _re.answer
 

@@ -33,7 +33,7 @@ import json
 import re
 import datetime as _dt
 
-import analytics_db as adb  # pakai ulang connect() / default_db_path()
+import db.analytics_db as adb  # pakai ulang connect() / default_db_path()
 
 # Nilai enum yang dianjurkan (dipakai UI untuk dropdown; tidak dipaksa di DB).
 KATEGORI = [

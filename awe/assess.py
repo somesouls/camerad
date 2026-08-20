@@ -5,7 +5,7 @@ Endpoint:
   GET /api/awe/assess/transcript?sid=...[&run=...]  -> transkrip + skor softskill.
   GET /api/awe/assess/list?range=&agent=&poro=&jenis=&ss_lengkap=...  -> daftar percakapan.
 """
-import avaya_db as avdb
+import avaya.db as avdb
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool

@@ -25,9 +25,9 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.concurrency import run_in_threadpool
 
-import sosmed_db as sdb
-import sosmed_x as sx
-import sosmed_knowledge as sk
+import sosmed.db as sdb
+import sosmed.x as sx
+import sosmed.knowledge as sk
 from app_core import render_page
 
 

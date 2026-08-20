@@ -1,6 +1,6 @@
 # cek_db.py
 import os, sqlite3, glob
-import pipeline_store as pstore
+import pipeline.store as pstore
 try:
     from app_core import CONFIG
     runs_dir = CONFIG["runs_dir"]

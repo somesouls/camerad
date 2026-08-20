@@ -32,8 +32,8 @@ def register(app):
     api_key = os.environ.get("PIPELINE_API_KEY", "sam-n8n-secret")
 
     try:
-        import llm_client
-        import avaya_pipeline
+        import common.llm_client as llm_client
+        import avaya.pipeline as avaya_pipeline
 
         def _avaya_generate(prompts, max_new_tokens=256):
             return llm_client.generate(prompts, max_new_tokens=max_new_tokens)
@@ -59,14 +59,14 @@ def register(app):
         # Patch tetap root sesuai desain reorg: monkeypatch terhadap shim
         # avaya_pipeline yang resolve ke avaya.pipeline.
         try:
-            import avaya_speedpatch
+            import avaya.speedpatch as avaya_speedpatch
             avaya_speedpatch.apply()
             print("[AVAYA-WEB] speedpatch aktif.", flush=True)
         except Exception as exc:
             print("[AVAYA-WEB] speedpatch dilewati:", exc, flush=True)
 
         try:
-            import avaya_dashpatch
+            import avaya.dashpatch as avaya_dashpatch
             avaya_dashpatch.apply()
             print("[AVAYA-WEB] dashpatch aktif.", flush=True)
         except Exception as exc:

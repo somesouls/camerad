@@ -16,9 +16,9 @@ import datetime as _dt
 import requests
 from openpyxl import load_workbook
 
-import analytics_db as adb
-import avaya_db as avdb
-import intentmap_db as imdb
+import db.analytics_db as adb
+import avaya.db as avdb
+import knowledge.intentmap_db as imdb
 import ingest
 
 from app_core import XLSX_MIME

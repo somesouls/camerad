@@ -27,41 +27,41 @@ import json
 import os
 import contextvars
 
-import llm_client
-import pii_mask
-import rag_router
-import rag_config_db as rcfg
+import common.llm_client as llm_client
+import common.pii_mask as pii_mask
+import rag.router as rag_router
+import rag.config_db as rcfg
 
 try:
-    import rag_rewrite
+    import rag.rewrite as rag_rewrite
 except Exception:            # pragma: no cover
     rag_rewrite = None
 try:
-    import rag_intent_semantic as ris
+    import rag.intent_semantic as ris
 except Exception:            # pragma: no cover
     ris = None
 try:
-    import rag_reranker
+    import rag.reranker as rag_reranker
 except Exception:            # pragma: no cover
     rag_reranker = None
 try:
-    import intentmap_db as imdb
+    import knowledge.intentmap_db as imdb
 except Exception:            # pragma: no cover
     imdb = None
 try:
-    import avaya_db as avdb
+    import avaya.db as avdb
 except Exception:            # pragma: no cover
     avdb = None
 try:
-    import sosmed_db as sdb
+    import sosmed.db as sdb
 except Exception:            # pragma: no cover
     sdb = None
 try:
-    import peraturan_db as pdb
+    import peraturan.db as pdb
 except Exception:            # pragma: no cover
     pdb = None
 try:
-    import sop_db as sopdb
+    import sop.db as sopdb
 except Exception:            # pragma: no cover
     sopdb = None
 
@@ -765,7 +765,7 @@ def _maks_token_for(profile):
     (menu Konfigurasi profil; tersimpan di kuota agent_log_db per target =
     id profil). 0/kosong/error -> default mesin 800. Gagal-anggun penuh."""
     try:
-        import agent_log_db as _aldb
+        import db.agent_log_db as _aldb
         q = _aldb.get_quota(str((profile or {}).get("id") or ""))
         mt = int((q or {}).get("maks_token") or 0)
         return mt if mt > 0 else 800

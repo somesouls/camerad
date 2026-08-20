@@ -12,8 +12,8 @@ import uuid
 import threading
 import traceback
 
-import eval_db
-import eval_harness
+import evaluation.db as eval_db
+import evaluation.harness as eval_harness
 
 _LOCK = threading.Lock()
 _JOBS = {}   # sweep_id -> {"stop": bool}

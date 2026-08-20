@@ -47,7 +47,7 @@ def find_latest_step3_zip():
     yang "at"-nya paling baru; Step 3 dan Step 13 sama-sama diperiksa.
     """
     from app_core import CONFIG
-    import pipeline_routes
+    import pipeline.routes as pipeline_routes
     runs_dir = CONFIG.get("runs_dir", "")
     if not runs_dir or not os.path.isdir(runs_dir):
         return None
@@ -100,7 +100,7 @@ CHUNK = 256
 def _default_encode(texts):
     """Pakai encoder SBERT yang sudah ada (knowledge_semantic). Return NxD
     ternormalisasi (float32) atau None bila model tak tersedia."""
-    import knowledge_semantic as ksem
+    import knowledge.semantic as ksem
     if not ksem.is_available():
         return None
     return ksem._encode(list(texts))
@@ -360,7 +360,7 @@ def run_audit(file_bytes, min_cross=DEF_MIN_CROSS, min_dup=DEF_MIN_DUP):
     dan lampirkan xlsx laporan (base64)."""
     train_bytes = None
     try:
-        import pipeline_routes
+        import pipeline.routes as pipeline_routes
         train_bytes, _content = pipeline_routes.extract_training_intent(file_bytes)
     except Exception:
         train_bytes = file_bytes           # fallback: dianggap xlsx langsung
@@ -394,7 +394,7 @@ def run_step3_headless(cfg, run_id):
     percakapan/logs — BUKAN training phrase. Jadi katalog intent+training phrase
     WAJIB ditarik terpisah langsung dari Dialogflow Agent API di sini.
     """
-    import pipeline_routes
+    import pipeline.routes as pipeline_routes
     os.makedirs(pipeline_routes.run_dir(cfg, run_id), exist_ok=True)
     ctx = pipeline_routes.Ctx(run_id, {}, {}, {})
     pipeline_routes.step3_training_intent(cfg, ctx)

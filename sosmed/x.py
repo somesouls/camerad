@@ -262,7 +262,7 @@ if __name__ == "__main__":
     import os as _os, tempfile as _tf
     _os.environ["SOSMED_DB_FILE"] = _os.path.join(_tf.mkdtemp(), "sx.db")
     _os.environ["SOSMED_OFFICIAL_HANDLES"] = "kring_pajak"
-    import sosmed_db as sdb
+    import sosmed.db as sdb
     c = sdb.init_db(sdb.connect())
     r = sdb.ingest_items(c, items, source="pull_x")
     assert r["n_new"] == 2, r

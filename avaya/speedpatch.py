@@ -3,7 +3,7 @@
 AVAYA speed patch v2 - drop-in, build-agnostic, hemat GPU & resumable.
 
 Pakai SETELAH modul avaya aktif (setelah %run llm_fix_final_combined.py):
-    import avaya_speedpatch
+    import avaya.speedpatch as avaya_speedpatch
     avaya_speedpatch.apply()
 
 Perbaikan dibanding v1:
@@ -64,7 +64,7 @@ def _optimized_make_reranker():
     global _RERANKER_SINGLETON
     if _RERANKER_SINGLETON is not None:
         return _RERANKER_SINGLETON
-    import avaya_pipeline as ap
+    import avaya.pipeline as ap
     try:
         import torch
         from transformers import AutoTokenizer, AutoModelForSequenceClassification
@@ -224,7 +224,7 @@ def progress_report():
 
 def apply():
     global _ORIG_MAKE_RERANKER
-    import avaya_pipeline as ap
+    import avaya.pipeline as ap
     if getattr(ap, "_SPEEDPATCH_APPLIED", False):
         print("[AVAYA-SPEED] sudah terpasang.", flush=True)
         return

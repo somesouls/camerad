@@ -36,7 +36,7 @@ def main():
     except Exception:
         pass
 
-    import qa_index_db as qa
+    import db.qa_index_db as qa
 
     if args.stats:
         print("Statistik indeks Q&A:", qa.stats())

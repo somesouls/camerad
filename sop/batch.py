@@ -24,12 +24,12 @@ import re
 import threading
 import traceback
 
-import sop_files as SF
-import sop_db as sdb
-import peraturan_files as PF
+import sop.files as SF
+import sop.db as sdb
+import peraturan.files as PF
 
 try:
-    import llm_client
+    import common.llm_client as llm_client
 except Exception:
     llm_client = None
 

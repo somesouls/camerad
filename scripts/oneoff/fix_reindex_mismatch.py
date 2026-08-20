@@ -1,8 +1,8 @@
 # fix_reindex_mismatch.py
 import sqlite3
 import time
-import peraturan_db
-import peraturan_semantic as psem
+import peraturan.db as peraturan_db
+import peraturan.semantic as psem
 
 TARGET_DIM = 1024
 BATCH = 16  # kecilkan dulu supaya kalau ada teks bermasalah tidak menggagalkan banyak row

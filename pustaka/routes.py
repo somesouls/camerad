@@ -12,7 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from knowledge import glossary_db as gdb
 from knowledge import disambig_db as ddb
 from knowledge import intentmap_db as imdb
-import intent_describe as idesc
+import common.intent_describe as idesc
 from knowledge import stats as pstats
 from app_core import render_page
 

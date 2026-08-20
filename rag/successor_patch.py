@@ -33,7 +33,7 @@ memakai tabel dispatch _DISPATCH yang menyimpan referensi fungsi LAMA sejak
 impor, patch WAJIB memperbarui _DISPATCH["peraturan"] juga, bukan hanya
 atribut modul.
 """
-import rag_engine as _re
+import rag.engine as _re
 
 
 def _ctx_peraturan_tracing(q, limit=4):

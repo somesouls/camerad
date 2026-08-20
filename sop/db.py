@@ -34,10 +34,10 @@ import os
 import re
 import sqlite3
 
-import peraturan_semantic as psem
+import peraturan.semantic as psem
 
 try:
-    import text_norm as tnorm
+    import common.text_norm as tnorm
 except Exception:            # pragma: no cover
     tnorm = None
 

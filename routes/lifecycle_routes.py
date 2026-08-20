@@ -8,7 +8,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-import intentmap_db as imdb
+import knowledge.intentmap_db as imdb
 from app_core import render_page
 
 

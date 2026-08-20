@@ -24,8 +24,8 @@ import re
 import json
 import time
 
-import llm_client
-import eval_db
+import common.llm_client as llm_client
+import evaluation.db as eval_db
 
 _SYS = (
     "Anda auditor QA untuk chatbot pajak (DJP) berbasis RAG. Nilai SATU jawaban "

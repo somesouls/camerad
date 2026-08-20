@@ -9,7 +9,7 @@ disetujui analis. Stdlib-only; LLM via llm_client (bisa diinjeksi lewat chat_fn)
 """
 import json
 import re
-import intentmap_db as imdb
+import knowledge.intentmap_db as imdb
 
 try:
     from common import llm_client as _llm

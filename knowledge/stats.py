@@ -19,7 +19,7 @@ operasi aman-gagal: pemanggil membungkusnya sehingga pencatatan tak pernah
 mengganggu alur analisis/chat.
 """
 import datetime as _dt
-import analytics_db as adb
+import db.analytics_db as adb
 
 PUSTAKA_LABELS = {
     "glosarium": "Glosarium Pajak",

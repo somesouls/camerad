@@ -8,7 +8,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-import pustaka_stats as pstats
+import knowledge.stats as pstats
 
 
 def register(app):

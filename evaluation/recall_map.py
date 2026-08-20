@@ -40,13 +40,13 @@ import uuid
 import threading
 import datetime as _dt
 
-import eval_db
-import eval_chatbot as ec
-import rag_engine
-import rag_config_db as rcfg
+import evaluation.db as eval_db
+import evaluation.chatbot as ec
+import rag.engine as rag_engine
+import rag.config_db as rcfg
 
 try:
-    import eval_judge
+    import evaluation.judge as eval_judge
 except Exception:            # pragma: no cover
     eval_judge = None
 

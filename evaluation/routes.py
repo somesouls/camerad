@@ -25,11 +25,11 @@ from starlette.concurrency import run_in_threadpool
 
 from app_core import render_page
 
-import eval_db
-import eval_sampler
-import eval_harness
-import eval_sweep
-import rag_config_db as rcfg
+import evaluation.db as eval_db
+import evaluation.sampler as eval_sampler
+import evaluation.harness as eval_harness
+import evaluation.sweep as eval_sweep
+import rag.config_db as rcfg
 
 
 async def _body(request):

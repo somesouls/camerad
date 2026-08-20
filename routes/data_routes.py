@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.concurrency import run_in_threadpool
 
-import analytics_db as adb
+import db.analytics_db as adb
 import ingest
 from app_core import render_page
 

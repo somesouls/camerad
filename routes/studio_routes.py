@@ -16,7 +16,7 @@ from fastapi import Request
 from fastapi.responses import JSONResponse, Response, PlainTextResponse
 
 import docstudio as dstudio
-import pii_mask
+import common.pii_mask as pii_mask
 
 MAX_STUDIO_BYTES = 25 * 1024 * 1024   # 25 MB
 MAP_CHUNK_LIMIT = 14                  # maksimum potongan yang diproses tahap map
@@ -28,7 +28,7 @@ def register(app, *, base_dir, render_page, llm_client, kctx, xlsx_mime):
     # ---- Submenu Analitik AWE (Avaya): dipasang di sini agar TIDAK perlu
     #      menyentuh web_app.py (file besar). Menyediakan 5 halaman + API. ----
     try:
-        import awe_analytics
+        import awe.analytics as awe_analytics
         awe_analytics.register(app, render_page=render_page)
     except Exception:
         import traceback

@@ -22,7 +22,7 @@ melakukan apa-apa.
 import re
 import json
 
-import rag_engine as _re
+import rag.engine as _re
 
 # Penanda peran/agent bot (selaras dengan avaya_db).
 _CUST_ROLES = {"customer", "cust", "pelanggan", "user"}

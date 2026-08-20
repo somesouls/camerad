@@ -38,15 +38,15 @@ from starlette.concurrency import run_in_threadpool
 
 from app_core import render_page
 
-import peraturan_db as pdb
-import peraturan_semantic as psem
+import peraturan.db as pdb
+import peraturan.semantic as psem
 
 try:
-    import peraturan_parser as tkb_djp
+    import peraturan.parser as tkb_djp
 except Exception:            # pragma: no cover
     tkb_djp = None
 try:
-    import peraturan_batch as pbatch
+    import peraturan.batch as pbatch
 except Exception:            # pragma: no cover
     pbatch = None
 

@@ -42,7 +42,7 @@ except Exception:            # pragma: no cover
     np = None
 
 try:
-    import intentmap_db as imdb
+    import knowledge.intentmap_db as imdb
 except Exception:            # pragma: no cover
     imdb = None
 

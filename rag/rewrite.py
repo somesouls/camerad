@@ -31,11 +31,11 @@ import json
 import contextvars
 
 try:
-    import llm_client
+    import common.llm_client as llm_client
 except Exception:            # pragma: no cover
     llm_client = None
 try:
-    import rag_kamus_db as kdb
+    import rag.kamus_db as kdb
 except Exception:            # pragma: no cover
     kdb = None
 

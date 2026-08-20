@@ -48,9 +48,9 @@ from starlette.concurrency import run_in_threadpool
 
 from app_core import render_page
 
-import rag_engine
+import rag.engine as rag_engine
 from df_webhook import db as dfdb
-import agent_log_db as aldb
+import db.agent_log_db as aldb
 
 
 # Teks penanda giliran "echo/poll" (Opsi B). Harus SAMA dengan yang dikirim

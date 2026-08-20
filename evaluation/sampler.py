@@ -31,9 +31,9 @@ import re
 import json
 import random
 
-import eval_db
-import avaya_db as avdb
-import analytics_db as adb
+import evaluation.db as eval_db
+import avaya.db as avdb
+import db.analytics_db as adb
 
 _STOP = set("yang dan di ke dari untuk pada dengan atau ini itu ada apa bagaimana "
             "gimana kenapa mengapa min admin kak pak bu mohon tolong ya nya saya aku "

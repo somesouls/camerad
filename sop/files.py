@@ -30,7 +30,7 @@ import os
 import re
 from dataclasses import dataclass, field
 
-import peraturan_files as PF  # dipakai ulang: OCR PDF/gambar + progress cb
+import peraturan.files as PF  # dipakai ulang: OCR PDF/gambar + progress cb
 
 try:
     from bs4 import BeautifulSoup

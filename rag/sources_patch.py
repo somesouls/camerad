@@ -34,26 +34,26 @@ handoff_routing_patch agar membungkus versi terakhir tiap sumber.
 import os
 import json
 
-import rag_engine as _re
+import rag.engine as _re
 
 try:
-    import rag_rewrite as _rw
+    import rag.rewrite as _rw
 except Exception:            # pragma: no cover
     _rw = None
 try:
-    import rag_reranker as _rr
+    import rag.reranker as _rr
 except Exception:            # pragma: no cover
     _rr = None
 try:
-    import text_norm as _tn
+    import common.text_norm as _tn
 except Exception:            # pragma: no cover
     _tn = None
 try:
-    import sop_db as _sopdb
+    import sop.db as _sopdb
 except Exception:            # pragma: no cover
     _sopdb = None
 try:
-    import awe_botfilter_patch as _bf   # helper bot-filter dipakai ulang
+    import awe.botfilter_patch as _bf   # helper bot-filter dipakai ulang
 except Exception:            # pragma: no cover
     _bf = None
 

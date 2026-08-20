@@ -20,17 +20,17 @@ import threading
 import datetime as _dt
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-import eval_db
-import analytics_db as adb
-import rag_config_db as rcfg
-import rag_engine
+import evaluation.db as eval_db
+import db.analytics_db as adb
+import rag.config_db as rcfg
+import rag.engine as rag_engine
 
 try:
-    import intentmap_db as imdb
+    import knowledge.intentmap_db as imdb
 except Exception:            # pragma: no cover
     imdb = None
 try:
-    import eval_judge
+    import evaluation.judge as eval_judge
 except Exception:            # pragma: no cover
     eval_judge = None
 

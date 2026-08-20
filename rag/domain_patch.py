@@ -34,10 +34,10 @@ import re
 import json
 import time
 
-import peraturan_db as _pdb
+import peraturan.db as _pdb
 
 try:
-    import rag_kamus_db as _kdb
+    import rag.kamus_db as _kdb
 except Exception:            # pragma: no cover
     _kdb = None
 

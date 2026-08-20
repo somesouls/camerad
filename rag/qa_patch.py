@@ -30,14 +30,14 @@ Diimpor di web_app.py SETELAH rag_sources_patch.
 """
 import os
 
-import rag_engine as _re
+import rag.engine as _re
 
 try:
-    import qa_index_db as _qa
+    import db.qa_index_db as _qa
 except Exception:            # pragma: no cover
     _qa = None
 try:
-    import peraturan_db as _pdb
+    import peraturan.db as _pdb
 except Exception:            # pragma: no cover
     _pdb = None
 

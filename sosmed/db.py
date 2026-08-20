@@ -29,7 +29,7 @@ import sqlite3
 import datetime as _dt
 
 try:
-    import avaya_db as _avdb  # reuse taksonomi topik (jenis layanan)
+    import avaya.db as _avdb  # reuse taksonomi topik (jenis layanan)
 except Exception:            # pragma: no cover - fallback bila belum ada
     _avdb = None
 

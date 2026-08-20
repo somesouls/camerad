@@ -30,11 +30,11 @@ from starlette.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from app_core import render_page
-import sop_db as sdb
-import sop_batch as sbatch
+import sop.db as sdb
+import sop.batch as sbatch
 
 try:
-    import peraturan_semantic as psem
+    import peraturan.semantic as psem
 except Exception:
     psem = None
 

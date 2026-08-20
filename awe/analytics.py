@@ -15,7 +15,7 @@ khusus belum tersedia, sehingga langsung jalan atas seluruh data historis.
 import datetime as _dt
 from collections import Counter, defaultdict
 
-import avaya_db as avdb
+import avaya.db as avdb
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
@@ -274,7 +274,7 @@ def register(app, *, render_page):
     # (placeholder.html -> awe_penilaian.html) dan sudah ter-gate ke area
     # "assess" oleh middleware.
     try:
-        import awe_assess
+        import awe.assess as awe_assess
         awe_assess.register(app)
     except Exception:
         import traceback

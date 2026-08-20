@@ -25,14 +25,14 @@ Diimpor di web_app.py SETELAH rag_domain_patch.
 import os
 import re
 
-import rag_engine as _re
+import rag.engine as _re
 
 try:
-    import peraturan_db as _pdb
+    import peraturan.db as _pdb
 except Exception:            # pragma: no cover
     _pdb = None
 try:
-    import regref as _regref
+    import common.regref as _regref
 except Exception:            # pragma: no cover
     _regref = None
 

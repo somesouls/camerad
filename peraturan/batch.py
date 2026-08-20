@@ -94,9 +94,9 @@ import re
 import threading
 import time
 
-import peraturan_files as F
-import peraturan_parser as tkb_djp
-import peraturan_db
+import peraturan.files as F
+import peraturan.parser as tkb_djp
+import peraturan.db as peraturan_db
 
 _JENIS_DIR = {
     "uu": "UU", "perpu": "PERPU", "pp": "PP", "perpres": "PERPRES",

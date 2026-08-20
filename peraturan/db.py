@@ -62,10 +62,10 @@ import re
 import json
 import sqlite3
 
-import peraturan_semantic as psem
+import peraturan.semantic as psem
 
 try:
-    import text_norm as tnorm
+    import common.text_norm as tnorm
 except Exception:            # pragma: no cover
     tnorm = None
 
@@ -471,7 +471,7 @@ def _build_tagger():
     _TAGGER["built"] = True
     forms = {}
     try:
-        import rag_kamus_db as kdb
+        import rag.kamus_db as kdb
         for e in (kdb.all_active() or []):
             ist = str(e.get("istilah") or "").strip()
             if not ist:

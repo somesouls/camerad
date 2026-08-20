@@ -18,15 +18,15 @@ Smoke test: `python3 sosmed_knowledge.py` -> cetak SOSMED_KNOWLEDGE_SMOKE_OK.
 """
 import re
 
-import sosmed_db as sdb
+import sosmed.db as sdb
 
 try:
-    import intentmap_db as _imdb
+    import knowledge.intentmap_db as _imdb
 except Exception:      # pragma: no cover
     _imdb = None
 
 try:
-    import knowledge_semantic as _ksem
+    import knowledge.semantic as _ksem
 except Exception:      # pragma: no cover
     _ksem = None
 

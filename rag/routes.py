@@ -27,8 +27,8 @@ from starlette.concurrency import run_in_threadpool
 
 from app_core import render_page
 
-import rag_engine
-import rag_config_db as rcfg
+import rag.engine as rag_engine
+import rag.config_db as rcfg
 
 
 async def _body(request: Request):
@@ -142,7 +142,7 @@ def _warmup_intent_semantic():
 
     def _bg():
         try:
-            import rag_intent_semantic as ris
+            import rag.intent_semantic as ris
             ris.warmup()
             print("[warmup] indeks semantik intent siap.", flush=True)
         except Exception as e:
@@ -154,7 +154,7 @@ def _warmup_intent_semantic():
         # query pertama tak menanggung waktu muat model. is_available() akan
         # memicu pemuatan model bila belum dimuat.
         try:
-            import rag_reranker
+            import rag.reranker as rag_reranker
             if rag_reranker.is_available():
                 print("[warmup] model reranker cross-encoder siap.", flush=True)
             else:
@@ -169,7 +169,7 @@ def _warmup_intent_semantic():
         # request diputus sebelum jawaban terkirim (UI: "Gagal terhubung").
         # Muat model + satu embed pemanasan di sini agar request pertama cepat.
         try:
-            import peraturan_semantic as psem
+            import peraturan.semantic as psem
             if psem.is_available():
                 try:
                     psem.embed_query("pemanasan")
@@ -188,7 +188,7 @@ def _warmup_intent_semantic():
         # lazy-load di pencarian pertama; satu pencarian kecil di sini memicu
         # muat penuhnya saat boot, bukan saat request pengguna pertama.
         try:
-            import peraturan_db as pdb
+            import peraturan.db as pdb
             pdb.search("pemanasan", 1, ("berlaku",))
             print("[warmup] matriks vektor peraturan siap.", flush=True)
         except Exception as e:
@@ -197,7 +197,7 @@ def _warmup_intent_semantic():
             except Exception:
                 pass
         try:
-            import qa_index_db as _qa
+            import db.qa_index_db as _qa
             _qa.search("pemanasan", k=1)
             print("[warmup] matriks indeks Q&A siap.", flush=True)
         except Exception as e:

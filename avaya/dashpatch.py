@@ -3,7 +3,7 @@
 AVAYA dashboard patch - ringkasan + tombol "Lihat detail" (buka tab baru).
 
 Pakai SETELAH %run llm_fix_final_combined.py (boleh bareng avaya_speedpatch):
-    import avaya_dashpatch
+    import avaya.dashpatch as avaya_dashpatch
     avaya_dashpatch.apply()
 
 Apa yang dilakukan (build-agnostic, tidak mengubah template Anda):
@@ -73,7 +73,7 @@ def _overlay():
 
 
 def apply():
-    import avaya_pipeline as ap
+    import avaya.pipeline as ap
     if getattr(ap, "_DASHPATCH_APPLIED", False):
         print("[AVAYA-DASH] sudah terpasang.", flush=True)
         return

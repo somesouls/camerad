@@ -13,7 +13,7 @@ Non-invasif & gagal-anggun: bila modul/tabel bermasalah, answer asli dipakai apa
 adanya. WAJIB diimpor SETELAH rag_grounding_patch agar membungkus versi answer
 terakhir (grounding tetap berjalan di dalam).
 """
-import rag_engine as _re
+import rag.engine as _re
 
 try:
     from handoff import routing_db as _hrdb

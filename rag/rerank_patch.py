@@ -18,14 +18,14 @@ kembali seperti semula (hybrid FTS5 + e5, dipotong k).
 """
 import os
 
-import peraturan_db as _pdb
+import peraturan.db as _pdb
 
 try:
-    import rag_rewrite as _rw
+    import rag.rewrite as _rw
 except Exception:            # pragma: no cover
     _rw = None
 try:
-    import rag_reranker as _rr
+    import rag.reranker as _rr
 except Exception:            # pragma: no cover
     _rr = None
 

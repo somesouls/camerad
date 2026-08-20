@@ -46,7 +46,7 @@ except Exception:
 
 # Klien LLM (Azure/OpenAI/Gemini) untuk terjemahan jalur bahasa. Fail-open.
 try:
-    import llm_client
+    import common.llm_client as llm_client
 except Exception:
     llm_client = None
 

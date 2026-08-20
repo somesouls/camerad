@@ -49,11 +49,11 @@ for _m in ("rag_successor_patch", "rag_rerank_patch",
     except Exception as _e:  # fail-soft: lanjut tanpa patch tsb
         print("[phase4_eval] impor %s dilewati: %s" % (_m, _e), flush=True)
 
-import peraturan_db as pdb
-import rag_golden_db as gdb
+import peraturan.db as pdb
+import rag.golden_db as gdb
 
 try:
-    import rag_calibration as _cal
+    import rag.calibration as _cal
 except Exception:            # pragma: no cover
     _cal = None
 

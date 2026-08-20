@@ -10,7 +10,7 @@ Dipakai oleh rag_engine.py sebagai Tahap 1 (Router).
 """
 
 try:
-    import llm_client
+    import common.llm_client as llm_client
 except Exception:
     llm_client = None
 

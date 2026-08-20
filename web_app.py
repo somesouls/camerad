@@ -34,21 +34,21 @@ from starlette.datastructures import UploadFile as StarletteUploadFile
 from starlette.concurrency import run_in_threadpool
 from urllib.parse import quote as _quote
 
-import llm_client
-import users_db as usr
-import analytics_db as adb
-import avaya_db as avdb
-import avaya_client as avc
+import common.llm_client as llm_client
+import db.users_db as usr
+import db.analytics_db as adb
+import avaya.db as avdb
+import avaya.client as avc
 import threading as _threading
 import uuid as _uuid
 import ingest
-import glossary_db as gdb
-import disambig_db as ddb
-import intentmap_db as imdb
-import knowledge_ctx as kctx  # gabungan konteks 3 pustaka utk prompt
-import pustaka_stats as pstats  # statistik pemakaian pustaka
-import intent_describe as idesc  # job deskripsi AI utk katalog intent
-import pii_mask  # masking PII sebelum teks dikirim ke LLM (Fase A)
+import knowledge.glossary_db as gdb
+import knowledge.disambig_db as ddb
+import knowledge.intentmap_db as imdb
+import knowledge.ctx as kctx  # gabungan konteks 3 pustaka utk prompt
+import knowledge.stats as pstats  # statistik pemakaian pustaka
+import common.intent_describe as idesc  # job deskripsi AI utk katalog intent
+import common.pii_mask as pii_mask  # masking PII sebelum teks dikirim ke LLM (Fase A)
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, Alignment
@@ -110,47 +110,47 @@ def start_scheduler():
 # Studio Dokumen (Epik C) — daftarkan route dari modul terpisah
 # =============================================================
 # --- Rute auth & sistem dipindah ke modul terpisah (migrasi langkah 2) ---
-import auth_routes
+import routes.auth_routes as auth_routes
 auth_routes.register(app)
-import system_routes
+import routes.system_routes as system_routes
 system_routes.register(app)
 
 # --- Rute pustaka & lifecycle dipindah ke modul terpisah (migrasi langkah 3) ---
-import pustaka_routes
+import pustaka.routes as pustaka_routes
 pustaka_routes.register(app)
-import lifecycle_routes
+import routes.lifecycle_routes as lifecycle_routes
 lifecycle_routes.register(app)
 
 # --- Rute analytics/deflection, kelola-data, dan tanya-AI dipindah ke modul terpisah (migrasi langkah 4) ---
-import analytics_routes
+import routes.analytics_routes as analytics_routes
 analytics_routes.register(app)
-import data_routes
+import routes.data_routes as data_routes
 data_routes.register(app)
-import knowledge_routes
+import knowledge.routes as knowledge_routes
 knowledge_routes.register(app)
 
 # --- Rute AWE Avaya dipindah ke modul terpisah (migrasi langkah 5) ---
 # --- Pipeline studio (Dialogflow+Avaya) dipindah ke modul terpisah (migrasi langkah 6) ---
-import pipeline_routes
+import pipeline.routes as pipeline_routes
 pipeline_routes.register(app)
 
 # --- Perbaikan Step 9 (Analisis Manual MKTA): monkey-patch pipeline_routes.step9_save
 #     agar menerima format edit dari frontend (objek map) & membawa data Step 8.
 #     WAJIB diimpor SETELAH pipeline_routes selesai dimuat. ---
-import step9_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import pipeline.step9_patch as step9_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Perbaikan Step 10 (Laporan LM & Pembaruan): monkey-patch pipeline_routes.step10_build
 #     agar memakai format baru (NAMA PENYUSUN + TGL Penyusunan) & menggabungkan
 #     baris TINDAK LANJUT dari Fallback (Step 6) + MKTA (Step 9).
 #     WAJIB diimpor SETELAH pipeline_routes selesai dimuat. ---
-import step10_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import pipeline.step10_patch as step10_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Poin #1 arsitektur RAG final — "successor-tracing" peraturan:
 #     monkey-patch rag_engine._ctx_peraturan agar bila kandidat termirip
 #     berstatus dicabut/diubah, mesin menelusuri peraturan pengganti yang
 #     berlaku dan menyisipkan catatan status hukum ke konteks. Patch mengimpor
 #     rag_engine sendiri & memperbarui _DISPATCH, jadi aman diimpor di sini. ---
-import rag_successor_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import rag.successor_patch as rag_successor_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Tahap 5 (reranker + query rewriting): bungkus peraturan_db.search agar
 #     (a) memperluas query dengan kamus sinonim + rewriting AI (peraturan/pasal),
@@ -158,7 +158,7 @@ import rag_successor_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     SEBELUM rag_calibration_patch agar gerbang cosine tetap menilai query ASLI
 #     (wrapper menerima query asli dari gate, memperluas HANYA utk retrieval,
 #     lalu rerank pakai query asli). Fail-open bila modul/model tak tersedia. ---
-import rag_rerank_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import rag.rerank_patch as rag_rerank_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Point 3 (kalibrasi ambang cosine): aktifkan gerbang retrieval berbasis
 #     ambang cosine (rag_calibration_patch) — menyaring pasal peraturan & sumber
@@ -166,14 +166,14 @@ import rag_rerank_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     produksi dari env RAG_MIN_COS (0 = mati); sweep /rag-eval men-set per-run.
 #     Fail-open bila model/vektor tak tersedia. WAJIB setelah rag_successor_patch
 #     agar ikut membungkus dispatch peraturan versi successor. ---
-import rag_calibration_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import rag.calibration_patch as rag_calibration_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Fase 2 (sinyal domain hukum di ranking + filter temporal as-of):
 #     membungkus peraturan_db.search versi terakhir (gate -> rerank -> hybrid)
 #     agar kekuatan_hukum/recency/entitas/definisi ikut menentukan urutan akhir,
 #     dan query bertahun ("... tahun 2019") difilter as-of. WAJIB setelah
 #     rag_calibration_patch agar membungkus rantai terakhir. ---
-import rag_domain_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import rag.domain_patch as rag_domain_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Fase 6 (v25): drill-down ketentuan PELAKSANA — bila kandidat teratas
 #     peraturan berlevel UU/PERPU/PERPRES/PP (umum), cari dokumen berlevel lebih
@@ -181,7 +181,7 @@ import rag_domain_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     (regex multi-format regref atas isi), lalu sertakan sebagai blok
 #     "Ketentuan pelaksana". WAJIB setelah rag_domain_patch (membungkus
 #     _ctx_peraturan versi terakhir). ---
-import rag_drilldown_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import rag.drilldown_patch as rag_drilldown_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Tahap 3 (guardrail grounding jawaban): monkey-patch rag_engine.answer agar
 #     (a) membuang/menormalkan tautan tidak resmi/pemendek (t.co/x.com/bit.ly)
@@ -189,20 +189,20 @@ import rag_drilldown_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     hukum (PMK/PER/PP/UU + nomor) yang tidak terdukung konteks retrieval.
 #     Fail-open. WAJIB setelah rag_successor_patch & rag_calibration_patch agar
 #     membungkus versi answer/_render_prompt terakhir. ---
-import rag_grounding_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import rag.grounding_patch as rag_grounding_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Pembersihan knowledge AWE: monkey-patch rag_engine._ctx_awe agar retrieval
 #     Percakapan AWE MEMBUANG giliran Bot / CCAI dan MENGABAIKAN percakapan
 #     full-bot (kolom Agent = "Chatbot, Google"). Hanya giliran pelanggan +
 #     agent manusia yang dijadikan konteks. WAJIB setelah rag_grounding_patch. ---
-import awe_botfilter_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import awe.botfilter_patch as awe_botfilter_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Perutean layanan (handoff): monkey-patch rag_engine.answer agar bila
 #     pertanyaan pengguna cocok dengan intent LAYANAN pada tabel handoff_routing,
 #     panduan kanal (mandiri/agent/KPP) disisipkan ke prompt. Pertanyaan
 #     informasi murni tetap dijawab RAG biasa. WAJIB setelah rag_grounding_patch
 #     & awe_botfilter_patch agar membungkus versi answer terakhir. ---
-import handoff_routing_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import handoff.routing_patch as handoff_routing_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Fase 1 (pemerataan retrieval): monkey-patch sumber SOP/AWE/Sosmed agar
 #     memakai perluasan kamus + skor token TERNORMALISASI (text_norm; stemming
@@ -211,7 +211,7 @@ import handoff_routing_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     _DISPATCH (bot-filter AWE dari awe_botfilter_patch DIPERTAHANKAN).
 #     WAJIB setelah awe_botfilter_patch & handoff_routing_patch agar membungkus
 #     versi terakhir masing-masing sumber. ---
-import rag_sources_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import rag.sources_patch as rag_sources_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Fase 5 (Q2Q): indeks PERTANYAAN historis Sosmed/AWE sebagai vektor
 #     (kemiripan pertanyaan, bukan jawaban), lalu tautkan rujukan peraturan
@@ -219,9 +219,9 @@ import rag_sources_patch  # noqa: F401  (menerapkan patch saat diimpor)
 #     Fase 6: hasil Q2Q Sosmed diekspansi dengan tanya-jawab lanjutan dalam
 #     utas yang sama (conv_id). Fail-soft bila qa.db belum dibangun
 #     (python phase5_qa_build.py). WAJIB setelah rag_sources_patch. ---
-import rag_qa_patch  # noqa: F401  (menerapkan patch saat diimpor)
+import rag.qa_patch as rag_qa_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
-import awe_routes
+import awe.routes as awe_routes
 awe_routes.register(
     app,
     save_artifact=pipeline_routes.save_artifact,
@@ -235,37 +235,37 @@ awe_routes.register(
     curl_json_raw=pipeline_routes.curl_json_raw,
 )
 
-import awe_assess
+import awe.assess as awe_assess
 awe_assess.register(app)
 
 # --- Rute Tool Sosmed (X/IG/TikTok) dipindah ke modul terpisah ---
-import sosmed_routes
+import sosmed.routes as sosmed_routes
 sosmed_routes.register(app)
 
 # --- Endpoint ingest untuk ekstensi Camerad X-Scraper (POST /api/sosmed/ingest) ---
-import sosmed_ingest
+import sosmed.ingest as sosmed_ingest
 sosmed_ingest.register(app)
 
 # --- Menu RAG (Pilot) "Agent Kring Pajak": chat berbasis 3 basis data internal ---
-import rag_routes
+import rag.routes as rag_routes
 rag_routes.register(app)
 
 # --- Chat RAG "Agent Kring Pajak" (halaman utama "/" untuk SEMUA peran) +
 #     feedback jempol + log keandalan + kuota harian admin. Berbagi mesin RAG
 #     (rag_engine) & profil 'agent', jadi didaftarkan setelah rag_routes. ---
-import agent_chat_routes
+import chat.agent_routes as agent_chat_routes
 agent_chat_routes.register(app)
 
 # --- Webhook Dialogflow ES (Point 5): endpoint fulfillment chatbot Kring Pajak
 #     dengan fast-path + deadline guard ~4,5 dtk, plus menu admin "Webhook
 #     Chatbot" untuk mengatur token/profil/deadline/fallback. Memakai mesin RAG
 #     (rag_engine) & app_core.render_page, jadi didaftarkan setelah rag_routes. ---
-import df_webhook_routes
+import df_webhook.routes as df_webhook_routes
 df_webhook_routes.register(app)
 
 
 # --- Endpoint untuk Widget Chat Frontend ---
-import chat_frontend_routes
+import chat.frontend_routes as chat_frontend_routes
 chat_frontend_routes.register(app)
 
 
@@ -273,7 +273,7 @@ chat_frontend_routes.register(app)
 #     chatbot), jalankan uji keandalan (LLM-as-judge + hold-out AWE), dan
 #     dashboard metrik keandalan/halusinasi + validasi manusia. Khusus admin.
 #     Didaftarkan setelah rag_routes karena berbagi mesin & profil RAG. ---
-import eval_routes
+import evaluation.routes as eval_routes
 eval_routes.register(app)
 
 # --- Menu Evaluasi RAG · Chatbot: pengujian KHUSUS profil chatbot, terpisah
@@ -281,33 +281,33 @@ eval_routes.register(app)
 #     (2) deflection pertanyaan fallback + riwayat percakapan, (3) uji beban
 #     concurrency mesin RAG. Khusus admin (area 'peraturan'). Didaftarkan
 #     setelah eval_routes karena berbagi mesin & profil RAG. ---
-import eval_chatbot_routes
+import evaluation.chatbot_routes as eval_chatbot_routes
 eval_chatbot_routes.register(app)
 
 # --- Menu Peraturan (sumber resource #5): kelola basis data peraturan perpajakan
 #     (migrasi dari repositori jakai). Dipakai juga sebagai sumber grounding RAG. ---
-import peraturan_routes
+import peraturan.routes as peraturan_routes
 peraturan_routes.register(app)
 
 # --- Menu SOP/Proses Bisnis (sumber grounding RAG #6, tampil "Sumber 5"):
 #     ekstrak dokumen (pdf/pptx/docx/txt/html/gambar) -> disimpan permanen. ---
-import sop_routes
+import sop.routes as sop_routes
 sop_routes.register(app)
 
 # --- Menu Kamus & Rewriting (Tahap 5): kelola kamus sinonim/istilah pajak +
 #     alat uji rewriting otomatis AI (peraturan/pasal). Memakai app_core.render_page
 #     & mesin RAG, jadi didaftarkan bersama menu Peraturan/SOP. ---
-import rag_kamus_routes
+import rag.kamus_routes as rag_kamus_routes
 rag_kamus_routes.register(app)
 
 # --- Menu Perutean Layanan (Handoff): kelola tabel handoff_routing TANPA
 #     redeploy (intent LAYANAN + kanal mandiri/agent/KPP + frasa pemicu).
 #     Perutean diterapkan oleh handoff_routing_patch; halaman ini hanya CRUD.
 #     Memakai app_core.render_page, jadi didaftarkan bersama menu chatbot. ---
-import handoff_routes
+import handoff.routes as handoff_routes
 handoff_routes.register(app)
 
-import studio_routes
+import routes.studio_routes as studio_routes
 studio_routes.register(
     app,
     base_dir=BASE_DIR,
