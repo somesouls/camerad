@@ -1,0 +1,11 @@
+# Pasang sekali: pip install pre-commit && pre-commit install
+# Jalankan manual: pre-commit run --all-files
+repos:
+  - repo: local
+    hooks:
+      - id: struktur-guard
+        name: guard struktur (py_compile + anti-shim root)
+        entry: python scripts/oneoff/check_structure.py
+        language: system
+        pass_filenames: false
+        always_run: true
