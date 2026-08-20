@@ -1,0 +1,3 @@
+# Skrip shell WAJIB berakhiran LF agar tidak rusak saat dijalankan di Git Bash (Windows).
+*.sh text eol=lf
+*.bat text eol=crlf
