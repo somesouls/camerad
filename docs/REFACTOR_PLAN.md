@@ -69,7 +69,7 @@ camerad/
 1. **PR-1 (ini): pembersihan + rencana.** Hapus `*.bak` & `studio_routes copy.py`; tambah `*.bak` ke `.gitignore`; tambah `docs/REFACTOR_PLAN.md` + `scripts/reorg_docs.sh`. Runtime tak tersentuh.
 2. **PR-2: pindah dokumen.** Jalankan `scripts/reorg_docs.sh` (pakai `git mv`, riwayat terjaga) → `CHANGES_*`/`*.txt`/panduan ke `docs/`, untrack `__pycache__`. Risiko nol.
 3. **PR-3: pindah skrip.** `phase*` & `fix_*`/`reset_*` → `scripts/` + fix `sys.path`. `step9_patch`/`step10_patch`/`llm_fix_final_combined` **TETAP**. Grep-guard dulu.
-4. **PR-4..N: package modul non-patch per-cluster** (mis. `peraturan/`, lalu `sop/`, `sosmed/`, `awe/`, `eval/`). Tiap PR: buat package + shim + perbaiki import + audit path (`__file__`/`open("*.db")`) + smoke test.
+4. **PR-4..N: package modul non-patch per-cluster.** Urutan aktual (risiko naik): **`sop/` (pilot — SELESAI)** → **`sosmed/` (berjalan)** → `awe/` (patch tetap root) → `eval/` → `peraturan/` (coupling tertinggi, terakhir dari kelompok ini). Tiap PR: buat package + `__init__.py` + shim mundur + audit path (`__file__`) + smoke test. Alat generik: **`scripts/reorg_pkg.sh`** (lihat §7).
 5. **PR terakhir (paling hati-hati): `rag/` + lapisan patch.** Pertahankan urutan import di `web_app.py` PERSIS. Uji banner lengkap. Ini titik paling rawan (identitas modul + urutan patch).
 
 ## 5. Jaring pengaman
@@ -121,3 +121,41 @@ Cari `__file__`, `os.path.join(BASE_DIR, ...)`, `open("....db")`, `"templates/"`
 - Tambahkan `training/` (pembuat dataset + skrip PEFT) tanpa menyentuh runtime.
 - LoRA baik untuk **gaya/format/kepatuhan instruksi**, buruk untuk **fakta** (cepat basi, tak bisa disitasi, menaikkan halusinasi) — biarkan RAG tetap penyuplai fakta + sumber.
 - PEFT yang Anda latih sendiri butuh **model open-weight** lokal; `gpt-5.4-mini` di Azure tidak bisa ditempeli adapter Anda.
+
+## 7. Catatan eksekusi & pelajaran (PR-3 / PR-4)
+
+### 7.1 Alat generik `scripts/reorg_pkg.sh`
+Pemaket cluster yang dipakai ulang tiap PR modul:
+```
+bash scripts/reorg_pkg.sh <pkg> <mod1> <mod2> ...
+# contoh: bash scripts/reorg_pkg.sh sosmed db ingest knowledge routes x
+```
+- `git mv <pkg>_<mod>.py -> <pkg>/<mod>.py` (byte-exact, riwayat terjaga) + buat `<pkg>/__init__.py`.
+- Shim mundur di root: `<pkg>_<mod>.py` mengalias `sys.modules[__name__]` ke `<pkg>.<mod>`.
+- **Auto-deteksi patch `_BASE_DIR`:** bila file memuat PERSIS `_BASE_DIR = os.path.dirname(os.path.abspath(__file__))` (1x) dan itu SATU-SATUNYA `__file__`, dinaikkan satu level. Bila ada `__file__` di luar pola itu -> **ABORT + rollback** (wajib tinjau manual; jangan rusak path diam-diam).
+- Commit LOKAL saja (belum push). Gerbang `py_compile` best-effort.
+
+### 7.2 Pola shim final
+Root `<pkg>_<mod>.py`:
+```python
+import sys as _sys
+import <pkg>.<mod> as _mod
+_sys.modules[__name__] = _mod
+```
+Satu objek modul (hindari duplikasi state/cache). `import <pkg>_<mod>` & `from <pkg>_<mod> import ...` tetap sah tanpa mengubah pemanggil (termasuk `web_app.py` & lapisan patch seperti `rag_sources_patch`).
+
+### 7.3 Lingkungan Windows: DUA git & DUA python (sumber bug utama)
+Mesin dev memakai **PowerShell** (venv; `python` ADA) dan **bash/WSL** (git terpisah; `python` TIDAK ADA, tapi `python3` ADA):
+1. **`fatal: empty ident name`** saat commit dari bash -> identitas git global tak kebaca di bash. Obat: **repo-local** `git config user.name` + `user.email` (tanpa `--global`).
+2. **PowerShell `git status` BERSIH tapi skrip-bash bilang KOTOR** -> beda `core.autocrlf`/`core.fileMode`. Obat: **repo-local** `git config core.autocrlf true` + `core.fileMode false`. `reorg_pkg.sh` menyetel ini otomatis di awal.
+3. **`bash: python: command not found`** -> `python` cuma di venv PowerShell. Obat: skrip patch pakai **`sed`** (bukan python); `py_compile` best-effort (coba `python3`/`python`/`py`).
+4. **PowerShell menolak `&&`** (`The token '&&' is not a valid statement separator`) -> rangkai perintah pakai `bash -c "... && ..."` atau `;`.
+5. **CRLF pada `.sh`** -> `set -o pipefail` gagal. Obat: self-heal `tr -d '\r'` di baris atas + `.gitattributes` (`*.sh eol=lf`).
+6. **`git clean -fd` terlalu luas** (pernah membuang `golden_baseline.json`, `venv/Include/`). SELALU scoped.
+
+### 7.4 Gerbang wajib tiap cluster
+`py_compile` HANYA cek sintaks — TIDAK menangkap import/path rusak. **Boot-test PowerShell (banner §5) + cek endpoint stats cluster (angka SAMA) tetap gerbang utama.** Rollback commit lokal bila perlu: `bash -c 'git reset --hard HEAD~1 && rm -rf <pkg>'`.
+
+### 7.5 Progres PR-4
+- **`sop/`** — pilot, SELESAI & terverifikasi (byte-exact; `_BASE_DIR` di `db.py` & `batch.py` dinaikkan; boot bersih).
+- **`sosmed/`** — dikerjakan via `reorg_pkg.sh` (patch `_BASE_DIR` hanya di `db.py`; 4 modul lain tanpa `__file__`).
