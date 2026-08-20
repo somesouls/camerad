@@ -1,5 +1,7 @@
 # camerad — Chatbot Pajak + RAG Peraturan + Avaya AWE (Lokal, 100% Python)
 
+[![CI](https://github.com/somesouls/camerad/actions/workflows/ci.yml/badge.svg)](https://github.com/somesouls/camerad/actions/workflows/ci.yml)
+
 Aplikasi **FastAPI** untuk analisis Dialogflow (Step 1–11) + Avaya (Step 12–16), **chat AI berbasis RAG peraturan pajak**, dan analitik AWE — **berjalan penuh di lokal / LAN** dengan **LLM cloud** (OpenAI / Gemini / Azure OpenAI).
 
 > **Struktur kode:** repo ini sudah ditata menjadi **paket Python per-domain** (bukan lagi berkas datar di root). Peta paket & konvensi kontribusi ada di **`AGENTS.md`**; detail arsitektur & riwayat migrasi di **`docs/ARCHITECTURE.md`**.
@@ -24,20 +26,16 @@ Untuk pemakaian harian, **satu proses** sudah cukup:
 ```
 
 - Mesin **RAG** dan **Avaya AWE** kini **ter-bootstrap langsung di dalam `web_app.py`**, sehingga operasi harian cukup **satu terminal / satu proses** (port 8080).
-- `llm_fix_final_combined.py` (port 8000) adalah **backend berat lama** yang sekarang **opsional** — hanya diperlukan untuk sebagian pekerjaan Step Dialogflow tertentu. `start.bat` **tidak** menjalankannya otomatis.
+- `llm_fix_final_combined.py` (port 8000) adalah **backend berat lama** yang sekarang **opsional** — hanya diperlukan untuk sebagian pekerjaan Step Dialogflow tertentu. `start.bat` tidak menjalankannya otomatis; `start.sh` menyalakannya hanya bila diberi flag `--with-backend`.
 - Semua komputasi model tetap **lokal** (`127.0.0.1`). Tidak ada ngrok / Colab / Google Drive.
 
 ---
 
 ## Backend vs Frontend — apakah perlu dipisah?
 
-**Saat ini:**
-- **Windows (`start.bat`)** → **satu proses**: `web_app.py` (UI + RAG + Avaya) di port 8080. Backend 8000 tidak dinyalakan.
-- **Linux/macOS (`start.sh`)** → masih **dua proses**: `llm_fix_final_combined.py` (8000, background) lalu `web_app.py` (8080). Ini warisan arsitektur lama.
+**Saat ini keduanya menyatu di `web_app.py` (satu proses, port 8080)** untuk operasi harian, baik di Windows (`start.bat`) maupun Linux/macOS (`start.sh`). Backend berat lama (`llm_fix_final_combined.py`, port 8000) opsional dan hanya untuk sebagian Step Dialogflow: nyalakan dengan `./start.sh --with-backend` (Linux) atau jalankan manual di terminal terpisah (Windows).
 
 **Perlu dipisah?** Untuk deployment satu mesin / LAN internal seperti sekarang, **tidak perlu**. Satu proses lebih sederhana dan hemat memori (model reranker + indeks QA hanya di-load sekali). Pemisahan baru berguna bila: (a) mau restart UI tanpa unload model besar, (b) UI dan model jalan di mesin berbeda (mis. GPU box terpisah), atau (c) mau scaling terpisah.
-
-> `start.sh` masih ikut menyalakan backend 8000 sehingga belum konsisten dengan `start.bat`. Bila diinginkan, `start.sh` bisa diselaraskan menjadi satu proses juga.
 
 ---
 
@@ -202,7 +200,7 @@ Step 1 (tarik log Dialogflow) & Step 3/13 (tarik intent) butuh akses Google Clou
 
 ### 5. Jalankan
 - **Windows:** `start.bat` → **satu proses** `web_app.py` (UI + RAG + Avaya) di port 8080.
-- **Linux/macOS:** `./start.sh` → saat ini menyalakan backend 8000 (opsional) lalu frontend 8080.
+- **Linux/macOS:** `./start.sh` → satu proses `web_app.py`. Tambah `--with-backend` bila butuh backend 8000 lama.
 - **Langsung:** `python web_app.py` (cukup untuk operasi harian).
 
 ### 6. Akses dari PC lain di LAN
@@ -260,7 +258,7 @@ Setiap step berdiri sendiri; hasil step yang sukses tersimpan di `_runs/<run>/` 
 
 ## Troubleshooting
 
-- **Web UI kebuka tapi step Dialogflow berat gagal “connection refused”** → backend opsional (port 8000) belum dinyalakan/siap. Untuk step tsb, jalankan `python llm_fix_final_combined.py` di terminal terpisah (Windows), atau pakai `start.sh` (Linux).
+- **Web UI kebuka tapi step Dialogflow berat gagal “connection refused”** → backend opsional (port 8000) belum dinyalakan/siap. Untuk step tsb, jalankan `./start.sh --with-backend` (Linux) atau `python llm_fix_final_combined.py` di terminal terpisah (Windows).
 - **Step 1/3 gagal “service-account.json tidak ditemukan”** → taruh file SA atau tempel Access Token di form.
 - **PC lain tidak bisa buka** → cek firewall port 8080 & pastikan `WEB_HOST=0.0.0.0`.
 - **Torch lambat / ingin GPU** → install torch versi CUDA (lihat langkah 2).
