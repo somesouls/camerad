@@ -19,7 +19,7 @@ import datetime as _dt
 SYSTEM_INTENTS = {"System_System_Welcome Intent", "System_System_Hubungi Agent"}
 FALLBACK_INTENTS = {"System_System_Fallback Intent", "System_System_Fallback Intent 2"}
 
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket db/ -> root repo
 
 
 def default_db_path():

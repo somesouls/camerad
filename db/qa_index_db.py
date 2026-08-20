@@ -52,7 +52,7 @@ try:
 except Exception:            # pragma: no cover
     tnorm = None
 
-_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket db/ -> root repo
 _BUSY_TIMEOUT_MS = 30000
 
 
