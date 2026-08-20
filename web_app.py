@@ -325,11 +325,33 @@ if __name__ == "__main__":
     os.makedirs(CONFIG["runs_dir"], exist_ok=True)
     start_scheduler()
     shown = "localhost" if host in ("0.0.0.0", "::") else host
+
+    def _lan_ip():
+        """Deteksi IP LAN utama (tanpa benar-benar mengirim paket keluar)."""
+        import socket
+        s = None
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        except Exception:
+            try:
+                return socket.gethostbyname(socket.gethostname())
+            except Exception:
+                return "IP-PC-INI"
+        finally:
+            try:
+                if s is not None:
+                    s.close()
+            except Exception:
+                pass
+
+    lan_ip = _lan_ip()
     print("=" * 64)
     print(" Dialogflow + Avaya Pipeline (FastAPI) - FRONTEND / UI")
     print(" BUKA DI BROWSER : http://%s:%d/" % (shown, port))
     print(" (JANGAN buka http://0.0.0.0:%d - itu cuma alamat bind, bukan URL)" % port)
-    print(" Dari PC lain LAN: http://<IP-PC-INI>:%d/" % port)
-    print(" Backend internal (jangan dibuka manual): %s" % CONFIG["local_api_base"])
+    print(" Dari PC lain LAN: http://%s:%d/" % (lan_ip, port))
+    print(" (mesin RAG + Avaya AWE jalan di proses ini; tak perlu buka backend terpisah)")
     print("=" * 64)
     uvicorn.run(app, host=host, port=port)
