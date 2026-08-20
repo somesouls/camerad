@@ -1,40 +1,33 @@
 @echo off
 REM ================================================================
-REM  Jalankan dua proses Python:
-REM    1) API ANALISIS INTERNAL (llm_fix_final_combined.py, port 8000)
-REM       -> dipanggil via HTTP oleh pipeline Dialogflow/Avaya
-REM          (Step 1-16). BUKAN mesin RAG. Tidak dibuka di browser.
-REM    2) APLIKASI WEB + MESIN RAG (web_app.py, port 8080)
-REM       -> seluruh UI + mesin RAG (jawaban chat, retrieval, model
-REM          embedding/reranker, indeks Q&A) berjalan in-process di sini.
-REM  Keduanya Python - tidak butuh PHP lagi.
-REM  Buka dari PC lain: http://<IP-PC-INI>:8080/
+REM  Jalankan Camerad Studio dalam SATU proses Python:
+REM    APLIKASI WEB + MESIN RAG + endpoint AWE Avaya (web_app.py, 8080)
+REM
+REM  Catatan:
+REM  - Analisis AWE Avaya kini terpasang langsung di web_app.py melalui
+REM    avaya_web_bootstrap.py, jadi tidak perlu membuka terminal backend 8000
+REM    hanya untuk /api/avaya-*.
+REM  - Endpoint lama di llm_fix_final_combined.py tetap ada untuk kompatibilitas
+REM    pekerjaan Step Dialogflow tertentu, tetapi tidak dijalankan otomatis oleh
+REM    start.bat agar operasi harian cukup satu terminal.
+REM  - Buka dari PC lain: http://<IP-PC-INI>:8080/
 REM ================================================================
 cd /d "%~dp0"
 
 if exist .venv\Scripts\activate.bat call .venv\Scripts\activate.bat
 
-REM Ambil beberapa nilai dari .env (kalau ada)
-set "PIPELINE_API_KEY="
+REM Ambil WEB_PORT dari .env (kalau ada)
 set "WEB_PORT="
 if exist .env (
   for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
-    if /I "%%A"=="PIPELINE_API_KEY" set "PIPELINE_API_KEY=%%B"
     if /I "%%A"=="WEB_PORT" set "WEB_PORT=%%B"
   )
 )
-if "%PIPELINE_API_KEY%"=="" set "PIPELINE_API_KEY=sam-n8n-secret"
 if "%WEB_PORT%"=="" set "WEB_PORT=8080"
 set "WEB_HOST=0.0.0.0"
 
-echo Menjalankan API analisis internal (llm_fix_final_combined.py, port 8000)...
-start "API Analisis Internal (port 8000) - pipeline Dialogflow/Avaya" cmd /k python llm_fix_final_combined.py
-
-echo Menunggu API analisis siap (10 detik)...
-timeout /t 10 /nobreak >nul
-
-echo Menjalankan aplikasi web + mesin RAG (web_app.py, port %WEB_PORT%) ...
-start "Aplikasi Web + Mesin RAG (port %WEB_PORT%) - buka localhost:%WEB_PORT%" cmd /k python web_app.py
+echo Menjalankan aplikasi web + mesin RAG + Avaya AWE (web_app.py, port %WEB_PORT%) ...
+start "Camerad Studio (web + RAG + Avaya, port %WEB_PORT%) - buka localhost:%WEB_PORT%" cmd /k python web_app.py
 
 echo.
 echo ================================================================

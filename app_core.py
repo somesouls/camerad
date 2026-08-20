@@ -47,6 +47,15 @@ XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 app = FastAPI(title="Camerad Studio")
 
+# Avaya AWE kini dipasang ke proses web utama agar ./start.bat cukup membuka
+# satu server (web_app.py:8080). Fail-soft: bila dependency Avaya belum siap,
+# route lain tetap boot.
+try:
+    import avaya_web_bootstrap
+    avaya_web_bootstrap.register(app)
+except Exception as _avaya_web_exc:
+    print("[AVAYA-WEB] bootstrap dilewati:", _avaya_web_exc, flush=True)
+
 from fastapi.middleware.cors import CORSMiddleware
 
 app.add_middleware(
