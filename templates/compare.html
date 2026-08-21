@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}RAG vs LoRA · Camerad Studio{% endblock %}
+{% block head %}
+<style>
+.cmp-wrap { max-width: 1120px; margin: 0 auto; padding: 24px 28px 60px; }
+.cmp-head h1 { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; margin: 0 0 8px; }
+.cmp-head p { color: var(--text-muted); margin: 0 0 8px; font-size: 14px; }
+.cmp-note { font-size: 12.5px; }
+.cmp-note code, .cmp-head code { background: var(--panel-border); padding: 1px 6px; border-radius: 6px; color: var(--accent); font-size: 0.92em; }
+.cmp-form { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 14px; padding: 16px; margin: 18px 0; }
+.cmp-form textarea { width: 100%; box-sizing: border-box; border: 1px solid var(--panel-border); background: var(--bg-base); color: var(--text-main); border-radius: 10px; padding: 12px 14px; font-family: inherit; font-size: 15px; resize: vertical; }
+.cmp-row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-top: 12px; }
+.cmp-row label { font-size: 12.5px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; }
+.cmp-row select, .cmp-row input[type=number] { border: 1px solid var(--panel-border); background: var(--bg-base); color: var(--text-main); border-radius: 8px; padding: 7px 10px; font-family: inherit; font-size: 13.5px; }
+.cmp-check { flex-direction: row !important; align-items: center; gap: 6px !important; align-self: flex-end; }
+.cmp-btn { margin-left: auto; align-self: flex-end; border: none; background: var(--accent); color: #fff; border-radius: 10px; padding: 10px 22px; font-weight: 600; font-size: 14px; cursor: pointer; transition: 0.2s; }
+.cmp-btn:hover:not(:disabled) { background: var(--accent-hover); }
+.cmp-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+.cmp-status { color: var(--text-muted); font-size: 13.5px; min-height: 18px; margin-bottom: 8px; }
+.cmp-meta { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; }
+.cmp-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+@media (max-width: 900px){ .cmp-cards { grid-template-columns: 1fr; } .cmp-btn { margin-left: 0; } }
+.cmp-card { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; }
+.cmp-card-h { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+.cmp-card-h b { font-size: 14px; }
+.cmp-model { font-size: 11.5px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+.cmp-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.cmp-badge { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--panel-border); color: var(--text-muted); }
+.cmp-badge.ok { background: var(--c-green); color: var(--c-green-txt); }
+.cmp-badge.warn { background: var(--c-orange); color: var(--c-orange-txt); }
+.cmp-badge.err { background: var(--c-red); color: var(--c-red-txt); }
+.cmp-ans { white-space: pre-wrap; word-break: break-word; font-size: 12.5px; line-height: 1.5; background: var(--bg-base); border: 1px solid var(--panel-border); border-radius: 10px; padding: 12px; margin: 0; max-height: 460px; overflow-y: auto; font-family: inherit; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="cmp-wrap">
+  <div class="cmp-head">
+    <h1>Perbandingan RAG vs LoRA</h1>
+    <p>Bandingkan efektivitas &amp; keandalan tiga mode untuk satu pertanyaan: <b>RAG</b> (base LLM + retrieval), <b>LoRA saja</b> (fine-tuning tanpa retrieval), dan <b>LoRA + RAG</b>. Konteks retrieval diambil dari pipeline RAG yang sama agar perbandingan adil.</p>
+    <p class="cmp-note">Prasyarat: server <code>finetune.serve_local</code> harus jalan (default <code>http://127.0.0.1:8001</code>).</p>
+  </div>
+  <div class="cmp-form">
+    <textarea id="q" rows="3" placeholder="Tulis pertanyaan, mis. UMKM kena pajak apa?"></textarea>
+    <div class="cmp-row">
+      <label>Adapter LoRA
+        <select id="adapter">
+          <option value="camerad-grounded">camerad-grounded</option>
+          <option value="camerad-faq">camerad-faq</option>
+          <option value="camerad-intent">camerad-intent</option>
+        </select>
+      </label>
+      <label>Profil RAG
+        <select id="profil">
+          {% for p in profil_list %}
+          <option value="{{ p.id }}">{{ p.nama or p.id }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Temperatur
+        <input id="temp" type="number" step="0.1" min="0" max="2" value="0.3">
+      </label>
+      <label class="cmp-check"><input id="judge" type="checkbox"> Nilai LLM-judge</label>
+      <button id="runBtn" class="cmp-btn">Bandingkan</button>
+    </div>
+  </div>
+  <div id="status" class="cmp-status"></div>
+  <div id="meta" class="cmp-meta"></div>
+  <div id="cards" class="cmp-cards"></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var runBtn = document.getElementById('runBtn');
+  var statusEl = document.getElementById('status');
+  var metaEl = document.getElementById('meta');
+  var cardsEl = document.getElementById('cards');
+  var LBL = { rag_base: 'RAG (base LLM)', lora: 'LoRA saja (tanpa RAG)', lora_rag: 'LoRA + RAG' };
+  var ORDER = ['rag_base', 'lora', 'lora_rag'];
+  function esc(s){ return (s||'').replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function badge(txt, cls){ return '<span class="cmp-badge ' + (cls||'') + '">' + esc(txt) + '</span>'; }
+  function render(hasil){
+    metaEl.innerHTML = 'Profil <b>' + esc(hasil.profil) + '</b> · adapter <b>' + esc(hasil.adapter) + '</b> · konteks ' + (hasil.context_chars||0) + ' char · ' + ((hasil.sources||[]).length) + ' sumber';
+    cardsEl.innerHTML = '';
+    ORDER.forEach(function(k){
+      var r = (hasil.modes || {})[k] || {};
+      var b = [];
+      if (r.latency_ms != null) b.push(badge(Math.round(r.latency_ms) + ' ms'));
+      b.push(badge((r.panjang||0) + ' char'));
+      if (r.fallback_hit) b.push(badge('FALLBACK', 'warn'));
+      if (r.ada_rujukan) b.push(badge('ada-rujukan', 'ok'));
+      if (r.judge_verdict) b.push(badge('juri: ' + r.judge_verdict + ' (' + (r.judge_skor == null ? '-' : r.judge_skor) + ')', 'ok'));
+      if (r.error) b.push(badge('ERROR', 'err'));
+      var body = r.error ? ('Error: ' + esc(r.error)) : (esc((r.answer||'').trim()) || '(kosong)');
+      var div = document.createElement('div');
+      div.className = 'cmp-card';
+      div.innerHTML = '<div class="cmp-card-h"><b>' + esc(LBL[k]) + '</b><span class="cmp-model">' + esc(r.model||'') + '</span></div>' +
+        '<div class="cmp-badges">' + b.join('') + '</div>' +
+        '<pre class="cmp-ans">' + body + '</pre>';
+      cardsEl.appendChild(div);
+    });
+  }
+  function run(){
+    var q = (document.getElementById('q').value || '').trim();
+    if (!q) { statusEl.textContent = 'Tulis pertanyaan dulu.'; return; }
+    runBtn.disabled = true;
+    statusEl.textContent = 'Menjalankan 3 mode… (model lokal, bisa ~1 menit).';
+    cardsEl.innerHTML = ''; metaEl.innerHTML = '';
+    fetch('/api/compare/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        question: q,
+        adapter: document.getElementById('adapter').value,
+        profil: document.getElementById('profil').value,
+        temperature: parseFloat(document.getElementById('temp').value) || 0.3,
+        judge: document.getElementById('judge').checked
+      })
+    }).then(function(r){ return r.json(); }).then(function(d){
+      runBtn.disabled = false;
+      if (!d.ok) { statusEl.textContent = 'Gagal: ' + (d.error || 'tak diketahui'); return; }
+      statusEl.textContent = '';
+      render(d.hasil);
+    }).catch(function(e){ runBtn.disabled = false; statusEl.textContent = 'Gagal: ' + e; });
+  }
+  runBtn.addEventListener('click', run);
+  document.getElementById('q').addEventListener('keydown', function(e){
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') run();
+  });
+})();
+</script>
+{% endblock %}

@@ -284,6 +284,13 @@ eval_routes.register(app)
 import evaluation.chatbot_routes as eval_chatbot_routes
 eval_chatbot_routes.register(app)
 
+# --- Menu RAG vs LoRA (deliverable #3): bandingkan efektivitas & keandalan
+#     RAG (retrieval) vs LoRA (fine-tuning) berdampingan, 3 mode per pertanyaan
+#     (rag_base / lora / lora_rag). Memakai evaluation.compare + finetune.serve_local.
+#     Khusus admin (area 'peraturan'). Didaftarkan setelah eval_chatbot_routes. ---
+import evaluation.compare_routes as eval_compare_routes
+eval_compare_routes.register(app)
+
 # --- Menu Peraturan (sumber resource #5): kelola basis data peraturan perpajakan
 #     (migrasi dari repositori jakai). Dipakai juga sebagai sumber grounding RAG. ---
 import peraturan.routes as peraturan_routes
