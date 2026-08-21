@@ -43,7 +43,7 @@ def connect(db_path=None):
     conn = sqlite3.connect(db_path or default_db_path())
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
-    conn.execute("PRAGMA busy_timeout=8000;")
+    conn.execute("PRAGMA busy_timeout=30000;")
     return conn
 
 
@@ -147,8 +147,8 @@ def init_db(conn):
         ("ss_lengkap", "ss_lengkap INTEGER"),
     ])
     conn.commit()
-    # Migrasi ringan (sekali jalan): isi kolom nik untuk baris lama dari staging
-    # / kurung [..] pada nama. Dijaga meta-flag agar tak berjalan tiap request.
+    # Migrasi ringan (sekali jalan): rapikan baris lama yang namanya berformat
+    # 'Nama [NIK]'. Dijaga meta-flag agar tak berjalan tiap request.
     try:
         _backfill_nik(conn)
     except Exception:
@@ -358,10 +358,15 @@ def _ensure_columns(cur, table, coldefs):
 
 
 def _backfill_nik(conn):
-    """Isi kolom nik/non_npwp untuk baris awe_conversations lama (sekali jalan).
+    """Migrasi ringan sekali-jalan: rapikan baris yang namanya masih berformat
+    'Nama [NIK]' menjadi kolom nik + nama bersih.
 
-    Sumber: kurung '[..]' pada kolom customer, lalu payload_json di awe_staging.
-    Dijaga meta-flag 'nik_backfill_v1' supaya tidak berjalan berulang.
+    PENTING: sengaja RINGAN -- hanya menyentuh baris dgn kurung '[..]' pada
+    kolom customer, lalu SELALU menandai 'done' agar TIDAK berjalan berulang
+    tiap request. (Versi lama memindai SELURUH baris + lookup staging pada tiap
+    init_db; bila gagal karena lock, flag tak pernah di-set sehingga diulang
+    terus -> penyebab utama 'database is locked'.) Pemulihan berat dari staging
+    dipindah ke fungsi manual nik_backfill() yang dipicu dari UI Kelola Data.
     """
     if get_meta(conn, "nik_backfill_v1") == "done":
         return 0
@@ -371,15 +376,95 @@ def _backfill_nik(conn):
         set_meta(conn, "nik_backfill_v1", "done")
         conn.commit()
         return 0
-    rows = cur.execute(
-        "SELECT sid, customer FROM awe_conversations WHERE nik IS NULL OR nik=''"
-    ).fetchall()
     n = 0
+    try:
+        rows = cur.execute(
+            "SELECT rowid, customer FROM awe_conversations "
+            "WHERE (nik IS NULL OR nik='') AND customer LIKE '%[%]%'"
+        ).fetchall()
+        for r in rows:
+            nik = _nik_from_str(r["customer"])
+            clean = _name_wo_nik(r["customer"])
+            if nik:
+                cur.execute(
+                    "UPDATE awe_conversations SET nik=?, non_npwp=?, customer=? "
+                    "WHERE rowid=?",
+                    (nik, _nonnpwp_flag(nik), clean, r["rowid"]),
+                )
+                n += 1
+    except Exception:
+        pass
+    # Selalu tandai selesai supaya migrasi otomatis tidak berulang tiap request.
+    set_meta(conn, "nik_backfill_v1", "done")
+    conn.commit()
+    return n
+
+
+def nik_stats(conn):
+    """Ringkasan cakupan NIK/NPWP pada awe_conversations (untuk UI Kelola Data)."""
+    cur = conn.cursor()
+    have = {r[1] for r in cur.execute("PRAGMA table_info(awe_conversations)").fetchall()}
+    if "nik" not in have:
+        try:
+            staged = cur.execute("SELECT COUNT(*) FROM awe_staging").fetchone()[0]
+        except Exception:
+            staged = 0
+        return {"total": 0, "with_nik": 0, "without_nik": 0,
+                "name_has_bracket": 0, "recover_from_name": 0, "staging_rows": staged}
+    total = cur.execute("SELECT COUNT(*) FROM awe_conversations").fetchone()[0]
+    with_nik = cur.execute(
+        "SELECT COUNT(*) FROM awe_conversations WHERE nik IS NOT NULL AND nik!=''"
+    ).fetchone()[0]
+    name_bracket = cur.execute(
+        "SELECT COUNT(*) FROM awe_conversations WHERE customer LIKE '%[%]%'"
+    ).fetchone()[0]
+    recover_from_name = cur.execute(
+        "SELECT COUNT(*) FROM awe_conversations "
+        "WHERE (nik IS NULL OR nik='') AND customer LIKE '%[%]%'"
+    ).fetchone()[0]
+    staged = cur.execute("SELECT COUNT(*) FROM awe_staging").fetchone()[0]
+    return {"total": total, "with_nik": with_nik, "without_nik": total - with_nik,
+            "name_has_bracket": name_bracket, "recover_from_name": recover_from_name,
+            "staging_rows": staged}
+
+
+def nik_backfill(conn, batch_commit=2000):
+    """Isi kolom nik/non_npwp untuk baris awe_conversations yang belum ber-NIK.
+
+    Sumber (berurutan): kurung '[..]' pada kolom customer, lalu payload_json di
+    awe_staging (dicocokkan by sid). Nama yang masih mengandung '[..]' sekaligus
+    dirapikan. Idempoten (aman diulang) & dijalankan bertahap dengan commit
+    per-batch supaya kunci tulis tidak dipegang lama (mengatasi 'database is
+    locked' pada data besar).
+
+    Returns: {scanned, nik_filled, name_cleaned}
+    """
+    cur = conn.cursor()
+    have = {r[1] for r in cur.execute("PRAGMA table_info(awe_conversations)").fetchall()}
+    if "nik" not in have:
+        return {"scanned": 0, "nik_filled": 0, "name_cleaned": 0}
+    # Longgarkan timeout khusus operasi berat ini.
+    try:
+        conn.execute("PRAGMA busy_timeout=60000;")
+    except Exception:
+        pass
+    rows = cur.execute(
+        "SELECT rowid, sid, customer, nik FROM awe_conversations "
+        "WHERE nik IS NULL OR nik='' OR customer LIKE '%[%]%'"
+    ).fetchall()
+    scanned = len(rows)
+    look = conn.cursor()   # cursor terpisah untuk lookup staging
+    n_nik = 0
+    n_name = 0
+    processed = 0
     for r in rows:
+        rid = r["rowid"]
         sid = str(r["sid"] or "").strip()
-        nik = _nik_from_str(r["customer"])
+        cust = r["customer"]
+        cur_nik = str(r["nik"] or "").strip()
+        nik = cur_nik or _nik_from_str(cust)
         if not nik and sid:
-            sr = cur.execute(
+            sr = look.execute(
                 "SELECT payload_json FROM awe_staging WHERE sid=?", (sid,)
             ).fetchone()
             if sr and sr["payload_json"]:
@@ -389,16 +474,31 @@ def _backfill_nik(conn):
                     p = None
                 if isinstance(p, dict):
                     nik = _nik_of(p)
-        if nik:
+        orig = "" if cust is None else str(cust)
+        clean = _name_wo_nik(cust)
+        sets = []
+        params = []
+        if nik and not cur_nik:
+            sets.append("nik=?")
+            params.append(nik)
+            sets.append("non_npwp=?")
+            params.append(_nonnpwp_flag(nik))
+            n_nik += 1
+        if clean and clean != orig:
+            sets.append("customer=?")
+            params.append(clean)
+            n_name += 1
+        if sets:
+            params.append(rid)
             cur.execute(
-                "UPDATE awe_conversations SET nik=?, non_npwp=? "
-                "WHERE sid=? AND (nik IS NULL OR nik='')",
-                (nik, _nonnpwp_flag(nik), sid),
+                "UPDATE awe_conversations SET " + ",".join(sets) + " WHERE rowid=?",
+                params,
             )
-            n += 1
-    set_meta(conn, "nik_backfill_v1", "done")
+            processed += 1
+            if processed % batch_commit == 0:
+                conn.commit()
     conn.commit()
-    return n
+    return {"scanned": scanned, "nik_filled": n_nik, "name_cleaned": n_name}
 
 
 def _gap_flag(c):
@@ -752,361 +852,4 @@ def get_transcript(conn, sid, run_id=None):
                     "salam_pembuka":      d.get("ss_salam_pembuka"),
                     "menanyakan_nama":    d.get("ss_menanyakan_nama"),
                     "menyapa_customer":   d.get("ss_menyapa_customer"),
-                    "menawarkan_bantuan": d.get("ss_menawarkan_bantuan"),
-                    "hold":               d.get("ss_hold"),
-                    "salam_penutup":      d.get("ss_salam_penutup"),
-                    "lengkap":            d.get("ss_lengkap"),
-                },
-                "transkrip": tx,
-            }
-    # fallback ke staging
-    rs = cur.execute(
-        "SELECT payload_json FROM awe_staging WHERE sid=?", (sid,)
-    ).fetchone()
-    if rs is not None:
-        try:
-            _p = _json.loads(rs["payload_json"])
-        except Exception:
-            _p = None
-        tx = _extract_transkrip(_p) if _p else None
-        if tx:
-            return {"sid": sid, "run_id": (run_id or ""), "source": "staging",
-                    "customer": _name_wo_nik(_g(_p, "customer", "pelanggan", default="")),
-                    "nik": _nik_of(_p), "agent_name": "", "agent_id": "",
-                    "is_poro": None, "jenis_layanan": "", "softskill": {},
-                    "transkrip": tx}
-    return None
-
-
-def list_for_assess(conn, range_="all", start="", end="", agent="", poro="",
-                    jenis="", ss_lengkap="", ss_attrs=None, limit=200):
-    """Query percakapan untuk Penilaian QA dengan filter softskill.
-
-    Default range_='all' (mengikuti assessor.js yang tidak memfilter tanggal,
-    hanya mengambil N percakapan terbaru). Perbandingan tanggal memakai
-    substr(tanggal,1,10) agar baris dengan komponen jam tidak ter-eksklusi
-    pada hari terakhir rentang.
-    """
-    import datetime as _dtt
-    today = _dtt.date.today()
-    if range_ == "today":
-        d_from = d_to = today.isoformat()
-    elif range_ == "yesterday":
-        y = today - _dtt.timedelta(days=1)
-        d_from = d_to = y.isoformat()
-    elif range_ == "7d":
-        d_from = (today - _dtt.timedelta(days=6)).isoformat()
-        d_to   = today.isoformat()
-    elif range_ == "30d":
-        d_from = (today - _dtt.timedelta(days=29)).isoformat()
-        d_to   = today.isoformat()
-    elif range_ == "90d":
-        d_from = (today - _dtt.timedelta(days=89)).isoformat()
-        d_to   = today.isoformat()
-    elif range_ == "custom" and start and end:
-        d_from, d_to = start, end
-    else:
-        d_from = d_to = None
-
-    sql = ("SELECT sid,tanggal,customer,nik,agent_name,agent_id,durasi,"
-           "is_poro,jenis_layanan,"
-           "ss_salam_pembuka,ss_menanyakan_nama,ss_menyapa_customer,"
-           "ss_menawarkan_bantuan,ss_hold,ss_salam_penutup,ss_lengkap "
-           "FROM awe_conversations WHERE 1=1")
-    params = []
-    if d_from:
-        sql += " AND substr(tanggal,1,10)>=?"; params.append(d_from)
-    if d_to:
-        sql += " AND substr(tanggal,1,10)<=?"; params.append(d_to)
-    if agent:
-        sql += " AND agent_name LIKE ?"; params.append("%" + agent + "%")
-    if poro == "ya":
-        sql += " AND is_poro=1"
-    elif poro == "tidak":
-        sql += " AND is_poro=0"
-    if jenis:
-        sql += " AND jenis_layanan=?"; params.append(jenis)
-    if ss_lengkap == "ya":
-        sql += " AND ss_lengkap=1"
-    elif ss_lengkap == "tidak":
-        sql += " AND ss_lengkap=0"
-    for attr, v in (ss_attrs or {}).items():
-        col = "ss_" + attr
-        sql += " AND " + col + "=?"
-        params.append(1 if v == "ya" else 0)
-    sql += " ORDER BY tanggal DESC,rowid DESC LIMIT ?"
-    params.append(int(limit))
-
-    rows = conn.execute(sql, params).fetchall()
-    convs = [dict(r) for r in rows]
-
-    agents  = [r[0] for r in conn.execute(
-        "SELECT DISTINCT agent_name FROM awe_conversations "
-        "WHERE agent_name!='' ORDER BY agent_name").fetchall()]
-    jenises = [r[0] for r in conn.execute(
-        "SELECT DISTINCT jenis_layanan FROM awe_conversations "
-        "WHERE jenis_layanan IS NOT NULL AND jenis_layanan!='' "
-        "ORDER BY jenis_layanan").fetchall()]
-    return {"conversations": convs, "total": len(convs),
-            "agents": agents, "jenises": jenises}
-
-
-def delete_run(conn, run_id):
-    cur = conn.cursor()
-    cur.execute("DELETE FROM awe_conversations WHERE run_id=?", (run_id,))
-    cur.execute("DELETE FROM awe_runs WHERE id=?", (run_id,))
-    conn.commit()
-    return cur.rowcount
-
-
-def latest_run(conn, with_records=False):
-    cur = conn.cursor()
-    r = cur.execute(
-        "SELECT id FROM awe_runs ORDER BY datetime(created_at) DESC LIMIT 1"
-    ).fetchone()
-    if not r:
-        return None
-    return get_run(conn, r["id"], with_records=with_records)
-
-
-def stats(conn):
-    cur = conn.cursor()
-    row = cur.execute(
-        """SELECT COUNT(*) AS runs, COALESCE(SUM(total_conv),0) AS conv,
-                  MIN(date_min) AS dmin, MAX(date_max) AS dmax
-           FROM awe_runs"""
-    ).fetchone()
-    return {"runs": row["runs"], "conversations": row["conv"],
-            "date_min": row["dmin"] or "", "date_max": row["dmax"] or ""}
-
-
-def set_meta(conn, key, value):
-    conn.execute(
-        "INSERT INTO awe_meta(key,value) VALUES(?,?) "
-        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-        (key, str(value)),
-    )
-
-
-def get_meta(conn, key, default=None):
-    r = conn.execute("SELECT value FROM awe_meta WHERE key=?", (key,)).fetchone()
-    return r["value"] if r else default
-
-
-# =============================================================
-# STAGING
-# =============================================================
-def _stage_day_of(c):
-    return str(_g(c, "tanggal", "date", "start", default=""))[:10]
-
-
-def stage_upsert_convs(conn, convs, batch_id=None, pulled_by=None):
-    cur = conn.cursor()
-    now = _jkt_now_iso()
-    n_seen = n_new = 0
-    for c in convs:
-        if not isinstance(c, dict):
-            continue
-        sid = str(_g(c, "sid", "Sid", default="")).strip()
-        if not sid:
-            continue
-        n_seen += 1
-        r = cur.execute(
-            "INSERT OR IGNORE INTO awe_staging"
-            "(sid,tanggal,agent_id,agent_name,customer,durasi,payload_json,batch_id,pulled_by,pulled_at)"
-            " VALUES(?,?,?,?,?,?,?,?,?,?)",
-            (sid, _stage_day_of(c),
-             str(_g(c, "agentId", "agent_id", default="")),
-             str(_g(c, "agentName", "agent", "agent_name", default="")),
-             str(_g(c, "customer", "pelanggan", default="")),
-             int(_g(c, "durasi", "duration", default=0) or 0),
-             _json.dumps(c, ensure_ascii=False),
-             batch_id or "", pulled_by or "", now),
-        )
-        if r.rowcount:
-            n_new += 1
-    conn.commit()
-    return {"seen": n_seen, "new": n_new, "dup": n_seen - n_new}
-
-
-def stage_add_batch(conn, batch_id, date_from, date_to, n_pulled, n_new, pulled_by=None):
-    conn.execute(
-        "INSERT OR REPLACE INTO awe_stage_batches"
-        "(id,date_from,date_to,n_pulled,n_new,pulled_by,created_at) VALUES(?,?,?,?,?,?,?)",
-        (batch_id, str(date_from)[:10], str(date_to)[:10], int(n_pulled or 0),
-         int(n_new or 0), pulled_by or "", _jkt_now_iso()),
-    )
-    conn.commit()
-
-
-def stage_mark_days(conn, convs, day_from=None, day_to=None, batch_id=None, pulled_by=None):
-    now = _jkt_now_iso()
-    by_day = {}
-    for c in convs:
-        if not isinstance(c, dict):
-            continue
-        d = _stage_day_of(c)
-        if d:
-            by_day[d] = by_day.get(d, 0) + 1
-    days = sorted(by_day) or [d for d in _days_in_range(day_from, day_to) if d]
-    cur = conn.cursor()
-    for d in days:
-        cur.execute(
-            "INSERT INTO awe_stage_coverage(day,batch_id,total_conv,pulled_by,pulled_at)"
-            " VALUES(?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET"
-            " batch_id=excluded.batch_id, total_conv=excluded.total_conv,"
-            " pulled_by=excluded.pulled_by, pulled_at=excluded.pulled_at",
-            (d, batch_id or "", by_day.get(d), pulled_by or "", now),
-        )
-    conn.commit()
-    return days
-
-
-def stage_coverage_for_range(conn, day_from, day_to):
-    req = _days_in_range(day_from, day_to)
-    cur = conn.cursor()
-    have = set()
-    if req:
-        qs = ",".join("?" for _ in req)
-        rs = cur.execute(
-            "SELECT day FROM awe_stage_coverage WHERE day IN (%s)" % qs, req
-        ).fetchall()
-        have = set(r["day"] for r in rs)
-    staged  = [d for d in req if d in have]
-    missing = [d for d in req if d not in have]
-    return {"requested": req, "staged": staged, "missing": missing}
-
-
-def stage_stats(conn):
-    cur = conn.cursor()
-    row = cur.execute(
-        "SELECT COUNT(*) AS n, MIN(tanggal) AS dmin, MAX(tanggal) AS dmax FROM awe_staging"
-    ).fetchone()
-    ndays = cur.execute("SELECT COUNT(*) FROM awe_stage_coverage").fetchone()[0]
-    nb    = cur.execute("SELECT COUNT(*) FROM awe_stage_batches").fetchone()[0]
-    return {"total": row["n"] or 0, "date_min": row["dmin"] or "",
-            "date_max": row["dmax"] or "", "days": ndays, "batches": nb}
-
-
-def stage_list_batches(conn, limit=100):
-    rs = conn.execute(
-        "SELECT id,date_from,date_to,n_pulled,n_new,pulled_by,created_at"
-        " FROM awe_stage_batches ORDER BY datetime(created_at) DESC LIMIT ?",
-        (int(limit),),
-    ).fetchall()
-    return [dict(r) for r in rs]
-
-
-def stage_count(conn, day_from=None, day_to=None):
-    if day_from and day_to:
-        return conn.execute(
-            "SELECT COUNT(*) FROM awe_staging WHERE tanggal>=? AND tanggal<=?",
-            (str(day_from)[:10], str(day_to)[:10]),
-        ).fetchone()[0]
-    return conn.execute("SELECT COUNT(*) FROM awe_staging").fetchone()[0]
-
-
-def stage_load_convs(conn, day_from=None, day_to=None):
-    if day_from and day_to:
-        rs = conn.execute(
-            "SELECT payload_json FROM awe_staging WHERE tanggal>=? AND tanggal<=?"
-            " ORDER BY tanggal, sid", (str(day_from)[:10], str(day_to)[:10]),
-        ).fetchall()
-    else:
-        rs = conn.execute(
-            "SELECT payload_json FROM awe_staging ORDER BY tanggal, sid"
-        ).fetchall()
-    out = []
-    for r in rs:
-        try:
-            out.append(_json.loads(r["payload_json"]))
-        except Exception:
-            pass
-    return out
-
-
-def stage_purge(conn, day_from=None, day_to=None):
-    cur = conn.cursor()
-    if day_from and day_to:
-        a, b = str(day_from)[:10], str(day_to)[:10]
-        n = cur.execute("SELECT COUNT(*) FROM awe_staging WHERE tanggal>=? AND tanggal<=?",
-                        (a, b)).fetchone()[0]
-        cur.execute("DELETE FROM awe_staging WHERE tanggal>=? AND tanggal<=?", (a, b))
-        cur.execute("DELETE FROM awe_stage_coverage WHERE day>=? AND day<=?", (a, b))
-        cur.execute("DELETE FROM awe_stage_batches WHERE date_from>=? AND date_to<=?", (a, b))
-    else:
-        n = cur.execute("SELECT COUNT(*) FROM awe_staging").fetchone()[0]
-        cur.execute("DELETE FROM awe_staging")
-        cur.execute("DELETE FROM awe_stage_coverage")
-        cur.execute("DELETE FROM awe_stage_batches")
-    conn.commit()
-    return n
-
-
-if __name__ == "__main__":
-    import tempfile
-    p = os.path.join(tempfile.gettempdir(), "avaya_smoke.db")
-    if os.path.exists(p): os.remove(p)
-    c = init_db(connect(p))
-    dash = {"meta": {"date_min": "2026-07-01", "date_max": "2026-07-31",
-                      "total_conv": 2, "total_customers": 2, "engine": "mpnet"},
-            "conversations": [
-                {"sid": "A1", "tanggal": "2026-07-02 09:15:00", "customer": "Budi Santoso",
-                 "nik": "3210000000000001",
-                 "mapped_intent": "Lapor SPT", "coverage_band": "Tinggi", "sentiment": "positif"},
-                {"sid": "A2", "tanggal": "2026-07-05 14:00:00", "customer": "cust2",
-                 "mapped_intent": "EFIN", "coverage_band": "Rendah", "sentiment": "negatif"},
-            ]}
-    records = [{
-        "sid": "A1",
-        "nik": "3210000000000001",
-        "transkrip": [
-            {"role": "customer", "text": "halo"},
-            {"role": "agent",    "text": "Selamat pagi Bapak Budi, perkenalkan saya Rini. Ada yang bisa kami bantu?"},
-            {"role": "customer", "text": "saya lupa EFIN"},
-            {"role": "agent",    "text": "Mohon menunggu, kami cek terlebih dahulu."},
-            {"role": "agent",    "text": "Terima kasih telah menggunakan layanan kami."},
-        ],
-    }]
-    r = save_run(c, dash, records=records, n_files=1, source="upload", build="test")
-    assert r["new"] is True and r["total_conv"] == 2, r
-    tx = get_transcript(c, "A1")
-    assert tx and tx["source"] == "database" and len(tx["transkrip"]) == 5, tx
-    # NIK tersimpan & terbaca
-    assert tx["nik"] == "3210000000000001", tx.get("nik")
-    # softskill scores
-    assert tx["softskill"]["salam_pembuka"] == 1, tx["softskill"]
-    assert tx["softskill"]["menawarkan_bantuan"] == 1, tx["softskill"]
-    assert tx["softskill"]["hold"] == 1, tx["softskill"]
-    assert tx["softskill"]["salam_penutup"] == 1, tx["softskill"]
-    # jenis layanan
-    assert tx["jenis_layanan"] == "Lupa EFIN", tx["jenis_layanan"]
-    # kolom nik terisi di awe_conversations
-    nrow = c.execute("SELECT nik, non_npwp, customer FROM awe_conversations WHERE sid='A1'").fetchone()
-    assert nrow["nik"] == "3210000000000001" and nrow["non_npwp"] == 0, dict(nrow)
-    # nama dgn kurung NIK harus ter-strip + NIK terekstraksi
-    dash2 = {"meta": {"date_min": "2026-08-01", "date_max": "2026-08-01", "total_conv": 1},
-             "conversations": [{"sid": "B1", "tanggal": "2026-08-01 10:00:00",
-                                "customer": "Handini Pratami [3275065503020007]"}]}
-    save_run(c, dash2, records=[], n_files=1)
-    brow = c.execute("SELECT nik, customer FROM awe_conversations WHERE sid='B1'").fetchone()
-    assert brow["customer"] == "Handini Pratami" and brow["nik"] == "3275065503020007", dict(brow)
-    # list_for_assess (default all)
-    la = list_for_assess(c, range_="all")
-    assert la["total"] == 3, la["total"]
-    la2 = list_for_assess(c, range_="all", poro="tidak")
-    assert la2["total"] >= 0
-    # REGRESI: rentang custom hari-akhir tepat harus tetap menangkap baris
-    # ber-timestamp (perbaikan substr(tanggal,1,10)).
-    la3 = list_for_assess(c, range_="custom", start="2026-07-02", end="2026-07-02")
-    assert la3["total"] == 1, ("substr date fix", la3["total"])
-    la4 = list_for_assess(c, range_="custom", start="2026-07-01", end="2026-07-31")
-    assert la4["total"] == 2, la4["total"]
-    assert get_transcript(c, "NOPE") is None
-    r2 = save_run(c, dash, records=[{"sid": "A1"}], n_files=1)
-    assert r2["new"] is False and r2["id"] == r["id"], r2
-    assert len(list_runs(c)) == 2
-    st = stats(c)
-    assert st["runs"] == 2, st
-    assert delete_run(c, r["id"]) >= 1
-    print("AVAYA_DB_SMOKE_OK")
+                    "menawarkan_bantuan": d.get("ss
