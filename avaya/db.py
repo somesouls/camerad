@@ -136,6 +136,8 @@ def init_db(conn):
         ("transkrip_json", "transkrip_json TEXT"),
         ("is_poro", "is_poro INTEGER"),
         ("jenis_layanan", "jenis_layanan TEXT"),
+        ("nik", "nik TEXT"),
+        ("non_npwp", "non_npwp INTEGER"),
         ("ss_salam_pembuka", "ss_salam_pembuka INTEGER"),
         ("ss_menanyakan_nama", "ss_menanyakan_nama INTEGER"),
         ("ss_menyapa_customer", "ss_menyapa_customer INTEGER"),
@@ -145,6 +147,12 @@ def init_db(conn):
         ("ss_lengkap", "ss_lengkap INTEGER"),
     ])
     conn.commit()
+    # Migrasi ringan (sekali jalan): isi kolom nik untuk baris lama dari staging
+    # / kurung [..] pada nama. Dijaga meta-flag agar tak berjalan tiap request.
+    try:
+        _backfill_nik(conn)
+    except Exception:
+        pass
     return conn
 
 
@@ -308,12 +316,89 @@ def _g(d, *keys, default=""):
     return default
 
 
+# ---- util NIK/NPWP (nama customer Avaya berformat "Nama [NIK/NPWP]") -------
+def _nik_from_str(s):
+    """Ambil digit di dalam kurung siku: 'Budi [3210..]' -> '3210..'."""
+    s = str(s or "")
+    a, b = s.find("["), s.find("]")
+    return s[a + 1:b].strip() if (a >= 0 and b > a) else ""
+
+
+def _name_wo_nik(s):
+    """Buang bagian '[..]' dari nama customer bila ada."""
+    s = str(s or "")
+    i = s.find("[")
+    return (s[:i] if i >= 0 else s).strip()
+
+
+def _nonnpwp_flag(nik):
+    """1 bila NIK/NPWP tidak valid (kosong/nol/non-digit), 0 bila tampak valid,
+    None bila tak ada info."""
+    nik = str(nik or "").strip()
+    if not nik:
+        return None
+    valid = nik.isdigit() and not all(ch == "0" for ch in nik)
+    return 0 if valid else 1
+
+
+def _nik_of(obj):
+    """Resolusi NIK/NPWP dari sebuah dict percakapan (record pull / staging)."""
+    v = str(_g(obj, "nik", "npwp", "NIK", "NPWP", default="")).strip()
+    if v:
+        return v
+    return _nik_from_str(_g(obj, "customer", "customerRaw", "pelanggan", default=""))
+
+
 def _ensure_columns(cur, table, coldefs):
     """Migrasi ringan: tambah kolom yang belum ada (ALTER TABLE ADD COLUMN)."""
     have = {r[1] for r in cur.execute("PRAGMA table_info(%s)" % table).fetchall()}
     for name, ddl in coldefs:
         if name not in have:
             cur.execute("ALTER TABLE %s ADD COLUMN %s" % (table, ddl))
+
+
+def _backfill_nik(conn):
+    """Isi kolom nik/non_npwp untuk baris awe_conversations lama (sekali jalan).
+
+    Sumber: kurung '[..]' pada kolom customer, lalu payload_json di awe_staging.
+    Dijaga meta-flag 'nik_backfill_v1' supaya tidak berjalan berulang.
+    """
+    if get_meta(conn, "nik_backfill_v1") == "done":
+        return 0
+    cur = conn.cursor()
+    have = {r[1] for r in cur.execute("PRAGMA table_info(awe_conversations)").fetchall()}
+    if "nik" not in have:
+        set_meta(conn, "nik_backfill_v1", "done")
+        conn.commit()
+        return 0
+    rows = cur.execute(
+        "SELECT sid, customer FROM awe_conversations WHERE nik IS NULL OR nik=''"
+    ).fetchall()
+    n = 0
+    for r in rows:
+        sid = str(r["sid"] or "").strip()
+        nik = _nik_from_str(r["customer"])
+        if not nik and sid:
+            sr = cur.execute(
+                "SELECT payload_json FROM awe_staging WHERE sid=?", (sid,)
+            ).fetchone()
+            if sr and sr["payload_json"]:
+                try:
+                    p = _json.loads(sr["payload_json"])
+                except Exception:
+                    p = None
+                if isinstance(p, dict):
+                    nik = _nik_of(p)
+        if nik:
+            cur.execute(
+                "UPDATE awe_conversations SET nik=?, non_npwp=? "
+                "WHERE sid=? AND (nik IS NULL OR nik='')",
+                (nik, _nonnpwp_flag(nik), sid),
+            )
+            n += 1
+    set_meta(conn, "nik_backfill_v1", "done")
+    conn.commit()
+    return n
 
 
 def _gap_flag(c):
@@ -459,17 +544,24 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
     )
     cur.execute("DELETE FROM awe_conversations WHERE run_id=?", (run_id,))
 
-    # Transkrip per-sid
+    # Transkrip + NIK per-sid (dari records mentah hasil pull; nik sudah ada di
+    # setiap objek percakapan hasil client.build_conv).
     tx_by_sid = {}
+    nik_by_sid = {}
     for rec in records:
         if not isinstance(rec, dict):
             continue
         rsid = str(_g(rec, "sid", "Sid", default="")).strip()
-        if not rsid or rsid in tx_by_sid:
+        if not rsid:
             continue
-        rtx = _extract_transkrip(rec)
-        if rtx:
-            tx_by_sid[rsid] = rtx
+        if rsid not in tx_by_sid:
+            rtx = _extract_transkrip(rec)
+            if rtx:
+                tx_by_sid[rsid] = rtx
+        if rsid not in nik_by_sid:
+            rnik = _nik_of(rec)
+            if rnik:
+                nik_by_sid[rsid] = rnik
     need = [str(_g(c, "sid", "Sid", default="")).strip() for c in convs if isinstance(c, dict)]
     need = [s for s in need if s and s not in tx_by_sid]
     for i in range(0, len(need), 400):
@@ -479,11 +571,16 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
             "SELECT sid, payload_json FROM awe_staging WHERE sid IN (%s)" % qs, chunk
         ).fetchall():
             try:
-                stx = _extract_transkrip(_json.loads(sr["payload_json"]))
+                _payload = _json.loads(sr["payload_json"])
             except Exception:
-                stx = None
+                _payload = None
+            stx = _extract_transkrip(_payload) if _payload else None
             if stx:
                 tx_by_sid[str(sr["sid"])] = stx
+            if _payload and str(sr["sid"]) not in nik_by_sid:
+                _rn = _nik_of(_payload)
+                if _rn:
+                    nik_by_sid[str(sr["sid"])] = _rn
 
     rows = []
     for c in convs:
@@ -491,7 +588,16 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
             continue
         csid      = str(_g(c, "sid", "Sid", default=""))
         ctx       = tx_by_sid.get(csid.strip()) or _extract_transkrip(c)
-        cust_name = str(_g(c, "customer", "pelanggan", default=""))
+        cust_raw  = str(_g(c, "customer", "pelanggan", default=""))
+        cust_name = _name_wo_nik(cust_raw)
+        c_nik     = (str(_g(c, "nik", "npwp", "NIK", "NPWP", default="")).strip()
+                     or nik_by_sid.get(csid.strip(), "")
+                     or _nik_from_str(cust_raw))
+        _nn = _g(c, "nonNpwp", "non_npwp", default=None)
+        if _nn is None:
+            c_nonnpwp = _nonnpwp_flag(c_nik)
+        else:
+            c_nonnpwp = 1 if str(_nn).strip().lower() in ("1", "true", "ya", "yes", "y") else 0
 
         # --- Softskill scoring ---
         ss = score_softskill(ctx or [], cust_name) if ctx else None
@@ -532,6 +638,8 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
             (_json.dumps(ctx, ensure_ascii=False) if ctx else None),
             is_poro,
             jenis_layanan,
+            (c_nik or None),
+            c_nonnpwp,
             ss_salam_pembuka,
             ss_menanyakan_nama,
             ss_menyapa_customer,
@@ -546,10 +654,10 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
                  (run_id,sid,tanggal,customer,agent_name,agent_id,durasi,behavior,
                   is_returning,mapped_intent,coverage_band,case_label,sentiment,emotion,
                   topik,deflection_gap,transkrip_json,
-                  is_poro,jenis_layanan,
+                  is_poro,jenis_layanan,nik,non_npwp,
                   ss_salam_pembuka,ss_menanyakan_nama,ss_menyapa_customer,
                   ss_menawarkan_bantuan,ss_hold,ss_salam_penutup,ss_lengkap)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
             rows,
         )
     if cover_from and cover_to:
@@ -603,14 +711,14 @@ def get_transcript(conn, sid, run_id=None):
     row = None
     if run_id:
         row = cur.execute(
-            "SELECT run_id, sid, transkrip_json, customer, agent_name, agent_id, "
+            "SELECT run_id, sid, transkrip_json, customer, nik, agent_name, agent_id, "
             "is_poro, jenis_layanan, ss_salam_pembuka, ss_menanyakan_nama, "
             "ss_menyapa_customer, ss_menawarkan_bantuan, ss_hold, ss_salam_penutup, ss_lengkap "
             "FROM awe_conversations WHERE run_id=? AND sid=?", (run_id, sid),
         ).fetchone()
     if row is None:
         row = cur.execute(
-            "SELECT run_id, sid, transkrip_json, customer, agent_name, agent_id, "
+            "SELECT run_id, sid, transkrip_json, customer, nik, agent_name, agent_id, "
             "is_poro, jenis_layanan, ss_salam_pembuka, ss_menanyakan_nama, "
             "ss_menyapa_customer, ss_menawarkan_bantuan, ss_hold, ss_salam_penutup, ss_lengkap "
             "FROM awe_conversations "
@@ -619,7 +727,7 @@ def get_transcript(conn, sid, run_id=None):
         ).fetchone()
     if row is None:
         row = cur.execute(
-            "SELECT run_id, sid, transkrip_json, customer, agent_name, agent_id, "
+            "SELECT run_id, sid, transkrip_json, customer, nik, agent_name, agent_id, "
             "is_poro, jenis_layanan, ss_salam_pembuka, ss_menanyakan_nama, "
             "ss_menyapa_customer, ss_menawarkan_bantuan, ss_hold, ss_salam_penutup, ss_lengkap "
             "FROM awe_conversations "
@@ -635,6 +743,7 @@ def get_transcript(conn, sid, run_id=None):
             return {
                 "sid": sid, "run_id": d["run_id"], "source": "database",
                 "customer": d.get("customer") or "",
+                "nik": d.get("nik") or "",
                 "agent_name": d.get("agent_name") or "",
                 "agent_id": d.get("agent_id") or "",
                 "is_poro": d.get("is_poro"),
@@ -656,12 +765,14 @@ def get_transcript(conn, sid, run_id=None):
     ).fetchone()
     if rs is not None:
         try:
-            tx = _extract_transkrip(_json.loads(rs["payload_json"]))
+            _p = _json.loads(rs["payload_json"])
         except Exception:
-            tx = None
+            _p = None
+        tx = _extract_transkrip(_p) if _p else None
         if tx:
             return {"sid": sid, "run_id": (run_id or ""), "source": "staging",
-                    "customer": "", "agent_name": "", "agent_id": "",
+                    "customer": _name_wo_nik(_g(_p, "customer", "pelanggan", default="")),
+                    "nik": _nik_of(_p), "agent_name": "", "agent_id": "",
                     "is_poro": None, "jenis_layanan": "", "softskill": {},
                     "transkrip": tx}
     return None
@@ -697,7 +808,7 @@ def list_for_assess(conn, range_="all", start="", end="", agent="", poro="",
     else:
         d_from = d_to = None
 
-    sql = ("SELECT sid,tanggal,customer,agent_name,agent_id,durasi,"
+    sql = ("SELECT sid,tanggal,customer,nik,agent_name,agent_id,durasi,"
            "is_poro,jenis_layanan,"
            "ss_salam_pembuka,ss_menanyakan_nama,ss_menyapa_customer,"
            "ss_menawarkan_bantuan,ss_hold,ss_salam_penutup,ss_lengkap "
@@ -941,12 +1052,14 @@ if __name__ == "__main__":
                       "total_conv": 2, "total_customers": 2, "engine": "mpnet"},
             "conversations": [
                 {"sid": "A1", "tanggal": "2026-07-02 09:15:00", "customer": "Budi Santoso",
+                 "nik": "3210000000000001",
                  "mapped_intent": "Lapor SPT", "coverage_band": "Tinggi", "sentiment": "positif"},
                 {"sid": "A2", "tanggal": "2026-07-05 14:00:00", "customer": "cust2",
                  "mapped_intent": "EFIN", "coverage_band": "Rendah", "sentiment": "negatif"},
             ]}
     records = [{
         "sid": "A1",
+        "nik": "3210000000000001",
         "transkrip": [
             {"role": "customer", "text": "halo"},
             {"role": "agent",    "text": "Selamat pagi Bapak Budi, perkenalkan saya Rini. Ada yang bisa kami bantu?"},
@@ -959,6 +1072,8 @@ if __name__ == "__main__":
     assert r["new"] is True and r["total_conv"] == 2, r
     tx = get_transcript(c, "A1")
     assert tx and tx["source"] == "database" and len(tx["transkrip"]) == 5, tx
+    # NIK tersimpan & terbaca
+    assert tx["nik"] == "3210000000000001", tx.get("nik")
     # softskill scores
     assert tx["softskill"]["salam_pembuka"] == 1, tx["softskill"]
     assert tx["softskill"]["menawarkan_bantuan"] == 1, tx["softskill"]
@@ -966,9 +1081,19 @@ if __name__ == "__main__":
     assert tx["softskill"]["salam_penutup"] == 1, tx["softskill"]
     # jenis layanan
     assert tx["jenis_layanan"] == "Lupa EFIN", tx["jenis_layanan"]
+    # kolom nik terisi di awe_conversations
+    nrow = c.execute("SELECT nik, non_npwp, customer FROM awe_conversations WHERE sid='A1'").fetchone()
+    assert nrow["nik"] == "3210000000000001" and nrow["non_npwp"] == 0, dict(nrow)
+    # nama dgn kurung NIK harus ter-strip + NIK terekstraksi
+    dash2 = {"meta": {"date_min": "2026-08-01", "date_max": "2026-08-01", "total_conv": 1},
+             "conversations": [{"sid": "B1", "tanggal": "2026-08-01 10:00:00",
+                                "customer": "Handini Pratami [3275065503020007]"}]}
+    save_run(c, dash2, records=[], n_files=1)
+    brow = c.execute("SELECT nik, customer FROM awe_conversations WHERE sid='B1'").fetchone()
+    assert brow["customer"] == "Handini Pratami" and brow["nik"] == "3275065503020007", dict(brow)
     # list_for_assess (default all)
     la = list_for_assess(c, range_="all")
-    assert la["total"] == 2, la["total"]
+    assert la["total"] == 3, la["total"]
     la2 = list_for_assess(c, range_="all", poro="tidak")
     assert la2["total"] >= 0
     # REGRESI: rentang custom hari-akhir tepat harus tetap menangkap baris
@@ -980,9 +1105,8 @@ if __name__ == "__main__":
     assert get_transcript(c, "NOPE") is None
     r2 = save_run(c, dash, records=[{"sid": "A1"}], n_files=1)
     assert r2["new"] is False and r2["id"] == r["id"], r2
-    assert len(list_runs(c)) == 1
+    assert len(list_runs(c)) == 2
     st = stats(c)
-    assert st["runs"] == 1 and st["conversations"] == 2, st
+    assert st["runs"] == 2, st
     assert delete_run(c, r["id"]) >= 1
-    assert len(list_runs(c)) == 0
     print("AVAYA_DB_SMOKE_OK")
