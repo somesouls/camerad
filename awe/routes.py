@@ -470,6 +470,113 @@ async def awe_process_fetch(job: str = ""):
         _AWE_PROC_JOBS.pop(job, None)
     return JSONResponse(j)
 
+
+# =============================================================
+# KELOLA DATA AWE  — Validasi & Perbarui NIK/NPWP (baris lama)
+#   - NIK di-scrape saat penarikan & disimpan sebagai kolom (avaya/db.py).
+#   - Endpoint ini memicu pembaruan MANUAL untuk baris LAMA yang belum
+#     ber-NIK: sumber = kurung "[..]" pada kolom customer, lalu fallback
+#     payload_json di penyimpanan sementara. Nama yang masih mengandung
+#     "[..]" sekaligus dirapikan. Aman diulang; hanya menyentuh baris perlu.
+# =============================================================
+def _nik_backfill_do(conn):
+    cur = conn.cursor()
+    have = {r[1] for r in cur.execute("PRAGMA table_info(awe_conversations)").fetchall()}
+    if "nik" not in have:
+        return {"scanned": 0, "nik_filled": 0, "name_cleaned": 0}
+    rows = cur.execute(
+        "SELECT rowid, sid, customer, nik FROM awe_conversations "
+        "WHERE nik IS NULL OR nik='' OR customer LIKE '%[%'"
+    ).fetchall()
+    n_nik = 0
+    n_name = 0
+    for r in rows:
+        rid = r["rowid"]
+        sid = str(r["sid"] or "").strip()
+        cust = r["customer"]
+        cur_nik = str(r["nik"] or "").strip()
+        nik = cur_nik or avdb._nik_from_str(cust)
+        if not nik and sid:
+            sr = cur.execute(
+                "SELECT payload_json FROM awe_staging WHERE sid=?", (sid,)
+            ).fetchone()
+            if sr and sr["payload_json"]:
+                try:
+                    p = json.loads(sr["payload_json"])
+                except Exception:
+                    p = None
+                if isinstance(p, dict):
+                    nik = avdb._nik_of(p)
+        orig = "" if cust is None else str(cust)
+        clean = avdb._name_wo_nik(cust)
+        sets = []
+        params = []
+        if nik and not cur_nik:
+            sets.append("nik=?")
+            params.append(nik)
+            sets.append("non_npwp=?")
+            params.append(avdb._nonnpwp_flag(nik))
+            n_nik += 1
+        if clean and clean != orig:
+            sets.append("customer=?")
+            params.append(clean)
+            n_name += 1
+        if sets:
+            params.append(rid)
+            cur.execute("UPDATE awe_conversations SET " + ",".join(sets) + " WHERE rowid=?", params)
+    conn.commit()
+    return {"scanned": len(rows), "nik_filled": n_nik, "name_cleaned": n_name}
+
+
+def _nik_stats_do(conn):
+    cur = conn.cursor()
+    have = {r[1] for r in cur.execute("PRAGMA table_info(awe_conversations)").fetchall()}
+    if "nik" not in have:
+        return {"total": 0, "with_nik": 0, "without_nik": 0,
+                "name_has_bracket": 0, "recover_from_name": 0, "staging_rows": 0}
+    total = cur.execute("SELECT COUNT(*) FROM awe_conversations").fetchone()[0]
+    with_nik = cur.execute(
+        "SELECT COUNT(*) FROM awe_conversations WHERE nik IS NOT NULL AND nik!=''"
+    ).fetchone()[0]
+    name_bracket = cur.execute(
+        "SELECT COUNT(*) FROM awe_conversations WHERE customer LIKE '%[%]%'"
+    ).fetchone()[0]
+    recover_from_name = cur.execute(
+        "SELECT COUNT(*) FROM awe_conversations "
+        "WHERE (nik IS NULL OR nik='') AND customer LIKE '%[%]%'"
+    ).fetchone()[0]
+    staged = cur.execute("SELECT COUNT(*) FROM awe_staging").fetchone()[0]
+    return {"total": total, "with_nik": with_nik, "without_nik": total - with_nik,
+            "name_has_bracket": name_bracket, "recover_from_name": recover_from_name,
+            "staging_rows": staged}
+
+
+async def awe_nik_stats():
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return _nik_stats_do(conn)
+        finally:
+            conn.close()
+    d = await run_in_threadpool(_do)
+    d["ok"] = True
+    return JSONResponse(d)
+
+
+async def awe_nik_backfill(request: Request):
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            res = _nik_backfill_do(conn)
+            res["stats"] = _nik_stats_do(conn)
+            return res
+        finally:
+            conn.close()
+    d = await run_in_threadpool(_do)
+    d["ok"] = True
+    return JSONResponse(d)
+
+
 def register(app, *, save_artifact, load_state, save_state, Ctx,
              avaya2_pull_intents, avaya3_start, avaya3_fetch,
              api_endpoint, curl_json_raw):
@@ -504,3 +611,5 @@ def register(app, *, save_artifact, load_state, save_state, Ctx,
     app.add_api_route("/api/awe/process/start", awe_process_start, methods=["POST"])
     app.add_api_route("/api/awe/process/progress", awe_process_progress, methods=["GET"])
     app.add_api_route("/api/awe/process/fetch", awe_process_fetch, methods=["GET"])
+    app.add_api_route("/api/awe/nik/stats", awe_nik_stats, methods=["GET"])
+    app.add_api_route("/api/awe/nik/backfill", awe_nik_backfill, methods=["POST"])
