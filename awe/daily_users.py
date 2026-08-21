@@ -9,11 +9,13 @@ langsung ke agent.
 
 Catatan data (penting):
   - Identitas: NIK/NPWP diambil dari kolom `nik` di awe_conversations (hasil
-    scrape DNIS/nama berformat "Nama [NIK]" saat penarikan data). Bila kolom `nik`
-    kosong (mis. data lama yang ditarik sebelum kolom ini ada), fallback ke
-    ekstraksi best-effort dari transkrip_json (turn milik customer) memakai regex.
-    Nama ada di kolom `customer`. Prioritas resolusi identitas pengguna:
-    NIK/NPWP > nama > sid (anonim).
+    scrape DNIS/nama berformat "Nama [NIK]" saat penarikan data). Isi kurung juga
+    bisa berupa penanda teks "NON-NPWP" untuk pengguna tanpa NPWP; ini TIDAK
+    memuat nomor unik, jadi pengguna non-NPWP hanya bisa didedup best-effort per
+    nama (dan, ke depan, per nomor telepon bila ANI disimpan). Bila kolom `nik`
+    kosong (mis. data lama), fallback ke ekstraksi best-effort dari transkrip_json
+    (turn milik customer) memakai regex. Nama ada di kolom `customer`. Prioritas
+    resolusi identitas pengguna: NIK/NPWP > nama > sid (anonim).
   - "Langsung ke agent" (hit 1500200 langsung) = behavior in (direct/langsung)
     ATAU deflection_gap=1 (selaras dengan awe.analytics / awe.overview).
   - TIDAK ada penggabungan dengan data Dialogflow (tidak ada ID unik lintas
@@ -77,6 +79,8 @@ def data_bounds(conn):
 _NPWP_FMT = _re.compile(r'\b\d{2}\.\d{3}\.\d{3}\.\d[-.\s]?\d{3}\.\d{3}\b')
 _DIGITS = _re.compile(r'(?<!\d)(\d{15,16})(?!\d)')
 _CUST_ROLES = {"customer", "cust", "pelanggan", "user"}
+# Penanda teks non-NPWP di dalam kurung, mis. "Imam Bukhori [NON-NPWP]".
+_NONNPWP_RE = _re.compile(r'non[\s\-_]*npwp', _re.I)
 
 
 def _norm_name(s):
@@ -90,6 +94,33 @@ def _taxtype_of(digits):
     if n == 15:
         return "NPWP"
     return "NPWP/NIK"
+
+
+def _classify_id(raw):
+    """Klasifikasi isi kurung kolom `nik`.
+
+    Kembalikan (taxid_digits, idtype, is_non_npwp):
+      - Teks 'NON-NPWP' (dan variannya) -> ('', 'NON-NPWP', True); tak ada nomor unik.
+      - 16 digit -> (digits, 'NIK/NPWP', False)
+      - 15 digit -> (digits, 'NPWP', False)
+      - >15 digit -> (digits, 'NPWP/NIK', False)
+      - kosong / 0000.. / format lain -> ('', '', False) (tak teridentifikasi)
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return ("", "", False)
+    if _NONNPWP_RE.search(s):
+        return ("", "NON-NPWP", True)
+    digits = _re.sub(r'\D', '', s)
+    if not digits or set(digits) == {"0"}:
+        return ("", "", False)
+    if len(digits) == 16:
+        return (digits, "NIK/NPWP", False)
+    if len(digits) == 15:
+        return (digits, "NPWP", False)
+    if len(digits) >= 15:
+        return (digits, "NPWP/NIK", False)
+    return ("", "", False)
 
 
 def _extract_taxid(transkrip):
@@ -173,6 +204,9 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
     poro_direct = 0
     dur_direct_sum = dur_direct_n = 0
     dur_other_sum = dur_other_n = 0
+    non_npwp_conv = 0
+    non_npwp_theme = Counter()
+    idtype_dist = Counter()
     conv_out = []
 
     for r in rows:
@@ -183,9 +217,9 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
             dmax = day if not dmax else max(dmax, day)
         # Identitas: utamakan kolom nik (hasil scrape DNIS). Fallback: transkrip.
         col_nik = str(d.get("nik") or "").strip()
+        is_non_npwp = False
         if col_nik:
-            taxid = col_nik
-            taxtype = _taxtype_of(col_nik)
+            taxid, taxtype, is_non_npwp = _classify_id(col_nik)
         else:
             tx = None
             tj = d.get("transkrip_json")
@@ -198,6 +232,9 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
         name = str(d.get("customer") or "").strip()
         if taxid:
             key = "tax:" + taxid; label = taxid; idtype = taxtype or "NPWP/NIK"
+        elif is_non_npwp:
+            key = ("name:" + _norm_name(name)) if name else ("sid:" + str(d.get("sid") or ""))
+            label = name or "(non-NPWP)"; idtype = "NON-NPWP"
         elif name:
             key = "name:" + _norm_name(name); label = name; idtype = "Nama"
         else:
@@ -219,6 +256,7 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
                 "taxid": taxid, "conv": 0, "direct": 0, "reached": 0,
                 "days": set(), "themes": Counter(), "sent": Counter(),
                 "returning": False, "first": day, "last": day, "sids": [],
+                "non_npwp": is_non_npwp, "convs": [],
             }
         u["conv"] += 1
         if direct:
@@ -235,8 +273,16 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
             u["returning"] = True
         if not u["name"] and name:
             u["name"] = name
+        if is_non_npwp:
+            u["non_npwp"] = True
         if len(u["sids"]) < 8 and d.get("sid"):
             u["sids"].append(str(d.get("sid")))
+        if len(u["convs"]) < 60 and d.get("sid"):
+            u["convs"].append({
+                "sid": str(d.get("sid")), "tanggal": d.get("tanggal") or "",
+                "theme": theme, "agent_name": d.get("agent_name") or "",
+                "direct": direct, "reached": reached, "sentiment": sent,
+            })
 
         if day:
             day_users[day].add(key)
@@ -244,6 +290,10 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
             if direct:
                 day_direct[day].add(key)
         all_theme[theme] += 1
+        idtype_dist[idtype] += 1
+        if is_non_npwp:
+            non_npwp_conv += 1
+            non_npwp_theme[theme] += 1
         if reached:
             total_reached += 1
         if direct:
@@ -287,6 +337,7 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
             "sentiment": (u["sent"].most_common(1)[0][0] if u["sent"] else "-"),
             "returning": u["returning"], "first": u["first"], "last": u["last"],
             "sids": u["sids"],
+            "non_npwp": u.get("non_npwp", False), "convs": u["convs"],
         }
         user_list.append(item)
         if u["direct"] > 0 and (ndays > 1 or u["direct"] > 1):
@@ -308,12 +359,14 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
 
     identified = sum(1 for u in users.values() if u["taxid"] or u["name"])
     with_taxid = sum(1 for u in users.values() if u["taxid"])
+    non_npwp_users = sum(1 for u in users.values() if u.get("non_npwp"))
 
     return {
         "ok": True,
         "range": {"start": start or "", "end": end or ""},
         "meta": {"total_conv": total_conv, "total_users": total_users,
                  "identified": identified, "with_taxid": with_taxid,
+                 "non_npwp_users": non_npwp_users,
                  "date_min": dmin, "date_max": dmax, "active_days": ndays_active},
         "kpi": {
             "total_users": total_users,
@@ -339,6 +392,13 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
             "avg_dur_other": round(dur_other_sum / dur_other_n) if dur_other_n else 0,
         },
         "themes": [{"label": k, "value": v} for k, v in all_theme.most_common(12)],
+        "non_npwp": {
+            "conv": non_npwp_conv,
+            "conv_pct": round(100 * non_npwp_conv / total_conv, 1) if total_conv else 0,
+            "users": non_npwp_users,
+            "themes": [{"label": k, "value": v} for k, v in non_npwp_theme.most_common(12)],
+        },
+        "idtype_dist": [{"label": k, "value": v} for k, v in idtype_dist.most_common()],
         "conversations": conv_out,
     }
 
