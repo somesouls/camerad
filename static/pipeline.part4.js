@@ -1,7 +1,7 @@
 // pipeline.part4.js — Sinyal analisis Step 6 (Analisis Manual Fallback).
 // Dimuat SETELAH part2/part3; menimpa openModal6 & renderStep6 (fungsi global).
-// Menambah bar chip filter sinyal + kolom "Sinyal". Fail-safe bila field
-// sinyal belum ada (backend sinyal belum aktif) -> tabel tetap tampil normal.
+// Menambah bar chip filter sinyal (kolom "Sinyal" di tabel DIHAPUS atas permintaan;
+// chip filter tetap ada). Fail-safe bila field sinyal belum ada -> normal.
 
 var SIG_DEFS = [
   ['panjang','is_panjang','Panjang'],
@@ -73,7 +73,7 @@ function openModal6(st){
     '<div class="sigbar"><span class="sglbl">Sinyal</span>'+sigChips('f6sig',STEP6_SIG)+'</div>'+
     '<div class="status" id="mstatus"></div>'+
     '<div class="s6wrap"><table class="s6table"><thead><tr>'+
-      '<th>Pertanyaan User</th><th>Sinyal</th><th>Catatan LLM</th><th>Intent Judgement LLM</th><th>Isi Intent</th><th>Skor</th><th>Conf</th>'+
+      '<th>Pertanyaan User</th><th>Catatan LLM</th><th>Intent Judgement LLM</th><th>Isi Intent</th><th>Skor</th><th>Conf</th>'+
     '</tr></thead><tbody id="s6body"></tbody></table></div>'+
     '<div class="mfoot">'+
       '<button class="btn" id="s6save">Simpan Perubahan</button>'+
@@ -110,7 +110,6 @@ function renderStep6(){
     var pill = r.catatan==='TINDAK LANJUT'?'t':(r.catatan==='PERTANYAAN TIDAK MANDIRI'?'n':'m');
     parts.push(
       '<tr><td class="s6q">'+esc(r.pertanyaan||'')+'</td>'+
-      '<td class="s6sig">'+sigBadges(r,STEP6_SIG)+'</td>'+
       '<td><span class="s6pill '+pill+'">'+esc(r.catatan||'-')+'</span></td>'+
       '<td><div class="s6combo"><input class="s6intent'+(r.edited?' edited':'')+'" data-i="'+i+'" value="'+esc(r.intent||'')+'" autocomplete="off"><button type="button" class="s6arrow" data-i="'+i+'" tabindex="-1">▾</button><div class="s6menu" id="menu'+i+'"></div></div></td>'+
       '<td><div class="s6isi" id="isi'+i+'">'+esc(r.isi||'')+'</div></td>'+
