@@ -145,7 +145,7 @@
   var txTitle=document.getElementById('txTitle');
   var txMeta=document.getElementById('txMeta');
   var txBack=document.getElementById('txBack');
-  var CUR_LIST=[], CUR_USER=null;
+  var CUR_USER=null;
   document.getElementById('txClose').onclick=function(){txModal.classList.remove('open');};
   txBack.onclick=function(){showConvList();};
   txModal.addEventListener('click',function(e){if(e.target===txModal)txModal.classList.remove('open');});
@@ -153,7 +153,7 @@
   function roleLabel(role){var r=(role||'').toLowerCase();if(r==='customer'||r==='cust'||r==='pelanggan')return 'Customer';if(r==='bot'||r==='ccai'||r==='chatbot')return 'Bot / CCAI';return 'Agent';}
 
   function openUserConvs(uidx){
-    var u=CUR_LIST[uidx]; if(!u)return;
+    var u=(DATA&&DATA.users)?DATA.users[uidx]:null; if(!u)return;
     CUR_USER=u;
     txModal.classList.add('open');
     showConvList();
@@ -213,19 +213,17 @@
     var q=(document.getElementById('uSearch')||{}).value||'';
     var f=(document.getElementById('uFilter')||{}).value||'all';
     q=q.trim().toLowerCase();
-    var list=DATA.users.slice();
+    var list=DATA.users.filter(function(u){return !u.non_npwp;});
     if(q)list=list.filter(function(u){return (u.label||'').toLowerCase().indexOf(q)>=0||(u.name||'').toLowerCase().indexOf(q)>=0||(u.themes||'').toLowerCase().indexOf(q)>=0;});
     if(f==='direct')list=list.filter(function(u){return u.direct>0;});
     else if(f==='repeat')list=list.filter(function(u){return u.days>1;});
     else if(f==='taxid')list=list.filter(function(u){return u.taxid;});
-    else if(f==='nonnpwp')list=list.filter(function(u){return u.non_npwp;});
     var k=uSort.k,dir=uSort.dir;
     list.sort(function(a,b){var x=a[k],y=b[k];if(typeof x==='string'){x=(x||'').toLowerCase();y=(y||'').toLowerCase();}return x<y?-dir:(x>y?dir:0);});
-    CUR_LIST=list;
-    var rows=list.map(function(u,i){
+    var rows=list.map(function(u){
       var n=(u.convs&&u.convs.length)?u.conv:0;
-      var lihat=n?'<button class="btn-lihat" data-uidx="'+i+'">Lihat ('+n+')</button>':'-';
-      var idt=u.idtype==='Nama'?'<span class="tag">Nama</span>':(u.idtype==='Anonim'?'<span class="tag">Anonim</span>':(u.idtype==='NON-NPWP'?'<span class="pill o">NON-NPWP</span>':'<span class="pill b">'+esc(u.idtype)+'</span>'));
+      var lihat=n?'<button class="btn-lihat" data-uidx="'+u._i+'">Lihat ('+n+')</button>':'-';
+      var idt=u.idtype==='Nama'?'<span class="tag">Nama</span>':(u.idtype==='Anonim'?'<span class="tag">Anonim</span>':'<span class="pill b">'+esc(u.idtype)+'</span>');
       return '<tr>'
         +'<td>'+esc(u.label)+(u.taxid&&u.name?'<br><span class="muted">'+esc(u.name)+'</span>':'')+'</td>'
         +'<td>'+idt+'</td>'
@@ -242,8 +240,33 @@
     var cnt=document.getElementById('uCount'); if(cnt)cnt.textContent=list.length;
   }
 
+  function renderNonNpwp(){
+    if(!DATA)return;
+    var q=(document.getElementById('nnSearch')||{}).value||'';
+    q=q.trim().toLowerCase();
+    var list=DATA.users.filter(function(u){return u.non_npwp;});
+    if(q)list=list.filter(function(u){return (u.label||'').toLowerCase().indexOf(q)>=0||(u.themes||'').toLowerCase().indexOf(q)>=0;});
+    list.sort(function(a,b){return (b.conv-a.conv)||(b.days-a.days);});
+    var rows=list.map(function(u){
+      var n=(u.convs&&u.convs.length)?u.conv:0;
+      var lihat=n?'<button class="btn-lihat" data-uidx="'+u._i+'">Lihat ('+n+')</button>':'-';
+      return '<tr>'
+        +'<td>'+esc(u.label||'(tanpa nama)')+'</td>'
+        +'<td>'+u.conv+'</td>'
+        +'<td>'+u.days+'</td>'
+        +'<td>'+(u.direct>0?'<span class="pill">'+u.direct+' ('+u.direct_pct+'%)</span>':'0')+'</td>'
+        +'<td title="'+esc(u.themes)+'">'+esc(u.themes||'–')+'</td>'
+        +'<td>'+esc(u.sentiment)+'</td>'
+        +'<td>'+lihat+'</td></tr>';
+    }).join('');
+    var tb=document.getElementById('nnBody');
+    if(tb)tb.innerHTML=rows||'<tr><td colspan="7" class="muted">Tidak ada data.</td></tr>';
+    var sh=document.getElementById('nnShown'); if(sh)sh.textContent=list.length;
+  }
+
   function render(d){
     DATA=d;
+    (d.users||[]).forEach(function(u,i){u._i=i;});
     rangeEl.textContent='Rentang: '+(d.meta.date_min||'—')+' s/d '+(d.meta.date_max||'—')+' · '+d.meta.total_conv+' percakapan · '+d.meta.total_users+' pengguna unik · '+d.meta.active_days+' hari aktif';
     var k=d.kpi, df=d.direct_focus;
     var nn=d.non_npwp||{conv:0,conv_pct:0,users:0,themes:[]};
@@ -259,7 +282,7 @@
     var nnThemes=(nn.themes||[]).map(function(t){return {lab:t.label,val:t.value};});
     html+='<div class="grid2">';
     html+=card('Distribusi jenis identitas (per percakapan)',idBars.length?bars(idBars,'#5a78ff'):'<div class="muted">Tidak ada data.</div>');
-    html+=card('Non-NPWP — tema yang dibahas',(nnThemes.length?bars(nnThemes,'#f0a35a'):'<div class="muted">Tidak ada data.</div>')+'<div class="note">Pengguna non-NPWP tidak punya nomor unik di data (isi kurung = teks "NON-NPWP"), jadi jumlah pengguna dihitung best-effort <b>per nama</b>. Untuk dedup akurat perlu nomor telepon (ANI) — akan diaktifkan untuk penarikan berikutnya.</div>');
+    html+=card('Non-NPWP — tema yang dibahas',(nnThemes.length?bars(nnThemes,'#f0a35a'):'<div class="muted">Tidak ada data.</div>')+'<div class="note">Pengguna non-NPWP tidak punya nomor unik di data chat (isi kurung = teks "NON-NPWP", dan tidak ada telepon/email/akun stabil), jadi jumlah pengguna dihitung best-effort <b>per nama</b>.</div>');
     html+='</div>';
 
     // Langsung ke agent
@@ -283,20 +306,38 @@
       +'<div class="note" style="margin-top:0;margin-bottom:10px;">Orang yang <b>sama</b> yang berkali-kali (atau di banyak hari) langsung menghubungi agent — kandidat prioritas untuk ditelaah pimpinan.</div>'
       +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Identitas</th><th>Jenis ID</th><th>Langsung agent</th><th>Hari</th><th>Total percakapan</th><th>Tema</th><th>Rentang</th></tr></thead><tbody>'+(rd||'<tr><td colspan="7" class="muted">Tidak ada data.</td></tr>')+'</tbody></table></div></div>';
 
-    // Daftar pengguna (interaktif)
+    // Daftar pengguna (ber-NIK/NPWP & lainnya; non-NPWP dipisah)
     html+='<div class="card"><h3>Daftar Pengguna — <span id="uCount">0</span> pengguna</h3>'
-      +'<div class="note" style="margin-top:0;margin-bottom:10px;">Klik <b>Lihat</b> pada seorang pengguna untuk membuka <b>daftar percakapannya</b>, lalu klik salah satu untuk melihat detail transkrip.</div>'
+      +'<div class="note" style="margin-top:0;margin-bottom:10px;">Berisi pengguna ber-NIK/NPWP dan tanpa penanda. <b>Pengguna non-NPWP dipisah</b> ke bagian di bawah. Klik <b>Lihat</b> untuk membuka daftar percakapan lalu detailnya.</div>'
       +'<div class="flt"><input id="uSearch" placeholder="Cari nama / NIK / NPWP / tema…" style="min-width:240px;">'
-      +'<select id="uFilter"><option value="all">Semua pengguna</option><option value="direct">Pernah langsung agent</option><option value="repeat">Berulang (>1 hari)</option><option value="taxid">Ada NIK/NPWP</option><option value="nonnpwp">Non-NPWP</option></select>'
+      +'<select id="uFilter"><option value="all">Semua pengguna</option><option value="direct">Pernah langsung agent</option><option value="repeat">Berulang (>1 hari)</option><option value="taxid">Ada NIK/NPWP</option></select>'
       +'<span class="note" style="margin:0;">Klik judul kolom untuk mengurutkan.</span></div>'
       +'<div class="tbl-wrap"><table class="tbl"><thead><tr>'
       +'<th data-sort="label">Identitas</th><th>Jenis ID</th><th data-sort="conv">Percakapan</th><th data-sort="days">Hari</th><th data-sort="direct">Langsung agent</th><th>Tema utama</th><th data-sort="sentiment">Sentimen</th><th>Berulang</th><th>Percakapan</th>'
       +'</tr></thead><tbody id="uBody"></tbody></table></div></div>';
 
+    // Pengguna Non-NPWP (accordion, group by name)
+    html+='<div class="card"><h3 id="nnToggle" style="cursor:pointer;user-select:none;">▸ Pengguna Non-NPWP — '+nn.users+' nama <span class="muted" style="font-weight:400;">(klik untuk buka)</span></h3>'
+      +'<div id="nnWrap" style="display:none;">'
+      +'<div class="note" style="margin-top:0;margin-bottom:10px;">Pengguna tanpa NPWP (penanda <b>[NON-NPWP]</b>) dikelompokkan <b>per nama</b> (best-effort — nama bisa duplikat/typo). Total ≈ '+nn.users+' nama, '+nn.conv+' percakapan. Klik <b>Lihat</b> untuk daftar percakapan &amp; detailnya.</div>'
+      +'<div class="flt"><input id="nnSearch" placeholder="Cari nama / tema…" style="min-width:240px;"></div>'
+      +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nama</th><th>Percakapan</th><th>Hari</th><th>Langsung agent</th><th>Tema utama</th><th>Sentimen</th><th>Percakapan</th></tr></thead><tbody id="nnBody"></tbody></table></div>'
+      +'<div class="note"><span id="nnShown">0</span> nama ditampilkan (dari daftar teratas per volume).</div>'
+      +'</div></div>';
+
     body.innerHTML=html;
     var us=document.getElementById('uSearch'); if(us)us.addEventListener('input',renderUsers);
     var uf=document.getElementById('uFilter'); if(uf)uf.addEventListener('change',renderUsers);
+    var nt=document.getElementById('nnToggle');
+    if(nt)nt.addEventListener('click',function(){
+      var w=document.getElementById('nnWrap'); if(!w)return;
+      var open=w.style.display!=='none';
+      w.style.display=open?'none':'block';
+      nt.innerHTML=(open?'▸':'▾')+' Pengguna Non-NPWP — '+nn.users+' nama <span class="muted" style="font-weight:400;">('+(open?'klik untuk buka':'klik untuk tutup')+')</span>';
+    });
+    var ns=document.getElementById('nnSearch'); if(ns)ns.addEventListener('input',renderNonNpwp);
     renderUsers();
+    renderNonNpwp();
   }
 
   function load(){
