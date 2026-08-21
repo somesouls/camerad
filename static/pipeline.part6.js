@@ -1,9 +1,13 @@
 // pipeline.part6.js — Fase 2 (B): tombol mata "lihat percakapan penuh".
 // Dimuat SETELAH part2..part5. Membungkus renderStep6 & renderStep9 (bukan
 // menimpa) agar tiap baris punya tombol mata yang membuka transkrip percakapan
-// penuh via id_trace -> /api/deflection/transcript?session_id=<id>.
-// Fail-safe: bila id_trace tak ada, tombol nonaktif dgn tooltip. Fitur Fase 1
-// (sinyal & filter) tetap utuh.
+// penuh via id_trace -> /api/deflection/transcript?session_id=<id> (logika sama
+// dengan openTranscript di Analisis Deflection).
+//
+// FIX: STEP6/STEP9 dideklarasikan dengan `let` di part2/part3, sehingga BUKAN
+// properti window. Versi lama membaca window.STEP6/window.STEP9 -> undefined ->
+// daftar baris kosong -> session_id selalu kosong -> tombol selalu disabled.
+// Sekarang store dibaca sebagai variabel global langsung (STEP6/STEP9).
 (function(){
   if(window.__part6){return;} window.__part6=true;
 
@@ -78,6 +82,14 @@
   }
   window.p6ShowTranscript=showTranscript;
 
+  // Ambil store sebagai variabel GLOBAL (bukan window.*), karena STEP6/STEP9
+  // dideklarasikan dengan `let`/`const` di file lain (tidak menempel di window).
+  function storeFor(bodyId){
+    try{ if(bodyId==='s6body' && typeof STEP6!=='undefined') return STEP6; }catch(e){}
+    try{ if(bodyId==='s9body' && typeof STEP9!=='undefined') return STEP9; }catch(e){}
+    return null;
+  }
+
   function addEyes(bodyId,rows){
     var body=document.getElementById(bodyId); if(!body||!rows)return;
     var trs=body.querySelectorAll('tr');
@@ -87,27 +99,27 @@
       var inp=tr.querySelector('.s6intent[data-i]');
       var i=inp?parseInt(inp.dataset.i,10):-1;
       var r=(i>=0&&rows[i])?rows[i]:null;
-      var sid=(r&&(r.id_trace||r.session_id))||'';
+      var sid=(r&&(r.id_trace||r.session_id||r.insert_id))||'';
       var cell=tr.querySelector('td.s6q'); if(!cell)continue;
       var btn=document.createElement('button');
       btn.type='button'; btn.className='eyebtn'; btn.textContent='👁';
       if(sid){ btn.title='Lihat percakapan penuh'; (function(s){ btn.onclick=function(e){ e.stopPropagation(); showTranscript(s); }; })(sid); }
-      else { btn.disabled=true; btn.title='ID percakapan tidak tersedia'; }
+      else { btn.disabled=true; btn.title='ID percakapan tidak tersedia untuk baris ini'; }
       cell.insertBefore(btn, cell.firstChild);
     }
   }
 
-  function wrapRender(name,bodyId,storeName){
+  function wrapRender(name,bodyId){
     var orig=window[name];
     if(typeof orig!=='function')return;
     window[name]=function(){
       var out=orig.apply(this,arguments);
-      try{ var store=window[storeName]; addEyes(bodyId,(store&&store.rows)||[]); }catch(e){}
+      try{ var store=storeFor(bodyId); addEyes(bodyId,(store&&store.rows)||[]); }catch(e){}
       return out;
     };
   }
-  wrapRender('renderStep6','s6body','STEP6');
-  wrapRender('renderStep9','s9body','STEP9');
+  wrapRender('renderStep6','s6body');
+  wrapRender('renderStep9','s9body');
 
-  try{ console.log('[part6] tombol mata percakapan aktif'); }catch(e){}
+  try{ console.log('[part6] tombol mata percakapan aktif (store global STEP6/STEP9)'); }catch(e){}
 })();
