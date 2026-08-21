@@ -1,0 +1,262 @@
+{% extends "base.html" %}
+{% block title %}Analisis Pengguna Harian · AWE{% endblock %}
+{% block head %}
+<style>
+  .awe-wrap{max-width:1180px;margin:0 auto;padding:22px 26px 60px;}
+  .awe-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px;}
+  .awe-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+  .awe-sub{color:var(--text-muted,#8a8f98);font-size:12.5px;margin-top:4px;}
+  .awe-tb{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .seg{display:flex;background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:12px;overflow:hidden;}
+  .seg button{border:none;background:transparent;color:var(--text-muted,#8a8f98);padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;}
+  .seg button.active{background:var(--accent-glow,rgba(90,120,255,.16));color:var(--accent,#5a78ff);}
+  .cust{display:none;gap:6px;align-items:center;}
+  .cust.show{display:flex;}
+  .cust input{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:10px;color:var(--text-main,#e8e9ec);padding:7px 9px;font-size:12px;}
+  .cust button{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:10px;padding:8px 13px;font-weight:600;cursor:pointer;font-size:12px;}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px;}
+  @media(max-width:860px){.kpis{grid-template-columns:repeat(2,1fr);}}
+  .kpi{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:14px;padding:15px 16px;}
+  .kpi .v{font-size:25px;font-weight:800;line-height:1.1;}
+  .kpi .l{font-size:11.5px;color:var(--text-muted,#8a8f98);margin-top:3px;}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  @media(max-width:860px){.grid2{grid-template-columns:1fr;}}
+  .card{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:14px;padding:15px 17px;margin-bottom:14px;}
+  .card h3{margin:0 0 12px;font-size:13.5px;font-weight:700;}
+  .bar-row{display:flex;align-items:center;gap:10px;margin:7px 0;font-size:12px;}
+  .bar-row .lab{width:180px;flex:none;color:var(--text-muted,#8a8f98);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .track{flex:1;height:9px;background:var(--panel-border,#2a2b30);border-radius:6px;overflow:hidden;}
+  .fill{height:100%;background:var(--accent,#5a78ff);border-radius:6px;}
+  .bar-row .num{width:88px;text-align:right;flex:none;}
+  table.tbl{width:100%;border-collapse:collapse;font-size:12px;}
+  table.tbl th,table.tbl td{padding:8px 9px;border-bottom:1px solid var(--panel-border,#2a2b30);text-align:left;white-space:nowrap;}
+  table.tbl th{color:var(--text-muted,#8a8f98);font-weight:600;position:sticky;top:0;background:var(--panel-bg,#1b1c1f);cursor:pointer;}
+  .tbl-wrap{max-height:560px;overflow:auto;}
+  .spark{display:flex;align-items:flex-end;gap:3px;height:80px;}
+  .spark .b{flex:1;background:var(--accent,#5a78ff);border-radius:3px 3px 0 0;min-height:2px;opacity:.85;}
+  .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:rgba(240,90,90,.16);color:#f2726f;}
+  .pill.g{background:rgba(12,135,75,.16);color:#33b378;}
+  .pill.b{background:rgba(90,120,255,.16);color:var(--accent,#5a78ff);}
+  .tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:700;background:var(--panel-border,#2a2b30);color:var(--text-muted,#8a8f98);}
+  .muted{color:var(--text-muted,#8a8f98);}
+  .loading{color:var(--text-muted,#8a8f98);padding:34px;text-align:center;}
+  .note{font-size:11.5px;color:var(--text-muted,#8a8f98);margin-top:6px;line-height:1.5;}
+  .btn-lihat{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;}
+  .btn-lihat:hover{opacity:.85;}
+  .flt{display:flex;gap:8px;align-items:center;margin-bottom:10px;flex-wrap:wrap;}
+  .flt input,.flt select{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:8px;color:var(--text-main,#e8e9ec);padding:6px 9px;font-size:12px;}
+  #txModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);}
+  #txModal.open{display:flex;align-items:center;justify-content:center;}
+  #txBox{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:16px;width:min(700px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;}
+  #txHead{padding:14px 18px;border-bottom:1px solid var(--panel-border,#2a2b30);display:flex;justify-content:space-between;align-items:center;gap:12px;}
+  #txTitle{font-weight:700;font-size:14px;margin:0;}
+  #txClose{background:transparent;border:none;color:var(--text-muted,#8a8f98);font-size:20px;cursor:pointer;line-height:1;}
+  #txBody{padding:14px 18px;overflow-y:auto;flex:1;}
+  .tx-bubble{margin-bottom:10px;}
+  .tx-role{font-size:10.5px;font-weight:700;margin-bottom:3px;}
+  .tx-text{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:8px;padding:8px 11px;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}
+  .role-agent{color:var(--accent,#5a78ff);}
+  .role-customer{color:#0c874b;}
+  .role-bot{color:#888;}
+  #txMeta{padding:8px 18px 12px;border-top:1px solid var(--panel-border,#2a2b30);font-size:11px;color:var(--text-muted,#8a8f98);}
+</style>
+{% endblock %}
+{% block content %}
+<div class="awe-wrap" id="aweRoot">
+  <div class="awe-head">
+    <div>
+      <h1 class="awe-title">Analisis Pengguna Harian</h1>
+      <div class="awe-sub" id="aweRange">Memuat…</div>
+    </div>
+    <div class="awe-tb">
+      <div class="seg" id="seg">
+        <button data-r="today">Hari ini</button>
+        <button data-r="yesterday">Kemarin</button>
+        <button data-r="7d">7 hari</button>
+        <button data-r="30d" class="active">30 hari</button>
+        <button data-r="90d">90 hari</button>
+        <button data-r="all">Semua</button>
+        <button data-r="custom">Kustom</button>
+      </div>
+      <div class="cust" id="cust">
+        <input type="date" id="cStart"><span class="muted">s/d</span><input type="date" id="cEnd">
+        <button id="applyCustom">Terapkan</button>
+      </div>
+    </div>
+  </div>
+  <div id="aweBody"><div class="loading">Memuat data…</div></div>
+</div>
+
+<div id="txModal">
+  <div id="txBox">
+    <div id="txHead">
+      <p id="txTitle">Transkrip Percakapan</p>
+      <button id="txClose" title="Tutup">&times;</button>
+    </div>
+    <div id="txBody"><div class="loading">Memuat transkrip…</div></div>
+    <div id="txMeta"></div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var body=document.getElementById('aweBody');
+  var rangeEl=document.getElementById('aweRange');
+  var state={range:'30d',start:'',end:''};
+  var DATA=null, uSort={k:'conv',dir:-1};
+  function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+  function pct(n,d){return d? Math.round(1000*n/d)/10:0;}
+  function fmtDur(sec){sec=parseInt(sec||0,10);if(sec<=0)return '–';var m=Math.floor(sec/60),s=sec%60;if(m>=60){var h=Math.floor(m/60);m=m%60;return h+'j '+m+'m';}return m?(m+'m '+(s<10?'0':'')+s+'s'):(s+'s');}
+  function bars(items,color){
+    var max=1; items.forEach(function(i){if(i.val>max)max=i.val;});
+    return items.map(function(i){
+      return '<div class="bar-row"><div class="lab" title="'+esc(i.lab)+'">'+esc(i.lab)+'</div>'+
+        '<div class="track"><div class="fill" style="width:'+pct(i.val,max)+'%;'+(color?'background:'+color+';':'')+'"></div></div>'+
+        '<div class="num">'+i.val+(i.sub?' <span class="muted">'+esc(i.sub)+'</span>':'')+'</div></div>';
+    }).join('');
+  }
+  function card(title,inner){return '<div class="card"><h3>'+esc(title)+'</h3>'+inner+'</div>';}
+  function kpi(v,l){return '<div class="kpi"><div class="v">'+v+'</div><div class="l">'+esc(l)+'</div></div>';}
+  function spark(trend){
+    if(!trend||!trend.length) return '<div class="muted">Tidak ada data.</div>';
+    var max=1; trend.forEach(function(t){if(t.users>max)max=t.users;});
+    var s='<div class="spark">';
+    trend.forEach(function(t){
+      var h=Math.round(100*t.users/max);
+      s+='<div class="b" title="'+esc(t.day)+': '+t.users+' pengguna, '+t.conv+' percakapan, '+t.direct+' langsung ke agent" style="height:'+h+'%"></div>';
+    });
+    return s+'</div>';
+  }
+
+  var txModal=document.getElementById('txModal');
+  var txBody=document.getElementById('txBody');
+  var txTitle=document.getElementById('txTitle');
+  var txMeta=document.getElementById('txMeta');
+  document.getElementById('txClose').onclick=function(){txModal.classList.remove('open');};
+  txModal.addEventListener('click',function(e){if(e.target===txModal)txModal.classList.remove('open');});
+  function roleCls(role){var r=(role||'').toLowerCase();if(r==='customer'||r==='cust'||r==='pelanggan')return 'role-customer';if(r==='bot'||r==='ccai'||r==='chatbot')return 'role-bot';return 'role-agent';}
+  function roleLabel(role){var r=(role||'').toLowerCase();if(r==='customer'||r==='cust'||r==='pelanggan')return 'Customer';if(r==='bot'||r==='ccai'||r==='chatbot')return 'Bot / CCAI';return 'Agent';}
+  function openTranskrip(sid){
+    txModal.classList.add('open');
+    txTitle.textContent='Transkrip — SID '+sid;
+    txBody.innerHTML='<div class="loading">Memuat…</div>'; txMeta.textContent='';
+    fetch('/api/awe/assess/transcript?sid='+encodeURIComponent(sid)).then(function(r){return r.json();}).then(function(d){
+      if(!d.ok||!d.found){txBody.innerHTML='<div class="muted">'+(d.note||d.error||'Transkrip tidak ditemukan.')+'</div>';return;}
+      txBody.innerHTML=(d.transkrip||[]).map(function(m){var rc=roleCls(m.role);return '<div class="tx-bubble"><div class="tx-role '+rc+'">'+esc(roleLabel(m.role))+'</div><div class="tx-text">'+esc(m.text||'')+'</div></div>';}).join('')||'<div class="muted">Transkrip kosong.</div>';
+      var meta=[];
+      if(d.customer)meta.push('Customer: '+esc(d.customer));
+      if(d.agent_name)meta.push('Agent: '+esc(d.agent_name));
+      if(d.jenis_layanan)meta.push('Layanan: '+esc(d.jenis_layanan));
+      if(d.is_poro===1)meta.push('PORO: YA ⚠️');
+      txMeta.innerHTML=meta.map(function(m){return '<span style="margin-right:12px;">'+m+'</span>';}).join('');
+    }).catch(function(){txBody.innerHTML='<div class="muted">Gagal memuat transkrip.</div>';});
+  }
+  body.addEventListener('click',function(e){
+    var btn=e.target.closest('.btn-lihat'); if(btn){openTranskrip(btn.dataset.sid||'');return;}
+    var th=e.target.closest('th[data-sort]'); if(th){var k=th.getAttribute('data-sort');uSort.dir=(uSort.k===k? -uSort.dir : -1);uSort.k=k;renderUsers();}
+  });
+
+  function renderUsers(){
+    if(!DATA)return;
+    var q=(document.getElementById('uSearch')||{}).value||'';
+    var f=(document.getElementById('uFilter')||{}).value||'all';
+    q=q.trim().toLowerCase();
+    var list=DATA.users.slice();
+    if(q)list=list.filter(function(u){return (u.label||'').toLowerCase().indexOf(q)>=0||(u.name||'').toLowerCase().indexOf(q)>=0||(u.themes||'').toLowerCase().indexOf(q)>=0;});
+    if(f==='direct')list=list.filter(function(u){return u.direct>0;});
+    else if(f==='repeat')list=list.filter(function(u){return u.days>1;});
+    else if(f==='taxid')list=list.filter(function(u){return u.taxid;});
+    var k=uSort.k,dir=uSort.dir;
+    list.sort(function(a,b){var x=a[k],y=b[k];if(typeof x==='string'){x=(x||'').toLowerCase();y=(y||'').toLowerCase();}return x<y?-dir:(x>y?dir:0);});
+    var rows=list.map(function(u){
+      var lihat=(u.sids&&u.sids.length)?'<button class="btn-lihat" data-sid="'+esc(u.sids[0])+'">Lihat</button>':'-';
+      var idt=u.idtype==='Nama'?'<span class="tag">Nama</span>':(u.idtype==='Anonim'?'<span class="tag">Anonim</span>':'<span class="pill b">'+esc(u.idtype)+'</span>');
+      return '<tr>'
+        +'<td>'+esc(u.label)+(u.taxid&&u.name?'<br><span class="muted">'+esc(u.name)+'</span>':'')+'</td>'
+        +'<td>'+idt+'</td>'
+        +'<td>'+u.conv+'</td>'
+        +'<td>'+u.days+'</td>'
+        +'<td>'+(u.direct>0?'<span class="pill">'+u.direct+' ('+u.direct_pct+'%)</span>':'0')+'</td>'
+        +'<td title="'+esc(u.themes)+'">'+esc(u.themes||'–')+'</td>'
+        +'<td>'+esc(u.sentiment)+'</td>'
+        +'<td>'+(u.returning?'<span class="pill g">Ya</span>':'–')+'</td>'
+        +'<td>'+lihat+'</td></tr>';
+    }).join('');
+    var tb=document.getElementById('uBody');
+    if(tb)tb.innerHTML=rows||'<tr><td colspan="9" class="muted">Tidak ada data.</td></tr>';
+    var cnt=document.getElementById('uCount'); if(cnt)cnt.textContent=list.length;
+  }
+
+  function render(d){
+    DATA=d;
+    rangeEl.textContent='Rentang: '+(d.meta.date_min||'—')+' s/d '+(d.meta.date_max||'—')+' · '+d.meta.total_conv+' percakapan · '+d.meta.total_users+' pengguna unik · '+d.meta.active_days+' hari aktif';
+    var k=d.kpi, df=d.direct_focus;
+    var html='';
+    html+='<div class="kpis">'+kpi(k.total_users,'Pengguna unik')+kpi(k.avg_daily_users,'Rata² pengguna / hari')+kpi(k.direct_conv_pct+'%','Percakapan langsung ke agent')+kpi(k.repeat_users,'Pengguna berulang (>1 hari)')+'</div>';
+    html+='<div class="kpis">'+kpi(k.direct_users,'Pengguna yg pernah langsung agent')+kpi(k.direct_users_pct+'%','% pengguna langsung agent')+kpi(k.with_taxid+' ('+k.with_taxid_pct+'%)','Teridentifikasi NIK/NPWP')+kpi(k.identified_pct+'%','Teridentifikasi (nama/NIK)')+'</div>';
+    html+='<div class="card"><h3>Tren pengguna unik harian</h3>'+spark(d.trend)+'<div class="note">Batang = jumlah pengguna unik per hari. Arahkan kursor untuk melihat percakapan &amp; jumlah yang langsung ke agent.</div></div>';
+
+    // Langsung ke agent
+    var dfThemes=(df.themes||[]).map(function(t){return {lab:t.label,val:t.value};});
+    html+='<div class="grid2">';
+    html+=card('Langsung ke Agent (hit 1500200) — tema yang dibahas',dfThemes.length?bars(dfThemes,'#f2726f'):'<div class="muted">Tidak ada data.</div>');
+    var why='';
+    why+='<div class="bar-row"><div class="lab">Durasi rata² (langsung)</div><div class="track"><div class="fill" style="width:'+pct(df.avg_dur_direct,Math.max(df.avg_dur_direct,df.avg_dur_other))+'%;background:#f2726f;"></div></div><div class="num">'+fmtDur(df.avg_dur_direct)+'</div></div>';
+    why+='<div class="bar-row"><div class="lab">Durasi rata² (lewat bot dulu)</div><div class="track"><div class="fill" style="width:'+pct(df.avg_dur_other,Math.max(df.avg_dur_direct,df.avg_dur_other))+'%;"></div></div><div class="num">'+fmtDur(df.avg_dur_other)+'</div></div>';
+    var ds=df.sentiment, dst=(ds.Positif+ds.Netral+ds.Negatif)||1;
+    why+='<div style="margin-top:8px;">'+bars([{lab:'Sentimen negatif (langsung)',val:ds.Negatif,sub:'('+pct(ds.Negatif,dst)+'%)'},{lab:'PORO (validasi identitas)',val:df.poro}],'#f0a35a')+'</div>';
+    why+='<div class="note">Indikasi <b>kenapa langsung ke agent</b>: kalau tema didominasi kasus yang butuh verifikasi/akun (mis. Lupa EFIN, Reset Password, Aktivasi Akun), wajar mereka minta agent. PORO tinggi = banyak yang perlu validasi identitas. Durasi &amp; sentimen membantu menilai kompleksitas.</div>';
+    html+=card('Kenapa langsung ke agent? (indikasi)',why);
+    html+='</div>';
+
+    // Pengguna berulang langsung agent
+    var rd=(d.repeat_direct||[]).map(function(u){
+      return '<tr><td>'+esc(u.label)+'</td><td>'+esc(u.idtype)+'</td><td>'+u.direct+'</td><td>'+u.days+'</td><td>'+u.conv+'</td><td title="'+esc(u.themes)+'">'+esc(u.themes||'–')+'</td><td>'+esc(u.first)+' → '+esc(u.last)+'</td></tr>';
+    }).join('');
+    html+='<div class="card"><h3>Pengguna berulang yang langsung ke agent ('+(d.repeat_direct||[]).length+')</h3>'
+      +'<div class="note" style="margin-top:0;margin-bottom:10px;">Orang yang <b>sama</b> yang berkali-kali (atau di banyak hari) langsung menghubungi agent — kandidat prioritas untuk ditelaah pimpinan.</div>'
+      +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Identitas</th><th>Jenis ID</th><th>Langsung agent</th><th>Hari</th><th>Total percakapan</th><th>Tema</th><th>Rentang</th></tr></thead><tbody>'+(rd||'<tr><td colspan="7" class="muted">Tidak ada data.</td></tr>')+'</tbody></table></div></div>';
+
+    // Daftar pengguna (interaktif)
+    html+='<div class="card"><h3>Daftar Pengguna — <span id="uCount">0</span> pengguna</h3>'
+      +'<div class="flt"><input id="uSearch" placeholder="Cari nama / NIK / NPWP / tema…" style="min-width:240px;">'
+      +'<select id="uFilter"><option value="all">Semua pengguna</option><option value="direct">Pernah langsung agent</option><option value="repeat">Berulang (>1 hari)</option><option value="taxid">Ada NIK/NPWP</option></select>'
+      +'<span class="note" style="margin:0;">Klik judul kolom untuk mengurutkan.</span></div>'
+      +'<div class="tbl-wrap"><table class="tbl"><thead><tr>'
+      +'<th data-sort="label">Identitas</th><th>Jenis ID</th><th data-sort="conv">Percakapan</th><th data-sort="days">Hari</th><th data-sort="direct">Langsung agent</th><th>Tema utama</th><th data-sort="sentiment">Sentimen</th><th>Berulang</th><th>Transkrip</th>'
+      +'</tr></thead><tbody id="uBody"></tbody></table></div></div>';
+
+    body.innerHTML=html;
+    var us=document.getElementById('uSearch'); if(us)us.addEventListener('input',renderUsers);
+    var uf=document.getElementById('uFilter'); if(uf)uf.addEventListener('change',renderUsers);
+    renderUsers();
+  }
+
+  function load(){
+    body.innerHTML='<div class="loading">Memuat data…</div>';
+    var qs='range='+encodeURIComponent(state.range);
+    if(state.range==='custom'){qs+='&start='+encodeURIComponent(state.start)+'&end='+encodeURIComponent(state.end);}
+    fetch('/api/awe/daily-users?'+qs).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok===false){body.innerHTML='<div class="loading">Gagal memuat: '+esc(d.error||'')+'</div>';return;}
+      render(d);
+    }).catch(function(){body.innerHTML='<div class="loading">Gagal memuat data.</div>';});
+  }
+  var seg=document.getElementById('seg'), cust=document.getElementById('cust');
+  seg.addEventListener('click',function(e){
+    var b=e.target.closest('button'); if(!b)return;
+    Array.prototype.forEach.call(seg.children,function(x){x.classList.remove('active');});
+    b.classList.add('active');
+    state.range=b.getAttribute('data-r');
+    if(state.range==='custom'){cust.classList.add('show');}
+    else{cust.classList.remove('show');load();}
+  });
+  document.getElementById('applyCustom').addEventListener('click',function(){
+    state.start=document.getElementById('cStart').value;
+    state.end=document.getElementById('cEnd').value;
+    if(state.start&&state.end)load();
+  });
+  load();
+})();
+</script>
+{% endblock %}
