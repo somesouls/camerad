@@ -279,3 +279,13 @@ def register(app, *, render_page):
     except Exception:
         import traceback
         traceback.print_exc()
+
+    # Pasang modul Analisis Pengguna Harian (daily users) — sub-menu baru AWE.
+    # Halaman /awe/pengguna-harian + API /api/awe/daily-users. render_page
+    # sudah tersedia di scope ini, sehingga wiring cukup di sini.
+    try:
+        import awe.daily_users as awe_daily_users
+        awe_daily_users.register(app, render_page=render_page)
+    except Exception:
+        import traceback
+        traceback.print_exc()
