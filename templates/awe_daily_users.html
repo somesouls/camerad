@@ -37,6 +37,7 @@
   .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:rgba(240,90,90,.16);color:#f2726f;}
   .pill.g{background:rgba(12,135,75,.16);color:#33b378;}
   .pill.b{background:rgba(90,120,255,.16);color:var(--accent,#5a78ff);}
+  .pill.o{background:rgba(240,163,90,.16);color:#f0a35a;}
   .tag{display:inline-block;padding:1px 7px;border-radius:6px;font-size:10px;font-weight:700;background:var(--panel-border,#2a2b30);color:var(--text-muted,#8a8f98);}
   .muted{color:var(--text-muted,#8a8f98);}
   .loading{color:var(--text-muted,#8a8f98);padding:34px;text-align:center;}
@@ -49,9 +50,16 @@
   #txModal.open{display:flex;align-items:center;justify-content:center;}
   #txBox{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:16px;width:min(700px,96vw);max-height:86vh;display:flex;flex-direction:column;overflow:hidden;}
   #txHead{padding:14px 18px;border-bottom:1px solid var(--panel-border,#2a2b30);display:flex;justify-content:space-between;align-items:center;gap:12px;}
-  #txTitle{font-weight:700;font-size:14px;margin:0;}
-  #txClose{background:transparent;border:none;color:var(--text-muted,#8a8f98);font-size:20px;cursor:pointer;line-height:1;}
+  #txTitle{font-weight:700;font-size:14px;margin:0;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #txClose,#txBack{background:transparent;border:none;color:var(--text-muted,#8a8f98);font-size:20px;cursor:pointer;line-height:1;}
   #txBody{padding:14px 18px;overflow-y:auto;flex:1;}
+  #txList{padding:10px 14px;overflow-y:auto;flex:1;}
+  .cv-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid var(--panel-border,#2a2b30);border-radius:9px;margin:6px 0;cursor:pointer;}
+  .cv-row:hover{background:var(--bg,#111);}
+  .cv-main{display:flex;flex-direction:column;gap:2px;min-width:0;}
+  .cv-top{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cv-sub{font-size:11px;color:var(--text-muted,#8a8f98);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .cv-badges{display:flex;align-items:center;gap:6px;flex:none;}
   .tx-bubble{margin-bottom:10px;}
   .tx-role{font-size:10.5px;font-weight:700;margin-bottom:3px;}
   .tx-text{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:8px;padding:8px 11px;font-size:12.5px;line-height:1.55;white-space:pre-wrap;word-break:break-word;}
@@ -90,9 +98,11 @@
 <div id="txModal">
   <div id="txBox">
     <div id="txHead">
-      <p id="txTitle">Transkrip Percakapan</p>
+      <button id="txBack" title="Kembali ke daftar" style="display:none;">&larr;</button>
+      <p id="txTitle">Percakapan</p>
       <button id="txClose" title="Tutup">&times;</button>
     </div>
+    <div id="txList" style="display:none;"></div>
     <div id="txBody"><div class="loading">Memuat transkrip…</div></div>
     <div id="txMeta"></div>
   </div>
@@ -131,14 +141,55 @@
 
   var txModal=document.getElementById('txModal');
   var txBody=document.getElementById('txBody');
+  var txList=document.getElementById('txList');
   var txTitle=document.getElementById('txTitle');
   var txMeta=document.getElementById('txMeta');
+  var txBack=document.getElementById('txBack');
+  var CUR_LIST=[], CUR_USER=null;
   document.getElementById('txClose').onclick=function(){txModal.classList.remove('open');};
+  txBack.onclick=function(){showConvList();};
   txModal.addEventListener('click',function(e){if(e.target===txModal)txModal.classList.remove('open');});
   function roleCls(role){var r=(role||'').toLowerCase();if(r==='customer'||r==='cust'||r==='pelanggan')return 'role-customer';if(r==='bot'||r==='ccai'||r==='chatbot')return 'role-bot';return 'role-agent';}
   function roleLabel(role){var r=(role||'').toLowerCase();if(r==='customer'||r==='cust'||r==='pelanggan')return 'Customer';if(r==='bot'||r==='ccai'||r==='chatbot')return 'Bot / CCAI';return 'Agent';}
+
+  function openUserConvs(uidx){
+    var u=CUR_LIST[uidx]; if(!u)return;
+    CUR_USER=u;
+    txModal.classList.add('open');
+    showConvList();
+  }
+  function showConvList(){
+    var u=CUR_USER; if(!u)return;
+    var convs=(u.convs||[]).slice().sort(function(a,b){return (b.tanggal||'').localeCompare(a.tanggal||'');});
+    txTitle.textContent=(u.label||'Pengguna')+' — '+u.conv+' percakapan';
+    txBack.style.display='none';
+    txBody.style.display='none';
+    txMeta.style.display='none'; txMeta.innerHTML='';
+    txList.style.display='block';
+    var head='';
+    if(convs.length<u.conv){head='<div class="note" style="margin:2px 4px 8px;">Menampilkan '+convs.length+' percakapan terbaru dari total '+u.conv+'.</div>';}
+    if(!convs.length){txList.innerHTML='<div class="muted" style="padding:20px;">Tidak ada percakapan.</div>';return;}
+    txList.innerHTML=head+convs.map(function(c){
+      var badges='';
+      if(c.direct)badges+='<span class="pill">Langsung agent</span>';
+      else if(c.reached)badges+='<span class="pill b">Ke agent</span>';
+      return '<div class="cv-row" data-sid="'+esc(c.sid)+'">'
+        +'<div class="cv-main"><div class="cv-top">'+esc(c.tanggal||'-')+' · '+esc(c.theme||'(tanpa tema)')+'</div>'
+        +'<div class="cv-sub">'+(c.agent_name?('Agent: '+esc(c.agent_name)+' · '):'')+esc(c.sentiment||'')+' · SID '+esc(c.sid)+'</div></div>'
+        +'<div class="cv-badges">'+badges+'<button class="btn-lihat">Detail</button></div></div>';
+    }).join('');
+  }
+  txList.addEventListener('click',function(e){
+    var row=e.target.closest('.cv-row'); if(!row)return;
+    openTranskrip(row.dataset.sid||'');
+  });
+
   function openTranskrip(sid){
     txModal.classList.add('open');
+    txBack.style.display=(CUR_USER?'inline-block':'none');
+    txList.style.display='none';
+    txBody.style.display='block';
+    txMeta.style.display='block';
     txTitle.textContent='Transkrip — SID '+sid;
     txBody.innerHTML='<div class="loading">Memuat…</div>'; txMeta.textContent='';
     fetch('/api/awe/assess/transcript?sid='+encodeURIComponent(sid)).then(function(r){return r.json();}).then(function(d){
@@ -153,7 +204,7 @@
     }).catch(function(){txBody.innerHTML='<div class="muted">Gagal memuat transkrip.</div>';});
   }
   body.addEventListener('click',function(e){
-    var btn=e.target.closest('.btn-lihat'); if(btn){openTranskrip(btn.dataset.sid||'');return;}
+    var btn=e.target.closest('.btn-lihat'); if(btn&&btn.dataset.uidx!==undefined){openUserConvs(parseInt(btn.dataset.uidx,10));return;}
     var th=e.target.closest('th[data-sort]'); if(th){var k=th.getAttribute('data-sort');uSort.dir=(uSort.k===k? -uSort.dir : -1);uSort.k=k;renderUsers();}
   });
 
@@ -167,11 +218,14 @@
     if(f==='direct')list=list.filter(function(u){return u.direct>0;});
     else if(f==='repeat')list=list.filter(function(u){return u.days>1;});
     else if(f==='taxid')list=list.filter(function(u){return u.taxid;});
+    else if(f==='nonnpwp')list=list.filter(function(u){return u.non_npwp;});
     var k=uSort.k,dir=uSort.dir;
     list.sort(function(a,b){var x=a[k],y=b[k];if(typeof x==='string'){x=(x||'').toLowerCase();y=(y||'').toLowerCase();}return x<y?-dir:(x>y?dir:0);});
-    var rows=list.map(function(u){
-      var lihat=(u.sids&&u.sids.length)?'<button class="btn-lihat" data-sid="'+esc(u.sids[0])+'">Lihat</button>':'-';
-      var idt=u.idtype==='Nama'?'<span class="tag">Nama</span>':(u.idtype==='Anonim'?'<span class="tag">Anonim</span>':'<span class="pill b">'+esc(u.idtype)+'</span>');
+    CUR_LIST=list;
+    var rows=list.map(function(u,i){
+      var n=(u.convs&&u.convs.length)?u.conv:0;
+      var lihat=n?'<button class="btn-lihat" data-uidx="'+i+'">Lihat ('+n+')</button>':'-';
+      var idt=u.idtype==='Nama'?'<span class="tag">Nama</span>':(u.idtype==='Anonim'?'<span class="tag">Anonim</span>':(u.idtype==='NON-NPWP'?'<span class="pill o">NON-NPWP</span>':'<span class="pill b">'+esc(u.idtype)+'</span>'));
       return '<tr>'
         +'<td>'+esc(u.label)+(u.taxid&&u.name?'<br><span class="muted">'+esc(u.name)+'</span>':'')+'</td>'
         +'<td>'+idt+'</td>'
@@ -192,10 +246,21 @@
     DATA=d;
     rangeEl.textContent='Rentang: '+(d.meta.date_min||'—')+' s/d '+(d.meta.date_max||'—')+' · '+d.meta.total_conv+' percakapan · '+d.meta.total_users+' pengguna unik · '+d.meta.active_days+' hari aktif';
     var k=d.kpi, df=d.direct_focus;
+    var nn=d.non_npwp||{conv:0,conv_pct:0,users:0,themes:[]};
+    var idist=d.idtype_dist||[];
     var html='';
     html+='<div class="kpis">'+kpi(k.total_users,'Pengguna unik')+kpi(k.avg_daily_users,'Rata² pengguna / hari')+kpi(k.direct_conv_pct+'%','Percakapan langsung ke agent')+kpi(k.repeat_users,'Pengguna berulang (>1 hari)')+'</div>';
     html+='<div class="kpis">'+kpi(k.direct_users,'Pengguna yg pernah langsung agent')+kpi(k.direct_users_pct+'%','% pengguna langsung agent')+kpi(k.with_taxid+' ('+k.with_taxid_pct+'%)','Teridentifikasi NIK/NPWP')+kpi(k.identified_pct+'%','Teridentifikasi (nama/NIK)')+'</div>';
+    html+='<div class="kpis">'+kpi(nn.users,'Pengguna non-NPWP (≈ per nama)')+kpi(nn.conv,'Percakapan non-NPWP')+kpi(nn.conv_pct+'%','% percakapan non-NPWP')+kpi(idist.length,'Jenis identitas terdeteksi')+'</div>';
     html+='<div class="card"><h3>Tren pengguna unik harian</h3>'+spark(d.trend)+'<div class="note">Batang = jumlah pengguna unik per hari. Arahkan kursor untuk melihat percakapan &amp; jumlah yang langsung ke agent.</div></div>';
+
+    // Distribusi identitas + non-NPWP
+    var idBars=idist.map(function(t){return {lab:t.label,val:t.value};});
+    var nnThemes=(nn.themes||[]).map(function(t){return {lab:t.label,val:t.value};});
+    html+='<div class="grid2">';
+    html+=card('Distribusi jenis identitas (per percakapan)',idBars.length?bars(idBars,'#5a78ff'):'<div class="muted">Tidak ada data.</div>');
+    html+=card('Non-NPWP — tema yang dibahas',(nnThemes.length?bars(nnThemes,'#f0a35a'):'<div class="muted">Tidak ada data.</div>')+'<div class="note">Pengguna non-NPWP tidak punya nomor unik di data (isi kurung = teks "NON-NPWP"), jadi jumlah pengguna dihitung best-effort <b>per nama</b>. Untuk dedup akurat perlu nomor telepon (ANI) — akan diaktifkan untuk penarikan berikutnya.</div>');
+    html+='</div>';
 
     // Langsung ke agent
     var dfThemes=(df.themes||[]).map(function(t){return {lab:t.label,val:t.value};});
@@ -220,11 +285,12 @@
 
     // Daftar pengguna (interaktif)
     html+='<div class="card"><h3>Daftar Pengguna — <span id="uCount">0</span> pengguna</h3>'
+      +'<div class="note" style="margin-top:0;margin-bottom:10px;">Klik <b>Lihat</b> pada seorang pengguna untuk membuka <b>daftar percakapannya</b>, lalu klik salah satu untuk melihat detail transkrip.</div>'
       +'<div class="flt"><input id="uSearch" placeholder="Cari nama / NIK / NPWP / tema…" style="min-width:240px;">'
-      +'<select id="uFilter"><option value="all">Semua pengguna</option><option value="direct">Pernah langsung agent</option><option value="repeat">Berulang (>1 hari)</option><option value="taxid">Ada NIK/NPWP</option></select>'
+      +'<select id="uFilter"><option value="all">Semua pengguna</option><option value="direct">Pernah langsung agent</option><option value="repeat">Berulang (>1 hari)</option><option value="taxid">Ada NIK/NPWP</option><option value="nonnpwp">Non-NPWP</option></select>'
       +'<span class="note" style="margin:0;">Klik judul kolom untuk mengurutkan.</span></div>'
       +'<div class="tbl-wrap"><table class="tbl"><thead><tr>'
-      +'<th data-sort="label">Identitas</th><th>Jenis ID</th><th data-sort="conv">Percakapan</th><th data-sort="days">Hari</th><th data-sort="direct">Langsung agent</th><th>Tema utama</th><th data-sort="sentiment">Sentimen</th><th>Berulang</th><th>Transkrip</th>'
+      +'<th data-sort="label">Identitas</th><th>Jenis ID</th><th data-sort="conv">Percakapan</th><th data-sort="days">Hari</th><th data-sort="direct">Langsung agent</th><th>Tema utama</th><th data-sort="sentiment">Sentimen</th><th>Berulang</th><th>Percakapan</th>'
       +'</tr></thead><tbody id="uBody"></tbody></table></div></div>';
 
     body.innerHTML=html;
