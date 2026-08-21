@@ -1,7 +1,11 @@
 // pipeline.part5.js — Sinyal analisis Step 9 (Analisis Manual MKTA).
 // Dimuat SETELAH part2/part3/part4; menimpa openModal9 & renderStep9 (fungsi global).
-// Menambah: filter Skor DF >= + preset "Confidently wrong" + chip sinyal +
-// kolom "Sinyal". Memakai helper dari part4.js. Fail-safe.
+// Perubahan Fase 2:
+//  - Kolom "Sinyal" & "Kandidat / Terdekat" DIHAPUS dari tabel (chip filter sinyal tetap).
+//  - Kolom "Intent Seharusnya" jadi dropdown bisa-cari (part7): rekomendasi =
+//    intent terdekat (r.kandidat), + pencarian katalog intent, + Kosongkan.
+//    Default KOSONG (nilai awal = r.manual; kosong utk baris yang belum ditinjau =
+//    match akurat / bukan MKTA). Memakai helper dari part4.js. Fail-safe.
 
 var STEP9_SIG=['bedallm','panjang','majemuk','multitopik','istilah','ambigu','noperaturan','akronim'];
 
@@ -29,7 +33,7 @@ function openModal9(st){
     '</div>'+
     '<div class="status" id="mstatus"></div>'+
     '<div class="s6wrap"><table class="s6table"><thead><tr>'+
-      '<th>Prioritas</th><th>Pertanyaan User</th><th>Sinyal</th><th>Intent (Bot)</th><th>Kategori Mesin</th><th>Skor Bahasa</th><th>Skor DF</th><th>NLI</th><th>PUTUSAN &amp; Alasan</th><th>Kandidat / Terdekat</th><th>Intent Seharusnya</th>'+
+      '<th>Prioritas</th><th>Pertanyaan User</th><th>Intent (Bot)</th><th>Kategori Mesin</th><th>Skor Bahasa</th><th>Skor DF</th><th>NLI</th><th>PUTUSAN &amp; Alasan</th><th>Intent Seharusnya</th>'+
     '</tr></thead><tbody id="s9body"></tbody></table></div>'+
     '<div class="mfoot">'+
       '<button class="btn" id="s9save">Simpan ke sheet Analisis MKTA</button>'+
@@ -43,6 +47,8 @@ function openModal9(st){
   bindSigChips('f9sig',renderStep9);
   var cw=document.getElementById('f9cw'); if(cw) cw.onclick=s9presetConfidentlyWrong;
   var clr=document.getElementById('f9clr'); if(clr) clr.onclick=s9resetFilter;
+  var wrap=document.querySelector('.s6wrap'); if(wrap) wrap.onscroll=function(){ if(typeof closeS6Menus==='function') closeS6Menus(); };
+  if(!window.__s6docbound){ window.__s6docbound=true; document.addEventListener('mousedown', function(e){ if(!(e.target.closest && e.target.closest('.s6combo'))){ if(typeof closeS6Menus==='function') closeS6Menus(); } }); }
   loadStep9();
 }
 
@@ -91,23 +97,21 @@ function renderStep9(){
     if(fsig.length && !rowMatchesSigs(r,fsig)) return;
     matched++;
     if(shown>=CAP) return; shown++;
-    var kand = (r.kandidat||r.terdekat||'');
     var alasan = r.alasan ? '<div style="color:#9aa4b2;font-size:11px;margin-top:3px">'+esc(r.alasan)+'</div>' : '';
     parts.push(
       '<tr><td>'+esc(r.prioritas||'')+'</td>'+
       '<td class="s6q">'+esc(r.pertanyaan||'')+'</td>'+
-      '<td class="s6sig">'+sigBadges(r,STEP9_SIG)+'</td>'+
       '<td class="s6q">'+esc(r.intent||'')+'</td>'+
       '<td>'+esc(r.kategori||'')+'</td>'+
       '<td>'+s9fmt(r.qa)+'</td>'+
       '<td>'+s9fmt(r.df)+'</td>'+
       '<td>'+s9fmt(r.nli)+'</td>'+
       '<td>'+esc(r.putusan||'')+alasan+'</td>'+
-      '<td class="s6q">'+esc(kand)+'</td>'+
-      '<td><input class="s6intent" data-i="'+i+'" value="'+esc(r.seharusnya||'')+'" placeholder="ketik intent..."></td></tr>'
+      '<td><div class="s6combo"><input class="s6intent" data-i="'+i+'" value="'+esc(r.manual||'')+'" autocomplete="off" placeholder="ketik / pilih intent..."><button type="button" class="s6arrow" data-i="'+i+'" tabindex="-1">▾</button><div class="s6menu" id="menu'+i+'"></div></div></td></tr>'
     );
   });
   body.innerHTML=parts.join('');
-  body.querySelectorAll('.s6intent').forEach(function(inp){ var i=parseInt(inp.dataset.i,10); inp.oninput=function(){ STEP9.rows[i].seharusnya=inp.value; STEP9.rows[i].edited=true; inp.classList.add('edited'); }; });
+  body.querySelectorAll('.s6intent').forEach(function(inp){ var i=parseInt(inp.dataset.i,10); inp.oninput=function(){ STEP9.rows[i].seharusnya=inp.value; STEP9.rows[i].edited=true; inp.classList.add('edited'); }; inp.onfocus=function(){ if(typeof openS6Menu==='function') openS6Menu(i); }; });
+  body.querySelectorAll('.s6arrow').forEach(function(btn){ var i=parseInt(btn.dataset.i,10); btn.onclick=function(e){ e.preventDefault(); var m=document.getElementById('menu'+i); if(m && m.classList.contains('open')){ if(typeof closeS6Menus==='function') closeS6Menus(); } else if(typeof openS6Menu==='function'){ openS6Menu(i); } }; });
   document.getElementById('s9count').textContent = matched+' tampil · '+underThr+' akan disimpan (Skor<'+(isNaN(thr)?'-':thr)+')'+(matched>CAP?(' · tampil '+CAP):'');
 }
