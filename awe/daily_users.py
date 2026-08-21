@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """awe_daily_users.py — Analisis Pengguna Harian AWE (Avaya).
 
-Sub-menu AWE baru: mengidentifikasi pengguna harian dari tabel awe_conversations,
+Sub-menu AWE: mengidentifikasi pengguna harian dari tabel awe_conversations,
 menghitung jumlah pengguna unik per hari, mengidentifikasi SIAPA (nama + NIK/NPWP
 bila terdeteksi), apakah mereka LANGSUNG ke agent (hit 1500200 tanpa lewat bot),
 tema/jenis layanan yang dibahas, pengguna berulang, serta indikasi alasan mereka
@@ -12,15 +12,19 @@ Catatan data (penting):
     scrape DNIS/nama berformat "Nama [NIK]" saat penarikan data). Isi kurung juga
     bisa berupa penanda teks "NON-NPWP" untuk pengguna tanpa NPWP; ini TIDAK
     memuat nomor unik, jadi pengguna non-NPWP hanya bisa didedup best-effort per
-    nama (dan, ke depan, per nomor telepon bila ANI disimpan). Bila kolom `nik`
-    kosong (mis. data lama), fallback ke ekstraksi best-effort dari transkrip_json
-    (turn milik customer) memakai regex. Nama ada di kolom `customer`. Prioritas
-    resolusi identitas pengguna: NIK/NPWP > nama > sid (anonim).
+    nama. Data ini murni chat: TIDAK ada ANI/telepon, dan Meta_ss_customerIDs
+    (dari Getinteraction) bersifat per-sesi — bukan ID orang lintas percakapan —
+    sehingga nama tetap satu-satunya penanda level-orang untuk non-NPWP. Bila
+    kolom `nik` kosong (mis. data lama), fallback ke ekstraksi best-effort dari
+    transkrip_json (turn milik customer) memakai regex. Nama ada di kolom
+    `customer`. Prioritas resolusi identitas: NIK/NPWP > nama > sid (anonim).
   - "Langsung ke agent" (hit 1500200 langsung) = behavior in (direct/langsung)
     ATAU deflection_gap=1 (selaras dengan awe.analytics / awe.overview).
+  - Daftar percakapan per pengguna TIDAK lagi ditempel di payload utama; dimuat
+    lazy lewat /api/awe/daily-users/conversations saat pengguna diklik. Ini
+    membuat `limit_users` aman dinaikkan besar tanpa membebani browser.
   - TIDAK ada penggabungan dengan data Dialogflow (tidak ada ID unik lintas
-    sumber — sesuai keputusan desain avaya.db). Percakapan AWE sudah mencakup
-    giliran chatbot + agent, jadi analisis ini berdiri sendiri di atas AWE.
+    sumber — sesuai keputusan desain avaya.db).
 
 Dipasang via awe.analytics.register() (yang sudah memegang render_page):
     import awe.daily_users as awe_daily_users
@@ -178,7 +182,7 @@ def _norm_sent(s):
     return "Tidak diketahui"
 
 
-def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
+def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
     where, params = [], []
     if start:
         where.append("substr(tanggal,1,10) >= ?"); params.append(start[:10])
@@ -256,7 +260,7 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
                 "taxid": taxid, "conv": 0, "direct": 0, "reached": 0,
                 "days": set(), "themes": Counter(), "sent": Counter(),
                 "returning": False, "first": day, "last": day, "sids": [],
-                "non_npwp": is_non_npwp, "convs": [],
+                "non_npwp": is_non_npwp,
             }
         u["conv"] += 1
         if direct:
@@ -277,12 +281,6 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
             u["non_npwp"] = True
         if len(u["sids"]) < 8 and d.get("sid"):
             u["sids"].append(str(d.get("sid")))
-        if len(u["convs"]) < 60 and d.get("sid"):
-            u["convs"].append({
-                "sid": str(d.get("sid")), "tanggal": d.get("tanggal") or "",
-                "theme": theme, "agent_name": d.get("agent_name") or "",
-                "direct": direct, "reached": reached, "sentiment": sent,
-            })
 
         if day:
             day_users[day].add(key)
@@ -337,7 +335,7 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
             "sentiment": (u["sent"].most_common(1)[0][0] if u["sent"] else "-"),
             "returning": u["returning"], "first": u["first"], "last": u["last"],
             "sids": u["sids"],
-            "non_npwp": u.get("non_npwp", False), "convs": u["convs"],
+            "non_npwp": u.get("non_npwp", False),
         }
         user_list.append(item)
         if u["direct"] > 0 and (ndays > 1 or u["direct"] > 1):
@@ -364,6 +362,8 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
     return {
         "ok": True,
         "range": {"start": start or "", "end": end or ""},
+        "limit_users": limit_users,
+        "users_truncated": total_users > limit_users,
         "meta": {"total_conv": total_conv, "total_users": total_users,
                  "identified": identified, "with_taxid": with_taxid,
                  "non_npwp_users": non_npwp_users,
@@ -403,8 +403,54 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
     }
 
 
+def user_conversations(conn, start=None, end=None, taxid="", name="", sid="", limit=800):
+    """Daftar percakapan untuk SATU identitas pengguna (lazy-load modal).
+
+    Prioritas filter identitas: taxid (nik) > name (customer) > sid.
+    Kembalikan (list_conv, truncated).
+    """
+    where, params = [], []
+    if start:
+        where.append("substr(tanggal,1,10) >= ?"); params.append(start[:10])
+    if end:
+        where.append("substr(tanggal,1,10) <= ?"); params.append(end[:10])
+    taxid = _re.sub(r'\D', '', str(taxid or ""))
+    name = str(name or "").strip()
+    sid = str(sid or "").strip()
+    if taxid:
+        where.append(
+            "REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(nik,''),'.',''),'-',''),' ',''),'/','') LIKE ?")
+        params.append("%" + taxid + "%")
+    elif name:
+        where.append("lower(trim(customer)) = lower(trim(?))"); params.append(name)
+    elif sid:
+        where.append("sid = ?"); params.append(sid)
+    else:
+        return ([], False)
+    wsql = (" WHERE " + " AND ".join(where)) if where else ""
+    rows = conn.execute(
+        "SELECT sid,tanggal,agent_name,behavior,deflection_gap,jenis_layanan,"
+        "topik,mapped_intent,sentiment FROM awe_conversations" + wsql +
+        " ORDER BY tanggal DESC LIMIT ?", params + [limit + 1]
+    ).fetchall()
+    truncated = len(rows) > limit
+    out = []
+    for r in rows[:limit]:
+        d = dict(r)
+        out.append({
+            "sid": str(d.get("sid") or ""),
+            "tanggal": d.get("tanggal") or "",
+            "theme": _theme_of(d),
+            "agent_name": d.get("agent_name") or "",
+            "direct": _is_direct(d),
+            "reached": bool(str(d.get("agent_name") or "").strip()),
+            "sentiment": _norm_sent(d.get("sentiment")),
+        })
+    return (out, truncated)
+
+
 def register(app, *, render_page):
-    """Pasang halaman /awe/pengguna-harian + API /api/awe/daily-users."""
+    """Pasang halaman /awe/pengguna-harian + API daily-users (+ conversations)."""
     async def _page(request: Request):
         return render_page(request, "awe_daily_users.html", "awe_pengguna")
 
@@ -412,12 +458,17 @@ def register(app, *, render_page):
         q = request.query_params
         preset = q.get("range") or "30d"
         start = q.get("start"); end = q.get("end")
+        try:
+            limit = int(q.get("limit") or 2000)
+        except Exception:
+            limit = 2000
+        limit = max(1, min(limit, 20000))
 
         def _run():
             conn = avdb.init_db(avdb.connect())
             try:
                 s, e = resolve_range(preset, start, end)
-                data = daily_users(conn, s, e)
+                data = daily_users(conn, s, e, limit_users=limit)
                 data["bounds"] = data_bounds(conn)
                 data["preset"] = preset
                 return data
@@ -429,5 +480,35 @@ def register(app, *, render_page):
         except Exception as ex:
             return JSONResponse({"ok": False, "error": str(ex)}, status_code=500)
 
+    async def _api_convs(request: Request):
+        q = request.query_params
+        preset = q.get("range") or "30d"
+        start = q.get("start"); end = q.get("end")
+        taxid = q.get("taxid") or ""
+        name = q.get("name") or ""
+        sid = q.get("sid") or ""
+        try:
+            limit = int(q.get("limit") or 800)
+        except Exception:
+            limit = 800
+        limit = max(1, min(limit, 5000))
+
+        def _run():
+            conn = avdb.init_db(avdb.connect())
+            try:
+                s, e = resolve_range(preset, start, end)
+                convs, truncated = user_conversations(
+                    conn, s, e, taxid=taxid, name=name, sid=sid, limit=limit)
+                return {"ok": True, "conversations": convs, "truncated": truncated}
+            finally:
+                conn.close()
+
+        try:
+            return JSONResponse(await run_in_threadpool(_run))
+        except Exception as ex:
+            return JSONResponse({"ok": False, "error": str(ex), "conversations": []},
+                                status_code=500)
+
     app.add_api_route("/awe/pengguna-harian", _page, methods=["GET"])
     app.add_api_route("/api/awe/daily-users", _api, methods=["GET"])
+    app.add_api_route("/api/awe/daily-users/conversations", _api_convs, methods=["GET"])
