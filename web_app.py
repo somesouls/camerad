@@ -144,6 +144,11 @@ import pipeline.step9_patch as step9_patch  # noqa: F401  (menerapkan patch saat
 #     baris TINDAK LANJUT dari Fallback (Step 6) + MKTA (Step 9).
 #     WAJIB diimpor SETELAH pipeline_routes selesai dimuat. ---
 import pipeline.step10_patch as step10_patch  # noqa: F401  (menerapkan patch saat diimpor)
+# --- Sinyal analisis Step 6 & 9 (acuan analis) ---
+import pipeline.step6_patch          # noqa: F401
+import pipeline.step9_signals_patch  # noqa: F401
+import pipeline.step6_idtrace_patch  # noqa: F401
+
 
 # --- Fase 2 (UX Step 6/9): id_trace utk tombol "mata" (lihat percakapan penuh) +
 #     aksi 'intents' utk kolom pencarian intent di dropdown Step 6/9.
