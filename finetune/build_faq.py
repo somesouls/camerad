@@ -6,7 +6,8 @@ SATU sampel multi-turn (user/assistant bergiliran). Model belajar konteks
 lanjutan + KAPAN harus balik bertanya (klarifikasi).
 
 Sumber: db.qa_index_db.collect_sosmed() & collect_awe() (AWE sudah bot-filter).
-PII di-mask via common.pii_mask sebelum ditulis.
+PII di-mask via common.pii_mask sebelum ditulis. Teks dibersihkan via
+common.clean_train (buang scaffolding ### / tag kontrol / ",,,").
   * sosmed : pasangan per-tweet + conv_id -> dikelompokkan jadi multi-turn.
   * awe    : tiap percakapan sudah tergabung (semua giliran customer -> 1 Q,
              semua giliran agen manusia -> 1 A) => single-turn.
@@ -52,8 +53,8 @@ def build(limit_sosmed=5000, limit_awe=3000, min_len=3):
         turns = sorted(turns, key=lambda x: str(x.get("ref_id") or ""))
         msgs = [{"role": "system", "content": C.SYS_CHATBOT}]
         for t in turns:
-            q = C.pii_mask(C.clean(t.get("question")))
-            a = C.pii_mask(C.clean(t.get("answer")))
+            q = C.pii_mask(C.clean_train(t.get("question")))
+            a = C.pii_mask(C.clean_train(t.get("answer")))
             if len(q) < min_len or len(a) < min_len:
                 continue
             msgs.append({"role": "user", "content": q})
@@ -65,8 +66,8 @@ def build(limit_sosmed=5000, limit_awe=3000, min_len=3):
                                            "conv_id": cid}))
     # single-turn (sosmed tanpa utas + AWE)
     for it in singles + list(awe or []):
-        q = C.pii_mask(C.clean(it.get("question")))
-        a = C.pii_mask(C.clean(it.get("answer")))
+        q = C.pii_mask(C.clean_train(it.get("question")))
+        a = C.pii_mask(C.clean_train(it.get("answer")))
         if len(q) < min_len or len(a) < min_len:
             continue
         samples.append(C.sample(

@@ -6,17 +6,20 @@ pasal ke bobot. Latih pola KONSUMEN-RAG: {pertanyaan + konteks yang diambil} ->
 {jawaban grounded + sitasi}. Peraturan/SOP tetap di RAG (retrieval); LoRA hanya
 belajar CARA menjawab dari konteks dengan disiplin sitasi & anti-ngarang.
 
+PENTING (perbaikan objektif): target asisten TIDAK LAGI menyalin seluruh `isi`
+mentah (dulu <=1400 char). Itu membuat adapter jadi 'mesin fotokopi' dan overfit
+(loss ~0.004 -> output kolaps/gibberish). Kini jawaban = RINGKAS (lead beberapa
+kalimat) + sitasi. Untuk mutu terbaik, ganti dengan jawaban hasil generator LLM
+(lihat finetune/README.md).
+
 Sumber korpus:
   * peraturan.db -> tabel peraturan_unit (status='berlaku')
   * sop.db       -> tabel sop_unit (status='aktif')
 
-Pertanyaan disintesis dari judul/identitas unit (template deterministik). Untuk
-mutu lebih tinggi, generator pertanyaan berbasis LLM bisa dipasang belakangan
-(lihat finetune/README.md).
-
 Jalankan:  python -m finetune.build_grounded
 """
 import os
+import re
 import sys
 import hashlib
 
@@ -28,6 +31,10 @@ _Q_TMPL = [
     "Jelaskan isi %s.",
     "Menurut %s, bagaimana aturannya?",
     "Apa yang diatur pada %s?",
+    "Bagaimana bunyi ketentuan %s?",
+    "Ringkas poin utama %s.",
+    "Apa dasar hukum terkait %s?",
+    "Sebutkan pokok pengaturan dalam %s.",
 ]
 
 
@@ -60,13 +67,28 @@ def _cite_sop(r):
     return "%s (%s)" % (label, kat)
 
 
+def _lead(text, max_chars=480):
+    """Ambil jawaban RINGKAS dari konteks (bukan seluruh blok). Ini mencegah
+    objektif 'menyalin isi mentah' yang membuat adapter grounded overfit."""
+    text = C.clean_train(text)
+    if len(text) <= max_chars:
+        return text
+    cut = text[:max_chars]
+    hits = list(re.finditer(r"[.!?]\s", cut))
+    if hits:
+        return cut[:hits[-1].end()].strip()
+    return cut.rsplit(" ", 1)[0].strip()
+
+
 def _emit(samples, cite, isi, subject, meta):
-    isi = C.clean(isi)
+    isi = C.clean_train(isi)
     if not isi:
         return
     q = _pick(cite + (subject or ""), _Q_TMPL) % (subject or cite)
-    ans = isi if len(isi) <= 1400 else (isi[:1400].rstrip() + " …")
-    ans = ans + "\n\nDasar: " + cite + "."
+    inti = _lead(isi, 480)
+    if not inti:
+        return
+    ans = "%s\n\nDasar: %s." % (inti, cite)
     user = "Konteks:\n[%s]\n%s\n\nPertanyaan: %s" % (cite, isi, q)
     samples.append(C.sample(
         [{"role": "system", "content": C.SYS_GROUNDED},
@@ -89,7 +111,7 @@ def build(limit_peraturan=8000, limit_sop=5000, min_len=80):
             rows = []
         for r in rows:
             r = dict(r)
-            if len(C.clean(r.get("isi"))) < min_len:
+            if len(C.clean_train(r.get("isi"))) < min_len:
                 continue
             cite = _cite_peraturan(r)
             subject = C.clean(r.get("judul")) or cite
@@ -111,7 +133,7 @@ def build(limit_peraturan=8000, limit_sop=5000, min_len=80):
             rows = []
         for r in rows:
             r = dict(r)
-            if len(C.clean(r.get("isi"))) < min_len:
+            if len(C.clean_train(r.get("isi"))) < min_len:
                 continue
             cite = _cite_sop(r)
             subject = C.clean(r.get("judul")) or cite

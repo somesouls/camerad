@@ -54,6 +54,37 @@ def clean(t):
     return re.sub(r"\s+", " ", (t or "").strip())
 
 
+# --- Pembersih scaffolding/sampah dataset (B1) ---------------------------------
+# Membuang artefak format korpus yang mencemari konteks RAG & target latihan:
+#   * baris header dump Q&A: "### Pertanyaan", "### Jawaban", "### Sumber", dst.
+#   * baris yang HANYA berisi tag kontrol (@intent, @peraturan, ...). Handle
+#     sosial di TENGAH kalimat (mis. "@kring_pajak") sengaja DIPERTAHANKAN.
+#   * garis pemisah berulang (---, ===, ***) dan koma beruntun (",,,").
+_SCAFFOLD_HDR = re.compile(
+    r"(?im)^\s*#{1,6}\s*"
+    r"(pertanyaan|jawaban|jawab|sumber(?:\s+utama)?|subjek\s*\d*|topik|dasar|maksud|konteks)"
+    r"\b\s*:?\s*"
+)
+_CTRL_TAG_LINE = re.compile(r"(?m)^\s*@[\w-]+\s*$")
+_SEP_LINE = re.compile(r"(?m)^\s*[-=_*]{3,}\s*$")
+_MULTI_COMMA = re.compile(r"\s*,\s*(?:,\s*)+")
+
+
+def strip_scaffolding(t):
+    t = t or ""
+    t = _CTRL_TAG_LINE.sub(" ", t)
+    t = _SCAFFOLD_HDR.sub("", t)
+    t = _SEP_LINE.sub(" ", t)
+    t = _MULTI_COMMA.sub(", ", t)
+    return t
+
+
+def clean_train(t):
+    """clean() + buang scaffolding. Pakai untuk TEKS konten latihan
+    (pertanyaan/jawaban/utterance/isi), BUKAN untuk label/sitasi."""
+    return clean(strip_scaffolding(t))
+
+
 def pii_mask(t):
     """Mask PII via common.pii_mask bila tersedia; kalau tidak, kembalikan apa adanya."""
     try:

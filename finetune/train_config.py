@@ -41,7 +41,9 @@ BASE_MODEL = _env("FINETUNE_BASE_MODEL", "Qwen/Qwen2.5-7B-Instruct")
 # LoRA / QLoRA
 LORA_R = _int("FINETUNE_LORA_R", 32)
 LORA_ALPHA = _int("FINETUNE_LORA_ALPHA", 32)
-LORA_DROPOUT = _float("FINETUNE_LORA_DROPOUT", 0.0)
+# Dropout dinaikkan dari 0.0 -> 0.05 untuk mengurangi overfit (grounded sempat
+# tembus loss ~0.004 -> output kolaps). Override via FINETUNE_LORA_DROPOUT.
+LORA_DROPOUT = _float("FINETUNE_LORA_DROPOUT", 0.05)
 TARGET_MODULES = [
     "q_proj", "k_proj", "v_proj", "o_proj",
     "gate_proj", "up_proj", "down_proj",
@@ -59,10 +61,12 @@ LR_SCHEDULER = _env("FINETUNE_LR_SCHEDULER", "cosine")
 SEED = _int("FINETUNE_SEED", 42)
 
 # Berapa epoch per dataset saat training bertahap.
+# grounded diturunkan 2.0 -> 1.0: datanya paling repetitif (template) sehingga
+# paling rawan overfit; pantau val loss per-epoch (lihat train_qlora.py).
 EPOCHS = {
     "intent": _float("FINETUNE_EPOCHS_INTENT", 2.0),
     "faq": _float("FINETUNE_EPOCHS_FAQ", 3.0),
-    "grounded": _float("FINETUNE_EPOCHS_GROUNDED", 2.0),
+    "grounded": _float("FINETUNE_EPOCHS_GROUNDED", 1.0),
 }
 
 # Urutan training bertahap (data terbersih dulu).

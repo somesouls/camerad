@@ -9,6 +9,9 @@ Pakai:
 
 Catatan:
 - Loss HANYA dihitung pada token ASISTEN (train_on_responses_only).
+- Bila ada <dataset>.val.jsonl (dibuat write_jsonl val_ratio>0), dipakai sebagai
+  eval_dataset dan val loss dievaluasi tiap epoch -> gampang lihat overfit
+  (train loss turun tapi val loss naik).
 - Semua dependency berat (torch/unsloth/trl/datasets) di-import di dalam fungsi
   supaya file ini tetap lolos py_compile di CI tanpa GPU.
 - Output adapter default: _runs/finetune/adapters/<dataset>/
@@ -81,28 +84,41 @@ def train_one(dataset, resume_from=None, epochs=None, out_dir=None):
 
     ds = _load_chat_dataset(train_path).map(_fmt, batched=True)
 
+    # Eval split opsional (dibuat write_jsonl val_ratio>0).
+    val_path = os.path.join(C.data_dir(), f"{dataset}.val.jsonl")
+    eval_ds = None
+    if os.path.exists(val_path):
+        eval_ds = _load_chat_dataset(val_path).map(_fmt, batched=True)
+        print(f"[train_qlora] eval split: {val_path} ({len(eval_ds)} sampel)", flush=True)
+
+    sft_kwargs = dict(
+        per_device_train_batch_size=TC.BATCH_SIZE,
+        gradient_accumulation_steps=TC.GRAD_ACCUM,
+        warmup_ratio=TC.WARMUP_RATIO,
+        num_train_epochs=epochs,
+        learning_rate=TC.LEARNING_RATE,
+        lr_scheduler_type=TC.LR_SCHEDULER,
+        weight_decay=TC.WEIGHT_DECAY,
+        seed=TC.SEED,
+        logging_steps=10,
+        optim="adamw_8bit",
+        bf16=torch.cuda.is_bf16_supported(),
+        fp16=not torch.cuda.is_bf16_supported(),
+        output_dir=os.path.join(out_dir, "_trainer"),
+        report_to="none",
+    )
+    if eval_ds is not None:
+        sft_kwargs["eval_strategy"] = "epoch"
+        sft_kwargs["per_device_eval_batch_size"] = TC.BATCH_SIZE
+
     trainer = SFTTrainer(
         model=model,
         tokenizer=tokenizer,
         train_dataset=ds,
+        eval_dataset=eval_ds,
         dataset_text_field="text",
         max_seq_length=TC.MAX_SEQ_LEN,
-        args=SFTConfig(
-            per_device_train_batch_size=TC.BATCH_SIZE,
-            gradient_accumulation_steps=TC.GRAD_ACCUM,
-            warmup_ratio=TC.WARMUP_RATIO,
-            num_train_epochs=epochs,
-            learning_rate=TC.LEARNING_RATE,
-            lr_scheduler_type=TC.LR_SCHEDULER,
-            weight_decay=TC.WEIGHT_DECAY,
-            seed=TC.SEED,
-            logging_steps=10,
-            optim="adamw_8bit",
-            bf16=torch.cuda.is_bf16_supported(),
-            fp16=not torch.cuda.is_bf16_supported(),
-            output_dir=os.path.join(out_dir, "_trainer"),
-            report_to="none",
-        ),
+        args=SFTConfig(**sft_kwargs),
     )
 
     # Loss hanya pada token asisten (Qwen2.5 chat template).

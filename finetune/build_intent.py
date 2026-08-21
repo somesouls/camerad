@@ -10,6 +10,7 @@ Sumber (knowledge base yang sudah ada):
 
 Kandidat LoRA TERBAIK untuk dibangun pertama: data bersih & berlabel, dan
 mengajarkan keputusan intent yang tak bisa ditebak dari makna literal.
+Utterance dibersihkan via common.clean_train; label intent tetap apa adanya.
 
 Jalankan:  python -m finetune.build_intent
 """
@@ -50,7 +51,7 @@ def build(limit=8000, min_len=3):
                 continue
             seen = set()
             for u in list(r.get("contoh_utterance") or []) + list(r.get("cakupan") or []):
-                u = C.clean(u)
+                u = C.clean_train(u)
                 if len(u) < min_len or u.lower() in seen:
                     continue
                 seen.add(u.lower())
@@ -71,7 +72,7 @@ def build(limit=8000, min_len=3):
             if not intent:
                 continue
             for u in (r.get("training_phrase_contoh") or []):
-                u = C.clean(u)
+                u = C.clean_train(u)
                 if len(u) < min_len:
                     continue
                 samples.append(C.sample(
