@@ -158,26 +158,39 @@
     txModal.classList.add('open');
     showConvList();
   }
+  function convQS(u){
+    var qs='range='+encodeURIComponent(state.range);
+    if(state.range==='custom'){qs+='&start='+encodeURIComponent(state.start)+'&end='+encodeURIComponent(state.end);}
+    if(u.taxid){qs+='&taxid='+encodeURIComponent(u.taxid);}
+    else if(u.name){qs+='&name='+encodeURIComponent(u.name);}
+    else if(u.sids&&u.sids.length){qs+='&sid='+encodeURIComponent(u.sids[0]);}
+    return qs;
+  }
+  function convRowHtml(c){
+    var badges='';
+    if(c.direct)badges+='<span class="pill">Langsung agent</span>';
+    else if(c.reached)badges+='<span class="pill b">Ke agent</span>';
+    return '<div class="cv-row" data-sid="'+esc(c.sid)+'">'
+      +'<div class="cv-main"><div class="cv-top">'+esc(c.tanggal||'-')+' · '+esc(c.theme||'(tanpa tema)')+'</div>'
+      +'<div class="cv-sub">'+(c.agent_name?('Agent: '+esc(c.agent_name)+' · '):'')+esc(c.sentiment||'')+' · SID '+esc(c.sid)+'</div></div>'
+      +'<div class="cv-badges">'+badges+'<button class="btn-lihat">Detail</button></div></div>';
+  }
   function showConvList(){
     var u=CUR_USER; if(!u)return;
-    var convs=(u.convs||[]).slice().sort(function(a,b){return (b.tanggal||'').localeCompare(a.tanggal||'');});
     txTitle.textContent=(u.label||'Pengguna')+' — '+u.conv+' percakapan';
     txBack.style.display='none';
     txBody.style.display='none';
     txMeta.style.display='none'; txMeta.innerHTML='';
     txList.style.display='block';
-    var head='';
-    if(convs.length<u.conv){head='<div class="note" style="margin:2px 4px 8px;">Menampilkan '+convs.length+' percakapan terbaru dari total '+u.conv+'.</div>';}
-    if(!convs.length){txList.innerHTML='<div class="muted" style="padding:20px;">Tidak ada percakapan.</div>';return;}
-    txList.innerHTML=head+convs.map(function(c){
-      var badges='';
-      if(c.direct)badges+='<span class="pill">Langsung agent</span>';
-      else if(c.reached)badges+='<span class="pill b">Ke agent</span>';
-      return '<div class="cv-row" data-sid="'+esc(c.sid)+'">'
-        +'<div class="cv-main"><div class="cv-top">'+esc(c.tanggal||'-')+' · '+esc(c.theme||'(tanpa tema)')+'</div>'
-        +'<div class="cv-sub">'+(c.agent_name?('Agent: '+esc(c.agent_name)+' · '):'')+esc(c.sentiment||'')+' · SID '+esc(c.sid)+'</div></div>'
-        +'<div class="cv-badges">'+badges+'<button class="btn-lihat">Detail</button></div></div>';
-    }).join('');
+    txList.innerHTML='<div class="loading">Memuat daftar percakapan…</div>';
+    fetch('/api/awe/daily-users/conversations?'+convQS(u)).then(function(r){return r.json();}).then(function(res){
+      if(!res||res.ok===false){txList.innerHTML='<div class="muted" style="padding:20px;">Gagal memuat: '+esc((res&&res.error)||'')+'</div>';return;}
+      var convs=res.conversations||[];
+      if(!convs.length){txList.innerHTML='<div class="muted" style="padding:20px;">Tidak ada percakapan.</div>';return;}
+      var head='';
+      if(res.truncated){head='<div class="note" style="margin:2px 4px 8px;">Menampilkan '+convs.length+' percakapan terbaru (dibatasi).</div>';}
+      txList.innerHTML=head+convs.map(convRowHtml).join('');
+    }).catch(function(){txList.innerHTML='<div class="muted" style="padding:20px;">Gagal memuat daftar percakapan.</div>';});
   }
   txList.addEventListener('click',function(e){
     var row=e.target.closest('.cv-row'); if(!row)return;
@@ -221,7 +234,7 @@
     var k=uSort.k,dir=uSort.dir;
     list.sort(function(a,b){var x=a[k],y=b[k];if(typeof x==='string'){x=(x||'').toLowerCase();y=(y||'').toLowerCase();}return x<y?-dir:(x>y?dir:0);});
     var rows=list.map(function(u){
-      var n=(u.convs&&u.convs.length)?u.conv:0;
+      var n=u.conv||0;
       var lihat=n?'<button class="btn-lihat" data-uidx="'+u._i+'">Lihat ('+n+')</button>':'-';
       var idt=u.idtype==='Nama'?'<span class="tag">Nama</span>':(u.idtype==='Anonim'?'<span class="tag">Anonim</span>':'<span class="pill b">'+esc(u.idtype)+'</span>');
       return '<tr>'
@@ -248,7 +261,7 @@
     if(q)list=list.filter(function(u){return (u.label||'').toLowerCase().indexOf(q)>=0||(u.themes||'').toLowerCase().indexOf(q)>=0;});
     list.sort(function(a,b){return (b.conv-a.conv)||(b.days-a.days);});
     var rows=list.map(function(u){
-      var n=(u.convs&&u.convs.length)?u.conv:0;
+      var n=u.conv||0;
       var lihat=n?'<button class="btn-lihat" data-uidx="'+u._i+'">Lihat ('+n+')</button>':'-';
       return '<tr>'
         +'<td>'+esc(u.label||'(tanpa nama)')+'</td>'
@@ -322,7 +335,7 @@
       +'<div class="note" style="margin-top:0;margin-bottom:10px;">Pengguna tanpa NPWP (penanda <b>[NON-NPWP]</b>) dikelompokkan <b>per nama</b> (best-effort — nama bisa duplikat/typo). Total ≈ '+nn.users+' nama, '+nn.conv+' percakapan. Klik <b>Lihat</b> untuk daftar percakapan &amp; detailnya.</div>'
       +'<div class="flt"><input id="nnSearch" placeholder="Cari nama / tema…" style="min-width:240px;"></div>'
       +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Nama</th><th>Percakapan</th><th>Hari</th><th>Langsung agent</th><th>Tema utama</th><th>Sentimen</th><th>Percakapan</th></tr></thead><tbody id="nnBody"></tbody></table></div>'
-      +'<div class="note"><span id="nnShown">0</span> nama ditampilkan (dari daftar teratas per volume).</div>'
+      +'<div class="note"><span id="nnShown">0</span> nama ditampilkan.</div>'
       +'</div></div>';
 
     body.innerHTML=html;
