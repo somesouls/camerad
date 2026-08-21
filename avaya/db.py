@@ -147,7 +147,7 @@ def init_db(conn):
         ("ss_lengkap", "ss_lengkap INTEGER"),
     ])
     conn.commit()
-    # Migrasi ringan (sekali jalan): rapikan baris lama yang namanya berformat
+    # Migrasi ringan (sekali jalan): rapikan baris lama yang namanya masih berformat
     # 'Nama [NIK]'. Dijaga meta-flag agar tak berjalan tiap request.
     try:
         _backfill_nik(conn)
@@ -852,4 +852,361 @@ def get_transcript(conn, sid, run_id=None):
                     "salam_pembuka":      d.get("ss_salam_pembuka"),
                     "menanyakan_nama":    d.get("ss_menanyakan_nama"),
                     "menyapa_customer":   d.get("ss_menyapa_customer"),
-                    "menawarkan_bantuan": d.get("ss
+                    "menawarkan_bantuan": d.get("ss_menawarkan_bantuan"),
+                    "hold":               d.get("ss_hold"),
+                    "salam_penutup":      d.get("ss_salam_penutup"),
+                    "lengkap":            d.get("ss_lengkap"),
+                },
+                "transkrip": tx,
+            }
+    # fallback ke staging
+    rs = cur.execute(
+        "SELECT payload_json FROM awe_staging WHERE sid=?", (sid,)
+    ).fetchone()
+    if rs is not None:
+        try:
+            _p = _json.loads(rs["payload_json"])
+        except Exception:
+            _p = None
+        tx = _extract_transkrip(_p) if _p else None
+        if tx:
+            return {"sid": sid, "run_id": (run_id or ""), "source": "staging",
+                    "customer": _name_wo_nik(_g(_p, "customer", "pelanggan", default="")),
+                    "nik": _nik_of(_p), "agent_name": "", "agent_id": "",
+                    "is_poro": None, "jenis_layanan": "", "softskill": {},
+                    "transkrip": tx}
+    return None
+
+
+def list_for_assess(conn, range_="all", start="", end="", agent="", poro="",
+                    jenis="", ss_lengkap="", ss_attrs=None, limit=200):
+    """Query percakapan untuk Penilaian QA dengan filter softskill.
+
+    Default range_='all' (mengikuti assessor.js yang tidak memfilter tanggal,
+    hanya mengambil N percakapan terbaru). Perbandingan tanggal memakai
+    substr(tanggal,1,10) agar baris dengan komponen jam tidak ter-eksklusi
+    pada hari terakhir rentang.
+    """
+    import datetime as _dtt
+    today = _dtt.date.today()
+    if range_ == "today":
+        d_from = d_to = today.isoformat()
+    elif range_ == "yesterday":
+        y = today - _dtt.timedelta(days=1)
+        d_from = d_to = y.isoformat()
+    elif range_ == "7d":
+        d_from = (today - _dtt.timedelta(days=6)).isoformat()
+        d_to   = today.isoformat()
+    elif range_ == "30d":
+        d_from = (today - _dtt.timedelta(days=29)).isoformat()
+        d_to   = today.isoformat()
+    elif range_ == "90d":
+        d_from = (today - _dtt.timedelta(days=89)).isoformat()
+        d_to   = today.isoformat()
+    elif range_ == "custom" and start and end:
+        d_from, d_to = start, end
+    else:
+        d_from = d_to = None
+
+    sql = ("SELECT sid,tanggal,customer,nik,agent_name,agent_id,durasi,"
+           "is_poro,jenis_layanan,"
+           "ss_salam_pembuka,ss_menanyakan_nama,ss_menyapa_customer,"
+           "ss_menawarkan_bantuan,ss_hold,ss_salam_penutup,ss_lengkap "
+           "FROM awe_conversations WHERE 1=1")
+    params = []
+    if d_from:
+        sql += " AND substr(tanggal,1,10)>=?"; params.append(d_from)
+    if d_to:
+        sql += " AND substr(tanggal,1,10)<=?"; params.append(d_to)
+    if agent:
+        sql += " AND agent_name LIKE ?"; params.append("%" + agent + "%")
+    if poro == "ya":
+        sql += " AND is_poro=1"
+    elif poro == "tidak":
+        sql += " AND is_poro=0"
+    if jenis:
+        sql += " AND jenis_layanan=?"; params.append(jenis)
+    if ss_lengkap == "ya":
+        sql += " AND ss_lengkap=1"
+    elif ss_lengkap == "tidak":
+        sql += " AND ss_lengkap=0"
+    for attr, v in (ss_attrs or {}).items():
+        col = "ss_" + attr
+        sql += " AND " + col + "=?"
+        params.append(1 if v == "ya" else 0)
+    sql += " ORDER BY tanggal DESC,rowid DESC LIMIT ?"
+    params.append(int(limit))
+
+    rows = conn.execute(sql, params).fetchall()
+    convs = [dict(r) for r in rows]
+
+    agents  = [r[0] for r in conn.execute(
+        "SELECT DISTINCT agent_name FROM awe_conversations "
+        "WHERE agent_name!='' ORDER BY agent_name").fetchall()]
+    jenises = [r[0] for r in conn.execute(
+        "SELECT DISTINCT jenis_layanan FROM awe_conversations "
+        "WHERE jenis_layanan IS NOT NULL AND jenis_layanan!='' "
+        "ORDER BY jenis_layanan").fetchall()]
+    return {"conversations": convs, "total": len(convs),
+            "agents": agents, "jenises": jenises}
+
+
+def delete_run(conn, run_id):
+    cur = conn.cursor()
+    cur.execute("DELETE FROM awe_conversations WHERE run_id=?", (run_id,))
+    cur.execute("DELETE FROM awe_runs WHERE id=?", (run_id,))
+    conn.commit()
+    return cur.rowcount
+
+
+def latest_run(conn, with_records=False):
+    cur = conn.cursor()
+    r = cur.execute(
+        "SELECT id FROM awe_runs ORDER BY datetime(created_at) DESC LIMIT 1"
+    ).fetchone()
+    if not r:
+        return None
+    return get_run(conn, r["id"], with_records=with_records)
+
+
+def stats(conn):
+    cur = conn.cursor()
+    row = cur.execute(
+        """SELECT COUNT(*) AS runs, COALESCE(SUM(total_conv),0) AS conv,
+                  MIN(date_min) AS dmin, MAX(date_max) AS dmax
+           FROM awe_runs"""
+    ).fetchone()
+    return {"runs": row["runs"], "conversations": row["conv"],
+            "date_min": row["dmin"] or "", "date_max": row["dmax"] or ""}
+
+
+def set_meta(conn, key, value):
+    conn.execute(
+        "INSERT INTO awe_meta(key,value) VALUES(?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (key, str(value)),
+    )
+
+
+def get_meta(conn, key, default=None):
+    r = conn.execute("SELECT value FROM awe_meta WHERE key=?", (key,)).fetchone()
+    return r["value"] if r else default
+
+
+# =============================================================
+# STAGING
+# =============================================================
+def _stage_day_of(c):
+    return str(_g(c, "tanggal", "date", "start", default=""))[:10]
+
+
+def stage_upsert_convs(conn, convs, batch_id=None, pulled_by=None):
+    cur = conn.cursor()
+    now = _jkt_now_iso()
+    n_seen = n_new = 0
+    for c in convs:
+        if not isinstance(c, dict):
+            continue
+        sid = str(_g(c, "sid", "Sid", default="")).strip()
+        if not sid:
+            continue
+        n_seen += 1
+        r = cur.execute(
+            "INSERT OR IGNORE INTO awe_staging"
+            "(sid,tanggal,agent_id,agent_name,customer,durasi,payload_json,batch_id,pulled_by,pulled_at)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (sid, _stage_day_of(c),
+             str(_g(c, "agentId", "agent_id", default="")),
+             str(_g(c, "agentName", "agent", "agent_name", default="")),
+             str(_g(c, "customer", "pelanggan", default="")),
+             int(_g(c, "durasi", "duration", default=0) or 0),
+             _json.dumps(c, ensure_ascii=False),
+             batch_id or "", pulled_by or "", now),
+        )
+        if r.rowcount:
+            n_new += 1
+    conn.commit()
+    return {"seen": n_seen, "new": n_new, "dup": n_seen - n_new}
+
+
+def stage_add_batch(conn, batch_id, date_from, date_to, n_pulled, n_new, pulled_by=None):
+    conn.execute(
+        "INSERT OR REPLACE INTO awe_stage_batches"
+        "(id,date_from,date_to,n_pulled,n_new,pulled_by,created_at) VALUES(?,?,?,?,?,?,?)",
+        (batch_id, str(date_from)[:10], str(date_to)[:10], int(n_pulled or 0),
+         int(n_new or 0), pulled_by or "", _jkt_now_iso()),
+    )
+    conn.commit()
+
+
+def stage_mark_days(conn, convs, day_from=None, day_to=None, batch_id=None, pulled_by=None):
+    now = _jkt_now_iso()
+    by_day = {}
+    for c in convs:
+        if not isinstance(c, dict):
+            continue
+        d = _stage_day_of(c)
+        if d:
+            by_day[d] = by_day.get(d, 0) + 1
+    days = sorted(by_day) or [d for d in _days_in_range(day_from, day_to) if d]
+    cur = conn.cursor()
+    for d in days:
+        cur.execute(
+            "INSERT INTO awe_stage_coverage(day,batch_id,total_conv,pulled_by,pulled_at)"
+            " VALUES(?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET"
+            " batch_id=excluded.batch_id, total_conv=excluded.total_conv,"
+            " pulled_by=excluded.pulled_by, pulled_at=excluded.pulled_at",
+            (d, batch_id or "", by_day.get(d), pulled_by or "", now),
+        )
+    conn.commit()
+    return days
+
+
+def stage_coverage_for_range(conn, day_from, day_to):
+    req = _days_in_range(day_from, day_to)
+    cur = conn.cursor()
+    have = set()
+    if req:
+        qs = ",".join("?" for _ in req)
+        rs = cur.execute(
+            "SELECT day FROM awe_stage_coverage WHERE day IN (%s)" % qs, req
+        ).fetchall()
+        have = set(r["day"] for r in rs)
+    staged  = [d for d in req if d in have]
+    missing = [d for d in req if d not in have]
+    return {"requested": req, "staged": staged, "missing": missing}
+
+
+def stage_stats(conn):
+    cur = conn.cursor()
+    row = cur.execute(
+        "SELECT COUNT(*) AS n, MIN(tanggal) AS dmin, MAX(tanggal) AS dmax FROM awe_staging"
+    ).fetchone()
+    ndays = cur.execute("SELECT COUNT(*) FROM awe_stage_coverage").fetchone()[0]
+    nb    = cur.execute("SELECT COUNT(*) FROM awe_stage_batches").fetchone()[0]
+    return {"total": row["n"] or 0, "date_min": row["dmin"] or "",
+            "date_max": row["dmax"] or "", "days": ndays, "batches": nb}
+
+
+def stage_list_batches(conn, limit=100):
+    rs = conn.execute(
+        "SELECT id,date_from,date_to,n_pulled,n_new,pulled_by,created_at"
+        " FROM awe_stage_batches ORDER BY datetime(created_at) DESC LIMIT ?",
+        (int(limit),),
+    ).fetchall()
+    return [dict(r) for r in rs]
+
+
+def stage_count(conn, day_from=None, day_to=None):
+    if day_from and day_to:
+        return conn.execute(
+            "SELECT COUNT(*) FROM awe_staging WHERE tanggal>=? AND tanggal<=?",
+            (str(day_from)[:10], str(day_to)[:10]),
+        ).fetchone()[0]
+    return conn.execute("SELECT COUNT(*) FROM awe_staging").fetchone()[0]
+
+
+def stage_load_convs(conn, day_from=None, day_to=None):
+    if day_from and day_to:
+        rs = conn.execute(
+            "SELECT payload_json FROM awe_staging WHERE tanggal>=? AND tanggal<=?"
+            " ORDER BY tanggal, sid", (str(day_from)[:10], str(day_to)[:10]),
+        ).fetchall()
+    else:
+        rs = conn.execute(
+            "SELECT payload_json FROM awe_staging ORDER BY tanggal, sid"
+        ).fetchall()
+    out = []
+    for r in rs:
+        try:
+            out.append(_json.loads(r["payload_json"]))
+        except Exception:
+            pass
+    return out
+
+
+def stage_purge(conn, day_from=None, day_to=None):
+    cur = conn.cursor()
+    if day_from and day_to:
+        a, b = str(day_from)[:10], str(day_to)[:10]
+        n = cur.execute("SELECT COUNT(*) FROM awe_staging WHERE tanggal>=? AND tanggal<=?",
+                        (a, b)).fetchone()[0]
+        cur.execute("DELETE FROM awe_staging WHERE tanggal>=? AND tanggal<=?", (a, b))
+        cur.execute("DELETE FROM awe_stage_coverage WHERE day>=? AND day<=?", (a, b))
+        cur.execute("DELETE FROM awe_stage_batches WHERE date_from>=? AND date_to<=?", (a, b))
+    else:
+        n = cur.execute("SELECT COUNT(*) FROM awe_staging").fetchone()[0]
+        cur.execute("DELETE FROM awe_staging")
+        cur.execute("DELETE FROM awe_stage_coverage")
+        cur.execute("DELETE FROM awe_stage_batches")
+    conn.commit()
+    return n
+
+
+if __name__ == "__main__":
+    import tempfile
+    p = os.path.join(tempfile.gettempdir(), "avaya_smoke.db")
+    if os.path.exists(p): os.remove(p)
+    c = init_db(connect(p))
+    dash = {"meta": {"date_min": "2026-07-01", "date_max": "2026-07-31",
+                      "total_conv": 2, "total_customers": 2, "engine": "mpnet"},
+            "conversations": [
+                {"sid": "A1", "tanggal": "2026-07-02 09:15:00", "customer": "Budi Santoso",
+                 "nik": "3210000000000001",
+                 "mapped_intent": "Lapor SPT", "coverage_band": "Tinggi", "sentiment": "positif"},
+                {"sid": "A2", "tanggal": "2026-07-05 14:00:00", "customer": "cust2",
+                 "mapped_intent": "EFIN", "coverage_band": "Rendah", "sentiment": "negatif"},
+            ]}
+    records = [{
+        "sid": "A1",
+        "nik": "3210000000000001",
+        "transkrip": [
+            {"role": "customer", "text": "halo"},
+            {"role": "agent",    "text": "Selamat pagi Bapak Budi, perkenalkan saya Rini. Ada yang bisa kami bantu?"},
+            {"role": "customer", "text": "saya lupa EFIN"},
+            {"role": "agent",    "text": "Mohon menunggu, kami cek terlebih dahulu."},
+            {"role": "agent",    "text": "Terima kasih telah menggunakan layanan kami."},
+        ],
+    }]
+    r = save_run(c, dash, records=records, n_files=1, source="upload", build="test")
+    assert r["new"] is True and r["total_conv"] == 2, r
+    tx = get_transcript(c, "A1")
+    assert tx and tx["source"] == "database" and len(tx["transkrip"]) == 5, tx
+    # NIK tersimpan & terbaca
+    assert tx["nik"] == "3210000000000001", tx.get("nik")
+    # softskill scores
+    assert tx["softskill"]["salam_pembuka"] == 1, tx["softskill"]
+    assert tx["softskill"]["menawarkan_bantuan"] == 1, tx["softskill"]
+    assert tx["softskill"]["hold"] == 1, tx["softskill"]
+    assert tx["softskill"]["salam_penutup"] == 1, tx["softskill"]
+    # jenis layanan
+    assert tx["jenis_layanan"] == "Lupa EFIN", tx["jenis_layanan"]
+    # kolom nik terisi di awe_conversations
+    nrow = c.execute("SELECT nik, non_npwp, customer FROM awe_conversations WHERE sid='A1'").fetchone()
+    assert nrow["nik"] == "3210000000000001" and nrow["non_npwp"] == 0, dict(nrow)
+    # nama dgn kurung NIK harus ter-strip + NIK terekstraksi
+    dash2 = {"meta": {"date_min": "2026-08-01", "date_max": "2026-08-01", "total_conv": 1},
+             "conversations": [{"sid": "B1", "tanggal": "2026-08-01 10:00:00",
+                                "customer": "Handini Pratami [3275065503020007]"}]}
+    save_run(c, dash2, records=[], n_files=1)
+    brow = c.execute("SELECT nik, customer FROM awe_conversations WHERE sid='B1'").fetchone()
+    assert brow["customer"] == "Handini Pratami" and brow["nik"] == "3275065503020007", dict(brow)
+    # list_for_assess (default all)
+    la = list_for_assess(c, range_="all")
+    assert la["total"] == 3, la["total"]
+    la2 = list_for_assess(c, range_="all", poro="tidak")
+    assert la2["total"] >= 0
+    # REGRESI: rentang custom hari-akhir tepat harus tetap menangkap baris
+    # ber-timestamp (perbaikan substr(tanggal,1,10)).
+    la3 = list_for_assess(c, range_="custom", start="2026-07-02", end="2026-07-02")
+    assert la3["total"] == 1, ("substr date fix", la3["total"])
+    la4 = list_for_assess(c, range_="custom", start="2026-07-01", end="2026-07-31")
+    assert la4["total"] == 2, la4["total"]
+    assert get_transcript(c, "NOPE") is None
+    r2 = save_run(c, dash, records=[{"sid": "A1"}], n_files=1)
+    assert r2["new"] is False and r2["id"] == r["id"], r2
+    assert len(list_runs(c)) == 2
+    st = stats(c)
+    assert st["runs"] == 2, st
+    assert delete_run(c, r["id"]) >= 1
+    print("AVAYA_DB_SMOKE_OK")
