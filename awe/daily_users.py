@@ -3,15 +3,17 @@
 
 Sub-menu AWE baru: mengidentifikasi pengguna harian dari tabel awe_conversations,
 menghitung jumlah pengguna unik per hari, mengidentifikasi SIAPA (nama + NIK/NPWP
-bila terdeteksi di transkrip), apakah mereka LANGSUNG ke agent (hit 1500200 tanpa
-lewat bot), tema/jenis layanan yang dibahas, pengguna berulang, serta indikasi
-alasan mereka langsung ke agent.
+bila terdeteksi), apakah mereka LANGSUNG ke agent (hit 1500200 tanpa lewat bot),
+tema/jenis layanan yang dibahas, pengguna berulang, serta indikasi alasan mereka
+langsung ke agent.
 
 Catatan data (penting):
-  - Tabel awe_conversations TIDAK punya kolom NIK/NPWP. Kolom identitas yang ada
-    hanya `customer` (nama). NIK/NPWP diekstraksi best-effort dari transkrip_json
-    (turn milik customer) memakai regex. Identitas pengguna diresolusi dengan
-    prioritas: NPWP/NIK > nama > sid (anonim).
+  - Identitas: NIK/NPWP diambil dari kolom `nik` di awe_conversations (hasil
+    scrape DNIS/nama berformat "Nama [NIK]" saat penarikan data). Bila kolom `nik`
+    kosong (mis. data lama yang ditarik sebelum kolom ini ada), fallback ke
+    ekstraksi best-effort dari transkrip_json (turn milik customer) memakai regex.
+    Nama ada di kolom `customer`. Prioritas resolusi identitas pengguna:
+    NIK/NPWP > nama > sid (anonim).
   - "Langsung ke agent" (hit 1500200 langsung) = behavior in (direct/langsung)
     ATAU deflection_gap=1 (selaras dengan awe.analytics / awe.overview).
   - TIDAK ada penggabungan dengan data Dialogflow (tidak ada ID unik lintas
@@ -71,7 +73,7 @@ def data_bounds(conn):
         return {"min": "", "max": ""}
 
 
-# --- Ekstraksi NIK/NPWP dari transkrip -----------------------------------
+# --- Ekstraksi NIK/NPWP dari transkrip (fallback data lama) ---------------
 _NPWP_FMT = _re.compile(r'\b\d{2}\.\d{3}\.\d{3}\.\d[-.\s]?\d{3}\.\d{3}\b')
 _DIGITS = _re.compile(r'(?<!\d)(\d{15,16})(?!\d)')
 _CUST_ROLES = {"customer", "cust", "pelanggan", "user"}
@@ -79,6 +81,15 @@ _CUST_ROLES = {"customer", "cust", "pelanggan", "user"}
 
 def _norm_name(s):
     return _re.sub(r'\s+', ' ', str(s or "").strip()).lower()
+
+
+def _taxtype_of(digits):
+    n = len(str(digits or ""))
+    if n == 16:
+        return "NIK/NPWP"
+    if n == 15:
+        return "NPWP"
+    return "NPWP/NIK"
 
 
 def _extract_taxid(transkrip):
@@ -144,7 +155,7 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
         where.append("substr(tanggal,1,10) <= ?"); params.append(end[:10])
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
-        "SELECT sid,tanggal,customer,agent_name,agent_id,durasi,behavior,"
+        "SELECT sid,tanggal,customer,nik,agent_name,agent_id,durasi,behavior,"
         "is_returning,mapped_intent,coverage_band,case_label,sentiment,emotion,"
         "topik,deflection_gap,jenis_layanan,is_poro,transkrip_json "
         "FROM awe_conversations" + wsql + " ORDER BY tanggal", params
@@ -170,14 +181,20 @@ def daily_users(conn, start=None, end=None, limit_users=400, limit_conv=400):
         if day:
             dmin = day if not dmin else min(dmin, day)
             dmax = day if not dmax else max(dmax, day)
-        tx = None
-        tj = d.get("transkrip_json")
-        if tj:
-            try:
-                tx = _json.loads(tj)
-            except Exception:
-                tx = None
-        taxid, taxtype = _extract_taxid(tx)
+        # Identitas: utamakan kolom nik (hasil scrape DNIS). Fallback: transkrip.
+        col_nik = str(d.get("nik") or "").strip()
+        if col_nik:
+            taxid = col_nik
+            taxtype = _taxtype_of(col_nik)
+        else:
+            tx = None
+            tj = d.get("transkrip_json")
+            if tj:
+                try:
+                    tx = _json.loads(tj)
+                except Exception:
+                    tx = None
+            taxid, taxtype = _extract_taxid(tx)
         name = str(d.get("customer") or "").strip()
         if taxid:
             key = "tax:" + taxid; label = taxid; idtype = taxtype or "NPWP/NIK"
