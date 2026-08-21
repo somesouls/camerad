@@ -1,134 +1,136 @@
-// pipeline.part7.js — Fase 2 (C): combo intent yang bisa DICARI + opsi
-// "keluarkan dari tindak lanjut". Berlaku untuk Step 6 (Intent Judgement LLM)
-// & Step 9 (Intent Seharusnya). Memakai /api/analytics/search-intents?q=.
-// Membungkus openS6Menu & closeS6Menus (bukan menimpa render). Fail-safe:
-// bila endpoint gagal, tombol tetap bisa dipakai manual.
+// pipeline.part7.js — Fase 2 (C): dropdown intent yang bisa DICARI.
+// Susunan menu (sesuai permintaan analis):
+//   [ kolom pencarian ]
+//   1..N rekomendasi  (Step 6: 5 rekomendasi LLM dari r.options; Step 9: intent
+//                      terdekat dari r.kandidat) — TETAP ADA, tidak dihilangkan
+//   ✕ Kosongkan       (Step 6 = tidak ditindaklanjuti; Step 9 = match akurat/bukan MKTA)
+// Kolom pencarian memakai aksi backend 'intents' (daftar intent Step 3 yang
+// sudah ditarik / katalog intent). Menimpa openS6Menu & closeS6Menus, dan
+// merender ke elemen #menu{i} native di dalam .s6combo (Step 6 & Step 9).
+// Fail-open: bila katalog gagal dimuat, analis tetap bisa mengetik manual +
+// Enter, memilih rekomendasi, atau Kosongkan.
 (function(){
   if(window.__part7){return;} window.__part7=true;
-  var EXCLUDE='Dikeluarkan dari daftar tindak lanjut';
-  var _timer=null, _cache={}, _cur=null;
+  var CAT=null;      // daftar nama intent (null=belum dimuat)
+  var CATLOADING=false;
 
   function injectCss(){
     if(document.getElementById('p7css'))return;
     var st=document.createElement('style');st.id='p7css';
     st.textContent=[
-      '#p7menu{position:fixed;z-index:9500;min-width:280px;max-width:460px;max-height:320px;overflow:auto;background:var(--bg,#fff);color:var(--text,#111);border:1px solid var(--border);border-radius:10px;box-shadow:0 14px 40px rgba(0,0,0,.25);display:none;padding:4px}',
-      '#p7menu.show{display:block}',
+      '.s6menu .p7srch{position:sticky;top:0;background:var(--bg,#fff);padding:6px;border-bottom:1px solid var(--border);z-index:1}',
+      '.s6menu .p7srch input{width:100%;box-sizing:border-box;padding:6px 9px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:var(--soft2);color:var(--text)}',
+      '.s6menu .p7res{max-height:230px;overflow:auto;padding:2px}',
+      '.p7sec{padding:5px 10px 3px;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text2)}',
       '.p7opt{padding:7px 10px;border-radius:7px;cursor:pointer;font-size:13px}',
       '.p7opt:hover{background:var(--soft2)}',
       '.p7opt .m{font-size:11px;color:var(--text2);margin-top:1px}',
-      '.p7sec{padding:5px 10px 3px;font-size:10.5px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text2)}',
-      '.p7act{border-top:1px solid var(--border);margin-top:4px;padding-top:4px}',
-      '.p7del{color:#ef4444;font-weight:600}',
-      '.p7empty{padding:9px 10px;color:var(--text2);font-size:12px}',
-      '.s6intent.excluded{color:#ef4444;font-weight:600;text-decoration:line-through}'
+      '.p7clr{border-top:1px solid var(--border);margin-top:4px;padding-top:8px;color:#ef4444;font-weight:600}',
+      '.p7empty{padding:9px 10px;color:var(--text2);font-size:12px;line-height:1.4}'
     ].join('');
     document.head.appendChild(st);
   }
-
   function esc2(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-  function hide(){ var m=document.getElementById('p7menu'); if(m)m.classList.remove('show'); _cur=null; }
-
-  function menuEl(){
-    var m=document.getElementById('p7menu');
-    if(m)return m;
-    m=document.createElement('div');m.id='p7menu';document.body.appendChild(m);
-    document.addEventListener('mousedown',function(e){ if(_cur && e.target!==_cur && !(e.target.closest && e.target.closest('#p7menu'))) hide(); });
-    document.addEventListener('keydown',function(e){ if(e.key==='Escape') hide(); });
-    window.addEventListener('resize',hide);
-    return m;
-  }
-
+  // Store dibaca sebagai variabel GLOBAL (STEP6/STEP9 dideklarasikan `let`).
   function ctxOf(inp){
     if(!inp||!inp.closest)return null;
-    if(inp.closest('#s6body')) return {step:6, store:window.STEP6};
-    if(inp.closest('#s9body')) return {step:9, store:window.STEP9};
+    if(inp.closest('#s6body')){ try{ if(typeof STEP6!=='undefined') return {step:6,store:STEP6}; }catch(e){} }
+    if(inp.closest('#s9body')){ try{ if(typeof STEP9!=='undefined') return {step:9,store:STEP9}; }catch(e){} }
     return null;
   }
 
-  function commit(inp, ctx, i, value){
-    inp.value=value;
-    inp.classList.toggle('excluded', value===EXCLUDE);
+  function loadCatalog(cb){
+    if(CAT!==null){ if(cb)cb(); return; }
+    if(CATLOADING){ return; }
+    CATLOADING=true;
+    try{
+      api('intents',{}).then(function(res){
+        CAT=(res&&res.ok&&res.intents)?res.intents:[];
+        CATLOADING=false; if(cb)cb();
+      }).catch(function(){ CAT=[]; CATLOADING=false; if(cb)cb(); });
+    }catch(e){ CAT=[]; CATLOADING=false; if(cb)cb(); }
+  }
+
+  function recsFor(ctx,i){
+    var r=(ctx.store&&ctx.store.rows[i])||null; if(!r)return [];
     if(ctx.step===6){
-      if(value===EXCLUDE){
-        if(ctx.store&&ctx.store.rows[i]){ ctx.store.rows[i].intent=EXCLUDE; ctx.store.rows[i].isi=''; ctx.store.rows[i].edited=true; }
-        var isi=document.getElementById('isi'+i); if(isi)isi.textContent='';
-        inp.classList.add('edited');
-      } else if(typeof window.onIntentChange==='function'){ window.onIntentChange(i, value); }
-      else if(ctx.store&&ctx.store.rows[i]){ ctx.store.rows[i].intent=value; ctx.store.rows[i].edited=true; inp.classList.add('edited'); }
+      return (r.options||[]).map(function(o){ return {id:o.id, meta:'Skor '+(o.skor||'-')+' · '+(o.conf||'-')}; });
+    }
+    // Step 9: intent terdekat (bisa lebih dari satu; pisah newline/;/|/,)
+    var raw=(r.kandidat||r.terdekat||'');
+    var parts=String(raw).split(/[\n;|,]+/).map(function(s){return s.trim();}).filter(Boolean);
+    var seen={}, out=[];
+    parts.forEach(function(p){ var k=p.toLowerCase(); if(!seen[k]){ seen[k]=1; out.push({id:p, meta:'terdekat'}); } });
+    return out;
+  }
+
+  function commit(inp,ctx,i,value){
+    inp.value=value;
+    if(ctx.step===6){
+      if(typeof onIntentChange==='function'){ onIntentChange(i, value); }
+      else if(ctx.store&&ctx.store.rows[i]){ ctx.store.rows[i].intent=value; ctx.store.rows[i].edited=true; }
+      inp.classList.add('edited');
     } else {
       if(ctx.store&&ctx.store.rows[i]){ ctx.store.rows[i].seharusnya=value; ctx.store.rows[i].edited=true; }
       inp.classList.add('edited');
     }
-    hide();
+    closeMenus();
   }
 
-  function render(inp, ctx, i, results){
-    var m=menuEl(); var h=''; var q=(inp.value||'').trim();
-    if(ctx.step===6 && !q){
-      var opts=(ctx.store&&ctx.store.rows[i]&&ctx.store.rows[i].options)||[];
-      if(opts.length){
-        h+='<div class="p7sec">Rekomendasi LLM</div>';
-        opts.forEach(function(o){ h+='<div class="p7opt" data-v="'+esc2(o.id)+'"><div>'+esc2(o.id)+'</div><div class="m">Skor '+esc2(o.skor||'-')+' · '+esc2(o.conf||'-')+'</div></div>'; });
+  function renderResults(container, inp, ctx, i, q){
+    var h=''; q=(q||'').trim(); var ql=q.toLowerCase();
+    if(!ql){
+      var recs=recsFor(ctx,i);
+      if(recs.length){
+        h+='<div class="p7sec">Rekomendasi</div>';
+        recs.forEach(function(o,k){ h+='<div class="p7opt" data-v="'+esc2(o.id)+'"><div>'+(k+1)+'. '+esc2(o.id)+'</div><div class="m">'+esc2(o.meta)+'</div></div>'; });
+      } else {
+        h+='<div class="p7empty">Tidak ada rekomendasi untuk baris ini. Ketik untuk mencari intent, atau Kosongkan.</div>';
       }
-    }
-    if(q){
-      if(results===null){ h+='<div class="p7empty">Mencari…</div>'; }
-      else if(!results||!results.length){ h+='<div class="p7empty">Tidak ada intent cocok untuk "'+esc2(q)+'"</div>'; }
+    } else {
+      if(CAT===null){ h+='<div class="p7empty">Memuat daftar intent…</div>'; }
       else {
-        h+='<div class="p7sec">Hasil pencarian</div>';
-        results.forEach(function(r){ h+='<div class="p7opt" data-v="'+esc2(r.intent)+'"><div>'+esc2(r.intent)+'</div><div class="m">'+esc2(r.count||0)+'× · '+esc2(String(r.sample||'').slice(0,60))+'</div></div>'; });
+        var res=[]; for(var j=0;j<CAT.length && res.length<50;j++){ if(String(CAT[j]).toLowerCase().indexOf(ql)>=0) res.push(CAT[j]); }
+        if(!res.length){ h+='<div class="p7empty">Tidak ada intent cocok. Tekan Enter untuk pakai "'+esc2(q)+'".</div>'; }
+        else { h+='<div class="p7sec">Hasil pencarian ('+res.length+')</div>'; res.forEach(function(nm){ h+='<div class="p7opt" data-v="'+esc2(nm)+'"><div>'+esc2(nm)+'</div></div>'; }); }
       }
     }
-    h+='<div class="p7act">';
-    h+='<div class="p7opt p7del" data-act="exclude">🗑 Keluarkan dari tindak lanjut</div>';
-    h+='<div class="p7opt" data-act="clear">✕ Kosongkan</div>';
-    h+='</div>';
-    m.innerHTML=h;
-    m.querySelectorAll('.p7opt').forEach(function(el){
+    h+='<div class="p7opt p7clr" data-act="clear">✕ Kosongkan</div>';
+    container.innerHTML=h;
+    container.querySelectorAll('.p7opt').forEach(function(el){
       el.onmousedown=function(e){ e.preventDefault();
-        var act=el.getAttribute('data-act');
-        if(act==='exclude'){ commit(inp,ctx,i,EXCLUDE); }
-        else if(act==='clear'){ commit(inp,ctx,i,''); }
+        if(el.getAttribute('data-act')==='clear'){ commit(inp,ctx,i,''); }
         else { commit(inp,ctx,i, el.getAttribute('data-v')||''); }
       };
     });
-    var rect=inp.getBoundingClientRect();
-    m.style.left=Math.max(6,Math.min(rect.left, window.innerWidth-470))+'px';
-    m.style.top=(rect.bottom+4)+'px';
-    m.style.minWidth=Math.max(280, rect.width+40)+'px';
-    m.classList.add('show');
   }
 
-  function doSearch(inp, ctx, i){
-    var q=(inp.value||'').trim();
-    if(!q){ render(inp,ctx,i,[]); return; }
-    if(_cache[q]){ render(inp,ctx,i,_cache[q]); return; }
-    render(inp,ctx,i,null);
-    fetch('/api/analytics/search-intents?q='+encodeURIComponent(q),{credentials:'same-origin'})
-      .then(function(r){return r.json();})
-      .then(function(d){ var res=(d&&d.ok&&d.results)||[]; _cache[q]=res; if(_cur===inp) render(inp,ctx,i,res); })
-      .catch(function(){ if(_cur===inp) render(inp,ctx,i,[]); });
-  }
+  function closeMenus(){ document.querySelectorAll('.s6menu.open').forEach(function(m){ m.classList.remove('open'); }); }
 
-  function open(inp){
+  function openMenu(i){
     injectCss();
-    var ctx=ctxOf(inp); if(!ctx)return;
-    var i=parseInt(inp.dataset.i,10); if(isNaN(i))return;
-    _cur=inp;
-    var q=(inp.value||'').trim();
-    if(q){ render(inp,ctx,i,_cache[q]||null); if(!_cache[q]){ if(_timer)clearTimeout(_timer); _timer=setTimeout(function(){ if(_cur===inp) doSearch(inp,ctx,i); },180); } }
-    else { render(inp,ctx,i,[]); }
+    var inp=document.querySelector('.s6intent[data-i="'+i+'"]'); if(!inp) return;
+    var ctx=ctxOf(inp); if(!ctx) return;
+    var menu=document.getElementById('menu'+i); if(!menu) return;
+    closeMenus();
+    menu.innerHTML='<div class="p7srch"><input type="text" class="p7q" placeholder="Cari intent…" autocomplete="off"></div><div class="p7res"></div>';
+    var res=menu.querySelector('.p7res');
+    var q=menu.querySelector('.p7q');
+    renderResults(res, inp, ctx, i, '');
+    loadCatalog(function(){ if(menu.classList.contains('open')) renderResults(res, inp, ctx, i, q.value); });
+    q.oninput=function(){ renderResults(res, inp, ctx, i, q.value); };
+    q.onkeydown=function(e){ if(e.key==='Enter'){ e.preventDefault(); var v=q.value.trim(); if(v) commit(inp,ctx,i,v); } else if(e.key==='Escape'){ closeMenus(); } };
+    var rect=inp.getBoundingClientRect();
+    menu.style.left=Math.max(6,Math.min(rect.left, window.innerWidth-360))+'px';
+    menu.style.top=(rect.bottom+4)+'px';
+    menu.style.minWidth=Math.max(280, rect.width+40)+'px';
+    menu.classList.add('open');
+    setTimeout(function(){ try{ q.focus(); }catch(e){} },0);
   }
 
-  document.addEventListener('focusin',function(e){ var t=e.target; if(t&&t.classList&&t.classList.contains('s6intent')) open(t); });
-  document.addEventListener('input',function(e){ var t=e.target; if(!(t&&t.classList&&t.classList.contains('s6intent')))return; if(_cur!==t)return; var ctx=ctxOf(t); var i=parseInt(t.dataset.i,10); if(!ctx||isNaN(i))return; t.classList.toggle('excluded', (t.value||'').trim()===EXCLUDE); if(_timer)clearTimeout(_timer); _timer=setTimeout(function(){ if(_cur===t) doSearch(t,ctx,i); },220); });
+  window.openS6Menu=openMenu;
+  window.closeS6Menus=closeMenus;
 
-  var _open6=window.openS6Menu;
-  window.openS6Menu=function(i){ var inp=document.querySelector('.s6intent[data-i="'+i+'"]'); if(inp) open(inp); };
-  var _close6=window.closeS6Menus;
-  window.closeS6Menus=function(){ try{ if(_close6)_close6(); }catch(e){} hide(); };
-
-  try{ console.log('[part7] combo cari intent + keluarkan aktif'); }catch(e){}
+  try{ console.log('[part7] dropdown intent: pencarian katalog + rekomendasi + Kosongkan aktif'); }catch(e){}
 })();
