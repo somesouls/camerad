@@ -145,6 +145,18 @@ import pipeline.step9_patch as step9_patch  # noqa: F401  (menerapkan patch saat
 #     WAJIB diimpor SETELAH pipeline_routes selesai dimuat. ---
 import pipeline.step10_patch as step10_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- Fase 2 (UX Step 6/9): id_trace utk tombol "mata" (lihat percakapan penuh) +
+#     aksi 'intents' utk kolom pencarian intent di dropdown Step 6/9.
+#     step6_patch & step9_signals_patch (sinyal Fase 1) sudah di-chain-import oleh
+#     step10_patch; impor eksplisit di sini AMAN (modul di-cache Python, tak
+#     dobel-bungkus) dan MENJAMIN urutan: step6_load harus sudah dibungkus
+#     step6_patch sebelum step6_idtrace_patch membungkusnya lagi (berantai).
+#     WAJIB setelah step10_patch. ---
+import pipeline.step6_patch as step6_patch  # noqa: F401  (idempoten; sinyal Step 6)
+import pipeline.step9_signals_patch as step9_signals_patch  # noqa: F401  (idempoten; sinyal Step 9)
+import pipeline.step6_idtrace_patch as step6_idtrace_patch  # noqa: F401  (id_trace tombol mata Step 6)
+import pipeline.intents_patch as intents_patch  # noqa: F401  (aksi 'intents' pencarian intent Step 6/9)
+
 # --- Poin #1 arsitektur RAG final — "successor-tracing" peraturan:
 #     monkey-patch rag_engine._ctx_peraturan agar bila kandidat termirip
 #     berstatus dicabut/diubah, mesin menelusuri peraturan pengganti yang
