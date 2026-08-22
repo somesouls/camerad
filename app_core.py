@@ -37,7 +37,8 @@ CONFIG = {
     or os.path.join(BASE_DIR, "camerad-service-account.json"),
     "google_scope": "https://www.googleapis.com/auth/cloud-platform",
     "qwen_api_key": os.environ.get("PIPELINE_API_KEY", "sam-n8n-secret"),
-    "local_api_base": os.environ.get("PIPELINE_API_BASE") or "http://127.0.0.1:8000",
+    "local_api_base": os.environ.get("PIPELINE_API_BASE")
+    or ("http://127.0.0.1:" + (os.environ.get("WEB_PORT", "8080") or "8080")),
     "force_local_api": os.environ.get("PIPELINE_FORCE_LOCAL", "1") != "0",
     "mkta_chunk": int(os.environ.get("PIPELINE_MKTA_CHUNK", "12")),
     "runs_dir": os.environ.get("PIPELINE_RUNS_DIR") or os.path.join(BASE_DIR, "_runs"),
@@ -55,6 +56,16 @@ try:
     avaya_web_bootstrap.register(app)
 except Exception as _avaya_web_exc:
     print("[AVAYA-WEB] bootstrap dilewati:", _avaya_web_exc, flush=True)
+
+# Judge Dialogflow (llm_fix_final_combined: Step 4/5/7/8/11) juga dipasang ke
+# proses web utama agar ./start.bat cukup satu server. Fail-soft: bila
+# dependency judge (mis. torch) belum siap, route lain tetap boot. Ditaruh
+# SETELAH bootstrap Avaya agar patch idempoten Avaya sudah terpasang duluan.
+try:
+    import judge_web_bootstrap
+    judge_web_bootstrap.register(app)
+except Exception as _judge_web_exc:
+    print("[JUDGE-WEB] bootstrap dilewati:", _judge_web_exc, flush=True)
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -115,7 +126,11 @@ def render_page(request, template_name, active_page="", extra=None):
 
 # /api/df/webhook = endpoint fulfillment Dialogflow ES (dipanggil server Google),
 # jadi harus publik; keamanannya dijaga oleh token rahasia di df_webhook_routes.
-_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico", "/credit", "/api/df/webhook", "/api/chat/detect", "/livechat"}
+# Endpoint judge Dialogflow (Step 4/5/7/8/11) kini satu proses (lihat
+# judge_web_bootstrap.py); autentikasinya via header X-API-Key di dalam handler,
+# bukan cookie sesi, jadi harus lolos middleware sesi ini.
+_JUDGE_PATHS = {"/api/judge-xlsx", "/api/analyze-fallback", "/api/mkta-analyze", "/api/mkta-verdict", "/api/update-usersays"}
+_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico", "/credit", "/api/df/webhook", "/api/chat/detect", "/livechat"} | _JUDGE_PATHS
 
 
 def _route_action(method, path):
