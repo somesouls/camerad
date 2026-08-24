@@ -85,3 +85,17 @@ except Exception as _e_timing:  # pragma: no cover
         print("[rag_rerank_patch] timing_patch dilewati:", _e_timing, flush=True)
     except Exception:
         pass
+
+
+# --- Percepat & amankan retrieval (cache normalisasi + prewarm + guard SOP +
+#     anggaran waktu). Dimuat SETELAH timing_patch agar anggaran waktu
+#     membungkus wrapper timing. Pemasangan cache/guard bersifat malas
+#     (menunggu sources_patch termuat penuh). Matikan via RAG_SOURCES_SPEEDUP=0
+#     dan/atau RAG_BUDGET_S=0.
+try:
+    import rag.sources_speedup_patch  # noqa: F401
+except Exception as _e_speedup:  # pragma: no cover
+    try:
+        print("[rag_rerank_patch] sources_speedup_patch dilewati:", _e_speedup, flush=True)
+    except Exception:
+        pass
