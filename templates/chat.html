@@ -87,7 +87,11 @@
 
 <script>
   // ====== Konfigurasi backend + Opsi B (fast-path + echo/poll) ======
-  const API = 'https://api.agenthebat.com';
+  // Pakai origin halaman saat dibuka via localhost/LAN agar tes lokal benar-benar
+  // masuk ke server lokal. Untuk embed di domain lain, set window.CAMERAD_API
+  // sebelum template ini dimuat; default publik tetap dipakai bila file dibuka
+  // sebagai file/static tanpa origin server.
+  const API = (window.CAMERAD_API || ((location.protocol === 'http:' || location.protocol === 'https:') ? location.origin : 'https://api.agenthebat.com')).replace(/\/$/, '');
   const SENTINEL_POLL = '__CAMERAD_POLL__';   // harus sama dgn backend
   const POLL_INTERVAL = 1500;
   const POLL_MAX = 80;                        // ~120 dtk (jawaban RAG bisa lambat)
