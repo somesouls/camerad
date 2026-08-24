@@ -73,3 +73,15 @@ try:
     print("[rag_rerank_patch] aktif (rerank=%s, rewrite=%s)" % (_rr is not None, _rw is not None))
 except Exception:
     pass
+
+
+# --- Instrumentasi waktu RAG (diagnostik; TIDAK mengubah logika mesin) --------
+# rag_engine sudah termuat (rag_successor_patch mengimpornya) sebelum patch ini,
+# jadi aman memasang wrapper pencatat waktu di sini. Matikan via RAG_TIMING=0.
+try:
+    import rag.timing_patch  # noqa: F401  (memasang wrapper waktu saat diimpor)
+except Exception as _e_timing:  # pragma: no cover
+    try:
+        print("[rag_rerank_patch] timing_patch dilewati:", _e_timing, flush=True)
+    except Exception:
+        pass
