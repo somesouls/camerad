@@ -12,32 +12,20 @@
   *{ box-sizing:border-box; }
   html,body{ height:100%; }
   body{ font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#eef2f5; margin:0; }
-
-  /* v29: halaman chat LANGSUNG — tanpa tombol melayang/popup, tanpa form
-     ber-step (bahasa -> identitas -> data diri), tanpa input nama/email/telp.
-     Kolom chat memenuhi layar (maks 520px di desktop); pilihan bahasa ada di
-     header atas. Percakapan bersifat temporary: sesi acak per muat halaman,
-     tanpa penyimpanan riwayat di sisi klien. */
   .chat-page{ display:flex; flex-direction:column; height:100dvh; max-width:520px; margin:0 auto; background:#fff; box-shadow:0 0 24px rgba(0,0,0,.08); }
-
   .chat-header{ background:var(--biru); color:#fff; padding:12px 14px; padding-top:calc(12px + env(safe-area-inset-top)); display:flex; align-items:center; gap:10px; flex:0 0 auto; }
   .logo-bulat{ width:34px; height:34px; border-radius:50%; background:#fff; color:var(--biru); font-weight:800; display:flex; align-items:center; justify-content:center; font-size:15px; overflow:hidden; flex:0 0 auto; }
   .judul{ font-weight:700; line-height:1.1; flex:1; min-width:0; }
   .judul small{ display:block; font-weight:400; font-size:11px; opacity:.85; }
-
-  /* Pilihan bahasa di bagian atas (header) */
   .lang-switch{ display:flex; background:rgba(255,255,255,.18); border-radius:999px; padding:2px; flex:0 0 auto; }
   .lang-switch button{ border:none; background:transparent; color:#fff; opacity:.75; font-family:inherit; font-size:12px; font-weight:700; padding:6px 10px; border-radius:999px; cursor:pointer; transition:all .15s; }
   .lang-switch button.on{ background:#fff; color:var(--biru); opacity:1; }
-
-  /* ---- Chat ---- */
   .chat-body{ flex:1; padding:15px; overflow-y:auto; -webkit-overflow-scrolling:touch; background:#fafafa; min-height:0; }
   .pesan{ margin-bottom:14px; padding:10px 14px; border-radius:15px; max-width:82%; line-height:1.45; font-size:14px; white-space:pre-wrap; word-wrap:break-word; overflow-wrap:anywhere; }
   .pesan.bot{ background:#e3f2fd; color:#0d47a1; border-bottom-left-radius:2px; }
   .pesan.user{ background:var(--biru); color:#fff; margin-left:auto; border-bottom-right-radius:2px; }
   .pesan.agen{ background:#e8f5e9; color:#1b5e20; border-bottom-left-radius:2px; }
   .pesan.sistem{ background:#fff8e1; color:#8d6e00; border:1px dashed #ffca28; font-size:12.5px; max-width:100%; text-align:center; font-style:italic; }
-  /* Format kaya (ciri khas LLM): tebal / miring / kode / tautan */
   .pesan b, .pesan strong{ font-weight:700; }
   .pesan i, .pesan em{ font-style:italic; }
   .pesan a{ color:inherit; text-decoration:underline; word-break:break-all; }
@@ -53,19 +41,10 @@
   .chat-input button{ background:var(--biru); color:#fff; border:none; width:42px; height:42px; margin-left:8px; border-radius:50%; cursor:pointer; font-size:16px; flex:0 0 auto; }
   .chat-input button:disabled{ opacity:.5; cursor:not-allowed; }
   .powered{ text-align:center; font-size:10px; color:#90a4ae; padding:0 10px calc(6px + env(safe-area-inset-bottom)); background:#fff; }
-
-  /* ================= Responsif / mobile ================= */
-  @media (max-width:520px){
-    .chat-page{ max-width:100%; box-shadow:none; }
-    /* font-size 16px mencegah auto-zoom iOS saat fokus input */
-    .chat-input input{ font-size:16px; }
-    .chat-input button{ width:46px; height:46px; }
-    .pesan{ max-width:88%; font-size:15px; }
-  }
+  @media (max-width:520px){ .chat-page{ max-width:100%; box-shadow:none; } .chat-input input{ font-size:16px; } .chat-input button{ width:46px; height:46px; } .pesan{ max-width:88%; font-size:15px; } }
 </style>
 </head>
 <body>
-
 <div class="chat-page">
   <div class="chat-header">
     <div class="logo-bulat" id="logo">P</div>
@@ -75,180 +54,91 @@
       <button type="button" id="lang-en">🇬🇧 EN</button>
     </div>
   </div>
-
   <div class="chat-body" id="chat-body"></div>
-
   <div class="chat-input">
     <input type="text" id="input-pesan" placeholder="Ketik pesan Anda..." autocomplete="off">
     <button id="btn-kirim" aria-label="Kirim">➤</button>
   </div>
   <div class="powered">Direktorat Jenderal Pajak</div>
 </div>
-
 <script>
-  // ====== Konfigurasi backend + Opsi B (fast-path + echo/poll) ======
-  const API = 'https://api.agenthebat.com';
-  const SENTINEL_POLL = '__CAMERAD_POLL__';   // harus sama dgn backend
-  const POLL_INTERVAL = 1500;
-  const POLL_MAX = 80;                        // ~120 dtk (jawaban RAG bisa lambat)
-
-  // ====== i18n ringkas ======
+  // Same-origin saat /livechat dibuka langsung di server/proxy. Bila widget
+  // disematkan di domain lain, override sebelum file ini lewat window.CAMERAD_API.
+  const API = (window.CAMERAD_API || '').replace(/\/$/, '');
+  const SENTINEL_POLL = '__CAMERAD_POLL__';
+  const POLL_INTERVAL = 5000;   // jangan spam /api/chat/detect saat backend LLM putus
+  const POLL_MAX = 24;          // ~120 dtk
+  const FETCH_TIMEOUT = 30000;
   const T = {
-    id:{ 'chat.ph':'Ketik pesan Anda...','sub':'Camerad · RAG Kring Pajak',
-      'greet':'Halo! Ada yang bisa saya bantu terkait layanan perpajakan?',
-      'timeout':'Maaf, jawaban terlalu lama disiapkan. Silakan coba lagi.',
-      'meta.backend':'backend','meta.masuk':'pesan masuk → jawaban siap','meta.layar':'layar',
-      'putus':'Koneksi terputus.','kosong':'(balasan kosong dari server)',
-      'agen.sub':'Terhubung ke Agen Live Chat',
-      'agen.ph':'Ketik pesan untuk agen…',
-      'agen.connect':(q)=>`🔗 Anda sedang dihubungkan ke Agen Live Chat Kring Pajak 1500200${q?(' — antrean: '+q):''}. Mohon tunggu, agen kami akan segera melayani Anda.` },
-    en:{ 'chat.ph':'Type your message...','sub':'Camerad · Kring Pajak RAG',
-      'greet':'Hi! How can I help you with tax services today?',
-      'timeout':'Sorry, the answer is taking too long. Please try again.',
-      'meta.backend':'backend','meta.masuk':'received → answer ready','meta.layar':'screen',
-      'putus':'Connection lost.','kosong':'(empty reply from server)',
-      'agen.sub':'Connected to Live Chat Agent',
-      'agen.ph':'Type a message for the agent…',
-      'agen.connect':(q)=>`🔗 You are being connected to a Kring Pajak 1500200 Live Chat Agent${q?(' — queue: '+q):''}. Please wait, our agent will assist you shortly.` }
+    id:{ 'chat.ph':'Ketik pesan Anda...','sub':'Camerad · RAG Kring Pajak','greet':'Halo! Ada yang bisa saya bantu terkait layanan perpajakan?','timeout':'Maaf, jawaban terlalu lama disiapkan. Silakan coba lagi.','meta.backend':'backend','meta.masuk':'pesan masuk → jawaban siap','meta.layar':'layar','putus':'Koneksi terputus.','kosong':'(balasan kosong dari server)','agen.sub':'Terhubung ke Agen Live Chat','agen.ph':'Ketik pesan untuk agen…','agen.connect':(q)=>`🔗 Anda sedang dihubungkan ke Agen Live Chat Kring Pajak 1500200${q?(' — antrean: '+q):''}. Mohon tunggu, agen kami akan segera melayani Anda.` },
+    en:{ 'chat.ph':'Type your message...','sub':'Camerad · Kring Pajak RAG','greet':'Hi! How can I help you with tax services today?','timeout':'Sorry, the answer is taking too long. Please try again.','meta.backend':'backend','meta.masuk':'received → answer ready','meta.layar':'screen','putus':'Connection lost.','kosong':'(empty reply from server)','agen.sub':'Connected to Live Chat Agent','agen.ph':'Type a message for the agent…','agen.connect':(q)=>`🔗 You are being connected to a Kring Pajak 1500200 Live Chat Agent${q?(' — queue: '+q):''}. Please wait, our agent will assist you shortly.` }
   };
   let lang = 'id';
   function tr(k){ return (T[lang] && T[lang][k]) || (T.id[k]) || k; }
-
-  // ====== Elemen ======
   const el = (id)=>document.getElementById(id);
   const chatBody = el('chat-body');
   const inputPesan = el('input-pesan');
   const btnKirim = el('btn-kirim');
-  let modeAgen = false;   // true setelah handoff ke agen langsung
-
-  function applyLang(){
-    document.documentElement.lang = lang;
-    el('lang-id').classList.toggle('on', lang==='id');
-    el('lang-en').classList.toggle('on', lang==='en');
-    inputPesan.placeholder = modeAgen ? tr('agen.ph') : tr('chat.ph');
-    el('sub-judul').textContent = modeAgen ? tr('agen.sub') : tr('sub');
-  }
+  let modeAgen = false;
+  let sending = false;
+  let pollTimer = null;
+  function applyLang(){ document.documentElement.lang = lang; el('lang-id').classList.toggle('on', lang==='id'); el('lang-en').classList.toggle('on', lang==='en'); inputPesan.placeholder = modeAgen ? tr('agen.ph') : tr('chat.ph'); el('sub-judul').textContent = modeAgen ? tr('agen.sub') : tr('sub'); }
   el('lang-id').addEventListener('click', ()=>{ if(lang!=='id'){ lang='id'; applyLang(); } });
   el('lang-en').addEventListener('click', ()=>{ if(lang!=='en'){ lang='en'; applyLang(); } });
-
-  // ====== Format kaya (markdown ringan khas LLM) ======
   function escHtml(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
-  function fmtRich(teks){
-    let s = escHtml(teks);
-    // Tautan http(s) -> anchor
-    s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
-    // **tebal** dan __tebal__ (ciri khas LLM)
-    s = s.replace(/\*\*([^\n*]+?)\*\*/g, '<b>$1</b>');
-    s = s.replace(/__([^\n_]+?)__/g, '<b>$1</b>');
-    // *miring* dan _miring_ (hindari bentrok dgn tebal yg sudah diproses)
-    s = s.replace(/(^|[\s(])\*([^\n*]+?)\*(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>');
-    s = s.replace(/(^|[\s(])_([^\n_]+?)_(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>');
-    // `kode`
-    s = s.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
-    return s;
-  }
-
-  // ====== Sesi: acak per muat halaman — percakapan bersifat TEMPORARY ======
-  // Tanpa identitas (nama/NPWP/email/telp tidak dibutuhkan backend), tanpa
-  // penyimpanan riwayat di klien; refresh halaman = sesi baru.
+  function fmtRich(teks){ let s = escHtml(teks); s = s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>'); s = s.replace(/\*\*([^\n*]+?)\*\*/g, '<b>$1</b>'); s = s.replace(/__([^\n_]+?)__/g, '<b>$1</b>'); s = s.replace(/(^|[\s(])\*([^\n*]+?)\*(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>'); s = s.replace(/(^|[\s(])_([^\n_]+?)_(?=[\s).,!?:;]|$)/g, '$1<i>$2</i>'); s = s.replace(/`([^`\n]+?)`/g, '<code>$1</code>'); return s; }
   const sessionId = "wp-" + Math.random().toString(36).substr(2,9);
-
-  // ====== Bubble helpers ======
   function scrollBawah(){ chatBody.scrollTop = chatBody.scrollHeight; }
   function tambahBubbleBot(teks){ const d=document.createElement('div'); d.className='pesan bot'; d.innerHTML=fmtRich(teks); chatBody.appendChild(d); scrollBawah(); return d; }
   function bubbleSistem(teks){ const d=document.createElement('div'); d.className='pesan sistem'; d.innerHTML=fmtRich(teks); chatBody.appendChild(d); scrollBawah(); return d; }
   function tampilkanMengetik(){ const d=document.createElement('div'); d.className='pesan bot typing-wrap'; d.innerHTML='<span class="typing"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>'; chatBody.appendChild(d); scrollBawah(); return d; }
-
-  function tambahMeta(durasiBackend, durasiTotal){
-    const m=document.createElement('div'); m.className='meta-waktu';
-    let t='';
-    if(durasiBackend!==null && durasiBackend!==undefined) t+='⏱ '+tr('meta.backend')+' '+Number(durasiBackend).toFixed(2)+' dtk ('+tr('meta.masuk')+')';
-    if(durasiTotal!==null && durasiTotal!==undefined) t+=(t?' · ':'⏱ ')+tr('meta.layar')+' '+Number(durasiTotal).toFixed(2)+' dtk';
-    m.textContent=t; chatBody.appendChild(m); scrollBawah();
-  }
-  function selesaikan(){ btnKirim.disabled=false; inputPesan.disabled=false; inputPesan.focus(); scrollBawah(); }
-  function tampilkanJawaban(elm, data, t0){
-    elm.classList.remove('typing-wrap');
-    if(modeAgen) elm.classList.add('agen');
-    // Jawaban fallback Dialogflow (mesin RAG telat) ditampilkan seperti jawaban
-    // biasa (biru), tanpa gaya/label khusus, sesuai permintaan.
-    elm.innerHTML = fmtRich((data && data.reply) ? data.reply : tr('kosong'));
-    tambahMeta(data?data.durasi_backend:null, (performance.now()-t0)/1000);
-  }
-
-  // Beralih ke "mode agen" (handoff live chat), meniru transisi widget Avaya.
-  // Teks intent connector (mis. daftar opsi bahasa Inggris) TIDAK ditampilkan;
-  // cukup pesan "mohon menunggu, sedang dihubungkan ke agen".
-  function masukModeAgen(data){
-    const antre = (data && data.agent_queue) ? data.agent_queue : '';
-    if(!modeAgen){
-      modeAgen = true;
-      inputPesan.placeholder = tr('agen.ph');
-      el('sub-judul').textContent = tr('agen.sub');
-    }
-    bubbleSistem(tr('agen.connect')(antre));
-  }
-
-  // ====== Kirim pesan ======
-  // Backend /api/chat/detect hanya membaca text + session_id + lang — identitas
-  // tidak dipakai. 'lang' dikirim di tiap pesan agar ganti bahasa di tengah
-  // percakapan langsung berlaku (backend menyimpan bahasa per session_id).
-  async function kirimPesan(){
-    const teks = inputPesan.value.trim();
-    if(!teks) return;
-    const u=document.createElement('div'); u.className='pesan user'; u.textContent=teks; chatBody.appendChild(u);
-    inputPesan.value=''; scrollBawah();
-    btnKirim.disabled=true; inputPesan.disabled=true;
-    const t0=performance.now();
-    const mengetik=tampilkanMengetik();
+  function tambahMeta(durasiBackend, durasiTotal){ const m=document.createElement('div'); m.className='meta-waktu'; let t=''; if(durasiBackend!==null && durasiBackend!==undefined) t+='⏱ '+tr('meta.backend')+' '+Number(durasiBackend).toFixed(2)+' dtk ('+tr('meta.masuk')+')'; if(durasiTotal!==null && durasiTotal!==undefined) t+=(t?' · ':'⏱ ')+tr('meta.layar')+' '+Number(durasiTotal).toFixed(2)+' dtk'; m.textContent=t; chatBody.appendChild(m); scrollBawah(); }
+  function selesaikan(){ sending=false; if(pollTimer){ clearTimeout(pollTimer); pollTimer=null; } btnKirim.disabled=false; inputPesan.disabled=false; inputPesan.focus(); scrollBawah(); }
+  function tampilkanJawaban(elm, data, t0){ elm.classList.remove('typing-wrap'); if(modeAgen) elm.classList.add('agen'); elm.innerHTML = fmtRich((data && data.reply) ? data.reply : tr('kosong')); tambahMeta(data?data.durasi_backend:null, (performance.now()-t0)/1000); }
+  function masukModeAgen(data){ const antre = (data && data.agent_queue) ? data.agent_queue : ''; if(!modeAgen){ modeAgen = true; inputPesan.placeholder = tr('agen.ph'); el('sub-judul').textContent = tr('agen.sub'); } bubbleSistem(tr('agen.connect')(antre)); }
+  async function postJson(path, payload){
+    const ctrl = new AbortController();
+    const tid = setTimeout(()=>ctrl.abort(), FETCH_TIMEOUT);
     try{
-      const resp=await fetch(API+'/api/chat/detect',{ method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ text:teks, session_id:sessionId, lang:lang }) });
-      const data=await resp.json();
+      const resp = await fetch(API + path, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload), signal:ctrl.signal });
+      let data = null;
+      try{ data = await resp.json(); }catch(e){ data = { error:'HTTP '+resp.status }; }
+      if(!resp.ok && !(data && data.error)) data.error = 'HTTP '+resp.status;
+      return data;
+    } finally { clearTimeout(tid); }
+  }
+  async function kirimPesan(){
+    if(sending) return;
+    const teks = inputPesan.value.trim(); if(!teks) return;
+    sending=true;
+    const u=document.createElement('div'); u.className='pesan user'; u.textContent=teks; chatBody.appendChild(u);
+    inputPesan.value=''; scrollBawah(); btnKirim.disabled=true; inputPesan.disabled=true;
+    const t0=performance.now(); const mengetik=tampilkanMengetik();
+    try{
+      const data=await postJson('/api/chat/detect', { text:teks, session_id:sessionId, lang:lang });
       if(data && data.error){ mengetik.remove(); bubbleSistem('Error: '+data.error); return selesaikan(); }
-      // HANDOFF: langsung alihkan ke mode agen, jangan tampilkan teks intent connector.
       if(data && data.handoff){ mengetik.remove(); masukModeAgen(data); return selesaikan(); }
       if(data && data.ready){ tampilkanJawaban(mengetik,data,t0); return selesaikan(); }
-      // PENDING -> cukup pertahankan animasi "mengetik" (titik-titik), lalu polling.
-      // TIDAK menampilkan teks penunda / fallback sementara dari Dialogflow.
       pollJawaban(t0, mengetik, 0);
     }catch(e){ mengetik.remove(); bubbleSistem(tr('putus')); selesaikan(); }
   }
-
   function pollJawaban(t0, typingEl, attempt){
+    if(!sending) return;
     if(attempt>=POLL_MAX){ typingEl.remove(); bubbleSistem(tr('timeout')); return selesaikan(); }
-    setTimeout(async ()=>{
+    pollTimer = setTimeout(async ()=>{
       try{
-        const resp=await fetch(API+'/api/chat/detect',{ method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ text:SENTINEL_POLL, session_id:sessionId }) });
-        const data=await resp.json();
+        const data=await postJson('/api/chat/detect', { text:SENTINEL_POLL, session_id:sessionId });
+        if(data && data.error){ typingEl.remove(); bubbleSistem('Error: '+data.error); return selesaikan(); }
         if(data && data.handoff){ typingEl.remove(); masukModeAgen(data); return selesaikan(); }
         if(data && data.ready){ tampilkanJawaban(typingEl,data,t0); return selesaikan(); }
         pollJawaban(t0, typingEl, attempt+1);
       }catch(e){ pollJawaban(t0, typingEl, attempt+1); }
     }, POLL_INTERVAL);
   }
-
   btnKirim.addEventListener('click', kirimPesan);
-  inputPesan.addEventListener('keypress', e=>{ if(e.key==='Enter') kirimPesan(); });
-
-  // ====== Mulai langsung: sapaan (tanpa nama) + fokus ke kolom chat ======
-  applyLang();
-  tambahBubbleBot(tr('greet'));
-  inputPesan.focus();
-
-  // Logo lingkaran header: tampilkan lambang DJP (bukan inisial) dari server,
-  // pakai URL absolut API agar tetap termuat saat widget disematkan lintas-asal.
-  (function(){
-    const lg = el('logo');
-    if(!lg) return;
-    const img = document.createElement('img');
-    img.src = API + '/static/logo-only.svg';
-    img.alt = 'DJP';
-    img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:50%;';
-    img.onerror = function(){ lg.textContent = 'P'; };
-    lg.textContent = '';
-    lg.appendChild(img);
-  })();
+  inputPesan.addEventListener('keydown', e=>{ if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); kirimPesan(); } });
+  applyLang(); tambahBubbleBot(tr('greet')); inputPesan.focus();
+  (function(){ const lg = el('logo'); if(!lg) return; const img = document.createElement('img'); img.src = API + '/static/logo-only.svg'; img.alt = 'DJP'; img.style.cssText = 'width:100%;height:100%;object-fit:contain;border-radius:50%;'; img.onerror = function(){ lg.textContent = 'P'; }; lg.textContent = ''; lg.appendChild(img); })();
 </script>
 </body>
 </html>

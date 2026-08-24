@@ -29,6 +29,21 @@ def _cfg(name, default=None):
     return value if value not in (None, "") else default
 
 
+def _timeout():
+    """Timeout keras request LLM.
+
+    Tanpa timeout eksplisit, OpenAI SDK bisa menunggu lama sekali pada koneksi
+    lokal/proxy yang mati. Dampaknya pada /livechat: job Opsi B baru selesai
+    ratusan detik kemudian, frontend terus polling, dan log terlihat looping.
+    Default dibuat pendek supaya gagal cepat lalu fallback; bisa dioverride via
+    LLM_TIMEOUT_SECONDS bila provider memang lambat.
+    """
+    try:
+        return float(_cfg("LLM_TIMEOUT_SECONDS", "25") or "25")
+    except Exception:
+        return 25.0
+
+
 def init_client():
     """Inisialisasi sekali; aman dipanggil berkali-kali."""
     global _client, _provider, _model
@@ -46,7 +61,7 @@ def init_client():
                 "OPENAI_API_KEY belum diisi di .env (LLM_PROVIDER=openai)."
             )
         _model = _cfg("OPENAI_MODEL", "gpt-4o-mini")
-        kwargs = {"api_key": api_key}
+        kwargs = {"api_key": api_key, "timeout": _timeout(), "max_retries": 0}
         base_url = _cfg("OPENAI_BASE_URL")
         if base_url:
             kwargs["base_url"] = base_url  # untuk Azure/OpenAI-compatible proxy
@@ -77,6 +92,8 @@ def init_client():
             api_key=api_key,
             azure_endpoint=endpoint,
             api_version=_cfg("AZURE_OPENAI_API_VERSION", "2024-06-01"),
+            timeout=_timeout(),
+            max_retries=0,
         )
 
     elif provider in ("local", "vllm"):
@@ -93,7 +110,7 @@ def init_client():
         _model = _cfg("VLLM_MODEL") or _cfg(
             "LOCAL_LLM_MODEL", "Qwen/Qwen2.5-7B-Instruct"
         )
-        _client = OpenAI(api_key=api_key, base_url=base_url)
+        _client = OpenAI(api_key=api_key, base_url=base_url, timeout=_timeout(), max_retries=0)
 
     elif provider in ("gemini", "google"):
         import google.generativeai as genai
@@ -112,12 +129,21 @@ def init_client():
             "Pakai 'openai', 'azure', 'gemini', atau 'local' (vLLM)."
         )
 
-    print(f"[LLM] Provider={_provider} model={_model} siap.", flush=True)
+    print(f"[LLM] Provider={_provider} model={_model} timeout={_timeout()}s siap.", flush=True)
+
+
+def _max_retries():
+    # Default lama 4 membuat satu request rusak bisa menggantung lama sekali.
+    # Untuk livechat lebih baik fail-fast; override jika perlu.
+    try:
+        return max(1, int(_cfg("LLM_MAX_RETRIES", "1") or "1"))
+    except Exception:
+        return 1
 
 
 def _generate_one(system, user, max_new_tokens, temperature):
-    max_retries = int(_cfg("LLM_MAX_RETRIES", "4"))
-    delay = 2.0
+    max_retries = _max_retries()
+    delay = 1.0
     last_err = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -158,7 +184,7 @@ def _generate_one(system, user, max_new_tokens, temperature):
                   flush=True)
             if attempt < max_retries:
                 time.sleep(delay)
-                delay = min(delay * 2, 30)
+                delay = min(delay * 2, 10)
     raise RuntimeError(f"LLM gagal setelah {max_retries} percobaan: {last_err}")
 
 
@@ -176,8 +202,8 @@ def chat(messages, system=None, max_new_tokens=1024, temperature=0.4):
             continue
         conv.append({"role": role, "content": content})
 
-    max_retries = int(_cfg("LLM_MAX_RETRIES", "4"))
-    delay = 2.0
+    max_retries = _max_retries()
+    delay = 1.0
     last_err = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -223,7 +249,7 @@ def chat(messages, system=None, max_new_tokens=1024, temperature=0.4):
                   flush=True)
             if attempt < max_retries:
                 time.sleep(delay)
-                delay = min(delay * 2, 30)
+                delay = min(delay * 2, 10)
     raise RuntimeError(f"LLM chat gagal setelah {max_retries} percobaan: {last_err}")
 
 
