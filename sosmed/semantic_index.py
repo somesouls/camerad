@@ -10,11 +10,10 @@ Pola mengikuti sop_db.py:
   * Embedder dipakai ULANG dari peraturan.semantic (psem) -> model SAMA dengan
     peraturan/sop, jadi TIDAK menambah VRAM.
 
-Perbedaan penting: modul ini TIDAK mengubah sosmed/db.py. Index disimpan di
-FILE TERPISAH (default: di samping sosmed.db => sosmed_vec.db) dan dibangun dari
-API yang sudah ada, sdb.faq_pairs(only_answered=True). Teks yang di-embed =
-'pertanyaan + \" \" + topik' (persis haystack skor _ctx_sosmed_v2) sehingga hasil
-setara namun tanpa scan penuh.
+Modul ini TIDAK mengubah sosmed/db.py. Index disimpan di FILE TERPISAH
+(default: di samping sosmed.db => sosmed_vec.db) dan dibangun dari API yang ada,
+sdb.faq_pairs(only_answered=True). Teks yang di-embed = 'pertanyaan + topik'
+(persis haystack skor _ctx_sosmed_v2) sehingga hasil setara tanpa scan penuh.
 
 Inkremental: tiap baris disimpan bersama txt_hash. build() hanya meng-embed
 baris BARU/berubah -> aman dijalankan tiap boot & setelah ingest harian.
@@ -197,4 +196,84 @@ def build(force=False):
         try:
             c = sdb.init_db(sdb.connect())
             try:
-                fp = sdb.faq
+                fp = sdb.faq_pairs(c, only_answered=True, limit=_limit())
+                pairs = fp.get("pairs") or []
+            finally:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            return {"ok": False, "n": 0, "reason": "faq_pairs: %s" % str(e)[:120]}
+        try:
+            conn = _init(_connect())
+        except Exception as e:
+            return {"ok": False, "n": 0, "reason": "db: %s" % str(e)[:120]}
+        try:
+            have = {}
+            for r in conn.execute("SELECT id, txt_hash FROM sosmed_vec").fetchall():
+                try:
+                    have[int(r["id"])] = r["txt_hash"]
+                except Exception:
+                    pass
+            todo, cur_ids = [], set()
+            for p in pairs:
+                try:
+                    pid = int(p.get("id"))
+                except Exception:
+                    continue
+                txt = _key_text(p)
+                if not txt:
+                    continue
+                cur_ids.add(pid)
+                h = _hash(txt)
+                if force or have.get(pid) != h:
+                    todo.append((pid, h, txt))
+            n = 0
+            bs = _batch()
+            for i in range(0, len(todo), bs):
+                chunk = todo[i:i + bs]
+                arr = psem.embed_passages([t for (_, _, t) in chunk])
+                if arr is None:
+                    continue
+                for j, (pid, h, _t) in enumerate(chunk):
+                    try:
+                        v = arr[j]
+                        conn.execute("DELETE FROM sosmed_vec WHERE id=?", (pid,))
+                        conn.execute(
+                            "INSERT INTO sosmed_vec(id, dim, txt_hash, emb) "
+                            "VALUES(?,?,?,?)",
+                            (pid, int(len(v)), h, psem.to_blob(v)))
+                        n += 1
+                    except Exception:
+                        pass
+                conn.commit()
+            try:
+                old = [int(r["id"]) for r in conn.execute(
+                    "SELECT id FROM sosmed_vec").fetchall()]
+                gone = [i for i in old if i not in cur_ids]
+                for i in gone:
+                    conn.execute("DELETE FROM sosmed_vec WHERE id=?", (i,))
+                if gone:
+                    conn.commit()
+            except Exception:
+                pass
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _cache_clear()
+        return {"ok": True, "n": n, "total": len(cur_ids)}
+
+
+def stats():
+    try:
+        conn = _init(_connect())
+        try:
+            n = conn.execute("SELECT COUNT(*) FROM sosmed_vec").fetchone()[0]
+        finally:
+            conn.close()
+        return {"vec": int(n or 0), "db": _db_path()}
+    except Exception as e:
+        return {"vec": 0, "db": _db_path(), "error": str(e)[:120]}
