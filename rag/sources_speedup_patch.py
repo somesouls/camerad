@@ -1,35 +1,26 @@
 # -*- coding: utf-8 -*-
-"""rag_sources_speedup_patch.py — percepat & amankan retrieval (hasil tetap sama).
+"""rag/sources_speedup_patch.py — percepat & amankan retrieval (hasil setara).
 
-Diimpor di ujung rag.rerank_patch, TEPAT setelah rag.timing_patch (sehingga
-anggaran waktu membungkus wrapper timing). Empat hal, semua gagal-anggun & dapat
-dimatikan lewat env:
+Diimpor di ujung rag.rerank_patch, TEPAT setelah rag.timing_patch. Semua fitur
+gagal-anggun + dapat dimatikan lewat env:
 
-  1. CACHE NORMALISASI. _ctx_sosmed_v2/_ctx_awe_v2 (rag.sources_patch) memanggil
-     _norm_hay() untuk SETIAP baris (hingga 2000 FAQ) pada SETIAP query. Hasil
-     normalisasi hanya bergantung teks baris (bukan query) -> di-cache per-teks.
-     Query ke-2 dst. atas korpus sama jadi <1 dtk. Hasil retrieval SAMA PERSIS.
+  1. CACHE NORMALISASI  — _norm_hay per-teks di-cache (dipakai awe & fallback sosmed).
+  2. PREWARM            — panaskan cache + BANGUN index vektor sosmed di latar.
+  3. GUARD SOP KOSONG   — lewati sop.db.search bila tabel sop_unit kosong.
+  4. ANGGARAN + GATE GPU — answer() menandai tenggat; sumber yang BELUM mulai
+     dilewati begitu tenggat lewat; retrieval berat diserialkan semaphore GPU
+     (anti thundering-herd saat cold-start + storm /api/chat/detect).
+  5. INDEX SOSMED       — _ctx_sosmed memakai pencarian vektor bge-m3 O(1)-query
+     (sosmed.semantic_index); fallback ke brute-force lama bila index kosong/
+     tak siap / skor di bawah SOSMED_MIN_COS.
+  6. URUTAN SUMBER      — sumber berat (default: awe) dijalankan PALING AKHIR
+     dengan me-reorder keluaran router. TIDAK mengubah PILIHAN sumber (checkbox
+     Konfigurasi tetap otoritatif) — hanya urutan eksekusi, agar peraturan tak
+     keburu keskip anggaran gara-gara awe (245 dtk) jalan lebih dulu.
 
-  2. PREWARM. Di thread latar, panaskan cache normalisasi sosmed sekali setelah
-     startup agar query PERTAMA tidak kena biaya stemming 'dingin' (sumber
-     sosmed sempat 185 dtk pada query pertama).
-
-  3. GUARD SOP KOSONG. Bila tabel sop_unit kosong, sop.db.search selalu 0 hasil
-     tapi tetap meng-embed query di GPU + memicu AI-rewrite. Guard melewatinya
-     bila tabel benar-benar kosong. Fail-open: ragu -> jalan normal.
-
-  4. ANGGARAN WAKTU KOOPERATIF (RAG_BUDGET_S, default 75 dtk). answer() menandai
-     tenggat; sumber yang BELUM mulai dilewati (kembalikan ("", [])) begitu
-     tenggat lewat -> answer() pasti selesai sehingga polling frontend tidak
-     macet/looping. TIDAK menghentikan sumber yang SEDANG berjalan (profil Agent
-     boleh lama sampai peraturan tuntas).
-
-Env:
-  RAG_SOURCES_SPEEDUP=0  -> matikan cache normalisasi + prewarm + guard SOP.
-  RAG_BUDGET_S=0         -> matikan anggaran waktu (default 75).
-
-Modul ini TIDAK mengubah pilihan sumber tiap profil (tetap diatur di menu
-Konfigurasi). Ia hanya mempercepat & membatasi waktu, tanpa mengubah hasil.
+Env: RAG_SOURCES_SPEEDUP(1), RAG_BUDGET_S(75), RAG_GPU_GATE(1),
+     RAG_GPU_GATE_WAIT_S(90), RAG_HEAVY_SOURCES(awe), SOSMED_INDEX(1),
+     SOSMED_MIN_COS(0.35), RAG_RERANK_POOL(30).
 """
 import os
 import sys
@@ -40,6 +31,10 @@ try:
     import rag.engine as _re
 except Exception:            # pragma: no cover
     _re = None
+try:
+    import rag.reranker as _rr
+except Exception:            # pragma: no cover
+    _rr = None
 
 
 def _flag_on(name, default="1"):
@@ -55,10 +50,55 @@ def _budget_s():
     return v if v > 0 else 0.0
 
 
+def _idx_on():
+    return _flag_on("RAG_SOURCES_SPEEDUP") and _flag_on("SOSMED_INDEX")
+
+
+def _pool_size(k):
+    try:
+        base = int(os.environ.get("RAG_RERANK_POOL", "30"))
+    except Exception:
+        base = 30
+    return max(int(k or 10), base)
+
+
+def _sosmed_limit():
+    try:
+        return int(os.environ.get("SOSMED_INDEX_LIMIT", "100000") or 100000)
+    except Exception:
+        return 100000
+
+
+def _min_cos():
+    try:
+        return float(os.environ.get("SOSMED_MIN_COS", "0.35"))
+    except Exception:
+        return 0.35
+
+
+def _gpu_n():
+    try:
+        return int(os.environ.get("RAG_GPU_GATE", "1"))
+    except Exception:
+        return 1
+
+
+def _gpu_wait():
+    try:
+        return float(os.environ.get("RAG_GPU_GATE_WAIT_S", "90"))
+    except Exception:
+        return 90.0
+
+
+def _heavy():
+    raw = os.environ.get("RAG_HEAVY_SOURCES", "awe")
+    return {x.strip().lower() for x in raw.split(",") if x.strip()}
+
+
 # ===================================================== 1) cache normalisasi
 _NORM_CACHE = {}
 _NORM_CACHE_MAKS = 200000
-_ENSURED = {"norm": False, "sop": False}
+_ENSURED = {"norm": False, "sop": False, "sosmed": False}
 
 
 def _ensure_norm_cache():
@@ -66,7 +106,7 @@ def _ensure_norm_cache():
         return
     sp = sys.modules.get("rag.sources_patch")
     if sp is None or not hasattr(sp, "_norm_hay"):
-        return  # sources_patch belum termuat; dicoba lagi nanti
+        return
     _orig = sp._norm_hay
     if getattr(_orig, "_camerad_cached", False):
         _ENSURED["norm"] = True
@@ -94,24 +134,34 @@ def _ensure_norm_cache():
         pass
 
 
-# ===================================================== 2) prewarm sosmed
-def _prewarm():
-    if not _flag_on("RAG_SOURCES_SPEEDUP"):
-        return
-    for _ in range(180):     # tunggu maks ~90 dtk sampai startup siap
-        if (sys.modules.get("rag.sources_patch") is not None
-                and _re is not None and getattr(_re, "sdb", None) is not None):
-            break
-        time.sleep(0.5)
-    _ensure_installed()
-    sp = sys.modules.get("rag.sources_patch")
-    sdb = getattr(_re, "sdb", None) if _re is not None else None
-    if sp is None or sdb is None or not hasattr(sp, "_norm_hay"):
-        return
+# ===================================================== 5) index sosmed (v3)
+_SOSMED_PREV = {"fn": None}
+
+
+def _ctx_sosmed_v3(q, limit=3):
+    prev = _SOSMED_PREV.get("fn")
+
+    def _fb():
+        return prev(q, limit) if callable(prev) else ("", [])
+
+    six = sys.modules.get("sosmed.semantic_index")
+    if six is None or not _idx_on():
+        return _fb()
+    try:
+        hits = six.search_ids(q, k=_pool_size(limit))
+    except Exception:
+        hits = []
+    floor = _min_cos()
+    hits = [(pid, sc) for (pid, sc) in (hits or []) if sc >= floor]
+    if not hits:
+        return _fb()
+    sdb = getattr(_re, "sdb", None)
+    if sdb is None:
+        return _fb()
     try:
         c = sdb.init_db(sdb.connect())
         try:
-            fp = sdb.faq_pairs(c, only_answered=True, limit=2000)
+            fp = sdb.faq_pairs(c, only_answered=True, limit=_sosmed_limit())
             pairs = fp.get("pairs") or []
         finally:
             try:
@@ -120,19 +170,122 @@ def _prewarm():
                 pass
     except Exception:
         pairs = []
-    n = 0
+    by_id = {}
     for p in pairs:
         try:
-            hay = ((p.get("pertanyaan") or "") + " " + str(p.get("topik") or ""))
-            sp._norm_hay(hay)
-            n += 1
+            by_id[int(p.get("id"))] = p
         except Exception:
             pass
+    cand = []
+    for pid, _sc in hits:
+        p = by_id.get(int(pid))
+        if not p or not (p.get("jawaban_draf") or "").strip():
+            continue
+        label = p.get("topik") or "Data Sosmed"
+        blok = ("Topik: %s\nPertanyaan: %s\nJawaban resmi: %s"
+                % (label, _re._clip(p.get("pertanyaan"), 300),
+                   _re._clip(p.get("jawaban_draf"), 500)))
+        cand.append({"judul": str(label), "isi": blok, "_p": p, "_blok": blok})
+    if not cand:
+        return _fb()
+    if _rr is not None and len(cand) > 1:
+        try:
+            if _rr.is_available():
+                cand = _rr.rerank(q, cand, top_k=None)
+        except Exception:
+            pass
+    blocks, sources = [], []
+    for citem in cand[:int(limit or 3)]:
+        p = citem["_p"]
+        try:
+            url = _re._sosmed_url(p)
+        except Exception:
+            url = str(p.get("permalink") or "")
+        blocks.append(citem["_blok"])
+        sources.append({"sumber": "Data Sosmed", "judul": citem["judul"],
+                        "ref": str(p.get("platform") or "").upper(), "url": url})
+    return "\n\n".join(blocks), sources
+
+
+def _ensure_sosmed_index():
+    if _ENSURED["sosmed"] or not _idx_on():
+        return
+    if _re is None or not isinstance(getattr(_re, "_DISPATCH", None), dict):
+        return
+    six = sys.modules.get("sosmed.semantic_index")
+    if six is None:
+        try:
+            import sosmed.semantic_index as six  # noqa: F401
+        except Exception:
+            six = None
+    if six is None:
+        return
+    cur = _re._DISPATCH.get("sosmed")
+    if cur is _ctx_sosmed_v3:
+        _ENSURED["sosmed"] = True
+        return
+    _SOSMED_PREV["fn"] = cur
+    _re._DISPATCH["sosmed"] = _ctx_sosmed_v3
     try:
-        print("[rag_sources_speedup] prewarm normalisasi sosmed: %d baris." % n,
+        _re._ctx_sosmed = _ctx_sosmed_v3
+    except Exception:
+        pass
+    _ENSURED["sosmed"] = True
+    try:
+        print("[rag_sources_speedup] index sosmed aktif (fallback brute-force bila kosong).",
               flush=True)
     except Exception:
         pass
+
+
+# ===================================================== 2) prewarm + build index
+def _prewarm():
+    if not _flag_on("RAG_SOURCES_SPEEDUP"):
+        return
+    for _ in range(180):
+        if (sys.modules.get("rag.sources_patch") is not None
+                and _re is not None and getattr(_re, "sdb", None) is not None):
+            break
+        time.sleep(0.5)
+    _ensure_installed()
+    sp = sys.modules.get("rag.sources_patch")
+    sdb = getattr(_re, "sdb", None) if _re is not None else None
+    if sp is not None and sdb is not None and hasattr(sp, "_norm_hay"):
+        try:
+            c = sdb.init_db(sdb.connect())
+            try:
+                fp = sdb.faq_pairs(c, only_answered=True, limit=2000)
+                pairs = fp.get("pairs") or []
+            finally:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+        except Exception:
+            pairs = []
+        n = 0
+        for p in pairs:
+            try:
+                sp._norm_hay((p.get("pertanyaan") or "") + " "
+                             + str(p.get("topik") or ""))
+                n += 1
+            except Exception:
+                pass
+        try:
+            print("[rag_sources_speedup] prewarm normalisasi sosmed: %d baris." % n,
+                  flush=True)
+        except Exception:
+            pass
+    if _idx_on():
+        try:
+            import sosmed.semantic_index as six
+            r = six.build()
+            print("[rag_sources_speedup] build index sosmed: %s" % (r,), flush=True)
+        except Exception as e:
+            try:
+                print("[rag_sources_speedup] build index sosmed dilewati:", e, flush=True)
+            except Exception:
+                pass
 
 
 # ===================================================== 3) guard SOP kosong
@@ -156,7 +309,7 @@ def _sop_kosong(sopdb):
             except Exception:
                 pass
     except Exception:
-        kosong = False       # fail-open
+        kosong = False
     _SOP_EMPTY["t"] = now
     _SOP_EMPTY["v"] = kosong
     return kosong
@@ -191,18 +344,16 @@ def _ensure_sop_guard():
 
 
 def _ensure_installed():
-    try:
-        _ensure_norm_cache()
-    except Exception:
-        pass
-    try:
-        _ensure_sop_guard()
-    except Exception:
-        pass
+    for fn in (_ensure_norm_cache, _ensure_sop_guard, _ensure_sosmed_index):
+        try:
+            fn()
+        except Exception:
+            pass
 
 
-# ===================================================== 4) anggaran waktu
+# ===================================================== 4) anggaran + gate GPU
 _TLS = threading.local()
+_GPU_SEM = None
 
 
 def _install_budget():
@@ -229,6 +380,7 @@ def _install_budget():
                 pass
 
     def retrieve_budget(*a, **k):
+        # (a) lewati sumber yang BELUM mulai bila tenggat sudah lewat
         try:
             dl = getattr(_TLS, "deadline", None)
             if dl is not None and time.monotonic() > dl:
@@ -241,15 +393,76 @@ def _install_budget():
                 return ("", [])
         except Exception:
             pass
-        return orig_retrieve(*a, **k)
+        # (b) gate GPU: serialkan retrieval berat; fail-open ke jalan bila
+        #     tak dapat izin dalam sisa anggaran (tak pernah nyangkut/keskip).
+        sem = _GPU_SEM
+        if sem is None:
+            return orig_retrieve(*a, **k)
+        got = False
+        try:
+            wait = _gpu_wait()
+            dl = getattr(_TLS, "deadline", None)
+            if dl is not None:
+                wait = max(0.0, min(wait, dl - time.monotonic()))
+            got = sem.acquire(timeout=wait) if wait > 0 else sem.acquire(blocking=False)
+        except Exception:
+            got = False
+        try:
+            return orig_retrieve(*a, **k)
+        finally:
+            if got:
+                try:
+                    sem.release()
+                except Exception:
+                    pass
 
     _re.answer = answer_budget
     _re._retrieve_one = retrieve_budget
     _re._camerad_budget_patched = True
 
 
+# ===================================================== 6) urutan sumber berat
+def _install_router_reorder():
+    try:
+        import rag.router as _rt
+    except Exception:
+        return
+    if getattr(_rt, "_camerad_reorder_patched", False):
+        return
+    orig = getattr(_rt, "route", None)
+    if not callable(orig):
+        return
+
+    def _route(q, allowed, *a, **k):
+        r = orig(q, allowed, *a, **k)
+        try:
+            heavy = _heavy()
+            ordered = r.get("ordered") if isinstance(r, dict) else None
+            if heavy and isinstance(ordered, list):
+                back = [s for s in ordered if s in heavy]
+                if back:
+                    r["ordered"] = [s for s in ordered if s not in heavy] + back
+        except Exception:
+            pass
+        return r
+
+    _rt.route = _route
+    _rt._camerad_reorder_patched = True
+    try:
+        print("[rag_sources_speedup] urutan sumber: %s dijalankan paling akhir."
+              % ",".join(sorted(_heavy())), flush=True)
+    except Exception:
+        pass
+
+
 # ===================================================== pemasangan
 def _install():
+    global _GPU_SEM
+    try:
+        n = _gpu_n()
+        _GPU_SEM = threading.BoundedSemaphore(n) if n and n > 0 else None
+    except Exception:
+        _GPU_SEM = None
     if _budget_s() > 0:
         try:
             _install_budget()
@@ -258,6 +471,14 @@ def _install():
                 print("[rag_sources_speedup] budget dilewati:", e, flush=True)
             except Exception:
                 pass
+    try:
+        if _heavy():
+            _install_router_reorder()
+    except Exception as e:
+        try:
+            print("[rag_sources_speedup] reorder dilewati:", e, flush=True)
+        except Exception:
+            pass
     _ensure_installed()
     if _flag_on("RAG_SOURCES_SPEEDUP"):
         try:
@@ -265,8 +486,11 @@ def _install():
         except Exception:
             pass
     try:
-        print("[rag_sources_speedup] aktif (RAG_SOURCES_SPEEDUP=%s, RAG_BUDGET_S=%s)."
-              % (_flag_on("RAG_SOURCES_SPEEDUP"), _budget_s()), flush=True)
+        print("[rag_sources_speedup] aktif (SPEEDUP=%s, BUDGET_S=%s, GPU_GATE=%s, "
+              "HEAVY=%s, SOSMED_INDEX=%s)."
+              % (_flag_on("RAG_SOURCES_SPEEDUP"), _budget_s(), _gpu_n(),
+                 ",".join(sorted(_heavy())) or "-", _flag_on("SOSMED_INDEX")),
+              flush=True)
     except Exception:
         pass
 
