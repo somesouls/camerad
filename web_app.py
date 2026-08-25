@@ -102,6 +102,49 @@ def start_scheduler():
     return sch
 
 
+def start_awe_scheduler():
+    """Penjadwal tarik+proses data AWE Avaya harian (data H-1), mirip ingest
+    Dialogflow. NONAKTIF secara default: aktifkan dengan AWE_SCHEDULER=1 SETELAH
+    mengisi kredensial AVAYA_USERNAME/AVAYA_PASSWORD di .env. Logika tarik+proses
+    ada di awe.routes.awe_autopull_run() (memakai worker yang sama dgn alur
+    manual Kelola Data AWE)."""
+    if (os.environ.get("AWE_SCHEDULER", "0") or "0").strip() != "1":
+        print("[awe-scheduler] nonaktif (set AWE_SCHEDULER=1 untuk mengaktifkan).", flush=True)
+        return None
+    if not (os.environ.get("AVAYA_PASSWORD") or "").strip():
+        print("[awe-scheduler] AWE_SCHEDULER=1 tetapi AVAYA_PASSWORD kosong; penjadwal dilewati.", flush=True)
+        return None
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+    except Exception as e:
+        print("[awe-scheduler] APScheduler belum terpasang, penjadwal dilewati:", e, flush=True)
+        return None
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Asia/Jakarta")
+    except Exception:
+        tz = None
+    hour = int(os.environ.get("AWE_INGEST_HOUR", "5"))
+    minute = int(os.environ.get("AWE_INGEST_MINUTE", "0"))
+    import awe.routes as _awe_routes
+
+    def _job():
+        try:
+            res = _awe_routes.awe_autopull_run(trigger="scheduler")
+            print("[awe-scheduler] auto-pull selesai:",
+                  (res or {}).get("message") or (res or {}).get("error"), flush=True)
+        except Exception as e:
+            print("[awe-scheduler] auto-pull gagal:", e, flush=True)
+
+    sch = BackgroundScheduler(timezone=tz) if tz else BackgroundScheduler()
+    sch.add_job(_job, "cron", hour=hour, minute=minute, id="daily_awe_ingest",
+                replace_existing=True, max_instances=1, coalesce=True)
+    sch.start()
+    print("[awe-scheduler] tarik+proses AWE harian aktif jam %02d:%02d Asia/Jakarta." % (hour, minute),
+          flush=True)
+    return sch
+
+
 
 
 
@@ -348,6 +391,7 @@ if __name__ == "__main__":
     port = int(os.environ.get("WEB_PORT", "8080"))
     os.makedirs(CONFIG["runs_dir"], exist_ok=True)
     start_scheduler()
+    start_awe_scheduler()
     shown = "localhost" if host in ("0.0.0.0", "::") else host
 
     def _lan_ip():

@@ -12,9 +12,11 @@ Daftarkan dengan:
     awe_routes.register(app, save_artifact=..., load_state=..., ...)
 """
 import re
+import os
 import json
 import threading as _threading
 import uuid as _uuid
+import datetime as _dt
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response, RedirectResponse
@@ -511,6 +513,195 @@ async def awe_nik_backfill(request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
+# =============================================================
+# KELOLA DATA AWE  — AUTO-PULL HARIAN (penjadwal)
+#   Tarik (staging) lalu Proses data AWE H-1 otomatis, mirip ingest Dialogflow.
+#   - Kredensial diambil dari .env (AVAYA_USERNAME / AVAYA_PASSWORD) dan TIDAK
+#     pernah disimpan ke DB (login-then-forget, sama seperti tarik manual).
+#   - Memakai worker yang SAMA dengan alur manual (_awe_stage_worker &
+#     _awe_process_worker) supaya perilaku identik.
+#   - Anti-tumpang-tindih via lock non-blok; status terakhir dicatat ke berkas
+#     JSON kecil (bukan DB) agar tampil di UI & bertahan setelah restart.
+#   - Dipanggil oleh penjadwal APScheduler (web_app.start_awe_scheduler) dan
+#     tombol "Tarik Sekarang (manual)" di halaman Kelola Data AWE.
+# =============================================================
+_AWE_AUTOPULL_LOCK = _threading.Lock()
+_AWE_AUTOPULL_LAST = {}
+
+
+def _awe_status_path():
+    base = ""
+    try:
+        base = CONFIG.get("runs_dir") or ""
+    except Exception:
+        base = ""
+    if not base:
+        base = os.path.dirname(os.path.abspath(__file__))
+    try:
+        os.makedirs(base, exist_ok=True)
+    except Exception:
+        pass
+    return os.path.join(base, "awe_autopull_status.json")
+
+
+def _awe_status_load():
+    global _AWE_AUTOPULL_LAST
+    if _AWE_AUTOPULL_LAST:
+        return dict(_AWE_AUTOPULL_LAST)
+    try:
+        with open(_awe_status_path(), "r", encoding="utf-8") as f:
+            _AWE_AUTOPULL_LAST = json.load(f) or {}
+    except Exception:
+        _AWE_AUTOPULL_LAST = {}
+    return dict(_AWE_AUTOPULL_LAST)
+
+
+def _awe_status_save(d):
+    global _AWE_AUTOPULL_LAST
+    _AWE_AUTOPULL_LAST = dict(d or {})
+    try:
+        with open(_awe_status_path(), "w", encoding="utf-8") as f:
+            json.dump(_AWE_AUTOPULL_LAST, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _awe_yesterday():
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Asia/Jakarta")
+    except Exception:
+        tz = None
+    now = _dt.datetime.now(tz) if tz else _dt.datetime.now()
+    d = now.date() - _dt.timedelta(days=1)
+    return d.strftime("%Y-%m-%d")
+
+
+def _awe_env_flag(name, default="0"):
+    v = (os.environ.get(name, default) or default).strip().lower()
+    return v not in ("0", "", "false", "no", "off")
+
+
+def awe_autopull_run(date_from=None, date_to=None, username=None, password=None,
+                     base_url=None, purge_after=None, do_process=None,
+                     trigger="scheduler"):
+    """Tarik (staging) lalu proses data AWE untuk rentang tanggal (default H-1).
+
+    Kembalikan dict status. Aman dipanggil dari penjadwal maupun HTTP; hanya satu
+    auto-pull berjalan pada satu waktu (lock non-blok).
+    """
+    if not _AWE_AUTOPULL_LOCK.acquire(blocking=False):
+        return {"ok": False, "skipped": True,
+                "error": "Auto-pull lain sedang berjalan; permintaan dilewati."}
+    username = (username or os.environ.get("AVAYA_USERNAME") or "").strip()
+    password = password or os.environ.get("AVAYA_PASSWORD") or ""
+    base_url = (base_url or os.environ.get("AVAYA_BASE_URL") or "").strip()
+    if not date_from or not date_to:
+        y = _awe_yesterday()
+        date_from = date_from or y
+        date_to = date_to or y
+    if purge_after is None:
+        purge_after = _awe_env_flag("AWE_INGEST_PURGE", "0")
+    if do_process is None:
+        do_process = _awe_env_flag("AWE_INGEST_PROCESS", "1")
+    status = {"trigger": trigger,
+              "started_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+              "range": "%s s/d %s" % (date_from, date_to)}
+    try:
+        if not password:
+            raise RuntimeError(
+                "Kredensial AWE belum diset. Isi AVAYA_USERNAME & AVAYA_PASSWORD di .env.")
+        # --- Tahap 1: tarik -> penyimpanan sementara (worker sama dgn manual) ---
+        stage_job = "auto_" + _uuid.uuid4().hex[:8]
+        _awe_stage_worker(stage_job, date_from, date_to, username, password,
+                          base_url, "auto:" + (username or "scheduler"))
+        username = None
+        password = None
+        sres = _awe_job_get(stage_job)
+        with _AWE_PULL_LOCK:
+            _AWE_PULL_JOBS.pop(stage_job, None)
+        status["stage_ok"] = bool(sres.get("ok"))
+        status["n_conv"] = sres.get("n_conv")
+        status["n_new"] = sres.get("n_new")
+        if not sres.get("ok"):
+            status["ok"] = False
+            status["need_login"] = bool(sres.get("need_login"))
+            status["error"] = sres.get("error") or "Penarikan gagal."
+            return status
+        if not (sres.get("n_conv") or 0):
+            status["ok"] = True
+            status["message"] = "Tidak ada percakapan pada rentang %s." % status["range"]
+            return status
+        # --- Tahap 2: pemrosesan bahasa -> database AWE (opsional) ---
+        if do_process:
+            proc_job = "auto_" + _uuid.uuid4().hex[:8]
+            _awe_process_worker(proc_job, date_from, date_to, purge_after)
+            pres = _proc_job_get(proc_job)
+            with _AWE_PULL_LOCK:
+                _AWE_PROC_JOBS.pop(proc_job, None)
+            status["process_ok"] = bool(pres.get("ok"))
+            if not pres.get("ok"):
+                status["ok"] = False
+                status["error"] = pres.get("error") or "Pemrosesan gagal."
+                return status
+            status["processed"] = pres.get("n_conv")
+        status["ok"] = True
+        status["message"] = "Berhasil menarik %s percakapan (%s baru)%s." % (
+            sres.get("n_conv"), sres.get("n_new"),
+            " lalu diproses ke database AWE" if do_process else
+            " (belum diproses; jalankan pemrosesan bila perlu)")
+        return status
+    except avc.AvayaAuthError as e:
+        status["ok"] = False
+        status["need_login"] = True
+        status["error"] = "Login gagal: %s" % e
+        return status
+    except Exception as e:
+        status["ok"] = False
+        status["error"] = str(e)
+        return status
+    finally:
+        status["finished_at"] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _awe_status_save(status)
+        try:
+            _AWE_AUTOPULL_LOCK.release()
+        except Exception:
+            pass
+
+
+async def awe_autopull_status():
+    d = await run_in_threadpool(_awe_status_load)
+    return JSONResponse({
+        "ok": True,
+        "running": _AWE_AUTOPULL_LOCK.locked(),
+        "enabled": _awe_env_flag("AWE_SCHEDULER", "0"),
+        "configured": bool((os.environ.get("AVAYA_PASSWORD") or "").strip()),
+        "hour": os.environ.get("AWE_INGEST_HOUR", "5"),
+        "minute": os.environ.get("AWE_INGEST_MINUTE", "0"),
+        "process": _awe_env_flag("AWE_INGEST_PROCESS", "1"),
+        "last": d,
+    })
+
+
+async def awe_autopull_now(request: Request):
+    try:
+        body = await request.json() or {}
+    except Exception:
+        body = {}
+    df = str(body.get("date_from") or "").strip() or None
+    dt = str(body.get("date_to") or "").strip() or None
+    if _AWE_AUTOPULL_LOCK.locked():
+        return JSONResponse({"ok": False, "error": "Auto-pull sedang berjalan."}, status_code=409)
+    if not (os.environ.get("AVAYA_PASSWORD") or "").strip():
+        return JSONResponse({"ok": False, "need_login": True,
+                             "error": "Kredensial AWE belum diset di .env (AVAYA_USERNAME/AVAYA_PASSWORD)."}, status_code=400)
+    _threading.Thread(
+        target=lambda: awe_autopull_run(date_from=df, date_to=dt, trigger="manual"),
+        daemon=True).start()
+    return JSONResponse({"ok": True, "started": True,
+                         "message": "Tarik otomatis dimulai di latar belakang. Status akan diperbarui otomatis."})
+
+
 def register(app, *, save_artifact, load_state, save_state, Ctx,
              avaya2_pull_intents, avaya3_start, avaya3_fetch,
              api_endpoint, curl_json_raw):
@@ -547,3 +738,5 @@ def register(app, *, save_artifact, load_state, save_state, Ctx,
     app.add_api_route("/api/awe/process/fetch", awe_process_fetch, methods=["GET"])
     app.add_api_route("/api/awe/nik/stats", awe_nik_stats, methods=["GET"])
     app.add_api_route("/api/awe/nik/backfill", awe_nik_backfill, methods=["POST"])
+    app.add_api_route("/api/awe/autopull/status", awe_autopull_status, methods=["GET"])
+    app.add_api_route("/api/awe/autopull/now", awe_autopull_now, methods=["POST"])
