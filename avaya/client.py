@@ -189,6 +189,18 @@ class AvayaClient:
             import requests  # ditunda supaya import modul tak wajib ada requests
             self.session = requests.Session()
             self.session.verify = self.verify
+            if not self.verify:
+                # recapp intranet memakai sertifikat internal, jadi verify=False
+                # (padanan klik "Lanjutkan" di halaman "not secure" browser).
+                # requests/urllib3 mencetak InsecureRequestWarning pada SETIAP
+                # request; satu kali tarik (ratusan request) bikin log membanjir.
+                # Redam HANYA peringatan spesifik ini. Jika AVAYA_VERIFY_SSL
+                # diaktifkan, peringatan tetap tampil sebagaimana mestinya.
+                try:
+                    import urllib3
+                    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                except Exception:
+                    pass
             self.session.headers.update({
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                               "AppleWebKit/537.36 (KHTML, like Gecko) "
