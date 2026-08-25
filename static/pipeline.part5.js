@@ -6,6 +6,7 @@
 //    intent terdekat (r.kandidat), + pencarian katalog intent, + Kosongkan.
 //    Default KOSONG (nilai awal = r.manual; kosong utk baris yang belum ditinjau =
 //    match akurat / bukan MKTA). Memakai helper dari part4.js. Fail-safe.
+//  - [Opsi A] Kolom "Acuan": Ya/Tidak + sumber acuan judge (helper acuanCell part4).
 
 var STEP9_SIG=['bedallm','panjang','majemuk','multitopik','istilah','ambigu','noperaturan','akronim'];
 
@@ -33,7 +34,7 @@ function openModal9(st){
     '</div>'+
     '<div class="status" id="mstatus"></div>'+
     '<div class="s6wrap"><table class="s6table"><thead><tr>'+
-      '<th>Prioritas</th><th>Pertanyaan User</th><th>Intent (Bot)</th><th>Kategori Mesin</th><th>Skor Bahasa</th><th>Skor DF</th><th>NLI</th><th>PUTUSAN &amp; Alasan</th><th>Intent Seharusnya</th>'+
+      '<th>Prioritas</th><th>Pertanyaan User</th><th>Intent (Bot)</th><th>Kategori Mesin</th><th>Skor Bahasa</th><th>Skor DF</th><th>NLI</th><th>PUTUSAN &amp; Alasan</th><th>Acuan</th><th>Intent Seharusnya</th>'+
     '</tr></thead><tbody id="s9body"></tbody></table></div>'+
     '<div class="mfoot">'+
       '<button class="btn" id="s9save">Simpan ke sheet Analisis MKTA</button>'+
@@ -107,6 +108,7 @@ function renderStep9(){
       '<td>'+s9fmt(r.df)+'</td>'+
       '<td>'+s9fmt(r.nli)+'</td>'+
       '<td>'+esc(r.putusan||'')+alasan+'</td>'+
+      '<td class="s6acuan">'+(typeof acuanCell==='function'?acuanCell(r):'')+'</td>'+
       '<td><div class="s6combo"><input class="s6intent" data-i="'+i+'" value="'+esc(r.manual||'')+'" autocomplete="off" placeholder="ketik / pilih intent..."><button type="button" class="s6arrow" data-i="'+i+'" tabindex="-1">▾</button><div class="s6menu" id="menu'+i+'"></div></div></td></tr>'
     );
   });
