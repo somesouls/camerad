@@ -2,6 +2,7 @@
 // Dimuat SETELAH part2/part3; menimpa openModal6 & renderStep6 (fungsi global).
 // Menambah bar chip filter sinyal (kolom "Sinyal" di tabel DIHAPUS atas permintaan;
 // chip filter tetap ada). Fail-safe bila field sinyal belum ada -> normal.
+// [Opsi A] Menambah kolom "Acuan" (audit acuan analis: Ya/Tidak + sumber cocok).
 
 var SIG_DEFS = [
   ['panjang','is_panjang','Panjang'],
@@ -44,12 +45,22 @@ function sigBadges(r,keys){
   return out.length ? out.join(' ') : '<span class="sig-none">-</span>';
 }
 
+// [Opsi A] Sel "Acuan": Ya/Tidak + chip sumber pengetahuan yg jadi acuan judge.
+function acuanCell(r){
+  var a=r&&r.acuan;
+  if(!a||typeof a!=='object') return '<span class="sig-none">-</span>';
+  var srcs=(a.sources||[]);
+  if(!a.available||!srcs.length) return '<span class="acuan-no">Tidak</span>';
+  var chips=srcs.map(function(s){ return '<span class="acuan-src">'+esc(s)+'</span>'; }).join('');
+  return '<span class="acuan-yes">Ya</span>'+chips;
+}
+
 function bindSigChips(id,fn){ var box=document.getElementById(id); if(box) box.querySelectorAll('input[data-sig]').forEach(function(c){ c.onchange=fn; }); }
 
 function injectSigCss(){
   if(document.getElementById('sigcss')) return;
   var st=document.createElement('style'); st.id='sigcss';
-  st.textContent='.sigbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;border-top:1px solid var(--border)}.sigbar .sglbl{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text2)}.sigchips{display:flex;flex-wrap:wrap;gap:6px}.sigchip{display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border:1px solid var(--border);border-radius:999px;font-size:12px;cursor:pointer;user-select:none;background:var(--soft2)}.sigchip input{width:auto;margin:0;cursor:pointer}.s6sig{max-width:150px;white-space:normal}.sig{display:inline-block;margin:1px 2px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700;background:rgba(59,130,246,.14);color:#3b82f6}.sig-none{color:var(--text2)}';
+  st.textContent='.sigbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 14px;border-top:1px solid var(--border)}.sigbar .sglbl{font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--text2)}.sigchips{display:flex;flex-wrap:wrap;gap:6px}.sigchip{display:inline-flex;align-items:center;gap:4px;padding:4px 9px;border:1px solid var(--border);border-radius:999px;font-size:12px;cursor:pointer;user-select:none;background:var(--soft2)}.sigchip input{width:auto;margin:0;cursor:pointer}.s6sig{max-width:150px;white-space:normal}.sig{display:inline-block;margin:1px 2px;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700;background:rgba(59,130,246,.14);color:#3b82f6}.sig-none{color:var(--text2)}.s6acuan{max-width:180px;white-space:normal}.acuan-yes{display:inline-block;margin:1px 3px 1px 0;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:800;background:rgba(16,185,129,.16);color:#10b981}.acuan-no{display:inline-block;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700;background:rgba(148,163,184,.16);color:var(--text2)}.acuan-src{display:inline-block;margin:1px 2px;padding:1px 7px;border-radius:999px;font-size:10px;font-weight:700;background:rgba(59,130,246,.12);color:#3b82f6}';
   document.head.appendChild(st);
 }
 
@@ -73,7 +84,7 @@ function openModal6(st){
     '<div class="sigbar"><span class="sglbl">Sinyal</span>'+sigChips('f6sig',STEP6_SIG)+'</div>'+
     '<div class="status" id="mstatus"></div>'+
     '<div class="s6wrap"><table class="s6table"><thead><tr>'+
-      '<th>Pertanyaan User</th><th>Catatan LLM</th><th>Intent Judgement LLM</th><th>Isi Intent</th><th>Skor</th><th>Conf</th>'+
+      '<th>Pertanyaan User</th><th>Catatan LLM</th><th>Intent Judgement LLM</th><th>Isi Intent</th><th>Skor</th><th>Conf</th><th>Acuan</th>'+
     '</tr></thead><tbody id="s6body"></tbody></table></div>'+
     '<div class="mfoot">'+
       '<button class="btn" id="s6save">Simpan Perubahan</button>'+
@@ -114,7 +125,8 @@ function renderStep6(){
       '<td><div class="s6combo"><input class="s6intent'+(r.edited?' edited':'')+'" data-i="'+i+'" value="'+esc(r.intent||'')+'" autocomplete="off"><button type="button" class="s6arrow" data-i="'+i+'" tabindex="-1">▾</button><div class="s6menu" id="menu'+i+'"></div></div></td>'+
       '<td><div class="s6isi" id="isi'+i+'">'+esc(r.isi||'')+'</div></td>'+
       '<td id="skor'+i+'">'+esc(r.skor||'')+'</td>'+
-      '<td id="conf'+i+'">'+esc(r.conf||'')+'</td></tr>'
+      '<td id="conf'+i+'">'+esc(r.conf||'')+'</td>'+
+      '<td class="s6acuan">'+acuanCell(r)+'</td></tr>'
     );
   });
   body.innerHTML=parts.join('');
