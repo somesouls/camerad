@@ -96,11 +96,14 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;">
       <h3 style="margin:0;">Riwayat Impor / Tarik</h3>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="sm-btn" id="btnReindex">Index data baru</button>
         <button class="sm-btn ghost" id="btnRepair">Perbaiki pemasangan Q&amp;A</button>
         <button class="sm-btn danger" id="btnPurge">Kosongkan semua data</button>
       </div>
     </div>
     <p class="sm-note">“Perbaiki pemasangan Q&amp;A” menjalankan ulang perajutan pertanyaan–jawaban sadar-thread untuk seluruh data lama. Gunakan sekali setelah pembaruan sistem bila ada tweet jawaban yang keliru tercatat sebagai pertanyaan. Aman dijalankan berulang.</p>
+    <p class="sm-note">“Index data baru” membangun index vektor pencarian cepat sosmed secara inkremental — hanya meng-embed Q&amp;A terjawab yang baru/berubah. Berjalan otomatis di latar tiap ada impor/tarik/perbaikan; tombol ini untuk memicu manual. Aman diklik berulang.</p>
+    <div class="sm-out" id="reindexOut"></div>
     <div class="sm-out" id="repairOut"></div>
     <table class="sm-tb"><thead><tr><th>Waktu</th><th>Platform</th><th>Sumber</th><th>Rentang</th><th>Baru</th><th>Total</th><th>Oleh</th></tr></thead>
     <tbody id="batchBody"><tr><td colspan="7" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
@@ -121,6 +124,7 @@ async function loadStats(){
       `<div class="k"><b>${s.total}</b><span>Total item</span></div>`+
       `<div class="k"><b>${s.questions}</b><span>Pertanyaan</span></div>`+
       `<div class="k"><b>${s.answered}</b><span>Terjawab</span></div>`+
+      `<div class="k"><b>${(d.index&&d.index.vec)||0}</b><span>Terindeks</span></div>`+
       `<div class="k"><b>${(s.platforms||[]).map(p=>p.platform+':'+p.n).join(' · ')||'-'}</b><span>Per platform</span></div>`;
     const tb=$('#batchBody');
     if(!d.batches||!d.batches.length){tb.innerHTML='<tr><td colspan=7 style="color:var(--text-muted)">Belum ada.</td></tr>';return;}
@@ -160,6 +164,12 @@ $('#btnPaste').onclick=async()=>{
   $('#btnPaste').disabled=false;
   if(data.ok){out($('#impOut'),true,`Impor: ${data.n_new} baru, ${data.n_dup} pembaruan, ${data.n_skip} dilewati.`);loadStats();}
   else out($('#impOut'),false,data.error||'Gagal impor.');
+};
+$('#btnReindex').onclick=async()=>{
+  $('#btnReindex').disabled=true;out($('#reindexOut'),true,'Mengindeks data baru…');
+  const {data}=await jpost('/api/sosmed/reindex',{});$('#btnReindex').disabled=false;
+  if(data.ok){out($('#reindexOut'),true,`Selesai: ${data.n} baris baru diindeks, total ${data.total} terindeks.`);loadStats();}
+  else out($('#reindexOut'),false,data.reason||'Index nonaktif atau gagal. Cek SOSMED_INDEX.');
 };
 $('#btnRepair').onclick=async()=>{
   if(!confirm('Jalankan perbaikan pemasangan Q&A untuk SEMUA data? Aman dijalankan berulang.'))return;
