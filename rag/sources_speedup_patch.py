@@ -5,7 +5,12 @@ Diimpor di ujung rag.rerank_patch, TEPAT setelah rag.timing_patch. Semua fitur
 gagal-anggun + dapat dimatikan lewat env:
 
   1. CACHE NORMALISASI  — _norm_hay per-teks di-cache (dipakai awe & fallback sosmed).
-  2. PREWARM            — panaskan cache + BANGUN index vektor sosmed di latar.
+  2. PREWARM + PEMANASAN — panaskan cache normalisasi, PASTIKAN model embedding
+     (bge-m3) siap, BANGUN index vektor sosmed, lalu PANASKAN semua sumber
+     retrieval (intent/sosmed/peraturan/sop/awe) sekali di latar. Tujuan: query
+     PERTAMA di /livechat, Chat Baru, & Uji Cepat tidak membayar cold-start
+     (awe pernah 236 dtk pada scan pertama saat cache disk dingin). Baris log
+     '...pemanasan penuh selesai — server siap sepenuhnya' menandai boot siap.
   3. GUARD SOP KOSONG   — lewati sop.db.search bila tabel sop_unit kosong.
   4. ANGGARAN + GATE GPU — answer() menandai tenggat; sumber yang BELUM mulai
      dilewati begitu tenggat lewat; retrieval berat diserialkan semaphore GPU
@@ -20,7 +25,8 @@ gagal-anggun + dapat dimatikan lewat env:
 
 Env: RAG_SOURCES_SPEEDUP(1), RAG_BUDGET_S(75), RAG_GPU_GATE(1),
      RAG_GPU_GATE_WAIT_S(90), RAG_HEAVY_SOURCES(awe), SOSMED_INDEX(1),
-     SOSMED_MIN_COS(0.35), RAG_RERANK_POOL(30).
+     SOSMED_MIN_COS(0.35), RAG_RERANK_POOL(30), RAG_WARMUP_SOURCES(1),
+     RAG_WARMUP_QUERY(lupa efin pajak), RAG_WARMUP_EMBED_WAIT_S(120).
 """
 import os
 import sys
@@ -93,6 +99,23 @@ def _gpu_wait():
 def _heavy():
     raw = os.environ.get("RAG_HEAVY_SOURCES", "awe")
     return {x.strip().lower() for x in raw.split(",") if x.strip()}
+
+
+def _warmup_on():
+    return _flag_on("RAG_SOURCES_SPEEDUP") and _flag_on("RAG_WARMUP_SOURCES")
+
+
+def _warmup_query():
+    q = (os.environ.get("RAG_WARMUP_QUERY", "") or "").strip()
+    return q or "lupa efin pajak"
+
+
+def _embed_wait_s():
+    try:
+        v = float(os.environ.get("RAG_WARMUP_EMBED_WAIT_S", "120"))
+    except Exception:
+        v = 120.0
+    return v if v > 0 else 120.0
 
 
 # ===================================================== 1) cache normalisasi
@@ -239,9 +262,65 @@ def _ensure_sosmed_index():
 
 
 # ===================================================== 2) prewarm + build index
+def _wait_embed_ready(timeout_s=120.0):
+    """Pastikan model embedding (bge-m3) BENAR-BENAR termuat sebelum dipakai.
+
+    peraturan.semantic._load_model() tidak thread-safe: bila thread pemanasan
+    lain sudah menyetel _MODEL_TRIED=True tetapi belum selesai memuat model,
+    is_available() sempat balik False. Inilah sebab build index sosmed gagal
+    'model embedding tak tersedia' pada boot. Retry sampai model betul-betul
+    siap (embed_query != None). Kembalikan True bila siap.
+    """
+    try:
+        import peraturan.semantic as _psem
+    except Exception:
+        return False
+    deadline = time.monotonic() + max(1.0, timeout_s)
+    while time.monotonic() < deadline:
+        try:
+            if _psem.is_available() and _psem.embed_query("pemanasan") is not None:
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    return False
+
+
+def _warm_sources():
+    """Panaskan SEMUA sumber retrieval sekali di latar saat boot supaya query
+    pertama tak membayar cold-start (mis. awe brute-force 236 dtk pada scan
+    pertama karena cache disk dingin). Panggil fungsi dispatch LANGSUNG (lewati
+    gate GPU/anggaran) agar pemanasan tak menahan izin GPU untuk request nyata.
+    Fail-open penuh; sumber berat (awe) dipanaskan terakhir.
+    """
+    if not _warmup_on() or _re is None:
+        return
+    disp = getattr(_re, "_DISPATCH", None)
+    if not isinstance(disp, dict):
+        return
+    q = _warmup_query()
+    for key in ("intent", "sosmed", "peraturan", "sop", "awe"):
+        fn = disp.get(key)
+        if not callable(fn):
+            continue
+        t0 = time.monotonic()
+        ok = True
+        try:
+            fn(q)
+        except Exception:
+            ok = False
+        try:
+            print("[rag_sources_speedup] pemanasan %s: %.1fs%s"
+                  % (key, time.monotonic() - t0,
+                     "" if ok else " (gagal, diabaikan)"), flush=True)
+        except Exception:
+            pass
+
+
 def _prewarm():
     if not _flag_on("RAG_SOURCES_SPEEDUP"):
         return
+    _t0 = time.monotonic()
     for _ in range(180):
         if (sys.modules.get("rag.sources_patch") is not None
                 and _re is not None and getattr(_re, "sdb", None) is not None):
@@ -277,15 +356,29 @@ def _prewarm():
         except Exception:
             pass
     if _idx_on():
+        # PENTING: tunggu model embedding siap dulu (perbaikan ras boot) agar
+        # build tidak gagal 'model embedding tak tersedia'.
+        ready = _wait_embed_ready(_embed_wait_s())
         try:
             import sosmed.semantic_index as six
             r = six.build()
-            print("[rag_sources_speedup] build index sosmed: %s" % (r,), flush=True)
+            print("[rag_sources_speedup] build index sosmed: %s (embed_ready=%s)"
+                  % (r, ready), flush=True)
         except Exception as e:
             try:
                 print("[rag_sources_speedup] build index sosmed dilewati:", e, flush=True)
             except Exception:
                 pass
+    # Panaskan semua sumber (awe dsb) supaya query pertama tak timeout.
+    try:
+        _warm_sources()
+    except Exception:
+        pass
+    try:
+        print("[rag_sources_speedup] pemanasan penuh selesai — server siap "
+              "sepenuhnya (%.1fs)." % (time.monotonic() - _t0), flush=True)
+    except Exception:
+        pass
 
 
 # ===================================================== 3) guard SOP kosong
@@ -487,9 +580,10 @@ def _install():
             pass
     try:
         print("[rag_sources_speedup] aktif (SPEEDUP=%s, BUDGET_S=%s, GPU_GATE=%s, "
-              "HEAVY=%s, SOSMED_INDEX=%s)."
+              "HEAVY=%s, SOSMED_INDEX=%s, WARMUP=%s)."
               % (_flag_on("RAG_SOURCES_SPEEDUP"), _budget_s(), _gpu_n(),
-                 ",".join(sorted(_heavy())) or "-", _flag_on("SOSMED_INDEX")),
+                 ",".join(sorted(_heavy())) or "-", _flag_on("SOSMED_INDEX"),
+                 _warmup_on()),
               flush=True)
     except Exception:
         pass
