@@ -31,9 +31,9 @@
   box-shadow: 0 4px 10px var(--accent-glow);
 }
 .stage-title { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-main); }
-.pill.stage { 
-  font-size: 12px; padding: 4px 12px; border-radius: 99px; 
-  background: var(--c-green); color: var(--c-green-txt); font-weight: 600; 
+.pill.stage {
+  font-size: 12px; padding: 4px 12px; border-radius: 99px;
+  background: var(--c-green); color: var(--c-green-txt); font-weight: 600;
 }
 
 /* Forms & Inputs */
@@ -43,11 +43,11 @@
 .field label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
 .field input:not([type="checkbox"]) {
   padding: 11px 14px; border: 1px solid var(--panel-border); border-radius: 10px;
-  background: var(--bg-base); color: var(--text-main); font-size: 14.5px; 
+  background: var(--bg-base); color: var(--text-main); font-size: 14.5px;
   font-family: inherit; transition: 0.2s; outline: none;
 }
-.field input:not([type="checkbox"]):focus { 
-  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); background: transparent; 
+.field input:not([type="checkbox"]):focus {
+  border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); background: transparent;
 }
 
 /* Checkbox */
@@ -84,23 +84,42 @@
 .status.show { display: block; background: var(--panel-border); color: var(--text-main); }
 .status.ok { background: var(--c-green); color: var(--c-green-txt); border: 1px solid rgba(16,185,129,0.2); }
 .status.err { background: var(--c-red); color: var(--c-red-txt); border: 1px solid rgba(239,68,68,0.2); }
+
+/* Hero card - Tarik Otomatis sebagai jalur utama */
+.hero-card { border-color: var(--accent); box-shadow: 0 6px 20px var(--accent-glow); }
+.hero-card .stage-title { font-size: 20px; }
+.hero-badge { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); background: var(--accent-glow); padding: 3px 10px; border-radius: 99px; }
+
+/* Pembatas bagian Manual / Lanjutan */
+.section-divider { margin: 32px 0 16px; padding-top: 20px; border-top: 1px dashed var(--panel-border); }
+.section-divider h2 { margin: 0 0 6px; font-size: 17px; font-weight: 800; color: var(--text-main); }
+.section-divider p { margin: 0; font-size: 13.5px; color: var(--text-muted); line-height: 1.6; max-width: 800px; }
+
+/* Catatan kapan dipakai pada kartu manual */
+.use-note { font-size: 13px; color: var(--text-muted); background: var(--panel-border); border-radius: 8px; padding: 8px 12px; margin: 0 0 14px; line-height: 1.5; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Kelola Data AWE</h1>
-  <p class="page-desc">Alur dua tahap murni: <b>(1) Tarik</b> data mentah AWE ke penyimpanan sementara, lalu <b>(2) Pemrosesan Bahasa</b> ke database AWE. Penarikan boleh dilakukan bertahap oleh beberapa orang; pemrosesan cukup dijalankan sekali untuk seluruh data yang sudah terkumpul.</p>
+  <p class="page-desc">Untuk kebutuhan harian, cukup pakai <b>Tarik Otomatis</b> di bawah - sekali jalan: login &rarr; tarik ke penyimpanan sementara &rarr; proses bahasa &rarr; simpan ke database AWE. Alat <b>Manual / Lanjutan</b> di bawahnya dipakai sesekali untuk backfill rentang lama, menarik dengan kredensial sendiri, atau memproses ulang.</p>
 </div>
 
-<section class="c-card">
+<section class="c-card hero-card">
   <div class="stage-head">
     <h2 class="stage-title">Tarik Otomatis Harian</h2>
-    <span class="pill stage" id="autoPill">—</span>
+    <span class="hero-badge">Jalur utama</span>
+    <span class="pill stage" id="autoPill">&mdash;</span>
   </div>
   <p class="muted-text">Penjadwal menarik &amp; memproses data AWE <b>H-1</b> otomatis tiap hari (mirip ingest Dialogflow). Aktifkan lewat berkas <span class="code-inline">.env</span>: isi <span class="code-inline">AVAYA_USERNAME</span>/<span class="code-inline">AVAYA_PASSWORD</span>, set <span class="code-inline">AWE_SCHEDULER=1</span>, lalu restart aplikasi. <b>Kredensial tidak disimpan ke database</b> (login lalu dilupakan). Tombol di bawah menjalankan tarik+proses satu kali sekarang memakai kredensial <span class="code-inline">.env</span>.</p>
-  <div id="autoInfo" class="muted-text">Memuat status…</div>
-  <button class="btn-modern btn-outline" id="autoNowBtn">
+  <div id="autoInfo" class="muted-text">Memuat status&hellip;</div>
+  <div class="form-row">
+    <div class="field"><label>Dari tanggal (opsional)</label><input type="date" id="a_from"></div>
+    <div class="field"><label>Sampai tanggal (opsional)</label><input type="date" id="a_to"></div>
+  </div>
+  <p class="hint-text" style="margin-top:0;">Kosongkan keduanya untuk menarik <b>kemarin (H-1)</b> seperti jadwal otomatis. Isi salah satu untuk satu hari, atau keduanya untuk rentang tertentu (tetap memakai kredensial <span class="code-inline">.env</span>).</p>
+  <button class="btn-modern" id="autoNowBtn">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
     Tarik Sekarang (manual)
   </button>
@@ -110,10 +129,10 @@
 <section class="c-card">
   <div class="stage-head">
     <h2 class="stage-title">Penyimpanan Sementara</h2>
-    <span class="pill stage" id="stgCount">—</span>
+    <span class="pill stage" id="stgCount">&mdash;</span>
   </div>
-  <p class="muted-text" id="stgInfo">Memuat ringkasan…</p>
-  
+  <p class="muted-text" id="stgInfo">Memuat ringkasan&hellip;</p>
+
   <div style="overflow-x: auto;">
     <table class="table-modern">
       <thead>
@@ -127,19 +146,25 @@
         </tr>
       </thead>
       <tbody id="stgBatches">
-        <tr><td colspan="6" class="muted-text" style="text-align: center; border: none; background: transparent;">—</td></tr>
+        <tr><td colspan="6" class="muted-text" style="text-align: center; border: none; background: transparent;">&mdash;</td></tr>
       </tbody>
     </table>
   </div>
 </section>
+
+<div class="section-divider">
+  <h2>Manual / Lanjutan</h2>
+  <p>Bersifat opsional dan dipakai sesekali. Untuk operasi harian normal, cukup <b>Tarik Otomatis</b> di atas - bagian ini untuk kasus khusus seperti backfill data lama, menarik dengan kredensial sendiri, atau memproses ulang.</p>
+</div>
 
 <section class="c-card">
   <div class="stage-head">
     <span class="stage-num">1</span>
     <h2 class="stage-title">Tarik Data ke Penyimpanan Sementara</h2>
   </div>
+  <p class="use-note">&#8505;&#65039; <b>Kapan dipakai:</b> untuk <b>backfill rentang lama</b>, atau menarik dengan <b>kredensial sendiri tanpa menyimpan password</b> di <span class="code-inline">.env</span>. Bisa dikerjakan bertahap oleh beberapa orang.</p>
   <p class="muted-text">Pilih rentang tanggal lalu <b>Cek Ketersediaan</b>. Hari yang sudah ada tidak perlu ditarik ulang (dedup otomatis berdasarkan <b>sid</b>). Untuk hari yang belum ada, masukkan kredensial AWE. <b>Kredensial tidak disimpan.</b></p>
-  
+
   <div class="form-row">
     <div class="field"><label>Dari tanggal</label><input type="date" id="s_from"></div>
     <div class="field"><label>Sampai tanggal</label><input type="date" id="s_to"></div>
@@ -148,9 +173,9 @@
     <label>Base URL (opsional)</label>
     <input type="text" id="s_base" placeholder="https://recapp.intranet.pajak.go.id">
   </div>
-  
+
   <button class="btn-modern btn-outline" id="sCheckBtn">Cek Ketersediaan</button>
-  
+
   <div id="sLoginBox" style="display:none; margin-top:20px; border-top:1px solid var(--panel-border); padding-top:20px;">
     <div class="form-row">
       <div class="field"><label>Username Avaya WFO</label><input type="text" id="s_user" autocomplete="off" placeholder="Masukkan username"></div>
@@ -162,41 +187,42 @@
     </button>
     <div class="hint-text">Kredensial hanya dipakai untuk sesi tarik ini dan langsung dilupakan server (tidak ditulis ke disk/DB).</div>
   </div>
-  
+
   <div class="status" id="sStat"></div>
 </section>
 
 <section class="c-card">
   <div class="stage-head">
     <span class="stage-num">2</span>
-    <h2 class="stage-title">Pemrosesan Bahasa → Database AWE</h2>
+    <h2 class="stage-title">Pemrosesan Bahasa &rarr; Database AWE</h2>
   </div>
+  <p class="use-note">&#8505;&#65039; <b>Kapan dipakai:</b> untuk <b>memproses ulang</b> atau memproses <b>sebagian</b> data di penyimpanan sementara tanpa menarik ulang. Tarik Otomatis sudah menjalankan langkah ini sendiri.</p>
   <p class="muted-text">Jalankan pemrosesan bahasa (embedding, sentimen, topik, pemetaan intent, klaster) atas data di penyimpanan sementara, lalu simpan hasilnya ke database AWE. Kosongkan rentang untuk memproses <b>seluruh</b> isi penyimpanan.</p>
-  
+
   <div class="form-row">
     <div class="field"><label>Dari tanggal (opsional)</label><input type="date" id="p_from"></div>
     <div class="field"><label>Sampai tanggal (opsional)</label><input type="date" id="p_to"></div>
   </div>
-  
+
   <label class="checkbox-label">
-    <input type="checkbox" id="p_purge"> 
+    <input type="checkbox" id="p_purge">
     <span>Hapus data mentah dari penyimpanan sementara setelah berhasil diproses</span>
   </label>
-  
+
   <button class="btn-modern" id="pRunBtn">
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
     Mulai Pemrosesan Bahasa
   </button>
-  
+
   <div class="status" id="pStat"></div>
 </section>
 
 <section class="c-card">
   <div class="stage-head">
     <h2 class="stage-title">Validasi &amp; Perbarui NIK/NPWP</h2>
-    <span class="pill stage" id="nikPill">—</span>
+    <span class="pill stage" id="nikPill">&mdash;</span>
   </div>
-  <p class="muted-text">NIK/NPWP di-scrape dari kolom "Dialed To (DNIS)" saat penarikan dan kini disimpan sebagai kolom tersendiri untuk data baru. Gunakan panel ini untuk <b>mengecek</b> cakupan NIK dan <b>memperbarui baris lama</b> yang belum tersimpan NIK-nya — dipulihkan dari nama berformat <b>"Nama [NIK]"</b>, lalu dari penyimpanan sementara. Nama yang masih mengandung "[...]" sekaligus dirapikan. Aman dijalankan berulang.</p>
+  <p class="muted-text">NIK/NPWP di-scrape dari kolom "Dialed To (DNIS)" saat penarikan dan kini disimpan sebagai kolom tersendiri untuk data baru. Gunakan panel ini untuk <b>mengecek</b> cakupan NIK dan <b>memperbarui baris lama</b> yang belum tersimpan NIK-nya - dipulihkan dari nama berformat <b>"Nama [NIK]"</b>, lalu dari penyimpanan sementara. Nama yang masih mengandung "[...]" sekaligus dirapikan. Aman dijalankan berulang.</p>
 
   <div id="nikInfo" class="muted-text">Klik <b>Cek Status NIK</b> untuk melihat ringkasan.</div>
 
@@ -225,7 +251,7 @@ function loadSummary(){
     if(!d.ok)return;
     var st=d.stats||{};
     el('stgCount').textContent=(st.total||0)+' percakapan';
-    el('stgInfo').textContent=(st.total? (st.total+' percakapan tersimpan • '+(st.days||0)+' hari • rentang '+(st.date_min||'-')+' s/d '+(st.date_max||'-')+' • '+(st.batches||0)+' batch tarik') : 'Belum ada data di penyimpanan sementara.');
+    el('stgInfo').textContent=(st.total? (st.total+' percakapan tersimpan \u2022 '+(st.days||0)+' hari \u2022 rentang '+(st.date_min||'-')+' s/d '+(st.date_max||'-')+' \u2022 '+(st.batches||0)+' batch tarik') : 'Belum ada data di penyimpanan sementara.');
     var tb=el('stgBatches');
     if(!d.batches||!d.batches.length){tb.innerHTML='<tr><td colspan="6" class="muted-text" style="text-align: center;">Belum ada tarikan.</td></tr>';return;}
     tb.innerHTML=d.batches.map(function(b){return '<tr><td>'+esc(b.id)+'</td><td>'+esc(b.date_from)+' s/d '+esc(b.date_to)+'</td><td>'+(b.n_pulled||0)+'</td><td>'+(b.n_new||0)+'</td><td>'+esc(b.pulled_by||'-')+'</td><td>'+esc(b.created_at||'')+'</td></tr>';}).join('');
@@ -246,13 +272,13 @@ function renderAuto(d){
   parts.push('Proses otomatis: <b>'+(d.process?'ya':'tidak (tarik saja)')+'</b>');
   if(last && (last.finished_at||last.started_at)){
     parts.push('Terakhir: <b>'+esc(last.finished_at||last.started_at)+'</b>'+(last.trigger?(' ('+esc(last.trigger)+')'):''));
-    if(last.ok) parts.push('Hasil: <b>berhasil</b> — '+esc(last.message||''));
-    else parts.push('Hasil: <b>gagal</b> — '+esc(last.error||''));
+    if(last.ok) parts.push('Hasil: <b>berhasil</b> \u2014 '+esc(last.message||''));
+    else parts.push('Hasil: <b>gagal</b> \u2014 '+esc(last.error||''));
     if(last.range) parts.push('Rentang: '+esc(last.range));
   } else {
     parts.push('Belum pernah dijalankan.');
   }
-  el('autoInfo').innerHTML=parts.join(' • ');
+  el('autoInfo').innerHTML=parts.join(' \u2022 ');
 }
 function loadAuto(){
   fetch('/api/awe/autopull/status').then(function(r){return r.json();}).then(function(d){if(d.ok)renderAuto(d);}).catch(function(){});
@@ -263,37 +289,39 @@ function pollAuto(){
     if(d.ok&&d.running){setTimeout(pollAuto,3000);return;}
     el('autoNowBtn').disabled=false;
     var last=(d&&d.last)||{};
-    if(last.ok)setA('✅ '+esc(last.message||'Selesai.'),'ok');
-    else if(last.error)setA('❌ '+esc(last.error||'Gagal.'),'err');
+    if(last.ok)setA('\u2705 '+esc(last.message||'Selesai.'),'ok');
+    else if(last.error)setA('\u274c '+esc(last.error||'Gagal.'),'err');
     loadSummary();
   }).catch(function(){el('autoNowBtn').disabled=false;});
 }
 el('autoNowBtn').addEventListener('click',function(){
-  el('autoNowBtn').disabled=true;setA('Memulai tarik otomatis…');
-  fetch('/api/awe/autopull/now',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+  el('autoNowBtn').disabled=true;setA('Memulai tarik otomatis\u2026');
+  var af=el('a_from').value,at=el('a_to').value,payload={};
+  if(af||at){payload.date_from=af||at;payload.date_to=at||af;}
+  fetch('/api/awe/autopull/now',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
    .then(function(r){return r.json();}).then(function(d){
      if(!d.ok){setA('Gagal: '+esc(d.error||''),'err');el('autoNowBtn').disabled=false;return;}
-     setA('▶️ '+esc(d.message||'Dimulai.'));setTimeout(pollAuto,2000);
+     setA('\u25b6\ufe0f '+esc(d.message||'Dimulai.'));setTimeout(pollAuto,2000);
    }).catch(function(e){setA('Gagal: '+e,'err');el('autoNowBtn').disabled=false;});
 });
 
 el('sCheckBtn').addEventListener('click',function(){
   var df=el('s_from').value,dt=el('s_to').value;
   if(!df||!dt){setS('Isi rentang tanggal dulu.','err');return;}
-  setS('Mengecek ketersediaan…');
+  setS('Mengecek ketersediaan\u2026');
   fetch('/api/awe/stage/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt})})
    .then(function(r){return r.json();}).then(function(d){
      if(!d.ok){setS('Gagal: '+esc(d.error||''),'err');return;}
      var nm=(d.missing||[]).length,ns=(d.staged||[]).length;
-     if(nm===0){setS('✅ Semua '+ns+' hari pada rentang ini sudah ada di penyimpanan sementara — tak perlu tarik ulang.','ok');el('sLoginBox').style.display='none';}
-     else{setS('ℹ️ '+ns+' hari sudah ada, <b>'+nm+' hari belum ada</b>. Masukkan kredensial untuk menariknya.');el('sLoginBox').style.display='block';}
+     if(nm===0){setS('\u2705 Semua '+ns+' hari pada rentang ini sudah ada di penyimpanan sementara - tak perlu tarik ulang.','ok');el('sLoginBox').style.display='none';}
+     else{setS('\u2139\ufe0f '+ns+' hari sudah ada, <b>'+nm+' hari belum ada</b>. Masukkan kredensial untuk menariknya.');el('sLoginBox').style.display='block';}
    }).catch(function(e){setS('Gagal: '+e,'err');});
 });
 
 el('sPullBtn').addEventListener('click',function(){
   var df=el('s_from').value,dt=el('s_to').value,u=el('s_user').value.trim(),pw=el('s_pass').value;
   if(!pw){setS('Password wajib diisi.','err');return;}
-  el('sPullBtn').disabled=true;setS('Menarik data…');
+  el('sPullBtn').disabled=true;setS('Menarik data\u2026');
   fetch('/api/awe/stage/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,username:u,password:pw,base_url:el('s_base').value.trim()})})
    .then(function(r){return r.json();}).then(function(d){
      if(!d.ok){setS('Gagal: '+esc(d.error||''),'err');el('sPullBtn').disabled=false;return;}
@@ -304,7 +332,7 @@ el('sPullBtn').addEventListener('click',function(){
 function pollStage(job){
   fetch('/api/awe/stage/progress?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(res){
     var p=res.progress||{};
-    if(!p.finished){setS(esc(p.message||'Menarik…'));setTimeout(function(){pollStage(job);},1500);return;}
+    if(!p.finished){setS(esc(p.message||'Menarik\u2026'));setTimeout(function(){pollStage(job);},1500);return;}
     fetchStage(job);
   }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
 }
@@ -313,29 +341,29 @@ function fetchStage(job){
   fetch('/api/awe/stage/fetch?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(d){
     el('sPullBtn').disabled=false;
     if(!d.ok){
-      if(d.need_login){setS('Login gagal: '+esc(d.error||'')+' — periksa kredensial.','err');el('sLoginBox').style.display='block';}
+      if(d.need_login){setS('Login gagal: '+esc(d.error||'')+' - periksa kredensial.','err');el('sLoginBox').style.display='block';}
       else setS('Gagal: '+esc(d.error||''),'err');
       return;
     }
-    setS('✅ '+esc(d.message||'Selesai.'),'ok');el('s_pass').value='';el('sLoginBox').style.display='none';
+    setS('\u2705 '+esc(d.message||'Selesai.'),'ok');el('s_pass').value='';el('sLoginBox').style.display='none';
     loadSummary();
   }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
 }
 
 el('pRunBtn').addEventListener('click',function(){
   var df=el('p_from').value,dt=el('p_to').value,purge=el('p_purge').checked;
-  el('pRunBtn').disabled=true;setP('Menyiapkan pemrosesan…');
+  el('pRunBtn').disabled=true;setP('Menyiapkan pemrosesan\u2026');
   fetch('/api/awe/process/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,purge_after:purge})})
    .then(function(r){return r.json();}).then(function(d){
      if(!d.ok){setP('Gagal: '+esc(d.error||''),'err');el('pRunBtn').disabled=false;return;}
-     setP('Memproses '+(d.n_staged||0)+' percakapan…');pollProc(d.job);
+     setP('Memproses '+(d.n_staged||0)+' percakapan\u2026');pollProc(d.job);
    }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
 });
 
 function pollProc(job){
   fetch('/api/awe/process/progress?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(res){
     var p=res.progress||{};
-    if(!p.finished){setP(esc(p.message||'Memproses…'));setTimeout(function(){pollProc(job);},2000);return;}
+    if(!p.finished){setP(esc(p.message||'Memproses\u2026'));setTimeout(function(){pollProc(job);},2000);return;}
     fetchProc(job);
   }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
 }
@@ -344,7 +372,7 @@ function fetchProc(job){
   fetch('/api/awe/process/fetch?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(d){
     el('pRunBtn').disabled=false;
     if(!d.ok){setP('Gagal: '+esc(d.error||''),'err');return;}
-    setP('✅ '+esc(d.message||'Selesai.')+' Hasil tersimpan di database AWE'+(d.purged?' dan penyimpanan sementara sudah dibersihkan.':'.'),'ok');
+    setP('\u2705 '+esc(d.message||'Selesai.')+' Hasil tersimpan di database AWE'+(d.purged?' dan penyimpanan sementara sudah dibersihkan.':'.'),'ok');
     loadSummary();
   }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
 }
@@ -353,26 +381,26 @@ function setN(msg,k){var s=el('nikStat');s.className='status show'+(k?(' '+k):''
 function renderNik(st){
   if(!st)return;
   el('nikPill').textContent=(st.with_nik||0)+' / '+(st.total||0)+' ber-NIK';
-  el('nikInfo').innerHTML='Total baris: <b>'+(st.total||0)+'</b> • sudah ber-NIK: <b>'+(st.with_nik||0)+'</b> • belum ber-NIK: <b>'+(st.without_nik||0)+'</b> • dapat dipulihkan dari nama: <b>'+(st.recover_from_name||0)+'</b> • nama masih mengandung "[...]": <b>'+(st.name_has_bracket||0)+'</b> • di staging: <b>'+(st.staging_rows||0)+'</b>';
+  el('nikInfo').innerHTML='Total baris: <b>'+(st.total||0)+'</b> \u2022 sudah ber-NIK: <b>'+(st.with_nik||0)+'</b> \u2022 belum ber-NIK: <b>'+(st.without_nik||0)+'</b> \u2022 dapat dipulihkan dari nama: <b>'+(st.recover_from_name||0)+'</b> \u2022 nama masih mengandung "[...]": <b>'+(st.name_has_bracket||0)+'</b> \u2022 di staging: <b>'+(st.staging_rows||0)+'</b>';
 }
 function loadNik(){
   fetch('/api/awe/nik/stats').then(function(r){return r.json();}).then(function(d){if(d.ok)renderNik(d);}).catch(function(){});
 }
 el('nikCheckBtn').addEventListener('click',function(){
-  setN('Mengecek status NIK…');
+  setN('Mengecek status NIK\u2026');
   fetch('/api/awe/nik/stats').then(function(r){return r.json();}).then(function(d){
     if(!d.ok){setN('Gagal: '+esc(d.error||''),'err');return;}
-    renderNik(d);setN('✅ Status NIK dimuat.','ok');
+    renderNik(d);setN('\u2705 Status NIK dimuat.','ok');
   }).catch(function(e){setN('Gagal: '+e,'err');});
 });
 el('nikFillBtn').addEventListener('click',function(){
-  el('nikFillBtn').disabled=true;setN('Memperbarui NIK baris lama…');
+  el('nikFillBtn').disabled=true;setN('Memperbarui NIK baris lama\u2026');
   fetch('/api/awe/nik/backfill',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
    .then(function(r){return r.json();}).then(function(d){
      el('nikFillBtn').disabled=false;
      if(!d.ok){setN('Gagal: '+esc(d.error||''),'err');return;}
      if(d.stats)renderNik(d.stats);
-     setN('✅ Selesai. '+(d.nik_filled||0)+' baris diisi NIK, '+(d.name_cleaned||0)+' nama dirapikan (dari '+(d.scanned||0)+' baris diperiksa).','ok');
+     setN('\u2705 Selesai. '+(d.nik_filled||0)+' baris diisi NIK, '+(d.name_cleaned||0)+' nama dirapikan (dari '+(d.scanned||0)+' baris diperiksa).','ok');
    }).catch(function(e){setN('Gagal: '+e,'err');el('nikFillBtn').disabled=false;});
 });
 
