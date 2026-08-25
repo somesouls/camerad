@@ -84,3 +84,16 @@ try:
     print("[intents_patch] aktif: aksi 'intents' (katalog intent untuk pencarian Step 6/9)", flush=True)
 except Exception:
     pass
+
+
+# --- Audit "acuan analis" (Opsi A) — chain-import di akhir rantai Step 6/9. ---
+#     judge_audit_patch membungkus step6_load & step9_load (versi terakhir,
+#     setelah sinyal Fase 1 + id_trace) untuk MENANDAI per-baris apakah judge
+#     LLM punya acuan pengetahuan analis + SUMBER yang cocok (glosarium / peta
+#     intent / disambiguasi / katalog). Diletakkan di sini agar aktif tanpa
+#     menyentuh web_app.py, yang sudah mengimpor intents_patch PALING AKHIR di
+#     rantai Step 6/9. Idempoten (modul di-cache Python) & fail-open.
+try:
+    import pipeline.judge_audit_patch  # noqa: F401
+except Exception as _judge_audit_exc:
+    print("[judge_audit] gagal dimuat:", _judge_audit_exc, flush=True)
