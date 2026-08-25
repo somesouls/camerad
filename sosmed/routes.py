@@ -16,9 +16,11 @@ sosmed_knowledge.py. Collector X: sosmed_x.py. Daftarkan dengan:
     import sosmed_routes; sosmed_routes.register(app)
 """
 import io
+import os
 import csv
 import json
 import zipfile
+import threading
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -28,6 +30,7 @@ from starlette.concurrency import run_in_threadpool
 import sosmed.db as sdb
 import sosmed.x as sx
 import sosmed.knowledge as sk
+import sosmed.semantic_index as ssi
 from app_core import render_page
 
 
@@ -39,6 +42,60 @@ def _conn():
 
 def _off_handles():
     return sdb.official_handles()
+
+
+# ---------------------------------------------------------------------------
+# Auto-reindex index vektor sosmed (latar, fail-open, coalesced)
+# ---------------------------------------------------------------------------
+_REINDEX_LOCK = threading.Lock()
+_REINDEX_STATE = {"running": False, "again": False}
+
+
+def _auto_reindex_on():
+    return str(os.environ.get("SOSMED_AUTO_REINDEX", "1")).strip().lower() not in (
+        "0", "false", "no", "off")
+
+
+def _kick_reindex_bg():
+    """Jadwalkan rebuild index vektor sosmed di latar.
+
+    Inkremental (hanya baris baru/berubah), fail-open, dan digabung (coalesced)
+    supaya rentetan impor/kurasi tidak menelurkan banyak build sekaligus. Jika
+    satu build sedang jalan lalu ada pemicu baru, satu build susulan dijalankan
+    setelahnya agar data terakhir pasti ikut terindeks.
+    """
+    if not _auto_reindex_on():
+        return
+    with _REINDEX_LOCK:
+        if _REINDEX_STATE["running"]:
+            _REINDEX_STATE["again"] = True
+            return
+        _REINDEX_STATE["running"] = True
+
+    def _run():
+        try:
+            while True:
+                try:
+                    ssi.build()
+                except Exception:
+                    pass
+                with _REINDEX_LOCK:
+                    if _REINDEX_STATE["again"]:
+                        _REINDEX_STATE["again"] = False
+                        continue
+                    _REINDEX_STATE["running"] = False
+                    return
+        except Exception:
+            with _REINDEX_LOCK:
+                _REINDEX_STATE["running"] = False
+                _REINDEX_STATE["again"] = False
+
+    try:
+        threading.Thread(target=_run, name="sosmed-reindex", daemon=True).start()
+    except Exception:
+        with _REINDEX_LOCK:
+            _REINDEX_STATE["running"] = False
+            _REINDEX_STATE["again"] = False
 
 
 # ---------------------------------------------------------------------------
@@ -177,6 +234,11 @@ async def api_import_upload(request: Request):
         finally:
             c.close()
     res = await run_in_threadpool(_do)
+    try:
+        if isinstance(res, dict) and res.get("ok", True):
+            _kick_reindex_bg()
+    except Exception:
+        pass
     return JSONResponse(res)
 
 
@@ -202,6 +264,11 @@ async def api_import_paste(request: Request):
         finally:
             c.close()
     res = await run_in_threadpool(_do)
+    try:
+        if isinstance(res, dict) and res.get("ok", True):
+            _kick_reindex_bg()
+    except Exception:
+        pass
     return JSONResponse(res)
 
 
@@ -245,6 +312,11 @@ async def api_pull_x(request: Request):
         res["pulled"] = info.get("count", len(items))
         return res
     res = await run_in_threadpool(_do)
+    try:
+        if res.get("ok"):
+            _kick_reindex_bg()
+    except Exception:
+        pass
     code = 200 if res.get("ok") else 400
     return JSONResponse(res, status_code=code)
 
@@ -259,7 +331,12 @@ async def api_repair(request: Request):
             return sdb.repair_all_pairing(c)
         finally:
             c.close()
-    return JSONResponse(await run_in_threadpool(_do))
+    res = await run_in_threadpool(_do)
+    try:
+        _kick_reindex_bg()
+    except Exception:
+        pass
+    return JSONResponse(res)
 
 
 # ---------------------------------------------------------------------------
@@ -329,7 +406,13 @@ async def api_set_status(request: Request):
             return {"ok": ok}
         finally:
             c.close()
-    return JSONResponse(await run_in_threadpool(_do))
+    res = await run_in_threadpool(_do)
+    try:
+        if isinstance(res, dict) and res.get("ok"):
+            _kick_reindex_bg()
+    except Exception:
+        pass
+    return JSONResponse(res)
 
 
 async def api_set_topik(request: Request):
@@ -349,7 +432,13 @@ async def api_set_topik(request: Request):
             return {"ok": ok}
         finally:
             c.close()
-    return JSONResponse(await run_in_threadpool(_do))
+    res = await run_in_threadpool(_do)
+    try:
+        if isinstance(res, dict) and res.get("ok"):
+            _kick_reindex_bg()
+    except Exception:
+        pass
+    return JSONResponse(res)
 
 
 # ---------------------------------------------------------------------------
@@ -410,9 +499,14 @@ async def api_stats(request: Request):
     def _do():
         c = _conn()
         try:
-            return {"ok": True, "stats": sdb.stats(c), "batches": sdb.list_batches(c, 50)}
+            out = {"ok": True, "stats": sdb.stats(c), "batches": sdb.list_batches(c, 50)}
         finally:
             c.close()
+        try:
+            out["index"] = ssi.stats()
+        except Exception:
+            out["index"] = {"vec": 0}
+        return out
     return JSONResponse(await run_in_threadpool(_do))
 
 
@@ -424,6 +518,26 @@ async def api_purge(request: Request):
             return {"ok": True}
         finally:
             c.close()
+    res = await run_in_threadpool(_do)
+    try:
+        _kick_reindex_bg()
+    except Exception:
+        pass
+    return JSONResponse(res)
+
+
+async def api_reindex(request: Request):
+    """Bangun ulang index vektor sosmed secara inkremental.
+
+    Hanya meng-embed Q&A terjawab yang baru/berubah (dan membuang yang sudah
+    dihapus). Dipakai oleh tombol \"Index data baru\" di Kelola Data Sosmed.
+    Fail-open: bila index nonaktif/dependensi tak ada, balikin ok=False + alasan.
+    """
+    def _do():
+        try:
+            return ssi.build()
+        except Exception as e:
+            return {"ok": False, "n": 0, "reason": str(e)[:160]}
     return JSONResponse(await run_in_threadpool(_do))
 
 
@@ -449,6 +563,7 @@ def register(app):
     app.add_api_route("/api/sosmed/pull-x", api_pull_x, methods=["POST"])
     app.add_api_route("/api/sosmed/purge", api_purge, methods=["POST"])
     app.add_api_route("/api/sosmed/repair", api_repair, methods=["POST"])
+    app.add_api_route("/api/sosmed/reindex", api_reindex, methods=["POST"])
     # Q&A
     app.add_api_route("/api/sosmed/list", api_list, methods=["GET"])
     app.add_api_route("/api/sosmed/thread", api_thread, methods=["GET"])
