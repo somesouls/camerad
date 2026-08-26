@@ -1,44 +1,16 @@
 # -*- coding: utf-8 -*-
-"""
-rag_successor_patch.py
-----------------------
-Poin #1 arsitektur RAG final: "successor-tracing" peraturan.
+"""rag_successor_patch.py — successor-tracing peraturan.
 
-Mesin lama (rag_engine._ctx_peraturan) HANYA melampirkan peraturan berstatus
-'berlaku' dan MEMBUANG diam-diam peraturan 'dicabut'/'diubah'. Akibatnya, bila
-ketentuan yang PALING cocok dengan pertanyaan justru sudah dicabut/diubah,
-mesin tidak memberi tahu apa pun dan bisa menjawab dari peraturan berlaku lain
-yang kurang relevan.
+Mengganti _ctx_peraturan: tetap lampirkan ISI peraturan BERLAKU; bila kandidat
+termirip berstatus dicabut/diubah, telusuri pengganti (multi-hop via
+peraturan_relasi) + sisipkan CATATAN STATUS HUKUM.
 
-Patch ini mengganti _ctx_peraturan sehingga:
-  1. Tetap hanya melampirkan ISI peraturan yang BERLAKU (aman, tak berubah).
-  2. Melakukan probe lintas-status untuk mendeteksi apakah kandidat TERMIRIP
-     justru berstatus dicabut/diubah.
-  3. Bila ya: menelusuri peraturan PENGGANTI terbaru, menarik ISI pengganti
-     yang BERLAKU ke konteks, dan menyisipkan CATATAN STATUS HUKUM agar LLM
-     tidak mendasarkan jawaban pada aturan yang sudah tak berlaku.
-
-Fase 2 (v2): penelusuran pengganti menjadi MULTI-HOP bila tabel
-peraturan_relasi sudah dibangun (phase2_upgrade) — rantai A(dicabut) ->
-B(diubah) -> C(berlaku) ditelusuri sampai ujung yang berlaku, dan penarikan
-ISI diprioritaskan dari dokumen ujung yang berlaku. Bila tabel relasi belum
-ada/kosong, perilaku kembali ke jalur JSON 1-lompatan (status_terkait /
-dicabut_oleh) persis seperti v1.
-
-Fase 3 (v3): penarikan ISI pengganti kini memakai source_id dari langkah
-rantai — bukan pencarian teks judul yang bisa nyasar ke peraturan lain
-berjudul mirip (mis. PPh 23 royalti untuk pertanyaan PPh 21). Unit BERLAKU
-milik source_id itu diambil langsung via SQL (kebal gerbang cosine), lalu
-dipilih unit yang paling relevan secara leksikal ke pertanyaan. Env
-RAG_SUCCESSOR_SID=0 mengembalikan ke jalur pencarian teks lama.
-
-Gagal-anggun: bila bagian penelusuran error, jatuh kembali ke perilaku
-'berlaku saja'.
-
-Dipasang lewat web_app.py (import rag_successor_patch). Karena rag_engine
-memakai tabel dispatch _DISPATCH yang menyimpan referensi fungsi LAMA sejak
-impor, patch WAJIB memperbarui _DISPATCH["peraturan"] juga, bukan hanya
-atribut modul.
+Fase 3 (v3): penarikan ISI pengganti memakai source_id dari langkah rantai
+(bukan pencarian teks judul yang bisa nyasar ke peraturan berjudul mirip, mis.
+PPh 23 royalti untuk pertanyaan PPh 21). Unit BERLAKU milik source_id ditarik
+langsung via SQL (kebal gerbang cosine) lalu dipilih yang paling relevan
+leksikal. Env RAG_SUCCESSOR_SID=0 -> jalur teks lama. Gagal-anggun penuh.
+Dipasang lewat web_app.py (import) + memperbarui _DISPATCH["peraturan"].
 """
 import rag.engine as _re
 import os as _os_std
@@ -46,7 +18,6 @@ import re as _re_std
 
 
 def _sid_on():
-    """Fase 3 aktif? RAG_SUCCESSOR_SID=0 -> kembali ke penarikan via teks (lama)."""
     return str(_os_std.environ.get("RAG_SUCCESSOR_SID", "1")).strip().lower() not in (
         "0", "false", "no", "off")
 
@@ -62,14 +33,8 @@ def _tok(s):
 
 
 def _fetch_pengganti_by_sid(pdb, source_id, q, maks=1):
-    """Ambil unit BERLAKU milik source_id LANGSUNG via SQL (kebal gerbang
-    cosine), lalu pilih unit paling relevan secara leksikal ke query asli.
-
-    Rantai successor sudah memastikan dokumen pengganti yang tepat (punya
-    source_id); menariknya via source_id jauh lebih akurat daripada mencari
-    ulang lewat teks judul yang kerap nyasar ke peraturan lain berjudul mirip.
-    Gagal-anggun penuh: kembalikan [] bila apa pun error.
-    """
+    """Ambil unit BERLAKU milik source_id via SQL (kebal gate cosine), pilih
+    unit paling relevan leksikal ke query asli. Gagal-anggun: [] bila error."""
     sid = str(source_id or "").strip()
     if not sid or pdb is None:
         return []
@@ -155,14 +120,11 @@ def _ctx_peraturan_tracing(q, limit=4):
                         "ref": (reference or hierarchy),
                         "url": source_url})
 
-    # (1) Konteks utama: hanya BERLAKU (perilaku aman lama).
     try:
         berlaku = pdb.search(q, limit, ("berlaku",))
     except Exception:
         berlaku = []
 
-    # (2)+(3) Deteksi kandidat termirip yang tak berlaku, lalu telusuri
-    #         penggantinya. Dibungkus agar gagal-anggun ke 'berlaku saja'.
     try:
         probe = pdb.search(q, 3, ("berlaku", "diubah", "dicabut")) or []
         usang = None
@@ -183,10 +145,6 @@ def _ctx_peraturan_tracing(q, limit=4):
             if pasal:
                 head_usang += " - Pasal " + pasal
 
-            # Fase 2: coba telusur MULTI-HOP lewat tabel peraturan_relasi dulu
-            # (dibangun phase2_upgrade). Rantai A(dicabut) -> B(diubah) ->
-            # C(berlaku) ditelusuri sampai ujung. Bila tabel relasi belum ada /
-            # kosong -> fallback ke jalur JSON 1-lompatan (perilaku v1).
             refs = []
             langkah = []
             try:
@@ -207,13 +165,9 @@ def _ctx_peraturan_tracing(q, limit=4):
                         lab = "%s (%s)" % (lab, tgl)
                     if lab:
                         refs.append((lab, st))
-                # Prioritaskan penarikan ISI dari dokumen berstatus 'berlaku'
-                # (ujung rantai), bukan perantara yang masih diubah/dicabut.
                 refs.sort(key=lambda x: 0 if str((x[1] or {}).get("status") or "").lower() == "berlaku" else 1)
 
             if not refs:
-                # Referensi pengganti dari status_terkait (JSON), lalu fallback
-                # ke kolom teks dicabut_oleh / diubah_oleh.
                 terkait = _json_list(usang.get("status_terkait"))
                 for it in terkait[:2]:
                     if not isinstance(it, dict):
@@ -234,14 +188,11 @@ def _ctx_peraturan_tracing(q, limit=4):
                     if teks:
                         refs.append((teks, None))
 
-            # Tarik ISI peraturan pengganti yang BERLAKU (maks 1) ke konteks.
             ditarik = 0
             for lab, it in refs:
                 if ditarik >= 1:
                     break
-                # Fase 3: bila step rantai punya source_id, tarik ISI pengganti
-                # LANGSUNG via source_id (akurat + kebal gate cosine). Jalur
-                # teks (lama) sering nyasar ke peraturan lain berjudul mirip.
+                # Fase 3: tarik ISI pengganti via source_id (akurat + kebal gate).
                 sid = str(it.get("source_id") or "").strip() if isinstance(it, dict) else ""
                 if sid and _sid_on():
                     for pr in _fetch_pengganti_by_sid(pdb, sid, q, maks=1):
@@ -292,7 +243,6 @@ def _ctx_peraturan_tracing(q, limit=4):
     except Exception:
         pass
 
-    # Lampirkan konteks BERLAKU utama (setelah pengganti; dedup via 'seen').
     for r in (berlaku or []):
         _emit(r, tag="")
 
@@ -300,4 +250,10 @@ def _ctx_peraturan_tracing(q, limit=4):
     return ("\n\n".join(body), sources)
 
 
-# Pasang: ganti fungsi modul DAN entri
+_re._ctx_peraturan = _ctx_peraturan_tracing
+try:
+    _re._DISPATCH["peraturan"] = _ctx_peraturan_tracing
+except Exception:
+    pass
+
+print("[rag_successor_patch] successor-tracing aktif (multi-hop + tarik-ISI via source_id v3)")
