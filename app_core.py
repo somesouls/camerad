@@ -245,6 +245,20 @@ async def _auth_middleware(request: Request, call_next):
     if path in _PUBLIC_PATHS or path.startswith("/static"):
         return await call_next(request)
 
+    # Panggilan internal server-ke-server ke /api/avaya-* (worker AWE Tahap 2 &
+    # langkah pipeline Avaya yang memanggil endpoint di PROSES YANG SAMA) memakai
+    # header X-API-Key, BUKAN cookie sesi. Sejak endpoint /api/avaya-* disatukan
+    # ke web utama (:8080), middleware sesi ini keliru menolaknya 401 (mis.
+    # POST /api/avaya-result-start saat Tahap 2 proses bahasa AWE). Endpoint
+    # /api/avaya-* sudah memvalidasi X-API-Key sendiri, jadi bila key cocok kita
+    # lewati gerbang sesi (memulihkan desain lama saat endpoint ini jalan di
+    # proses terpisah tanpa middleware sesi). Akses via browser tetap butuh login
+    # karena tidak membawa X-API-Key.
+    if path.startswith("/api/avaya-"):
+        _svc_key = request.headers.get("x-api-key")
+        if _svc_key and _svc_key == CONFIG.get("qwen_api_key"):
+            return await call_next(request)
+
     user = _user_from_token(request.cookies.get("session"))
     if user is None:
         if path.startswith("/api/"):
