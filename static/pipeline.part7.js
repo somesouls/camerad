@@ -74,6 +74,7 @@
     } else {
       if(ctx.store&&ctx.store.rows[i]){ ctx.store.rows[i].seharusnya=value; ctx.store.rows[i].edited=true; }
       inp.classList.add('edited');
+      if(typeof s9UpdateCounts==='function'){ try{ s9UpdateCounts(); }catch(e){} }
     }
     closeMenus();
   }
