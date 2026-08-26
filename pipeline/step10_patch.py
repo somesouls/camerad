@@ -510,7 +510,7 @@ def step10_build(cfg, ctx):
 
 
 # =============================================================
-# STEP 11 (patch) — derivasi training phrase dari sheet Pembaruan format baru
+# STEP 11 (patch) — derivasi training phrase dari hasil Step 10
 # =============================================================
 def _s11_derive_phrases(cfg, ctx):
     """Ambil {intent: [phrase]} dari hasil Step 10. Utamakan sheet bersih
@@ -520,4 +520,46 @@ def _s11_derive_phrases(cfg, ctx):
     s10 = state["steps"].get("10")
     if not s10 or not s10.get("file"):
         raise Exception("Hasil Step 10 belum ada. Jalankan Step 10 dulu.")
-    p = os.path.join(pr.run_dir(cfg, ctx.run), s10[
+    p = os.path.join(pr.run_dir(cfg, ctx.run), s10["file"])
+    if not os.path.isfile(p):
+        raise Exception("File hasil Step 10 hilang dari server.")
+    with open(p, "rb") as f:
+        b = f.read()
+    wb = pr._wb_from_bytes(b)
+    sheet = None
+    for nm in ("Data Pembaruan", "Pembaruan"):
+        if nm in wb.sheetnames:
+            sheet = nm
+            break
+    if sheet is None:
+        raise Exception('Sheet "Data Pembaruan"/"Pembaruan" tidak ada di hasil Step 10.')
+    sh = pr.read_sheet(wb[sheet])
+    H = sh["headers"]
+    c_intent = pr._find_header(H, ["Intent Seharusnya", "NAMA_MATERI", "Intent", "ID"])
+    c_phrase = pr._find_header(H, ["Training Phrase Baru", "Training Phrase", "Phrase"])
+    c_rangkuman = pr._find_header(H, ["RANGKUMAN"])
+    phrases = {}
+    for rn in sorted(sh["rows"].keys()):
+        if rn == 1:
+            continue
+        cells = sh["rows"][rn]
+        intent = pr._sv(cells, c_intent).strip()
+        phrase = pr._sv(cells, c_phrase).strip() if c_phrase else ""
+        if phrase == "" and c_rangkuman:
+            m = re.search(r"Menambahkan frasa '(.*)' sebagai training phrase intent ", pr._sv(cells, c_rangkuman))
+            if m:
+                phrase = m.group(1).strip()
+        if intent == "" or phrase == "":
+            continue
+        phrases.setdefault(intent, [])
+        if phrase not in phrases[intent]:
+            phrases[intent].append(phrase)
+    if not phrases:
+        raise Exception("Tidak ada training phrase baru pada sheet Pembaruan.")
+    return b, phrases
+
+
+# Pasang override.
+pr.step10_build = step10_build
+_ps.s11_derive_phrases = _s11_derive_phrases
+pr.s11_derive_phrases = _s11_derive_phrases
