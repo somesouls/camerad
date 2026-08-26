@@ -47,7 +47,9 @@ function openModal9(st){
       '<div class="fg"><label>Skor Dialogflow \u2264</label><input type="number" id="f9df" min="0" max="1" step="0.05" placeholder="0" style="width:100px"></div>'+
       '<div class="fg"><label>Skor NLI \u2264</label><input type="number" id="f9nli" min="0" max="1" step="0.05" placeholder="0" style="width:100px"></div>'+
       '<div class="fg"><label>Cari pertanyaan</label><input type="text" id="f9q" placeholder="kata kunci..."></div>'+
+      '<div class="fg"><label>Intent Seharusnya</label><select id="f9seh"><option value="">Semua</option><option value="ADA">Ada isi</option><option value="KOSONG">Kosong</option></select></div>'+
       '<span class="count" id="s9count"></span>'+
+      '<span class="count" id="s9seh" style="color:var(--text2);white-space:nowrap"></span>'+
     '</div>'+
     '<div class="status" id="mstatus"></div>'+
     '<div class="s6wrap"><table class="s6table"><thead><tr>'+
@@ -61,7 +63,7 @@ function openModal9(st){
   document.getElementById('overlay').classList.add('show');
   document.getElementById('mxBtn').onclick=closeModal;
   document.getElementById('s9save').onclick=saveStep9;
-  ['f9qa','f9put','f9kat','f9df','f9nli','f9q'].forEach(id=>{ const el=document.getElementById(id); el.oninput=renderStep9; el.onchange=renderStep9; });
+  ['f9qa','f9put','f9kat','f9df','f9nli','f9q','f9seh'].forEach(id=>{ const el=document.getElementById(id); el.oninput=renderStep9; el.onchange=renderStep9; });
   loadStep9();
 }
 
@@ -88,6 +90,25 @@ function loadStep9(){
 function s9num(v){ const n=parseFloat(String(v==null?'':v).replace(',','.')); return isNaN(n)?null:n; }
 function s9fmt(v){ const n=s9num(v); return n===null ? esc(String(v==null?'':v)) : n.toFixed(2); }
 
+function s9SehCounts(){
+  const thr=parseFloat(document.getElementById('f9qa').value);
+  let filled=0, empty=0;
+  STEP9.rows.forEach(r=>{
+    const qa=s9num(r.qa);
+    const inThr = !isNaN(thr) ? (qa!==null && qa<thr) : true;
+    if(!inThr) return;
+    const seh=(r.seharusnya||'').trim();
+    if(seh) filled++; else empty++;
+  });
+  return {filled:filled, empty:empty, total:filled+empty};
+}
+
+function s9UpdateCounts(){
+  const el=document.getElementById('s9seh'); if(!el) return;
+  const c=s9SehCounts();
+  el.innerHTML='<b style="color:#10b981;font-size:13.5px">'+c.filled+'</b> diisi (tindak lanjut) \u00b7 '+c.empty+' kosong (TANPA CATATAN)';
+}
+
 function renderStep9(){
   const body=document.getElementById('s9body'); if(!body) return;
   const thr=parseFloat(document.getElementById('f9qa').value);
@@ -96,6 +117,7 @@ function renderStep9(){
   const fdf=parseFloat(document.getElementById('f9df').value);
   const fnli=parseFloat(document.getElementById('f9nli').value);
   const fq=document.getElementById('f9q').value.trim().toLowerCase();
+  const fsehEl=document.getElementById('f9seh'); const fseh=fsehEl?fsehEl.value:'';
   const CAP=400; let shown=0, matched=0, underThr=0;
   const parts=[];
   const order = STEP9.rows.map((r,i)=>i);
@@ -111,6 +133,7 @@ function renderStep9(){
     if(!isNaN(fdf)){ const d=s9num(r.df); if(d===null || d>fdf) return; }
     if(!isNaN(fnli)){ const nn=s9num(r.nli); if(nn===null || nn>fnli) return; }
     if(fq && !(r.pertanyaan||'').toLowerCase().includes(fq)) return;
+    if(fseh){ const seh=(r.seharusnya||'').trim(); if(fseh==='ADA' && !seh) return; if(fseh==='KOSONG' && seh) return; }
     matched++;
     if(shown>=CAP) return; shown++;
     const kand = (r.kandidat||r.terdekat||'');
@@ -131,8 +154,9 @@ function renderStep9(){
     );
   });
   body.innerHTML=parts.join('');
-  body.querySelectorAll('.s6intent').forEach(inp=>{ const i=parseInt(inp.dataset.i,10); inp.oninput=()=>{ STEP9.rows[i].seharusnya=inp.value; STEP9.rows[i].edited=true; inp.classList.add('edited'); }; });
+  body.querySelectorAll('.s6intent').forEach(inp=>{ const i=parseInt(inp.dataset.i,10); inp.oninput=()=>{ STEP9.rows[i].seharusnya=inp.value; STEP9.rows[i].edited=true; inp.classList.add('edited'); s9UpdateCounts(); }; });
   document.getElementById('s9count').textContent = matched+' tampil \u00b7 '+underThr+' akan disimpan (Skor<'+(isNaN(thr)?'-':thr)+')'+(matched>CAP?(' \u00b7 tampil '+CAP):'');
+  s9UpdateCounts();
 }
 
 function saveStep9(){
