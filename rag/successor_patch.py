@@ -25,6 +25,13 @@ ISI diprioritaskan dari dokumen ujung yang berlaku. Bila tabel relasi belum
 ada/kosong, perilaku kembali ke jalur JSON 1-lompatan (status_terkait /
 dicabut_oleh) persis seperti v1.
 
+Fase 3 (v3): penarikan ISI pengganti kini memakai source_id dari langkah
+rantai — bukan pencarian teks judul yang bisa nyasar ke peraturan lain
+berjudul mirip (mis. PPh 23 royalti untuk pertanyaan PPh 21). Unit BERLAKU
+milik source_id itu diambil langsung via SQL (kebal gerbang cosine), lalu
+dipilih unit yang paling relevan secara leksikal ke pertanyaan. Env
+RAG_SUCCESSOR_SID=0 mengembalikan ke jalur pencarian teks lama.
+
 Gagal-anggun: bila bagian penelusuran error, jatuh kembali ke perilaku
 'berlaku saja'.
 
@@ -34,6 +41,74 @@ impor, patch WAJIB memperbarui _DISPATCH["peraturan"] juga, bukan hanya
 atribut modul.
 """
 import rag.engine as _re
+import os as _os_std
+import re as _re_std
+
+
+def _sid_on():
+    """Fase 3 aktif? RAG_SUCCESSOR_SID=0 -> kembali ke penarikan via teks (lama)."""
+    return str(_os_std.environ.get("RAG_SUCCESSOR_SID", "1")).strip().lower() not in (
+        "0", "false", "no", "off")
+
+
+_STOP = {"yang", "di", "ke", "dari", "dan", "atau", "apa", "itu", "aturan",
+         "diatur", "mana", "tanya", "mau", "saya", "tentang", "pada", "untuk",
+         "dengan", "apakah", "bagaimana", "ada", "nya", "sih", "dong", "kah"}
+
+
+def _tok(s):
+    return [t for t in _re_std.findall(r"[a-z0-9]+", (s or "").lower())
+            if len(t) >= 3 and t not in _STOP]
+
+
+def _fetch_pengganti_by_sid(pdb, source_id, q, maks=1):
+    """Ambil unit BERLAKU milik source_id LANGSUNG via SQL (kebal gerbang
+    cosine), lalu pilih unit paling relevan secara leksikal ke query asli.
+
+    Rantai successor sudah memastikan dokumen pengganti yang tepat (punya
+    source_id); menariknya via source_id jauh lebih akurat daripada mencari
+    ulang lewat teks judul yang kerap nyasar ke peraturan lain berjudul mirip.
+    Gagal-anggun penuh: kembalikan [] bila apa pun error.
+    """
+    sid = str(source_id or "").strip()
+    if not sid or pdb is None:
+        return []
+    conn = None
+    rows = []
+    try:
+        conn = pdb.init_db(pdb.connect())
+        rows = conn.execute(
+            "SELECT * FROM peraturan_unit WHERE source_id=? AND status='berlaku' "
+            "LIMIT 80", (sid,)).fetchall()
+    except Exception:
+        rows = []
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+    docs = []
+    for r in rows:
+        try:
+            docs.append(r if isinstance(r, dict) else dict(r))
+        except Exception:
+            continue
+    if not docs:
+        return []
+    qtok = set(_tok(q))
+
+    def _score(d):
+        blob = (str(d.get("hierarchy") or "") + " "
+                + str(d.get("judul") or "") + " "
+                + str(d.get("isi") or "")).lower()
+        s = sum(1 for t in qtok if t in blob)
+        if "tarif efektif" in blob:
+            s += 3
+        return s
+
+    docs.sort(key=_score, reverse=True)
+    return docs[:max(1, int(maks or 1))]
 
 
 def _ctx_peraturan_tracing(q, limit=4):
@@ -164,6 +239,19 @@ def _ctx_peraturan_tracing(q, limit=4):
             for lab, it in refs:
                 if ditarik >= 1:
                     break
+                # Fase 3: bila step rantai punya source_id, tarik ISI pengganti
+                # LANGSUNG via source_id (akurat + kebal gate cosine). Jalur
+                # teks (lama) sering nyasar ke peraturan lain berjudul mirip.
+                sid = str(it.get("source_id") or "").strip() if isinstance(it, dict) else ""
+                if sid and _sid_on():
+                    for pr in _fetch_pengganti_by_sid(pdb, sid, q, maks=1):
+                        before = len(blocks)
+                        _emit(pr, tag="(pengganti, berlaku)")
+                        if len(blocks) > before:
+                            ditarik += 1
+                            break
+                    if ditarik >= 1:
+                        break
                 kunci = ""
                 if isinstance(it, dict):
                     kunci = " ".join(x for x in [
@@ -212,13 +300,4 @@ def _ctx_peraturan_tracing(q, limit=4):
     return ("\n\n".join(body), sources)
 
 
-# Pasang: ganti fungsi modul DAN entri tabel dispatch (yang menyimpan referensi
-# ke fungsi lama sejak impor rag_engine).
-_re._ctx_peraturan = _ctx_peraturan_tracing
-try:
-    _re._DISPATCH["peraturan"] = _ctx_peraturan_tracing
-except Exception:
-    pass
-
-print("[rag_successor_patch] _ctx_peraturan successor-tracing aktif "
-      "(multi-hop bila peraturan_relasi terisi)")
+# Pasang: ganti fungsi modul DAN entri
