@@ -740,3 +740,11 @@ def register(app, *, save_artifact, load_state, save_state, Ctx,
     app.add_api_route("/api/awe/nik/backfill", awe_nik_backfill, methods=["POST"])
     app.add_api_route("/api/awe/autopull/status", awe_autopull_status, methods=["GET"])
     app.add_api_route("/api/awe/autopull/now", awe_autopull_now, methods=["POST"])
+    # Increment 1 (telepon): route uji terpisah. Fail-soft agar route AWE lain
+    # (dan alur Chat) tetap dimuat bila modul telepon bermasalah.
+    try:
+        import awe.phone_routes as _awe_phone
+        app.add_api_route("/awe/telepon", _awe_phone.awe_telepon_page, methods=["GET"])
+        app.add_api_route("/api/awe/phone/probe", _awe_phone.awe_phone_probe, methods=["POST"])
+    except Exception as _awe_phone_exc:
+        print("[AWE-PHONE] modul telepon dilewati:", _awe_phone_exc, flush=True)
