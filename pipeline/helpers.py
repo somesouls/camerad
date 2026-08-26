@@ -78,22 +78,42 @@ def state_path(cfg, run):
 
 
 def _materialize(cfg, run, dataset, conn):
-    """Tulis bytes artefak DB ke cache disk bila file belum ada / beda ukuran."""
+    """Tulis bytes artefak DB ke cache disk bila file belum ada / beda ukuran.
+    Step berbasis BARIS (blob NULL) dirakit dari step_row + step_edit lalu ditulis
+    ulang setiap kali (editan bisa berubah tanpa mengubah ukuran)."""
     if not dataset:
         return
+    from pipeline import rowstore
     d = run_dir(cfg, run)
     for a in pstore.list_artifacts(conn, dataset["id"]):
-        fname = "step%s.%s" % (a["step"], a.get("ext") or "bin")
+        step = a["step"]
+        fname = "step%s.%s" % (step, a.get("ext") or "bin")
         p = os.path.join(d, fname)
+        b = pstore.get_artifact_bytes(conn, dataset["id"], step)
+        if b is None:
+            # Step berbasis baris: rakit Excel dari baris + editan (selalu tulis ulang).
+            if not pstore.has_rows(conn, dataset["id"], step):
+                continue
+            try:
+                b = rowstore.assemble_step_xlsx(conn, dataset["id"], step)
+            except Exception:
+                b = None
+            if b is None:
+                continue
+            try:
+                with open(p, "wb") as f:
+                    f.write(b)
+            except Exception:
+                pass
+            continue
+        # Step berbasis blob: tulis hanya bila file belum ada / beda ukuran.
         try:
             if os.path.isfile(p) and os.path.getsize(p) == (a.get("size") or -1):
                 continue
         except Exception:
             pass
-        b = pstore.get_artifact_bytes(conn, dataset["id"], a["step"])
-        if b is not None:
-            with open(p, "wb") as f:
-                f.write(b)
+        with open(p, "wb") as f:
+            f.write(b)
 
 
 def load_state(cfg, run):
@@ -209,13 +229,21 @@ def save_artifact(cfg, run, n, ext, data_bytes, download_name, summary):
 
 # ---- Akses artefak berbasis DB (dipakai handler unduh & step yg regenerasi) ----
 def artifact_bytes(cfg, run, n):
-    """Ambil bytes artefak step n dari DB (sumber kebenaran)."""
+    """Ambil bytes artefak step n dari DB (sumber kebenaran). Bila step tak
+    menyimpan blob (berbasis baris), rakit Excel dari step_row + step_edit agar
+    unduhan & transfer antar-step tetap konsisten."""
     conn = _store()
     try:
         ds = _resolve_dataset(conn, run, create=False)
         if not ds:
             return None
-        return pstore.get_artifact_bytes(conn, ds["id"], int(n))
+        b = pstore.get_artifact_bytes(conn, ds["id"], int(n))
+        if b is not None:
+            return b
+        if pstore.has_rows(conn, ds["id"], int(n)):
+            from pipeline import rowstore
+            return rowstore.assemble_step_xlsx(conn, ds["id"], int(n))
+        return None
     finally:
         conn.close()
 
@@ -398,7 +426,7 @@ def curl_multipart(cfg, endpoint, files, fields=None):
         raise Exception("Server membalas JSON, bukan file XLSX: %s" % r.text[:300])
     content = r.content
     if content[:2] != b"PK":
-        peek = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", content.decode("utf-8", "replace"))).strip()
+        peek = re.sub(r"\\s+", " ", re.sub(r"<[^>]+>", " ", content.decode("utf-8", "replace"))).strip()
         raise Exception("Server tidak mengembalikan file XLSX yang valid (mungkin halaman error/interstitial). Cuplikan: " + peek[:300])
     return content, hdrs
 
@@ -445,7 +473,7 @@ def curl_post_json(cfg, endpoint, files, fields=None):
     try:
         return r.json()
     except Exception:
-        peek = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r.text)).strip()
+        peek = re.sub(r"\\s+", " ", re.sub(r"<[^>]+>", " ", r.text)).strip()
         raise Exception("Server tidak mengembalikan JSON valid (mungkin halaman error/interstitial). Cuplikan: " + peek[:300])
 
 
