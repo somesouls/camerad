@@ -40,6 +40,21 @@ def _cell_to_str(v):
     return str(v)
 
 
+def _cell_value(v):
+    """Nilai sel utk payload BARIS. Pertahankan angka/boolean supaya Excel hasil
+    rakit tetap bertipe numerik saat dialirkan ke backend (mis. skor). Sisanya
+    (datetime/Decimal/dll) -> string. WAJIB JSON-serializable."""
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v
+    if isinstance(v, str):
+        return v
+    return _cell_to_str(v)
+
+
 def sheet_to_rows(ws, id_headers=None):
     """Parse 1 worksheet -> (headers_list, rows). rows = list (biz_key, payload).
     payload = dict {header: nilai string} untuk semua kolom ber-header. biz_key
@@ -59,7 +74,7 @@ def sheet_to_rows(ws, id_headers=None):
         payload = {}
         nonempty = False
         for c in ordered_cols:
-            val = _cell_to_str(cells.get(c))
+            val = _cell_value(cells.get(c))
             payload[headers_by_col[c]] = val
             if val != "":
                 nonempty = True
