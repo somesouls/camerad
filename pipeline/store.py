@@ -10,6 +10,11 @@ file Excel. Sekarang DB menjadi SUMBER KEBENARAN:
   - step_artifact : artefak terbaru per step (bytes disimpan sebagai BLOB).
                     Excel/JSON/ZIP di-generate/di-regenerasi dari sini saat
                     diunduh, sehingga tetap identik dengan sebelumnya.
+  - step_row      : baris data terstruktur per step (Step 4-9). Hasil model
+                    disimpan sebagai BARIS (bukan blob Excel), dikunci dengan
+                    KUNCI BISNIS stabil (insertId / ID Rekaman) per sheet.
+                    Excel dirakit on-demand dari baris + step_edit saat diunduh
+                    atau dialirkan ke step berikutnya.
   - step_edit     : baris editan terstruktur (Step 6 & 9) dengan KUNCI BISNIS
                     stabil (bukan nomor baris Excel). Upsert — versi terbaru
                     menang. Ini memperbaiki bug simpan→edit→simpan.
@@ -77,6 +82,19 @@ def init_db(conn):
             updated_at   TEXT,
             PRIMARY KEY (dataset_id, step)
         );
+
+        CREATE TABLE IF NOT EXISTS step_row (
+            dataset_id   INTEGER,
+            step         INTEGER,
+            sheet        TEXT,
+            biz_key      TEXT,
+            row_index    INTEGER,
+            payload      TEXT,
+            updated_at   TEXT,
+            PRIMARY KEY (dataset_id, step, sheet, biz_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_row_ds_step ON step_row(dataset_id, step);
+        CREATE INDEX IF NOT EXISTS idx_row_ds_step_sheet ON step_row(dataset_id, step, sheet);
 
         CREATE TABLE IF NOT EXISTS step_edit (
             dataset_id   INTEGER,
@@ -196,6 +214,7 @@ def delete_dataset(conn, dataset_id):
     """Hapus permanen (dipakai bila benar-benar perlu, bukan reset biasa)."""
     did = int(dataset_id)
     conn.execute("DELETE FROM step_artifact WHERE dataset_id=?", (did,))
+    conn.execute("DELETE FROM step_row WHERE dataset_id=?", (did,))
     conn.execute("DELETE FROM step_edit WHERE dataset_id=?", (did,))
     conn.execute("DELETE FROM datasets WHERE id=?", (did,))
     conn.commit()
@@ -214,22 +233,71 @@ def get_ngrok(conn, dataset_id):
 
 
 # =============================================================
+# Meta dataset (mis. threshold Step 8/9) — JSON di kolom datasets.meta
+# =============================================================
+def get_meta(conn, dataset_id):
+    r = conn.execute("SELECT meta FROM datasets WHERE id=?", (int(dataset_id),)).fetchone()
+    if not r:
+        return {}
+    try:
+        return json.loads(r["meta"] or "{}")
+    except Exception:
+        return {}
+
+
+def set_meta(conn, dataset_id, meta):
+    conn.execute("UPDATE datasets SET meta=?, updated_at=? WHERE id=?",
+                 (json.dumps(meta or {}, ensure_ascii=False), _now(), int(dataset_id)))
+    conn.commit()
+
+
+def update_meta(conn, dataset_id, patch):
+    """Merge (shallow) patch ke meta yang ada, lalu simpan."""
+    m = get_meta(conn, dataset_id)
+    if patch:
+        m.update(patch)
+    set_meta(conn, dataset_id, m)
+    return m
+
+
+def get_meta_value(conn, dataset_id, key, default=None):
+    return get_meta(conn, dataset_id).get(key, default)
+
+
+def set_meta_value(conn, dataset_id, key, value):
+    return update_meta(conn, dataset_id, {key: value})
+
+
+# =============================================================
 # Artefak per step (bytes = sumber kebenaran)
 # =============================================================
 def save_artifact(conn, dataset_id, step, ext, name, mime, data_bytes, summary=None):
     if isinstance(data_bytes, str):
         data_bytes = data_bytes.encode("utf-8")
+    if data_bytes is None:
+        size = 0
+        blob = None
+    else:
+        size = len(data_bytes)
+        blob = sqlite3.Binary(data_bytes)
     conn.execute(
         "INSERT INTO step_artifact(dataset_id,step,ext,name,mime,size,data,summary,updated_at) "
         "VALUES(?,?,?,?,?,?,?,?,?) "
         "ON CONFLICT(dataset_id,step) DO UPDATE SET "
         "ext=excluded.ext, name=excluded.name, mime=excluded.mime, size=excluded.size, "
         "data=excluded.data, summary=excluded.summary, updated_at=excluded.updated_at",
-        (int(dataset_id), int(step), ext, name, mime, len(data_bytes),
-         sqlite3.Binary(data_bytes), json.dumps(summary or {}, ensure_ascii=False), _now()),
+        (int(dataset_id), int(step), ext, name, mime, size,
+         blob, json.dumps(summary or {}, ensure_ascii=False), _now()),
     )
     touch(conn, dataset_id)
     return get_artifact_meta(conn, dataset_id, step)
+
+
+def record_step(conn, dataset_id, step, ext, name, mime, summary=None):
+    """Catat metadata step BERBASIS BARIS (blob data = NULL; data ada di
+    step_row + step_edit). build_state tetap melihat step ini 'done' dan Excel
+    dirakit on-demand dari baris saat diunduh/dialirkan."""
+    return save_artifact(conn, dataset_id, step, ext, name, mime, None, summary)
 
 
 def get_artifact(conn, dataset_id, step):
@@ -330,6 +398,108 @@ def list_edits(conn, dataset_id, step):
 
 def clear_edits(conn, dataset_id, step):
     conn.execute("DELETE FROM step_edit WHERE dataset_id=? AND step=?",
+                 (int(dataset_id), int(step)))
+    conn.commit()
+
+
+# =============================================================
+# Baris data terstruktur (Step 4-9) — kunci bisnis stabil, per sheet
+# =============================================================
+def _norm_rows(rows):
+    """Normalkan input baris. Terima list (biz_key, payload_dict) ATAU list
+    payload_dict polos. Kembalikan list (biz_key_str, payload_dict); biz_key
+    kosong/None diganti kunci sintetis stabil berbasis indeks."""
+    out = []
+    for i, item in enumerate(rows or []):
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            biz_key, payload = item[0], item[1]
+        else:
+            biz_key, payload = None, item
+        if not isinstance(payload, dict):
+            payload = {"value": payload}
+        if biz_key is None or str(biz_key).strip() == "":
+            biz_key = "__row_%d__" % i
+        out.append((str(biz_key), payload))
+    return out
+
+
+def replace_sheet_rows(conn, dataset_id, step, sheet, rows):
+    """Ganti seluruh baris untuk satu (step, sheet). row_index otomatis urut."""
+    did = int(dataset_id)
+    st = int(step)
+    sh = str(sheet)
+    now = _now()
+    conn.execute("DELETE FROM step_row WHERE dataset_id=? AND step=? AND sheet=?",
+                 (did, st, sh))
+    for i, (biz_key, payload) in enumerate(_norm_rows(rows)):
+        conn.execute(
+            "INSERT INTO step_row(dataset_id,step,sheet,biz_key,row_index,payload,updated_at) "
+            "VALUES(?,?,?,?,?,?,?)",
+            (did, st, sh, biz_key, i, json.dumps(payload, ensure_ascii=False), now),
+        )
+    touch(conn, dataset_id)
+    conn.commit()
+
+
+def replace_step_rows(conn, dataset_id, step, sheets):
+    """Ganti SELURUH baris (semua sheet) untuk step ini sekaligus.
+    sheets: dict {sheet_name: rows}, rows = list (biz_key,payload) atau payload."""
+    did = int(dataset_id)
+    st = int(step)
+    now = _now()
+    conn.execute("DELETE FROM step_row WHERE dataset_id=? AND step=?", (did, st))
+    for sheet, rows in (sheets or {}).items():
+        sh = str(sheet)
+        for i, (biz_key, payload) in enumerate(_norm_rows(rows)):
+            conn.execute(
+                "INSERT INTO step_row(dataset_id,step,sheet,biz_key,row_index,payload,updated_at) "
+                "VALUES(?,?,?,?,?,?,?)",
+                (did, st, sh, biz_key, i, json.dumps(payload, ensure_ascii=False), now),
+            )
+    touch(conn, dataset_id)
+    conn.commit()
+
+
+def list_sheet_rows(conn, dataset_id, step, sheet):
+    """Kembalikan [{biz_key,row_index,data}] terurut row_index untuk satu sheet."""
+    rows = conn.execute(
+        "SELECT biz_key,row_index,payload FROM step_row "
+        "WHERE dataset_id=? AND step=? AND sheet=? ORDER BY row_index, rowid",
+        (int(dataset_id), int(step), str(sheet))).fetchall()
+    out = []
+    for r in rows:
+        try:
+            data = json.loads(r["payload"] or "{}")
+        except Exception:
+            data = {}
+        out.append({"biz_key": r["biz_key"], "row_index": r["row_index"], "data": data})
+    return out
+
+
+def list_step_sheets(conn, dataset_id, step):
+    """Nama sheet untuk step ini, urut sesuai urutan penyimpanan pertama."""
+    rows = conn.execute(
+        "SELECT sheet, MIN(rowid) AS r FROM step_row WHERE dataset_id=? AND step=? "
+        "GROUP BY sheet ORDER BY r", (int(dataset_id), int(step))).fetchall()
+    return [r["sheet"] for r in rows]
+
+
+def list_step_rows(conn, dataset_id, step):
+    """Kembalikan {sheet: [{biz_key,row_index,data}]} untuk seluruh sheet step."""
+    out = {}
+    for sheet in list_step_sheets(conn, dataset_id, step):
+        out[sheet] = list_sheet_rows(conn, dataset_id, step, sheet)
+    return out
+
+
+def has_rows(conn, dataset_id, step):
+    r = conn.execute("SELECT 1 FROM step_row WHERE dataset_id=? AND step=? LIMIT 1",
+                     (int(dataset_id), int(step))).fetchone()
+    return r is not None
+
+
+def clear_rows(conn, dataset_id, step):
+    conn.execute("DELETE FROM step_row WHERE dataset_id=? AND step=?",
                  (int(dataset_id), int(step)))
     conn.commit()
 
