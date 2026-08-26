@@ -1,53 +1,51 @@
 # -*- coding: utf-8 -*-
-"""step10_patch.py — Laporan Step 10 (LM per Nomor Rekaman + Rekap LM + Pembaruan).
+"""step10_patch.py — Laporan Step 10 (LM per Nomor Rekaman + Rekap LM + Rekap
+Harian + Pembaruan).
 
 PERUBAHAN (permintaan analis):
-1) LM TIDAK lagi hanya mengompilasi baris yang "ditindaklanjuti". Sekarang LM =
-   1 BARIS PER NOMOR REKAMAN (ID Trace), mengompilasi:
-     * Fallback yang ditindaklanjuti (sheet "Analisis Fallback" / Step 6)
-       -> Unmatched Kontent (UMK).
-     * SELURUH baris MKTA (sheet "Analisis MKTA" / Step 9), baik yang
-       ditindaklanjuti (kolom "Intent Seharusnya" terisi) MAUPUN yang KOSONG.
-   Baris dengan "Intent Seharusnya" kosong tetap ditulis (HASIL_LM = TANPA CATATAN).
+1) LM = 1 BARIS PER NOMOR REKAMAN (ID Trace), mengompilasi Fallback
+   ditindaklanjuti + SELURUH baris MKTA (tindak lanjut + kosong). Baris dengan
+   "Intent Seharusnya" kosong tetap ditulis (HASIL_LM = TANPA CATATAN).
+2) HASIL_LM dari kolom "Intent Seharusnya" (manual Step 9): terisi -> TINDAK
+   LANJUT; kosong -> TANPA CATATAN. Fallback tidak memengaruhi HASIL_LM.
+3) Sheet "Rekap Harian" (BARU): 1 baris per Tanggal Rekaman untuk laporan
+   operasional harian. Kolom:
+     No | Tanggal Rekaman | Hari | PIC | Target | Jatuh Tempo | Tgl Upload |
+     Status Upload SIKLIP | Tepat Waktu | %MKTA | %Match Harian |
+     Update Intent MKTA | Update Intent Fallback | Target Update |
+     % Capaian Update | Intent Baru IND | Intent Baru EN | Update Bilingual |
+     Materi Voice Bot
+   Kolom yang DIHITUNG dari data:
+     - %MKTA = (MKTA tindak lanjut) / (total interaksi - total fallback) x 100.
+     - %Match Harian = (total interaksi - total fallback) / total interaksi x 100.
+     - Update Intent MKTA = jumlah MKTA tindak lanjut (Intent Seharusnya terisi).
+     - Update Intent Fallback = jumlah Fallback tindak lanjut (Intent Judgement
+       LLM terisi).
+     - Tanggal Rekaman, Hari, No: diturunkan dari data.
+   Kolom operasional lain (PIC, Target, Jatuh Tempo, Tgl Upload, Status Upload
+   SIKLIP, Tepat Waktu, Target Update, % Capaian Update, Intent Baru IND/EN,
+   Update Bilingual, Materi Voice Bot) DIKOSONGKAN untuk diisi manual analis.
+   Total interaksi & fallback per tanggal diambil dari sheet "Interaksi" &
+   "Fallback" (artefak Step 2). "gapapa duplikat" = seluruh baris dihitung.
 
-2) HASIL_LM ditentukan dari kolom "Intent Seharusnya" (isian MANUAL Step 9):
-     * ada isinya -> "TINDAK LANJUT"
-     * kosong     -> "TANPA CATATAN"
-   Fallback TIDAK memengaruhi HASIL_LM — hanya baris MKTA (Step 9).
-
-FORMAT sheet/CSV "LM" (kolom, sesuai permintaan):
-    TGL_REKAMAN | NOMOR_REKAMAN | NM_AGENT | HASIL_LM | CATATAN_LM
-  - TGL_REKAMAN  : tanggal rekaman yang dianalisis.
-  - NOMOR_REKAMAN: ID Trace (bisa memuat beberapa interaksi / InsertId).
-  - NM_AGENT     : nama agent (default "CHATBOT"; bisa dioverride via form nm_agent).
-  - HASIL_LM     : "TINDAK LANJUT" / "TANPA CATATAN".
-  - CATATAN_LM   : jumlah MKA / MKTA / UMK (hasil analisis mesin SETELAH
-                   penyesuaian manual Step 6 & Step 9) + Catatan Matched &
-                   Unmatched Kontent (semua interaksi ditulis).
+FORMAT sheet/CSV "LM": TGL_REKAMAN | NOMOR_REKAMAN | NM_AGENT | HASIL_LM | CATATAN_LM
 
 Klasifikasi (sumber = sheet Analisis MKTA + Analisis Fallback):
-  - MKA  (Matched Kontent Akurat)       = baris Analisis MKTA PUTUSAN = MENJAWAB
-  - MKTA (Matched Kontent Tidak Akurat) = baris Analisis MKTA PUTUSAN selain MENJAWAB
-                                          (SALAH_INTENT / KURANG_LENGKAP / INTENT_BARU)
-  - UMK  (Unmatched Kontent)            = baris Analisis Fallback (bot fallback)
-  Catatan Matched  = catatan analis / "Alihkan ke intent 'X'" dari baris MKTA.
-  Catatan Unmatched= "Menambahkan frasa '<pertanyaan>' sebagai training phrase
-                     intent '<Intent Judgement LLM>'" dari baris Fallback.
-  CATATAN: sheet "Analisis MKTA" hanya memuat baris < ambang Step 8, jadi MKA di
-  sini = baris di-bawah-ambang yang diputus MENJAWAB (sesuai lingkup 2 sheet itu).
-
-3) Sheet lain tetap ditulis:
-   - "Rekap LM"  : rincian angka MKA/MKTA/UMK per Nomor Rekaman + HASIL_LM.
-   - "Pembaruan" : training phrase baru per intent (dipakai Step 11) + CSV.
+  - MKA  = baris Analisis MKTA PUTUSAN = MENJAWAB
+  - MKTA = baris Analisis MKTA PUTUSAN selain MENJAWAB
+  - UMK  = baris Analisis Fallback (bot fallback)
 
 SUMBER GANDA: Step 10 bisa memakai (a) artefak Step 9 di server, ATAU (b) file
 Excel hasil Step 9 yang SUDAH DIEDIT analis lalu diunggah lewat form `xlsx_file`.
+Sheet "Interaksi"/"Fallback" (Step 2) & "Analisis Fallback" (Step 6) dibaca dari
+artefak masing-masing di server (via state).
 
 PEMASANGAN: `import step10_patch` SETELAH pipeline_routes diimpor (web_app.py).
 dispatch() memakai late-binding global step10_build.
 """
 import os
 import re
+import datetime as _dt
 import pipeline.routes as pr
 
 # Kandidat header identitas rekaman (Nomor Rekaman). Urutan = prioritas.
@@ -55,6 +53,11 @@ ID_REKAMAN_HEADERS = ["ID Rekaman", "ID Percakapan", "id_rekaman", "ID trace", "
 
 # Nama agent default untuk kolom NM_AGENT (bisa dioverride via form `nm_agent`).
 DEFAULT_NM_AGENT = "CHATBOT"
+
+# Bulan & hari (Bahasa Indonesia) untuk kolom Tanggal Rekaman & Hari.
+_ID_BULAN = ["", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+             "Juli", "Agustus", "September", "Oktober", "November", "Desember"]
+_ID_HARI = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]
 
 
 def _tgl(waktu):
@@ -69,6 +72,48 @@ def _tgl(waktu):
     if m:
         return m.group(1)
     return s[:10]
+
+
+def _iso_date(waktu):
+    """Kembalikan (y, m, d) dari string waktu, atau None bila tak terbaca."""
+    s = (waktu or "").strip()
+    if s == "":
+        return None
+    m = re.search(r"(\d{4})-(\d{1,2})-(\d{1,2})", s)
+    if m:
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    m = re.search(r"(\d{1,2})[/-](\d{1,2})[/-](\d{4})", s)
+    if m:
+        return (int(m.group(3)), int(m.group(2)), int(m.group(1)))
+    return None
+
+
+def _tgl_id(iso):
+    """(y,m,d) -> 'D Bulan YYYY' (Bahasa Indonesia). '' bila tak valid."""
+    if not iso:
+        return ""
+    y, m, d = iso
+    if not (1 <= m <= 12):
+        return "%04d-%02d-%02d" % (y, m, d)
+    return "%d %s %d" % (d, _ID_BULAN[m], y)
+
+
+def _hari_id(iso):
+    """(y,m,d) -> nama hari Bahasa Indonesia. '' bila tak valid."""
+    if not iso:
+        return ""
+    try:
+        return _ID_HARI[_dt.date(iso[0], iso[1], iso[2]).weekday()]
+    except Exception:
+        return ""
+
+
+def _pct(numer, denom, decimals):
+    """Persentase terformat, mis. '0.0708%' / '96.67%'. Denom 0 -> '0.00..%'."""
+    fmt = "%." + str(decimals) + "f%%"
+    if not denom:
+        return fmt % 0.0
+    return fmt % ((float(numer) / float(denom)) * 100.0)
 
 
 def _norm(s):
@@ -145,15 +190,11 @@ def _pem_fallback(wb):
 
 
 def _aggregate(wb_mkta, wb_fb):
-    """Agregasi per Nomor Rekaman (ID Trace).
+    """Agregasi per Nomor Rekaman (ID Trace) untuk sheet LM & Rekap LM.
 
     Return (order, rek) di mana rek[rid] = {
         mka, mkta, umk, mnotes[], unotes[], tgl, follow(bool)
     }.
-    - MKTA (Step 9): SEMUA baris diproses (tindak lanjut + kosong). follow=True
-      bila ADA baris MKTA dengan kolom "Intent Seharusnya" (manual) terisi.
-    - Fallback (Step 6): setiap baris menambah UMK + catatan unmatched; TIDAK
-      memengaruhi follow (HASIL_LM hanya dari Step 9).
     """
     rek = {}
     order = []
@@ -182,7 +223,6 @@ def _aggregate(wb_mkta, wb_fb):
             cells = am["rows"][rn]
             cls = _classify_put(pr._sv(cells, c_put))
             manual_seh = pr._sv(cells, c_seharusnya).strip()
-            # Lewati baris benar-benar kosong (tanpa PUTUSAN & tanpa Intent Seharusnya).
             if cls is None and manual_seh == "":
                 continue
             e = ensure(pr._sv(cells, c_id).strip())
@@ -244,6 +284,123 @@ def _hasil_lm(e):
     return "TINDAK LANJUT" if e["follow"] else "TANPA CATATAN"
 
 
+# =============================================================
+# REKAP HARIAN (per Tanggal Rekaman)
+# =============================================================
+REKAP_HARIAN_HEADER = [
+    "No", "Tanggal Rekaman", "Hari", "PIC", "Target", "Jatuh Tempo",
+    "Tgl Upload", "Status Upload SIKLIP", "Tepat Waktu",
+    "%MKTA", "%Match Harian", "Update Intent MKTA", "Update Intent Fallback",
+    "Target Update", "% Capaian Update", "Intent Baru IND", "Intent Baru EN",
+    "Update Bilingual", "Materi Voice Bot",
+]
+
+_TGL_HEADERS = ["waktu interaksi", "Waktu Interaksi", "Tanggal Rekaman", "waktu"]
+
+
+def _count_by_date(wb, sheet_name):
+    """Hitung jumlah baris data per tanggal (tuple y,m,d) pada sebuah sheet.
+    Baris tanpa tanggal terbaca dikelompokkan pada key None."""
+    out = {}
+    if wb is None or sheet_name not in wb.sheetnames:
+        return out
+    sh = pr.read_sheet(wb[sheet_name])
+    c_wkt = pr._find_header(sh["headers"], _TGL_HEADERS)
+    for rn in sorted(sh["rows"].keys()):
+        if rn == 1:
+            continue
+        iso = _iso_date(pr._sv(sh["rows"][rn], c_wkt)) if c_wkt else None
+        out[iso] = out.get(iso, 0) + 1
+    return out
+
+
+def _mkta_follow_by_date(wb):
+    """Jumlah MKTA tindak lanjut per tanggal (Intent Seharusnya manual terisi)."""
+    out = {}
+    if wb is None or "Analisis MKTA" not in wb.sheetnames:
+        return out
+    am = pr.read_sheet(wb["Analisis MKTA"])
+    H = am["headers"]
+    c_seh = pr._find_header(H, ["Intent Seharusnya", "Intent Seharusnya (Manual)"])
+    c_wkt = pr._find_header(H, ["waktu interaksi", "Waktu Interaksi"])
+    for rn in sorted(am["rows"].keys()):
+        if rn == 1:
+            continue
+        cells = am["rows"][rn]
+        if pr._sv(cells, c_seh).strip() == "":
+            continue
+        iso = _iso_date(pr._sv(cells, c_wkt)) if c_wkt else None
+        out[iso] = out.get(iso, 0) + 1
+    return out
+
+
+def _fallback_follow_by_date(wb):
+    """Jumlah Fallback tindak lanjut per tanggal (Intent Judgement LLM terisi)."""
+    out = {}
+    if wb is None or "Analisis Fallback" not in wb.sheetnames:
+        return out
+    af = pr.read_sheet(wb["Analisis Fallback"])
+    H = af["headers"]
+    c_intent = pr._find_header(H, ["Intent Judgement LLM", "Intent Seharusnya"])
+    c_wkt = pr._find_header(H, ["Tanggal Rekaman", "waktu interaksi", "Waktu Interaksi"])
+    for rn in sorted(af["rows"].keys()):
+        if rn == 1:
+            continue
+        cells = af["rows"][rn]
+        if pr._sv(cells, c_intent).strip() == "":
+            continue
+        iso = _iso_date(pr._sv(cells, c_wkt)) if c_wkt else None
+        out[iso] = out.get(iso, 0) + 1
+    return out
+
+
+def _build_rekap_harian(wb2, wb9, wb_fb):
+    """Bangun baris sheet 'Rekap Harian' (1 baris per Tanggal Rekaman)."""
+    interaksi = _count_by_date(wb2, "Interaksi")
+    fallback_total = _count_by_date(wb2, "Fallback")
+    mkta_follow = _mkta_follow_by_date(wb9)
+    fb_source = wb_fb if wb_fb is not None else wb9
+    fb_follow = _fallback_follow_by_date(fb_source)
+
+    dates = set()
+    for mp in (interaksi, fallback_total, mkta_follow, fb_follow):
+        dates.update(mp.keys())
+    dates.discard(None)
+    ordered = sorted(dates)
+
+    rows = [REKAP_HARIAN_HEADER]
+    for i, iso in enumerate(ordered, start=1):
+        tot_int = interaksi.get(iso, 0)
+        tot_fb = fallback_total.get(iso, 0)
+        mk = mkta_follow.get(iso, 0)
+        fb = fb_follow.get(iso, 0)
+        match = tot_int - tot_fb
+        rows.append([
+            i, _tgl_id(iso), _hari_id(iso), "", "", "",
+            "", "", "",
+            _pct(mk, match, 4), _pct(match, tot_int, 2), mk, fb,
+            "", "", "", "",
+            "", "",
+        ])
+    return rows
+
+
+def _load_step_wb(cfg, ctx, step_no):
+    """Muat artefak sebuah step sebagai workbook openpyxl (None bila tak ada)."""
+    try:
+        state = pr.load_state(cfg, ctx.run)
+        s = state["steps"].get(str(step_no))
+        if not s or not s.get("file"):
+            return None
+        p = os.path.join(pr.run_dir(cfg, ctx.run), s["file"])
+        if not os.path.isfile(p):
+            return None
+        with open(p, "rb") as f:
+            return pr._wb_from_bytes(f.read())
+    except Exception:
+        return None
+
+
 def step10_build(cfg, ctx):
     penyusun = (ctx.P("penyusun", "") or "").strip()
     nm_agent = (ctx.P("nm_agent", "") or "").strip() or DEFAULT_NM_AGENT
@@ -271,24 +428,17 @@ def step10_build(cfg, ctx):
     if "Analisis MKTA" not in wb9.sheetnames:
         raise Exception('Sheet "Analisis MKTA" tidak ada. Jalankan Step 9 dulu, atau unggah Excel Step 9 yang benar.')
 
-    # Sumber Fallback: dari wb9 (bila analis menggabung) atau artefak Step 6.
-    wb_fb = wb9 if "Analisis Fallback" in wb9.sheetnames else None
-    if wb_fb is None:
-        state = pr.load_state(cfg, ctx.run)
-        s6 = state["steps"].get("6")
-        if s6 and s6.get("file"):
-            p6 = os.path.join(pr.run_dir(cfg, ctx.run), s6["file"])
-            if os.path.isfile(p6):
-                try:
-                    with open(p6, "rb") as f:
-                        b6 = f.read()
-                    wb_fb = pr._wb_from_bytes(b6)
-                except Exception:
-                    wb_fb = None
+    # Sumber Fallback (Step 6): dari wb9 (bila analis menggabung) atau artefak Step 6.
+    wb_fb = wb9 if "Analisis Fallback" in wb9.sheetnames else _load_step_wb(cfg, ctx, 6)
+
+    # Sumber Step 2 (sheet "Interaksi" & "Fallback") untuk Rekap Harian.
+    wb2 = _load_step_wb(cfg, ctx, 2)
+    if wb2 is None and ("Interaksi" in wb9.sheetnames or "Fallback" in wb9.sheetnames):
+        wb2 = wb9
 
     order, rek = _aggregate(wb9, wb_fb)
 
-    # --- Sheet "LM" (format baru: 1 baris per Nomor Rekaman) ---
+    # --- Sheet "LM" (1 baris per Nomor Rekaman) ---
     lm_header = ["TGL_REKAMAN", "NOMOR_REKAMAN", "NM_AGENT", "HASIL_LM", "CATATAN_LM"]
     lm_rows = [lm_header]
     for rid in order:
@@ -305,6 +455,9 @@ def step10_build(cfg, ctx):
         rekap_rows.append([rid, e["tgl"], nm_agent, _hasil_lm(e), e["mka"], e["mkta"],
                            e["umk"], _catatan_lm(e), penyusun, e["tgl"]])
 
+    # --- Sheet "Rekap Harian" (per Tanggal Rekaman) ---
+    rekap_harian_rows = _build_rekap_harian(wb2, wb9, wb_fb)
+
     # --- Sheet "Pembaruan" (training phrase baru per intent, dipakai Step 11) ---
     pem_map = {}
     _merge_pem(pem_map, _pem_mkta(wb9))
@@ -318,12 +471,15 @@ def step10_build(cfg, ctx):
 
     out_bytes = pr.xlsx_upsert_sheet(b9, "LM", lm_rows)
     out_bytes = pr.xlsx_upsert_sheet(out_bytes, "Rekap LM", rekap_rows)
+    out_bytes = pr.xlsx_upsert_sheet(out_bytes, "Rekap Harian", rekap_harian_rows)
     out_bytes = pr.xlsx_upsert_sheet(out_bytes, "Pembaruan", pem_rows)
     d = pr.run_dir(cfg, ctx.run)
     with open(os.path.join(d, "step10_lm.csv"), "wb") as f:
         f.write(pr._csv_bytes(lm_rows))
     with open(os.path.join(d, "step10_pembaruan.csv"), "wb") as f:
         f.write(pr._csv_bytes(pem_rows))
+    with open(os.path.join(d, "step10_rekap_harian.csv"), "wb") as f:
+        f.write(pr._csv_bytes(rekap_harian_rows))
     rekap_csv = [rekap_rows[0]] + [
         [r[0], r[1], r[2], r[3], r[4], r[5], r[6], str(r[7]).replace("\n", " | "), r[8], r[9]]
         for r in rekap_rows[1:]
@@ -333,15 +489,17 @@ def step10_build(cfg, ctx):
     summary = {"status": "Selesai", "penyusun": (penyusun or "(kosong)"),
                "nm_agent": nm_agent, "sumber": sumber_src,
                "nomor_rekaman": len(lm_rows) - 1,
-               "baris_LM": len(lm_rows) - 1, "baris_Pembaruan": len(pem_rows) - 1,
-               "catatan": "LM = 1 baris per Nomor Rekaman (TGL_REKAMAN, NOMOR_REKAMAN, "
-                          "NM_AGENT, HASIL_LM, CATATAN_LM). MKTA All (tindak lanjut + kosong) "
-                          "+ Fallback. HASIL_LM dari kolom Intent Seharusnya (Step 9)."}
+               "baris_LM": len(lm_rows) - 1, "baris_Rekap_Harian": len(rekap_harian_rows) - 1,
+               "baris_Pembaruan": len(pem_rows) - 1,
+               "catatan": "LM = 1 baris per Nomor Rekaman. Rekap Harian = 1 baris per "
+                          "Tanggal Rekaman (%MKTA, %Match Harian, Update Intent MKTA/Fallback "
+                          "dihitung; kolom operasional dikosongkan untuk diisi manual)."}
     data = pr.save_artifact(cfg, ctx.run, 10, "xlsx", out_bytes, "laporan_LM_dan_pembaruan.xlsx", summary)
     return {"step": 10, "artifact": data, "lm_rows": len(lm_rows) - 1,
-            "pembaruan_rows": len(pem_rows) - 1, "rekap_rows": len(rekap_rows) - 1}
+            "pembaruan_rows": len(pem_rows) - 1, "rekap_rows": len(rekap_rows) - 1,
+            "rekap_harian_rows": len(rekap_harian_rows) - 1}
 
 
 # Terapkan monkey-patch (late-binding global di dispatch()).
 pr.step10_build = step10_build
-print("[step10_patch] step10_build: LM per Nomor Rekaman (MKTA All + Fallback, HASIL_LM dari Intent Seharusnya).", flush=True)
+print("[step10_patch] step10_build: LM per Nomor Rekaman + Rekap Harian (per Tanggal Rekaman).", flush=True)
