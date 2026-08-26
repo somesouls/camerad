@@ -286,3 +286,136 @@ function renderAuto(d){
     parts.push('Belum pernah dijalankan.');
   }
   el('autoInfo').innerHTML=parts.join(' \u2022 ');
+  var btn=el('autoNowBtn');
+  if(btn){
+    btn.disabled=run;
+    btn.title=(!cfg?'Kredensial .env belum diisi \u2014 klik untuk melihat cara mengaktifkannya.':(run?'Tarik otomatis sedang berjalan\u2026':'Tarik & proses data kemarin (H-1) memakai kredensial .env.'));
+  }
+}
+function loadAuto(){
+  fetch('/api/awe/autopull/status').then(function(r){return r.json();}).then(function(d){if(d.ok)renderAuto(d);}).catch(function(){});
+}
+function pollAuto(){
+  fetch('/api/awe/autopull/status').then(function(r){return r.json();}).then(function(d){
+    if(d.ok)renderAuto(d);
+    if(d.ok&&d.running){setTimeout(pollAuto,3000);return;}
+    var last=(d&&d.last)||{};
+    if(last.ok)setA('\u2705 '+esc(last.message||'Selesai.'),'ok');
+    else if(last.error)setA('\u274c '+esc(last.error||'Gagal.'),'err');
+    loadSummary();
+  }).catch(function(){el('autoNowBtn').disabled=false;});
+}
+el('autoNowBtn').addEventListener('click',function(){
+  el('autoNowBtn').disabled=true;setA('Memulai tarik H-1 (kredensial .env)\u2026');
+  fetch('/api/awe/autopull/now',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){setA('\u274c '+esc(d.error||'Gagal memulai.'),'err');el('autoNowBtn').disabled=false;return;}
+     setA('\u25b6\ufe0f '+esc(d.message||'Dimulai.'));setTimeout(pollAuto,2000);
+   }).catch(function(e){setA('\u274c Gagal: '+e,'err');el('autoNowBtn').disabled=false;});
+});
+
+el('sCheckBtn').addEventListener('click',function(){
+  var df=el('s_from').value,dt=el('s_to').value;
+  if(!df||!dt){setS('Isi rentang tanggal dulu.','err');return;}
+  setS('Mengecek ketersediaan\u2026');
+  fetch('/api/awe/stage/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){setS('Gagal: '+esc(d.error||''),'err');return;}
+     var nm=(d.missing||[]).length,ns=(d.staged||[]).length;
+     if(nm===0){setS('\u2705 Semua '+ns+' hari pada rentang ini sudah ada di penyimpanan sementara - tak perlu tarik ulang.','ok');el('sLoginBox').style.display='none';}
+     else{setS('\u2139\ufe0f '+ns+' hari sudah ada, <b>'+nm+' hari belum ada</b>. Masukkan kredensial untuk menariknya.');el('sLoginBox').style.display='block';}
+   }).catch(function(e){setS('Gagal: '+e,'err');});
+});
+
+el('sPullBtn').addEventListener('click',function(){
+  var df=el('s_from').value,dt=el('s_to').value,u=el('s_user').value.trim(),pw=el('s_pass').value;
+  if(!pw){setS('Password wajib diisi.','err');return;}
+  el('sPullBtn').disabled=true;setS('Menarik data\u2026');
+  fetch('/api/awe/stage/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,username:u,password:pw,base_url:el('s_base').value.trim()})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){setS('Gagal: '+esc(d.error||''),'err');el('sPullBtn').disabled=false;return;}
+     pollStage(d.job);
+   }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
+});
+
+function pollStage(job){
+  fetch('/api/awe/stage/progress?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(res){
+    var p=res.progress||{};
+    if(!p.finished){setS(esc(p.message||'Menarik\u2026'));setTimeout(function(){pollStage(job);},1500);return;}
+    fetchStage(job);
+  }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
+}
+
+function fetchStage(job){
+  fetch('/api/awe/stage/fetch?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(d){
+    el('sPullBtn').disabled=false;
+    if(!d.ok){
+      if(d.need_login){setS('Login gagal: '+esc(d.error||'')+' - periksa kredensial.','err');el('sLoginBox').style.display='block';}
+      else setS('Gagal: '+esc(d.error||''),'err');
+      return;
+    }
+    setS('\u2705 '+esc(d.message||'Selesai.'),'ok');el('s_pass').value='';el('sLoginBox').style.display='none';
+    loadSummary();
+  }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
+}
+
+el('pRunBtn').addEventListener('click',function(){
+  var df=el('p_from').value,dt=el('p_to').value,purge=el('p_purge').checked;
+  el('pRunBtn').disabled=true;setP('Menyiapkan pemrosesan\u2026');
+  fetch('/api/awe/process/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,purge_after:purge})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){setP('Gagal: '+esc(d.error||''),'err');el('pRunBtn').disabled=false;return;}
+     setP('Memproses '+(d.n_staged||0)+' percakapan\u2026');pollProc(d.job);
+   }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
+});
+
+function pollProc(job){
+  fetch('/api/awe/process/progress?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(res){
+    var p=res.progress||{};
+    if(!p.finished){setP(esc(p.message||'Memproses\u2026'));setTimeout(function(){pollProc(job);},2000);return;}
+    fetchProc(job);
+  }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
+}
+
+function fetchProc(job){
+  fetch('/api/awe/process/fetch?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(d){
+    el('pRunBtn').disabled=false;
+    if(!d.ok){setP('Gagal: '+esc(d.error||''),'err');return;}
+    setP('\u2705 '+esc(d.message||'Selesai.')+' Hasil tersimpan di database AWE'+(d.purged?' dan penyimpanan sementara sudah dibersihkan.':'.'),'ok');
+    loadSummary();
+  }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
+}
+
+function setN(msg,k){var s=el('nikStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
+function renderNik(st){
+  if(!st)return;
+  el('nikPill').textContent=(st.with_nik||0)+' / '+(st.total||0)+' ber-NIK';
+  el('nikInfo').innerHTML='Total baris: <b>'+(st.total||0)+'</b> \u2022 sudah ber-NIK: <b>'+(st.with_nik||0)+'</b> \u2022 belum ber-NIK: <b>'+(st.without_nik||0)+'</b> \u2022 dapat dipulihkan dari nama: <b>'+(st.recover_from_name||0)+'</b> \u2022 nama masih mengandung "[...]": <b>'+(st.name_has_bracket||0)+'</b> \u2022 di staging: <b>'+(st.staging_rows||0)+'</b>';
+}
+function loadNik(){
+  fetch('/api/awe/nik/stats').then(function(r){return r.json();}).then(function(d){if(d.ok)renderNik(d);}).catch(function(){});
+}
+el('nikCheckBtn').addEventListener('click',function(){
+  setN('Mengecek status NIK\u2026');
+  fetch('/api/awe/nik/stats').then(function(r){return r.json();}).then(function(d){
+    if(!d.ok){setN('Gagal: '+esc(d.error||''),'err');return;}
+    renderNik(d);setN('\u2705 Status NIK dimuat.','ok');
+  }).catch(function(e){setN('Gagal: '+e,'err');});
+});
+el('nikFillBtn').addEventListener('click',function(){
+  el('nikFillBtn').disabled=true;setN('Memperbarui NIK baris lama\u2026');
+  fetch('/api/awe/nik/backfill',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
+   .then(function(r){return r.json();}).then(function(d){
+     el('nikFillBtn').disabled=false;
+     if(!d.ok){setN('Gagal: '+esc(d.error||''),'err');return;}
+     if(d.stats)renderNik(d.stats);
+     setN('\u2705 Selesai. '+(d.nik_filled||0)+' baris diisi NIK, '+(d.name_cleaned||0)+' nama dirapikan (dari '+(d.scanned||0)+' baris diperiksa).','ok');
+   }).catch(function(e){setN('Gagal: '+e,'err');el('nikFillBtn').disabled=false;});
+});
+
+loadSummary();
+loadNik();
+loadAuto();
+})();
+</script>
+{% endblock %}
