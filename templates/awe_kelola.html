@@ -67,6 +67,10 @@
 .btn-outline { background: transparent; border: 1px solid var(--panel-border); color: var(--text-main); box-shadow: none; }
 .btn-outline:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-glow); }
 
+/* Mini danger button (hapus batch) */
+.btn-mini { padding: 5px 12px; border: 1px solid var(--panel-border); border-radius: 8px; background: transparent; color: var(--c-red-txt); font-size: 12.5px; font-weight: 600; cursor: pointer; transition: 0.2s; white-space: nowrap; }
+.btn-mini:hover { background: var(--c-red); border-color: var(--c-red); }
+
 /* Table */
 .table-modern { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13.5px; border-radius: 10px; overflow: hidden; }
 .table-modern th, .table-modern td { border: 1px solid var(--panel-border); padding: 10px 14px; text-align: left; }
@@ -85,17 +89,15 @@
 .status.ok { background: var(--c-green); color: var(--c-green-txt); border: 1px solid rgba(16,185,129,0.2); }
 .status.err { background: var(--c-red); color: var(--c-red-txt); border: 1px solid rgba(239,68,68,0.2); }
 
-/* Hero card - Tarik Otomatis sebagai jalur utama */
-.hero-card { border-color: var(--accent); box-shadow: 0 6px 20px var(--accent-glow); }
-.hero-card .stage-title { font-size: 20px; }
-.hero-badge { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); background: var(--accent-glow); padding: 3px 10px; border-radius: 99px; }
+/* Tarik cepat H-1 (kredensial .env) */
+.quick-pull { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 16px; border: 1px solid var(--accent); border-radius: 12px; background: var(--accent-glow); margin-bottom: 14px; }
+.quick-title { font-size: 15px; font-weight: 700; color: var(--text-main); margin-bottom: 2px; }
+.quick-sub { font-size: 13px; color: var(--text-muted); line-height: 1.5; max-width: 560px; }
 
-/* Pembatas bagian Manual / Lanjutan */
-.section-divider { margin: 32px 0 16px; padding-top: 20px; border-top: 1px dashed var(--panel-border); }
-.section-divider h2 { margin: 0 0 6px; font-size: 17px; font-weight: 800; color: var(--text-main); }
-.section-divider p { margin: 0; font-size: 13.5px; color: var(--text-muted); line-height: 1.6; max-width: 800px; }
+/* Sub-pembatas di dalam kartu */
+.sub-divider { margin: 22px 0 14px; padding-top: 16px; border-top: 1px dashed var(--panel-border); font-size: 14px; font-weight: 700; color: var(--text-main); }
 
-/* Catatan kapan dipakai pada kartu manual */
+/* Catatan kapan dipakai pada kartu */
 .use-note { font-size: 13px; color: var(--text-muted); background: var(--panel-border); border-radius: 8px; padding: 8px 12px; margin: 0 0 14px; line-height: 1.5; }
 </style>
 {% endblock %}
@@ -103,28 +105,8 @@
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Kelola Data AWE</h1>
-  <p class="page-desc">Untuk kebutuhan harian, cukup pakai <b>Tarik Otomatis</b> di bawah - sekali jalan: login &rarr; tarik ke penyimpanan sementara &rarr; proses bahasa &rarr; simpan ke database AWE. Alat <b>Manual / Lanjutan</b> di bawahnya dipakai sesekali untuk backfill rentang lama, menarik dengan kredensial sendiri, atau memproses ulang.</p>
+  <p class="page-desc">Dua langkah: <b>(1) Tarik</b> data ke penyimpanan sementara &mdash; sekali klik <b>Tarik H-1</b> memakai kredensial <span class="code-inline">.env</span> untuk data kemarin, atau pilih rentang tanggal untuk <b>backfill</b> dengan kredensial sendiri; lalu <b>(2) Proses</b> bahasa dan simpan ke database AWE. Penjadwal harian otomatis dapat diaktifkan lewat <span class="code-inline">.env</span> (<span class="code-inline">AVAYA_USERNAME</span>/<span class="code-inline">AVAYA_PASSWORD</span> + <span class="code-inline">AWE_SCHEDULER=1</span>).</p>
 </div>
-
-<section class="c-card hero-card">
-  <div class="stage-head">
-    <h2 class="stage-title">Tarik Otomatis Harian</h2>
-    <span class="hero-badge">Jalur utama</span>
-    <span class="pill stage" id="autoPill">&mdash;</span>
-  </div>
-  <p class="muted-text">Penjadwal menarik &amp; memproses data AWE <b>H-1</b> otomatis tiap hari (mirip ingest Dialogflow). Aktifkan lewat berkas <span class="code-inline">.env</span>: isi <span class="code-inline">AVAYA_USERNAME</span>/<span class="code-inline">AVAYA_PASSWORD</span>, set <span class="code-inline">AWE_SCHEDULER=1</span>, lalu restart aplikasi. <b>Kredensial tidak disimpan ke database</b> (login lalu dilupakan). Tombol di bawah menjalankan tarik+proses satu kali sekarang memakai kredensial <span class="code-inline">.env</span>.</p>
-  <div id="autoInfo" class="muted-text">Memuat status&hellip;</div>
-  <div class="form-row">
-    <div class="field"><label>Dari tanggal (opsional)</label><input type="date" id="a_from"></div>
-    <div class="field"><label>Sampai tanggal (opsional)</label><input type="date" id="a_to"></div>
-  </div>
-  <p class="hint-text" style="margin-top:0;">Kosongkan keduanya untuk menarik <b>kemarin (H-1)</b> seperti jadwal otomatis. Isi salah satu untuk satu hari, atau keduanya untuk rentang tertentu (tetap memakai kredensial <span class="code-inline">.env</span>).</p>
-  <button class="btn-modern" id="autoNowBtn">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-    Tarik Sekarang (manual)
-  </button>
-  <div class="status" id="autoStat"></div>
-</section>
 
 <section class="c-card">
   <div class="stage-head">
@@ -143,25 +125,37 @@
           <th>Baru</th>
           <th>Oleh</th>
           <th>Waktu</th>
+          <th>Aksi</th>
         </tr>
       </thead>
       <tbody id="stgBatches">
-        <tr><td colspan="6" class="muted-text" style="text-align: center; border: none; background: transparent;">&mdash;</td></tr>
+        <tr><td colspan="7" class="muted-text" style="text-align: center; border: none; background: transparent;">&mdash;</td></tr>
       </tbody>
     </table>
   </div>
+  <p class="hint-text">Tombol <b>Hapus</b> membuang seluruh data staging pada rentang batch itu beserta penandaan harinya, sehingga hari tersebut bisa ditarik ulang dari awal (berguna bila sebuah tarikan gagal/rusak).</p>
 </section>
-
-<div class="section-divider">
-  <h2>Manual / Lanjutan</h2>
-  <p>Bersifat opsional dan dipakai sesekali. Untuk operasi harian normal, cukup <b>Tarik Otomatis</b> di atas - bagian ini untuk kasus khusus seperti backfill data lama, menarik dengan kredensial sendiri, atau memproses ulang.</p>
-</div>
 
 <section class="c-card">
   <div class="stage-head">
     <span class="stage-num">1</span>
     <h2 class="stage-title">Tarik Data ke Penyimpanan Sementara</h2>
   </div>
+
+  <div class="quick-pull">
+    <div class="quick-text">
+      <div class="quick-title">Tarik cepat: kemarin (H-1)</div>
+      <div class="quick-sub">Sekali klik memakai kredensial <span class="code-inline">.env</span> &mdash; menarik data kemarin ke penyimpanan sementara lalu memprosesnya ke database AWE. Tanpa mengetik password.</div>
+    </div>
+    <button class="btn-modern" id="autoNowBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+      Tarik H-1
+    </button>
+  </div>
+  <div id="autoInfo" class="muted-text">Memuat status penjadwal&hellip;</div>
+  <div class="status" id="autoStat"></div>
+
+  <div class="sub-divider">Backfill rentang lama / kredensial sendiri</div>
   <p class="use-note">&#8505;&#65039; <b>Kapan dipakai:</b> untuk <b>backfill rentang lama</b>, atau menarik dengan <b>kredensial sendiri tanpa menyimpan password</b> di <span class="code-inline">.env</span>. Bisa dikerjakan bertahap oleh beberapa orang.</p>
   <p class="muted-text">Pilih rentang tanggal lalu <b>Cek Ketersediaan</b>. Hari yang sudah ada tidak perlu ditarik ulang (dedup otomatis berdasarkan <b>sid</b>). Untuk hari yang belum ada, masukkan kredensial AWE. <b>Kredensial tidak disimpan.</b></p>
 
@@ -196,7 +190,7 @@
     <span class="stage-num">2</span>
     <h2 class="stage-title">Pemrosesan Bahasa &rarr; Database AWE</h2>
   </div>
-  <p class="use-note">&#8505;&#65039; <b>Kapan dipakai:</b> untuk <b>memproses ulang</b> atau memproses <b>sebagian</b> data di penyimpanan sementara tanpa menarik ulang. Tarik Otomatis sudah menjalankan langkah ini sendiri.</p>
+  <p class="use-note">&#8505;&#65039; <b>Kapan dipakai:</b> untuk <b>memproses ulang</b> atau memproses <b>sebagian</b> data di penyimpanan sementara tanpa menarik ulang. Tombol <b>Tarik H-1</b> (Langkah 1) sudah otomatis menjalankan langkah ini juga.</p>
   <p class="muted-text">Jalankan pemrosesan bahasa (embedding, sentimen, topik, pemetaan intent, klaster) atas data di penyimpanan sementara, lalu simpan hasilnya ke database AWE. Kosongkan rentang untuk memproses <b>seluruh</b> isi penyimpanan.</p>
 
   <div class="form-row">
@@ -245,6 +239,18 @@ function el(id){return document.getElementById(id);}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setS(msg,k){var s=el('sStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
 function setP(msg,k){var s=el('pStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
+function pad2(x){return ('0'+String(x==null?'':x)).slice(-2);}
+
+/* ---- Penyimpanan sementara: ringkasan + hapus per-batch ---- */
+function deleteBatch(from,to,id){
+  if(!from||!to){alert('Rentang batch tidak diketahui, tidak bisa dihapus dari sini.');return;}
+  if(!confirm('Hapus batch '+id+'?\n\nSemua data di penyimpanan sementara pada rentang '+from+' s/d '+to+' akan dihapus (termasuk batch lain pada rentang yang sama) dan penandaan harinya dikosongkan, agar hari itu bisa ditarik ulang dari awal.\n\nLanjutkan?'))return;
+  fetch('/api/awe/stage/purge',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:from,date_to:to})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){alert('Gagal menghapus: '+(d.error||'kesalahan tak dikenal'));return;}
+     loadSummary();
+   }).catch(function(e){alert('Gagal menghapus: '+e);});
+}
 
 function loadSummary(){
   fetch('/api/awe/stage/summary').then(function(r){return r.json();}).then(function(d){
@@ -253,160 +259,30 @@ function loadSummary(){
     el('stgCount').textContent=(st.total||0)+' percakapan';
     el('stgInfo').textContent=(st.total? (st.total+' percakapan tersimpan \u2022 '+(st.days||0)+' hari \u2022 rentang '+(st.date_min||'-')+' s/d '+(st.date_max||'-')+' \u2022 '+(st.batches||0)+' batch tarik') : 'Belum ada data di penyimpanan sementara.');
     var tb=el('stgBatches');
-    if(!d.batches||!d.batches.length){tb.innerHTML='<tr><td colspan="6" class="muted-text" style="text-align: center;">Belum ada tarikan.</td></tr>';return;}
-    tb.innerHTML=d.batches.map(function(b){return '<tr><td>'+esc(b.id)+'</td><td>'+esc(b.date_from)+' s/d '+esc(b.date_to)+'</td><td>'+(b.n_pulled||0)+'</td><td>'+(b.n_new||0)+'</td><td>'+esc(b.pulled_by||'-')+'</td><td>'+esc(b.created_at||'')+'</td></tr>';}).join('');
+    if(!d.batches||!d.batches.length){tb.innerHTML='<tr><td colspan="7" class="muted-text" style="text-align: center;">Belum ada tarikan.</td></tr>';return;}
+    tb.innerHTML=d.batches.map(function(b){return '<tr><td>'+esc(b.id)+'</td><td>'+esc(b.date_from)+' s/d '+esc(b.date_to)+'</td><td>'+(b.n_pulled||0)+'</td><td>'+(b.n_new||0)+'</td><td>'+esc(b.pulled_by||'-')+'</td><td>'+esc(b.created_at||'')+'</td><td><button class="btn-mini del-batch" data-id="'+esc(b.id)+'" data-from="'+esc(b.date_from)+'" data-to="'+esc(b.date_to)+'">Hapus</button></td></tr>';}).join('');
+    Array.prototype.forEach.call(tb.querySelectorAll('.del-batch'),function(btn){
+      btn.addEventListener('click',function(){deleteBatch(btn.getAttribute('data-from'),btn.getAttribute('data-to'),btn.getAttribute('data-id'));});
+    });
   }).catch(function(){});
 }
 
-/* ---- Tarik Otomatis Harian (auto-pull) ---- */
+/* ---- Tarik cepat H-1 + status penjadwal (auto-pull, kredensial .env) ---- */
 function setA(msg,k){var s=el('autoStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
-function pad2(x){return ('0'+String(x==null?'':x)).slice(-2);}
 function renderAuto(d){
   if(!d)return;
   var en=!!d.enabled, cfg=!!d.configured, run=!!d.running;
-  el('autoPill').textContent = run ? 'sedang berjalan' : (en ? 'aktif' : 'nonaktif');
-  var last=d.last||{};
   var parts=[];
-  parts.push('Penjadwal: <b>'+(en?('aktif ~'+esc(d.hour||'5')+':'+pad2(d.minute||'0')+' WIB'):'nonaktif (AWE_SCHEDULER=0)')+'</b>');
+  parts.push('Penjadwal harian: <b>'+(run?'sedang berjalan':(en?('aktif ~'+esc(d.hour||'5')+':'+pad2(d.minute||'0')+' WIB'):'nonaktif (AWE_SCHEDULER=0)'))+'</b>');
   parts.push('Kredensial .env: <b>'+(cfg?'terisi':'belum diisi')+'</b>');
   parts.push('Proses otomatis: <b>'+(d.process?'ya':'tidak (tarik saja)')+'</b>');
+  var last=d.last||{};
   if(last && (last.finished_at||last.started_at)){
     parts.push('Terakhir: <b>'+esc(last.finished_at||last.started_at)+'</b>'+(last.trigger?(' ('+esc(last.trigger)+')'):''));
-    if(last.ok) parts.push('Hasil: <b>berhasil</b> \u2014 '+esc(last.message||''));
-    else parts.push('Hasil: <b>gagal</b> \u2014 '+esc(last.error||''));
+    if(last.ok) parts.push('Hasil: <b>berhasil</b>'+(last.message?(' \u2014 '+esc(last.message)):''));
+    else if(last.error) parts.push('Hasil: <b>gagal</b> \u2014 '+esc(last.error));
     if(last.range) parts.push('Rentang: '+esc(last.range));
   } else {
     parts.push('Belum pernah dijalankan.');
   }
   el('autoInfo').innerHTML=parts.join(' \u2022 ');
-}
-function loadAuto(){
-  fetch('/api/awe/autopull/status').then(function(r){return r.json();}).then(function(d){if(d.ok)renderAuto(d);}).catch(function(){});
-}
-function pollAuto(){
-  fetch('/api/awe/autopull/status').then(function(r){return r.json();}).then(function(d){
-    if(d.ok)renderAuto(d);
-    if(d.ok&&d.running){setTimeout(pollAuto,3000);return;}
-    el('autoNowBtn').disabled=false;
-    var last=(d&&d.last)||{};
-    if(last.ok)setA('\u2705 '+esc(last.message||'Selesai.'),'ok');
-    else if(last.error)setA('\u274c '+esc(last.error||'Gagal.'),'err');
-    loadSummary();
-  }).catch(function(){el('autoNowBtn').disabled=false;});
-}
-el('autoNowBtn').addEventListener('click',function(){
-  el('autoNowBtn').disabled=true;setA('Memulai tarik otomatis\u2026');
-  var af=el('a_from').value,at=el('a_to').value,payload={};
-  if(af||at){payload.date_from=af||at;payload.date_to=at||af;}
-  fetch('/api/awe/autopull/now',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
-   .then(function(r){return r.json();}).then(function(d){
-     if(!d.ok){setA('Gagal: '+esc(d.error||''),'err');el('autoNowBtn').disabled=false;return;}
-     setA('\u25b6\ufe0f '+esc(d.message||'Dimulai.'));setTimeout(pollAuto,2000);
-   }).catch(function(e){setA('Gagal: '+e,'err');el('autoNowBtn').disabled=false;});
-});
-
-el('sCheckBtn').addEventListener('click',function(){
-  var df=el('s_from').value,dt=el('s_to').value;
-  if(!df||!dt){setS('Isi rentang tanggal dulu.','err');return;}
-  setS('Mengecek ketersediaan\u2026');
-  fetch('/api/awe/stage/check',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt})})
-   .then(function(r){return r.json();}).then(function(d){
-     if(!d.ok){setS('Gagal: '+esc(d.error||''),'err');return;}
-     var nm=(d.missing||[]).length,ns=(d.staged||[]).length;
-     if(nm===0){setS('\u2705 Semua '+ns+' hari pada rentang ini sudah ada di penyimpanan sementara - tak perlu tarik ulang.','ok');el('sLoginBox').style.display='none';}
-     else{setS('\u2139\ufe0f '+ns+' hari sudah ada, <b>'+nm+' hari belum ada</b>. Masukkan kredensial untuk menariknya.');el('sLoginBox').style.display='block';}
-   }).catch(function(e){setS('Gagal: '+e,'err');});
-});
-
-el('sPullBtn').addEventListener('click',function(){
-  var df=el('s_from').value,dt=el('s_to').value,u=el('s_user').value.trim(),pw=el('s_pass').value;
-  if(!pw){setS('Password wajib diisi.','err');return;}
-  el('sPullBtn').disabled=true;setS('Menarik data\u2026');
-  fetch('/api/awe/stage/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,username:u,password:pw,base_url:el('s_base').value.trim()})})
-   .then(function(r){return r.json();}).then(function(d){
-     if(!d.ok){setS('Gagal: '+esc(d.error||''),'err');el('sPullBtn').disabled=false;return;}
-     pollStage(d.job);
-   }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
-});
-
-function pollStage(job){
-  fetch('/api/awe/stage/progress?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(res){
-    var p=res.progress||{};
-    if(!p.finished){setS(esc(p.message||'Menarik\u2026'));setTimeout(function(){pollStage(job);},1500);return;}
-    fetchStage(job);
-  }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
-}
-
-function fetchStage(job){
-  fetch('/api/awe/stage/fetch?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(d){
-    el('sPullBtn').disabled=false;
-    if(!d.ok){
-      if(d.need_login){setS('Login gagal: '+esc(d.error||'')+' - periksa kredensial.','err');el('sLoginBox').style.display='block';}
-      else setS('Gagal: '+esc(d.error||''),'err');
-      return;
-    }
-    setS('\u2705 '+esc(d.message||'Selesai.'),'ok');el('s_pass').value='';el('sLoginBox').style.display='none';
-    loadSummary();
-  }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
-}
-
-el('pRunBtn').addEventListener('click',function(){
-  var df=el('p_from').value,dt=el('p_to').value,purge=el('p_purge').checked;
-  el('pRunBtn').disabled=true;setP('Menyiapkan pemrosesan\u2026');
-  fetch('/api/awe/process/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,purge_after:purge})})
-   .then(function(r){return r.json();}).then(function(d){
-     if(!d.ok){setP('Gagal: '+esc(d.error||''),'err');el('pRunBtn').disabled=false;return;}
-     setP('Memproses '+(d.n_staged||0)+' percakapan\u2026');pollProc(d.job);
-   }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
-});
-
-function pollProc(job){
-  fetch('/api/awe/process/progress?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(res){
-    var p=res.progress||{};
-    if(!p.finished){setP(esc(p.message||'Memproses\u2026'));setTimeout(function(){pollProc(job);},2000);return;}
-    fetchProc(job);
-  }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
-}
-
-function fetchProc(job){
-  fetch('/api/awe/process/fetch?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(d){
-    el('pRunBtn').disabled=false;
-    if(!d.ok){setP('Gagal: '+esc(d.error||''),'err');return;}
-    setP('\u2705 '+esc(d.message||'Selesai.')+' Hasil tersimpan di database AWE'+(d.purged?' dan penyimpanan sementara sudah dibersihkan.':'.'),'ok');
-    loadSummary();
-  }).catch(function(e){setP('Gagal: '+e,'err');el('pRunBtn').disabled=false;});
-}
-
-function setN(msg,k){var s=el('nikStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
-function renderNik(st){
-  if(!st)return;
-  el('nikPill').textContent=(st.with_nik||0)+' / '+(st.total||0)+' ber-NIK';
-  el('nikInfo').innerHTML='Total baris: <b>'+(st.total||0)+'</b> \u2022 sudah ber-NIK: <b>'+(st.with_nik||0)+'</b> \u2022 belum ber-NIK: <b>'+(st.without_nik||0)+'</b> \u2022 dapat dipulihkan dari nama: <b>'+(st.recover_from_name||0)+'</b> \u2022 nama masih mengandung "[...]": <b>'+(st.name_has_bracket||0)+'</b> \u2022 di staging: <b>'+(st.staging_rows||0)+'</b>';
-}
-function loadNik(){
-  fetch('/api/awe/nik/stats').then(function(r){return r.json();}).then(function(d){if(d.ok)renderNik(d);}).catch(function(){});
-}
-el('nikCheckBtn').addEventListener('click',function(){
-  setN('Mengecek status NIK\u2026');
-  fetch('/api/awe/nik/stats').then(function(r){return r.json();}).then(function(d){
-    if(!d.ok){setN('Gagal: '+esc(d.error||''),'err');return;}
-    renderNik(d);setN('\u2705 Status NIK dimuat.','ok');
-  }).catch(function(e){setN('Gagal: '+e,'err');});
-});
-el('nikFillBtn').addEventListener('click',function(){
-  el('nikFillBtn').disabled=true;setN('Memperbarui NIK baris lama\u2026');
-  fetch('/api/awe/nik/backfill',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})
-   .then(function(r){return r.json();}).then(function(d){
-     el('nikFillBtn').disabled=false;
-     if(!d.ok){setN('Gagal: '+esc(d.error||''),'err');return;}
-     if(d.stats)renderNik(d.stats);
-     setN('\u2705 Selesai. '+(d.nik_filled||0)+' baris diisi NIK, '+(d.name_cleaned||0)+' nama dirapikan (dari '+(d.scanned||0)+' baris diperiksa).','ok');
-   }).catch(function(e){setN('Gagal: '+e,'err');el('nikFillBtn').disabled=false;});
-});
-
-loadSummary();
-loadNik();
-loadAuto();
-})();
-</script>
-{% endblock %}
