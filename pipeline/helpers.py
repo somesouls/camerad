@@ -426,7 +426,7 @@ def curl_multipart(cfg, endpoint, files, fields=None):
         raise Exception("Server membalas JSON, bukan file XLSX: %s" % r.text[:300])
     content = r.content
     if content[:2] != b"PK":
-        peek = re.sub(r"\\s+", " ", re.sub(r"<[^>]+>", " ", content.decode("utf-8", "replace"))).strip()
+        peek = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", content.decode("utf-8", "replace"))).strip()
         raise Exception("Server tidak mengembalikan file XLSX yang valid (mungkin halaman error/interstitial). Cuplikan: " + peek[:300])
     return content, hdrs
 
@@ -473,7 +473,7 @@ def curl_post_json(cfg, endpoint, files, fields=None):
     try:
         return r.json()
     except Exception:
-        peek = re.sub(r"\\s+", " ", re.sub(r"<[^>]+>", " ", r.text)).strip()
+        peek = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", r.text)).strip()
         raise Exception("Server tidak mengembalikan JSON valid (mungkin halaman error/interstitial). Cuplikan: " + peek[:300])
 
 
