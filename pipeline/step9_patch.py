@@ -1,37 +1,43 @@
 # -*- coding: utf-8 -*-
-"""step9_patch.py — Perbaikan Step 9 (step9_save + step9_load) pipeline Analisis Dialogflow.
+"""step9_patch.py — Step 9 (Analisis Manual MKTA) BERBASIS BARIS (row-based).
 
-MASALAH A (SIMPAN — "Data edit tidak valid"):
-- Frontend (templates/tools.html -> saveStep9) mengirim `edits` sebagai OBJEK
-  map {"<row>": "<Intent Seharusnya>"} berisi HANYA baris yang diedit.
-- Backend lama menolak apa pun yang bukan LIST -> SELALU "Data edit tidak valid.".
+PERBAIKAN INTI ("Intent Seharusnya" tak tersimpan):
+- Versi lama MEMBANGUN ULANG sheet "Analisis MKTA" dari nol tiap simpan, dengan
+  edit_map DIKUNCI NOMOR BARIS (int(rn)) & prior digabung via 'ID Rekaman||user'.
+  Bila kunci meleset (ID Rekaman kosong / nomor baris bergeser), editan analis
+  HILANG. Frontend hanya mengirim baris yang diedit -> baris lama rawan lenyap.
+- Versi ini menyimpan BARIS deliverable "Analisis MKTA" di step_row (dirakit
+  ulang deterministik dari 'QA Conf MKTA' Step 8) DAN menyimpan EDITAN analis
+  (Intent Seharusnya / Catatan) TERPISAH di step_edit, DIKUNCI kunci bisnis
+  STABIL (insertId -> 'ID Rekaman||user' -> 'r<rownum>'). step_edit di-UPSERT,
+  TIDAK pernah dibangun ulang -> editan persist walau baris/urutan berubah.
+- r["row"] yang dikirim ke frontend = kunci bisnis; saveStep9 mengirim
+  edits[kunci]=Intent Seharusnya, jadi otomatis ter-upsert ke kunci yang benar.
 
-MASALAH B (TAMPIL — tabel Step 9 kosong):
-- renderStep9() menyaring `r.qa < ambang` & membaca field pertanyaan/seharusnya/
-  kategori/df/nli/prioritas/kandidat; backend lama mengembalikan nama beda.
+Ambang (threshold): dari form bila ada; jika tidak, warisi ringkasan Step 8.
+Sumber data QA: unggahan xlsx (bila ada) atau hasil Step 8 (dirakit dari baris).
 
-MASALAH C (AMBANG): bila form TIDAK mengirim `threshold`, ambang DIWARISI dari
-ringkasan Step 8 (state.steps.8.summary.threshold). step9_load MENGEMBALIKAN
-`threshold` agar frontend bisa menyetel default filter (#f9qa).
-
-MASALAH D (ID trace kosong) — AKAR MASALAH SEBENARNYA:
-- Sheet hasil analisis MKTA ("QA Conf MKTA") dari backend Colab memakai nama
-  kolom "ID Rekaman" (= Nomor Rekaman / ID Percakapan), BUKAN "ID trace".
-  Step 9 lama mencari header "ID trace" -> tidak ketemu -> kolom kosong.
-- PERBAIKAN: cari id rekaman pada kandidat header ["ID Rekaman","ID Percakapan",
-  "id_rekaman","ID trace","ID Trace","IDtrace"]. ID Rekaman BERBEDA dari insertId
-  (satu Nomor Rekaman bisa punya banyak insertId/tek-tok), jadi TIDAK di-fallback
-  ke insertId. insertId tetap ditulis di kolomnya sendiri.
-
-PEMASANGAN: `import step9_patch` SETELAH pipeline_routes diimpor (web_app.py).
+PEMASANGAN: `import pipeline.step9_patch` SETELAH pipeline_routes (web_app.py).
 dispatch() memakai late-binding global sehingga otomatis memakai versi ini.
+Di akhir modul: chain-import store_rows_patch (penyimpanan baris Step 4-8).
 """
 import os
 import json
 import pipeline.routes as pr
+from pipeline import rowstore
 
 # Kandidat nama kolom identitas rekaman (Nomor Rekaman). Urutan = prioritas.
 ID_REKAMAN_HEADERS = ["ID Rekaman", "ID Percakapan", "id_rekaman", "ID trace", "ID Trace", "IDtrace"]
+
+# Sheet deliverable Step 9 + kolomnya. "Intent Seharusnya" & "Catatan" = kolom
+# EDITAN analis (di-overlay dari step_edit saat rakit Excel / tampil).
+EDIT_SHEET = "Analisis MKTA"
+HEADER_MKTA = ["ID trace", "user phrase", "bot response", "intent name", "Skor Pemrosesan Bahasa",
+               "PUTUSAN", "ALASAN", "Intent Seharusnya (LLM)", "Intent Seharusnya", "Catatan",
+               "waktu interaksi", "lang", "insertId", "score"]
+COL_MANUAL = "Intent Seharusnya"
+COL_CATATAN = "Catatan"
+COL_LLM = "Intent Seharusnya (LLM)"
 
 
 def _step8_threshold(cfg, ctx):
@@ -64,36 +70,40 @@ def _rid(cells, col_id):
     return pr._sv(cells, col_id).strip()
 
 
-def step9_save(cfg, ctx):
-    edits_raw = ctx.P("edits", "")
-    try:
-        edits = json.loads(edits_raw) if edits_raw not in (None, "") else {}
-    except Exception:
-        edits = None
-    edit_map = {}
-    if isinstance(edits, dict):
-        for k, v in edits.items():
-            try:
-                rn = int(k)
-            except Exception:
-                continue
-            if isinstance(v, dict):
-                edit_map[rn] = {"llm": v.get("llm"), "manual": v.get("manual", v.get("seharusnya")), "catatan": v.get("catatan")}
-            else:
-                edit_map[rn] = {"manual": ("" if v is None else str(v))}
-    elif isinstance(edits, list):
-        for e in edits:
-            if not isinstance(e, dict):
-                continue
-            try:
-                rn = int(e.get("row"))
-            except Exception:
-                continue
-            edit_map[rn] = {"llm": e.get("llm"), "manual": e.get("manual", e.get("seharusnya")), "catatan": e.get("catatan")}
-    else:
-        raise Exception("Data edit tidak valid.")
-    threshold = _resolve_threshold(cfg, ctx)
-    b = pr.step9_base_bytes(cfg, ctx)
+def _biz_key(ins, rid, user, rn):
+    """Kunci bisnis STABIL utk 1 baris QA (dasar persist editan). Prioritas:
+    insertId (unik per interaksi) -> 'ID Rekaman||user' -> 'r<rownum>' (darurat)."""
+    ins = (ins or "").strip()
+    if ins:
+        return ins
+    rid = (rid or "").strip()
+    user = (user or "").strip()
+    if rid or user:
+        return rid + "||" + user
+    return "r%d" % rn
+
+
+def _base_bytes(cfg, ctx):
+    """Sumber data QA utk Step 9: unggahan xlsx (bila ada) atau hasil Step 8
+    (dirakit dari baris/blob). Hindari step9_base_bytes agar tak sirkular."""
+    up = ctx.file("xlsx_file")
+    if up is not None:
+        b = up[0]
+        try:
+            with open(os.path.join(pr.run_dir(cfg, ctx.run), "step9_source.xlsx"), "wb") as f:
+                f.write(b)
+        except Exception:
+            pass
+        return b
+    b = pr.artifact_bytes(cfg, ctx.run, 8)
+    if b is None:
+        raise Exception("Step 8 belum tersedia. Jalankan Step 8 (atau unggah file) dulu.")
+    return b
+
+
+def _parse_qa(b, threshold):
+    """Parse 'QA Conf MKTA' -> list dict per baris QA berskor < threshold.
+    Tiap item berisi biz_key + semua field tampilan/deliverable."""
     wb = pr._wb_from_bytes(b)
     if "QA Conf MKTA" not in wb.sheetnames:
         raise Exception('Sheet "QA Conf MKTA" tidak ada.')
@@ -110,27 +120,13 @@ def step9_save(cfg, ctx):
     col_lang = pr._find_header(H, ["lang", "Lang"])
     col_ins = pr._find_header(H, ["insertId", "InsertId", "InserId"])
     col_scr = pr._find_header(H, ["score", "Score"])
+    col_df = pr._find_header(H, ["Skor Dialogflow", "Skor DF", "Skor Deteksi", "score", "Score"])
+    col_nli = pr._find_header(H, ["Skor NLI", "NLI", "nli"])
+    col_prio = pr._find_header(H, ["Prioritas Tinjau", "Prioritas", "Priority"])
+    col_kat = pr._find_header(H, ["Kategori Mesin", "Kategori", "Category"])
+    col_kand = pr._find_header(H, ["Kandidat Intent", "Kandidat", "Terdekat", "Intent Terdekat", "Intent Kandidat"])
     col_llm_qa = pr._find_header(H, ["Intent Seharusnya (LLM)", "INTENT SEHARUSNYA", "Intent Seharusnya LLM"])
-    prior = {}
-    if "Analisis MKTA" in wb.sheetnames:
-        am = pr.read_sheet(wb["Analisis MKTA"])
-        AH = am["headers"]
-        p_id = pr._find_header(AH, ID_REKAMAN_HEADERS)
-        p_user = pr._find_header(AH, ["user phrase", "User Phrase", "Pertanyaan User"])
-        p_llm = pr._find_header(AH, ["Intent Seharusnya (LLM)", "INTENT SEHARUSNYA"])
-        p_man = pr._find_header(AH, ["Intent Seharusnya", "Intent Seharusnya (Manual)"])
-        p_cat = pr._find_header(AH, ["Catatan", "CATATAN"])
-        for rn in sorted(am["rows"].keys()):
-            if rn == 1:
-                continue
-            cells = am["rows"][rn]
-            key = pr._sv(cells, p_id) + "||" + pr._sv(cells, p_user)
-            prior[key] = {"llm": pr._sv(cells, p_llm), "manual": pr._sv(cells, p_man), "catatan": pr._sv(cells, p_cat)}
-    header = ["ID trace", "user phrase", "bot response", "intent name", "Skor Pemrosesan Bahasa",
-             "PUTUSAN", "ALASAN", "Intent Seharusnya (LLM)", "Intent Seharusnya", "Catatan",
-             "waktu interaksi", "lang", "insertId", "score"]
-    aoa = [header]
-    baris = 0
+    out = []
     for rn in sorted(qa["rows"].keys()):
         if rn == 1:
             continue
@@ -139,106 +135,124 @@ def step9_save(cfg, ctx):
         if not (pr._is_numeric(sc) and float(sc) < threshold):
             continue
         rid = _rid(cells, col_id)
-        old = prior.get(rid + "||" + pr._sv(cells, col_user), {})
-        llm = old.get("llm", "")
-        manual = old.get("manual", "")
-        catatan = old.get("catatan", "")
-        if (not llm) and col_llm_qa:
-            llm = pr._sv(cells, col_llm_qa)
-        e = edit_map.get(rn)
-        if e is not None:
-            if e.get("llm") is not None:
-                llm = e.get("llm")
-            if e.get("manual") is not None:
-                manual = e.get("manual")
-            if e.get("catatan") is not None:
-                catatan = e.get("catatan")
-        aoa.append([
-            rid, pr._sv(cells, col_user), pr._sv(cells, col_bot), pr._sv(cells, col_intent),
-            (float(sc) if pr._is_numeric(sc) else sc), pr._sv(cells, col_put), pr._sv(cells, col_alasan),
-            llm, manual, catatan, pr._sv(cells, col_waktu), pr._sv(cells, col_lang),
-            pr._sv(cells, col_ins), pr._sv(cells, col_scr),
-        ])
-        baris += 1
-    out_bytes = pr.xlsx_upsert_sheet(b, "Analisis MKTA", aoa)
-    summary = {"status": "Selesai", "baris_analisis": baris, "threshold": threshold,
-               "catatan": 'Sheet "Analisis MKTA" diperbarui.'}
-    data = pr.save_artifact(cfg, ctx.run, 9, "xlsx", out_bytes, "hasil_analisis_manual_mkta.xlsx", summary)
-    return {"step": 9, "artifact": data, "baris": baris}
+        user = pr._sv(cells, col_user)
+        ins = pr._sv(cells, col_ins)
+        out.append({
+            "biz_key": _biz_key(ins, rid, user, rn),
+            "rid": rid, "user": user, "ins": ins,
+            "bot": pr._sv(cells, col_bot), "intent": pr._sv(cells, col_intent),
+            "sc": sc, "put": pr._sv(cells, col_put), "alasan": pr._sv(cells, col_alasan),
+            "waktu": pr._sv(cells, col_waktu), "lang": pr._sv(cells, col_lang),
+            "scr": pr._sv(cells, col_scr), "llm": pr._sv(cells, col_llm_qa),
+            "df": pr._sv(cells, col_df), "nli": pr._sv(cells, col_nli),
+            "prioritas": pr._sv(cells, col_prio), "kategori": pr._sv(cells, col_kat),
+            "kandidat": pr._sv(cells, col_kand),
+        })
+    return out
 
 
 def step9_load(cfg, ctx):
-    up = ctx.file("xlsx_file")
-    if up is not None:
-        b = up[0]
-        try:
-            with open(os.path.join(pr.run_dir(cfg, ctx.run), "step9_source.xlsx"), "wb") as f:
-                f.write(b)
-        except Exception:
-            pass
-    else:
-        b = pr.step9_base_bytes(cfg, ctx)
     threshold = _resolve_threshold(cfg, ctx)
-    wb = pr._wb_from_bytes(b)
-    if "QA Conf MKTA" not in wb.sheetnames:
-        raise Exception('Sheet "QA Conf MKTA" tidak ada.')
-    qa = pr.read_sheet(wb["QA Conf MKTA"])
-    H = qa["headers"]
-    col_id = pr._find_header(H, ID_REKAMAN_HEADERS)
-    col_user = pr._find_header(H, ["user phrase", "User Phrase", "Pertanyaan User"])
-    col_bot = pr._find_header(H, ["bot response", "Bot Response", "Jawaban Bot"])
-    col_intent = pr._find_header(H, ["intent name", "Intent Name", "Intent"])
-    col_score = pr._find_header(H, ["Skor Pemrosesan Bahasa"])
-    col_put = pr._find_header(H, ["PUTUSAN"])
-    col_alasan = pr._find_header(H, ["ALASAN", "Alasan"])
-    col_df = pr._find_header(H, ["Skor Dialogflow", "Skor DF", "Skor Deteksi", "score", "Score"])
-    col_nli = pr._find_header(H, ["Skor NLI", "NLI", "nli"])
-    col_prio = pr._find_header(H, ["Prioritas Tinjau", "Prioritas", "Priority"])
-    col_kat = pr._find_header(H, ["Kategori Mesin", "Kategori", "Category"])
-    col_kand = pr._find_header(H, ["Kandidat Intent", "Kandidat", "Terdekat", "Intent Terdekat", "Intent Kandidat"])
-    col_llm_qa = pr._find_header(H, ["Intent Seharusnya (LLM)", "INTENT SEHARUSNYA", "Intent Seharusnya LLM"])
-    prior = {}
-    if "Analisis MKTA" in wb.sheetnames:
-        am = pr.read_sheet(wb["Analisis MKTA"])
-        AH = am["headers"]
-        p_id = pr._find_header(AH, ID_REKAMAN_HEADERS)
-        p_user = pr._find_header(AH, ["user phrase", "User Phrase", "Pertanyaan User"])
-        p_llm = pr._find_header(AH, ["Intent Seharusnya (LLM)", "INTENT SEHARUSNYA"])
-        p_man = pr._find_header(AH, ["Intent Seharusnya", "Intent Seharusnya (Manual)"])
-        p_cat = pr._find_header(AH, ["Catatan", "CATATAN"])
-        for rn in sorted(am["rows"].keys()):
-            if rn == 1:
-                continue
-            cells = am["rows"][rn]
-            key = pr._sv(cells, p_id) + "||" + pr._sv(cells, p_user)
-            prior[key] = {"llm": pr._sv(cells, p_llm), "manual": pr._sv(cells, p_man), "catatan": pr._sv(cells, p_cat)}
+    items = _parse_qa(_base_bytes(cfg, ctx), threshold)
+    # 1) (Re)bangun baris deliverable "Analisis MKTA" dari QA (dasar deterministik).
+    #    Editan analis TIDAK di sini; tersimpan terpisah di step_edit (kunci bisnis).
+    rows_store = []
+    for it in items:
+        payload = {
+            "ID trace": it["rid"], "user phrase": it["user"], "bot response": it["bot"],
+            "intent name": it["intent"],
+            "Skor Pemrosesan Bahasa": (float(it["sc"]) if pr._is_numeric(it["sc"]) else it["sc"]),
+            "PUTUSAN": it["put"], "ALASAN": it["alasan"],
+            "Intent Seharusnya (LLM)": it["llm"], "Intent Seharusnya": "", "Catatan": "",
+            "waktu interaksi": it["waktu"], "lang": it["lang"],
+            "insertId": it["ins"], "score": it["scr"],
+        }
+        rows_store.append((it["biz_key"], payload))
+    summary = {"status": "Selesai", "baris_analisis": len(rows_store), "threshold": threshold,
+               "catatan": 'Sheet "Analisis MKTA" disimpan berbasis baris (row-based).'}
+    rowstore.save_step_rows(cfg, ctx.run, 9, {EDIT_SHEET: rows_store},
+                            {EDIT_SHEET: list(HEADER_MKTA)}, "xlsx",
+                            "hasil_analisis_manual_mkta.xlsx", summary, edit_sheet=EDIT_SHEET)
+    # 2) Overlay editan analis (step_edit) utk tampilan frontend.
+    stored = rowstore.step_sheet(cfg, ctx.run, 9, EDIT_SHEET)
+    ov = {}
+    for r in stored.get("rows", []):
+        ov[r["biz_key"]] = r["data"]
     rows = []
-    for rn in sorted(qa["rows"].keys()):
-        if rn == 1:
-            continue
-        cells = qa["rows"][rn]
-        sc = pr._sv(cells, col_score)
-        if not (pr._is_numeric(sc) and float(sc) < threshold):
-            continue
-        _id = _rid(cells, col_id)
-        user = pr._sv(cells, col_user)
-        old = prior.get(_id + "||" + user, {})
-        seharusnya = old.get("manual", "") or old.get("llm", "")
-        if (not seharusnya) and col_llm_qa:
-            seharusnya = pr._sv(cells, col_llm_qa)
+    for it in items:
+        d = ov.get(it["biz_key"], {})
+        manual = d.get(COL_MANUAL, "") or ""
+        catatan = d.get(COL_CATATAN, "") or ""
+        llm = d.get(COL_LLM, "") or it["llm"]
+        seharusnya = manual or llm
         rows.append({
-            "row": rn, "id_trace": _id, "pertanyaan": user, "qa": sc,
-            "df": pr._sv(cells, col_df), "nli": pr._sv(cells, col_nli),
-            "prioritas": pr._sv(cells, col_prio), "kategori": pr._sv(cells, col_kat),
-            "kandidat": pr._sv(cells, col_kand), "seharusnya": seharusnya,
-            "user": user, "skor": sc, "manual": old.get("manual", ""),
-            "bot": pr._sv(cells, col_bot), "intent": pr._sv(cells, col_intent),
-            "putusan": pr._sv(cells, col_put), "alasan": pr._sv(cells, col_alasan),
-            "llm": old.get("llm", ""), "catatan": old.get("catatan", ""),
+            "row": it["biz_key"], "id_trace": it["rid"], "pertanyaan": it["user"],
+            "qa": it["sc"], "df": it["df"], "nli": it["nli"],
+            "prioritas": it["prioritas"], "kategori": it["kategori"], "kandidat": it["kandidat"],
+            "seharusnya": seharusnya, "user": it["user"], "skor": it["sc"],
+            "manual": manual, "bot": it["bot"], "intent": it["intent"],
+            "putusan": it["put"], "alasan": it["alasan"], "llm": llm, "catatan": catatan,
         })
     return {"step": 9, "rows": rows, "total": len(rows), "threshold": threshold}
 
 
+def _payload_from_dict(src):
+    """Bangun payload editan dari dict frontend (manual/seharusnya/catatan/llm)."""
+    payload = {}
+    if ("manual" in src) or ("seharusnya" in src):
+        payload[COL_MANUAL] = src.get("manual", src.get("seharusnya")) or ""
+    if "catatan" in src:
+        payload[COL_CATATAN] = src.get("catatan") or ""
+    if "llm" in src:
+        payload[COL_LLM] = src.get("llm") or ""
+    return payload
+
+
+def step9_save(cfg, ctx):
+    edits_raw = ctx.P("edits", "")
+    try:
+        edits = json.loads(edits_raw) if edits_raw not in (None, "") else {}
+    except Exception:
+        edits = None
+    items = []
+    if isinstance(edits, dict):
+        # Bentuk utama frontend: {kunci_bisnis: "Intent Seharusnya"} (baris ter-edit saja).
+        for biz_key, v in edits.items():
+            if not biz_key:
+                continue
+            if isinstance(v, dict):
+                payload = _payload_from_dict(v)
+            else:
+                payload = {COL_MANUAL: ("" if v is None else str(v))}
+            if payload:
+                items.append((str(biz_key), payload))
+    elif isinstance(edits, list):
+        for e in edits:
+            if not isinstance(e, dict):
+                continue
+            biz_key = e.get("row", e.get("biz_key"))
+            if not biz_key:
+                continue
+            payload = _payload_from_dict(e)
+            if payload:
+                items.append((str(biz_key), payload))
+    else:
+        raise Exception("Data edit tidak valid.")
+    # UPSERT editan (kunci bisnis stabil). TIDAK membangun ulang baris -> tak ada
+    # editan yang hilang. Cache disk & rakitan Excel otomatis di-overlay.
+    rowstore.save_step_edits(cfg, ctx.run, 9, items)
+    art = None
+    try:
+        art = pr.load_state(cfg, ctx.run)["steps"].get("9")
+    except Exception:
+        art = None
+    return {"step": 9, "artifact": art, "baris": len(items)}
+
+
 pr.step9_save = step9_save
 pr.step9_load = step9_load
-print("[step9_patch] step9_save + step9_load diperbaiki (objek map, warisi ambang Step 8, ID trace<-ID Rekaman, samakan nama field frontend).", flush=True)
+print("[step9_patch] Step 9 row-based: Analisis MKTA -> step_row; editan (Intent Seharusnya/Catatan) -> step_edit (kunci bisnis stabil, persist).", flush=True)
+
+# Aktifkan penyimpanan baris (row-based) utk Step 4-8. Di-chain di sini karena
+# step9_patch di-import setelah pipeline_routes siap (fungsi step sudah ada).
+import pipeline.store_rows_patch  # noqa: E402,F401
