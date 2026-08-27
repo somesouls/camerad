@@ -6,7 +6,7 @@ lewat objek `app` global di app_core. Semua fail-open: bila app/index belum
 siap, route & thread dilewati tanpa mengganggu boot.
 
 Rute (area akses "awe"):
-  GET  /api/awe/index/stats   -> status index vektor (vec, db)
+  GET  /api/awe/index/stats   -> status index (vec, sumber, db_file, limit)
   POST /api/awe/index/reindex -> rebuild inkremental index vektor AWE
   GET  /awe/index             -> halaman kecil status + tombol reindex
 
@@ -34,6 +34,13 @@ def _reindex_every_s():
         return 300
 
 
+def _limit_val():
+    try:
+        return int(os.environ.get("AWE_INDEX_LIMIT", "100000") or "100000")
+    except Exception:
+        return 100000
+
+
 def _asi():
     try:
         import avaya.semantic_index as asi
@@ -52,6 +59,23 @@ def _sig_now():
                 "SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM awe_conversations"
             ).fetchone()
             return (int(row[0]), int(row[1]))
+        finally:
+            c.close()
+    except Exception:
+        return None
+
+
+def _src_count():
+    """Jumlah sid unik AWE yg layak diindeks (punya transkrip). None bila gagal."""
+    try:
+        import avaya.db as _avdb
+        c = _avdb.init_db(_avdb.connect())
+        try:
+            row = c.execute(
+                "SELECT COUNT(DISTINCT sid) FROM awe_conversations "
+                "WHERE transkrip_json IS NOT NULL AND transkrip_json!=''"
+            ).fetchone()
+            return int(row[0]) if row else None
         finally:
             c.close()
     except Exception:
@@ -125,7 +149,15 @@ def _register_routes():
 
     async def awe_index_stats(request: Request):
         def _do():
-            return {"ok": True, "index": _stats()}
+            st = _stats()
+            vec = int(st.get("vec") or 0) if isinstance(st, dict) else 0
+            dbf = st.get("db") if isinstance(st, dict) else None
+            return {"ok": True, "index": {
+                "vec": vec,
+                "sumber": _src_count(),
+                "db_file": dbf,
+                "limit": _limit_val(),
+            }}
         return JSONResponse(await run_in_threadpool(_do))
 
     async def awe_index_reindex(request: Request):
