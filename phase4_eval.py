@@ -11,8 +11,9 @@ Mengukur kualitas RETRIEVAL (bukan jawaban) secara deterministik:
     lewat /rag-eval jenis=golden — skrip ini sengaja tidak memanggil LLM agar
     murah & bisa jadi gerbang cepat.)
 
-Rantai yang diukur = rantai produksi: patch diimpor dengan urutan yang sama
-seperti web_app.py (successor -> rerank -> kalibrasi -> domain).
+Rantai yang diukur = rantai RANKING produksi (successor -> rerank -> domain).
+Gerbang abstain (rag.calibration_patch) sengaja TIDAK dibungkus ke retrieval di
+sini: ia keputusan abstain, dilaporkan terpisah pada bagian PROKSI ABSTAIN.
 
 Pemakaian:
   python phase4_eval.py --seed                          # isi golden set + cermin ke /rag-eval
@@ -40,10 +41,13 @@ try:
 except Exception:
     pass
 
-# Impor patch retrieval dengan URUTAN sama seperti web_app.py agar yang diukur
-# adalah rantai produksi (successor -> rerank -> kalibrasi -> domain).
-for _m in ("rag.successor_patch", "rag.rerank_patch",
-           "rag.calibration_patch", "rag.domain_patch"):
+# Impor patch RANKING retrieval (successor -> rerank -> domain), urutan sama
+# seperti web_app.py. rag.calibration_patch (gerbang abstain cosine >=
+# RAG_MIN_COS) SENGAJA tidak diimpor: gerbang itu keputusan abstain, bukan
+# retrieval — bila dibungkus ke pdb.search ia membuang baris < ambang sehingga
+# recall@k salah ukur dan proksi abstain kehilangan skor. Perilaku gerbang
+# dilaporkan terpisah di bagian PROKSI ABSTAIN (via rag.calibration).
+for _m in ("rag.successor_patch", "rag.rerank_patch", "rag.domain_patch"):
     try:
         __import__(_m)
     except Exception as _e:  # fail-soft: lanjut tanpa patch tsb
