@@ -14,12 +14,23 @@ PERBAIKAN INTI ("Intent Seharusnya" tak tersimpan):
 - r["row"] yang dikirim ke frontend = kunci bisnis; saveStep9 mengirim
   edits[kunci]=Intent Seharusnya, jadi otomatis ter-upsert ke kunci yang benar.
 
+WORKBOOK LENGKAP (perbaikan "Excel Step 9 hanya 1 sheet"):
+- step9_load kini IKUT menyimpan SEMUA sheet hulu dari Step 8 (Interaksi ..
+  QA Conf MKTA) ke step_row Step 9, lalu meletakkan "Analisis MKTA" TERAKHIR.
+  Dengan begitu Excel Step 9 yang dirakit ulang = satu workbook LENGKAP dan
+  BERURUTAN (bukan hanya "Analisis MKTA"). Karena Step 10 menumpuk sheet LM/
+  Pembaruan di ATAS bytes Step 9, Laporan Utama Step 10 pun otomatis lengkap:
+  Interaksi .. QA Conf MKTA + Analisis MKTA + LM .. Data Pembaruan.
+- "Analisis MKTA" tetap SATU-SATUNYA edit_sheet (editan analis hanya di-overlay
+  ke sheet ini); sheet hulu disalin apa adanya (tanpa overlay editan).
+
 Ambang (threshold): dari form bila ada; jika tidak, warisi ringkasan Step 8.
 Sumber data QA: unggahan xlsx (bila ada) atau hasil Step 8 (dirakit dari baris).
 
 PEMASANGAN: `import pipeline.step9_patch` SETELAH pipeline_routes (web_app.py).
 dispatch() memakai late-binding global sehingga otomatis memakai versi ini.
-Di akhir modul: chain-import store_rows_patch (penyimpanan baris Step 4-8).
+Di akhir modul: chain-import store_rows_patch (penyimpanan baris Step 4-8) &
+step11_zipfield_patch (perbaikan field ZIP Step 11).
 """
 import os
 import json
@@ -151,9 +162,31 @@ def _parse_qa(b, threshold):
     return out
 
 
+def _upstream_sheets(b):
+    """Parse SEMUA sheet hulu (Step 8) KECUALI 'Analisis MKTA' -> (sheets_rows,
+    headers_map) siap disimpan ke step_row. Sheet hulu (Interaksi .. QA Conf
+    MKTA) dibawa apa adanya agar Excel Step 9/10 tetap satu workbook lengkap.
+    Fail-open: kembalikan ({}, {}) bila gagal parse."""
+    sheets_rows = {}
+    headers_map = {}
+    try:
+        wb_up = pr._wb_from_bytes(b)
+        up_headers, up_sheets = rowstore.workbook_to_sheets(wb_up)
+        for nm in wb_up.sheetnames:
+            if nm == EDIT_SHEET:
+                continue  # dirakit ulang fresh (data QA + kolom editan analis)
+            sheets_rows[nm] = up_sheets.get(nm, [])
+            headers_map[nm] = up_headers.get(nm, [])
+    except Exception:
+        sheets_rows = {}
+        headers_map = {}
+    return sheets_rows, headers_map
+
+
 def step9_load(cfg, ctx):
     threshold = _resolve_threshold(cfg, ctx)
-    items = _parse_qa(_base_bytes(cfg, ctx), threshold)
+    b = _base_bytes(cfg, ctx)
+    items = _parse_qa(b, threshold)
     # 1) (Re)bangun baris deliverable "Analisis MKTA" dari QA (dasar deterministik).
     #    Editan analis TIDAK di sini; tersimpan terpisah di step_edit (kunci bisnis).
     rows_store = []
@@ -168,12 +201,25 @@ def step9_load(cfg, ctx):
             "insertId": it["ins"], "score": it["scr"],
         }
         rows_store.append((it["biz_key"], payload))
+    # 2) Bawa serta SEMUA sheet hulu (Interaksi .. QA Conf MKTA) supaya workbook
+    #    Step 9 (dan Step 10 yang menumpuk di atasnya) LENGKAP & berurutan.
+    #    "Analisis MKTA" diletakkan TERAKHIR dan tetap satu-satunya edit_sheet.
+    sheets_rows, headers_map = _upstream_sheets(b)
+    sheets_rows[EDIT_SHEET] = rows_store
+    headers_map[EDIT_SHEET] = list(HEADER_MKTA)
     summary = {"status": "Selesai", "baris_analisis": len(rows_store), "threshold": threshold,
-               "catatan": 'Sheet "Analisis MKTA" disimpan berbasis baris (row-based).'}
-    rowstore.save_step_rows(cfg, ctx.run, 9, {EDIT_SHEET: rows_store},
-                            {EDIT_SHEET: list(HEADER_MKTA)}, "xlsx",
-                            "hasil_analisis_manual_mkta.xlsx", summary, edit_sheet=EDIT_SHEET)
-    # 2) Overlay editan analis (step_edit) utk tampilan frontend.
+               "catatan": 'Workbook lengkap (Interaksi .. QA Conf MKTA + Analisis MKTA) '
+                          'disimpan berbasis baris (row-based).'}
+    try:
+        rowstore.save_step_rows(cfg, ctx.run, 9, sheets_rows, headers_map, "xlsx",
+                                "hasil_analisis_manual_mkta.xlsx", summary, edit_sheet=EDIT_SHEET)
+    except Exception:
+        # Fail-open: minimal (hanya Analisis MKTA) agar Step 9 tetap bisa dibuka
+        # walau parsing/penyimpanan sheet hulu bermasalah.
+        rowstore.save_step_rows(cfg, ctx.run, 9, {EDIT_SHEET: rows_store},
+                                {EDIT_SHEET: list(HEADER_MKTA)}, "xlsx",
+                                "hasil_analisis_manual_mkta.xlsx", summary, edit_sheet=EDIT_SHEET)
+    # 3) Overlay editan analis (step_edit) utk tampilan frontend.
     stored = rowstore.step_sheet(cfg, ctx.run, 9, EDIT_SHEET)
     ov = {}
     for r in stored.get("rows", []):
@@ -251,8 +297,12 @@ def step9_save(cfg, ctx):
 
 pr.step9_save = step9_save
 pr.step9_load = step9_load
-print("[step9_patch] Step 9 row-based: Analisis MKTA -> step_row; editan (Intent Seharusnya/Catatan) -> step_edit (kunci bisnis stabil, persist).", flush=True)
+print("[step9_patch] Step 9 row-based: workbook lengkap (sheet hulu + Analisis MKTA) -> step_row; editan (Intent Seharusnya/Catatan) -> step_edit (kunci bisnis stabil, persist).", flush=True)
 
 # Aktifkan penyimpanan baris (row-based) utk Step 4-8. Di-chain di sini karena
 # step9_patch di-import setelah pipeline_routes siap (fungsi step sudah ada).
 import pipeline.store_rows_patch  # noqa: E402,F401
+
+# Perbaikan Step 11 (field ZIP ke backend: df_zip -> zip_file). Di-chain di sini
+# agar diterapkan SETELAH pipeline_routes siap (fungsi step11_update sudah ada).
+import pipeline.step11_zipfield_patch  # noqa: E402,F401
