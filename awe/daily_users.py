@@ -18,6 +18,11 @@ Catatan data (penting):
     kolom `nik` kosong (mis. data lama), fallback ke ekstraksi best-effort dari
     transkrip_json (turn milik customer) memakai regex. Nama ada di kolom
     `customer`. Prioritas resolusi identitas: NIK/NPWP > nama > sid (anonim).
+  - Baris placeholder/sistem (mis. DNIS=customer -> nama "Customer" tanpa NIK)
+    BUKAN pengguna nyata. Baris seperti ini dipisahkan sebagai kategori
+    "Tidak Teridentifikasi" dan DIKELUARKAN dari KPI serta agregat pengguna;
+    ditampilkan terpisah di kartu + tabel anomali agar tidak menggelembungkan
+    angka teridentifikasi.
   - "Langsung ke agent" (hit 1500200 langsung) = behavior in (direct/langsung)
     ATAU deflection_gap=1 (selaras dengan awe.analytics / awe.overview).
   - Daftar percakapan per pengguna TIDAK lagi ditempel di payload utama; dimuat
@@ -85,10 +90,21 @@ _DIGITS = _re.compile(r'(?<!\d)(\d{15,16})(?!\d)')
 _CUST_ROLES = {"customer", "cust", "pelanggan", "user"}
 # Penanda teks non-NPWP di dalam kurung, mis. "Imam Bukhori [NON-NPWP]".
 _NONNPWP_RE = _re.compile(r'non[\s\-_]*npwp', _re.I)
+# Nama placeholder / sistem (bukan orang nyata) -> kategori Tidak Teridentifikasi.
+_PLACEHOLDER_NAMES = {
+    "customer", "cust", "pelanggan", "user", "guest", "anonymous", "anonim",
+    "unknown", "tidak diketahui", "undefined", "null", "none",
+    "n/a", "na", "-", "--", "(customer)", "test",
+}
 
 
 def _norm_name(s):
     return _re.sub(r'\s+', ' ', str(s or "").strip()).lower()
+
+
+def _is_placeholder_name(s):
+    """True bila nama = placeholder/sistem (mis. "Customer" dari DNIS=customer)."""
+    return _norm_name(s) in _PLACEHOLDER_NAMES
 
 
 def _taxtype_of(digits):
@@ -182,7 +198,7 @@ def _norm_sent(s):
     return "Tidak diketahui"
 
 
-def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
+def daily_users(conn, start=None, end=None, limit_users=2000):
     where, params = [], []
     if start:
         where.append("substr(tanggal,1,10) >= ?"); params.append(start[:10])
@@ -200,6 +216,7 @@ def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
     day_users = defaultdict(set)
     day_conv = Counter()
     day_direct = defaultdict(set)
+    day_anom = Counter()
     dmin = dmax = ""
     total_direct_conv = total_reached = 0
     direct_theme = Counter()
@@ -211,7 +228,13 @@ def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
     non_npwp_conv = 0
     non_npwp_theme = Counter()
     idtype_dist = Counter()
-    conv_out = []
+    # Penyebab hit agent (agregasi per-tema atas percakapan langsung).
+    cause = defaultdict(lambda: {"users": set(), "direct": 0, "neg": 0,
+                                 "poro": 0, "dur": 0, "durn": 0})
+    # Anomali / "Tidak Teridentifikasi" (mis. DNIS=customer, nama placeholder).
+    anom_users = {}
+    anom_conv = 0
+    anom_theme = Counter()
 
     for r in rows:
         d = dict(r)
@@ -234,11 +257,19 @@ def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
                     tx = None
             taxid, taxtype = _extract_taxid(tx)
         name = str(d.get("customer") or "").strip()
+
+        # Klasifikasi identitas. Placeholder (DNIS=customer dll, tanpa NIK &
+        # bukan non-NPWP resmi) -> bucket anomali "Tidak Teridentifikasi".
+        anomali = False
         if taxid:
             key = "tax:" + taxid; label = taxid; idtype = taxtype or "NPWP/NIK"
         elif is_non_npwp:
             key = ("name:" + _norm_name(name)) if name else ("sid:" + str(d.get("sid") or ""))
             label = name or "(non-NPWP)"; idtype = "NON-NPWP"
+        elif name and _is_placeholder_name(name):
+            anomali = True
+            key = "anom:" + _norm_name(name); label = name
+            idtype = "Tidak Teridentifikasi"
         elif name:
             key = "name:" + _norm_name(name); label = name; idtype = "Nama"
         else:
@@ -248,10 +279,34 @@ def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
         reached = bool(str(d.get("agent_name") or "").strip())
         theme = _theme_of(d)
         sent = _norm_sent(d.get("sentiment"))
+        poro = 1 if d.get("is_poro") in (1, "1") else 0
         try:
             dur = int(float(d.get("durasi") or 0))
         except Exception:
             dur = 0
+
+        # --- Baris anomali: catat terpisah, keluarkan dari agregat utama ---
+        if anomali:
+            anom_conv += 1
+            anom_theme[theme] += 1
+            if day:
+                day_anom[day] += 1
+            au = anom_users.get(key)
+            if au is None:
+                au = anom_users[key] = {
+                    "label": label, "conv": 0, "direct": 0, "days": set(),
+                    "themes": Counter(), "first": day, "last": day,
+                    "reason": "Nama placeholder / DNIS=customer (tanpa NIK)",
+                }
+            au["conv"] += 1
+            if direct:
+                au["direct"] += 1
+            if day:
+                au["days"].add(day)
+                au["first"] = min(au["first"] or day, day)
+                au["last"] = max(au["last"] or day, day)
+            au["themes"][theme] += 1
+            continue
 
         u = users.get(key)
         if u is None:
@@ -298,34 +353,31 @@ def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
             total_direct_conv += 1
             direct_theme[theme] += 1
             direct_sent[sent] += 1
-            if d.get("is_poro") in (1, "1"):
-                poro_direct += 1
+            poro_direct += poro
             dur_direct_sum += dur; dur_direct_n += 1
+            c = cause[theme]
+            c["users"].add(key); c["direct"] += 1
+            if sent == "Negatif":
+                c["neg"] += 1
+            c["poro"] += poro
+            c["dur"] += dur; c["durn"] += 1
         else:
             dur_other_sum += dur; dur_other_n += 1
 
-        if len(conv_out) < limit_conv:
-            conv_out.append({
-                "tanggal": d.get("tanggal") or "", "sid": d.get("sid") or "",
-                "user": label, "idtype": idtype, "taxid": taxid,
-                "customer": name, "agent_name": d.get("agent_name") or "",
-                "direct": direct, "reached": reached, "theme": theme,
-                "sentiment": sent,
-            })
-
-    total_conv = len(rows)
+    total_rows = len(rows)
+    anom_conv_total = anom_conv
+    total_conv = total_rows - anom_conv_total
     total_users = len(users)
 
     user_list = []
     direct_users = repeat_users = 0
-    repeat_direct = []
     for u in users.values():
         ndays = len(u["days"])
         if ndays > 1:
             repeat_users += 1
         if u["direct"] > 0:
             direct_users += 1
-        item = {
+        user_list.append({
             "label": u["label"], "idtype": u["idtype"], "name": u["name"],
             "taxid": u["taxid"], "conv": u["conv"], "days": ndays,
             "direct": u["direct"],
@@ -334,15 +386,71 @@ def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
             "themes": ", ".join(k for k, _ in u["themes"].most_common(3)),
             "sentiment": (u["sent"].most_common(1)[0][0] if u["sent"] else "-"),
             "returning": u["returning"], "first": u["first"], "last": u["last"],
-            "sids": u["sids"],
-            "non_npwp": u.get("non_npwp", False),
-        }
-        user_list.append(item)
-        if u["direct"] > 0 and (ndays > 1 or u["direct"] > 1):
-            repeat_direct.append(item)
+            "sids": u["sids"], "non_npwp": u.get("non_npwp", False),
+        })
 
     user_list.sort(key=lambda x: (-x["conv"], -x["direct"]))
-    repeat_direct.sort(key=lambda x: (-x["direct"], -x["days"]))
+
+    # --- Penyebab hit agent terbanyak (per tema, atas percakapan langsung) ---
+    hit_causes = []
+    for th, c in cause.items():
+        hit_causes.append({
+            "theme": th, "users": len(c["users"]), "direct": c["direct"],
+            "pct": round(100 * c["direct"] / total_direct_conv, 1) if total_direct_conv else 0,
+            "neg_pct": round(100 * c["neg"] / c["direct"], 1) if c["direct"] else 0,
+            "poro": c["poro"],
+            "avg_dur": round(c["dur"] / c["durn"]) if c["durn"] else 0,
+        })
+    hit_causes.sort(key=lambda x: -x["direct"])
+    hit_causes = hit_causes[:15]
+
+    # --- Distribusi frekuensi kontak per pengguna ---
+    def _bucket(n):
+        if n <= 1:
+            return "1x"
+        if n == 2:
+            return "2x"
+        if n <= 5:
+            return "3-5x"
+        if n <= 10:
+            return "6-10x"
+        return ">10x"
+    freq = Counter()
+    for u in users.values():
+        freq[_bucket(u["conv"])] += 1
+    freq_dist = [{"label": b, "value": freq.get(b, 0)}
+                 for b in ("1x", "2x", "3-5x", "6-10x", ">10x")]
+
+    # --- Komposisi identitas (per pengguna) ---
+    comp = Counter()
+    for u in users.values():
+        if u["taxid"]:
+            comp["NIK/NPWP"] += 1
+        elif u.get("non_npwp"):
+            comp["NON-NPWP"] += 1
+        elif u["idtype"] == "Nama":
+            comp["Nama (tanpa penanda)"] += 1
+        else:
+            comp["Anonim"] += 1
+    comp["Anomali"] = len(anom_users)
+    identity_comp = [{"label": k, "value": comp[k]}
+                     for k in ("NIK/NPWP", "NON-NPWP", "Nama (tanpa penanda)",
+                               "Anonim", "Anomali") if comp.get(k)]
+
+    # --- Statistik kontak per pengguna ---
+    counts = sorted(u["conv"] for u in users.values())
+
+    def _median(a):
+        if not a:
+            return 0
+        n = len(a); m = n // 2
+        return a[m] if n % 2 else round((a[m - 1] + a[m]) / 2, 1)
+    contact_stats = {
+        "median": _median(counts),
+        "mean": round(sum(counts) / len(counts), 1) if counts else 0,
+        "max": counts[-1] if counts else 0,
+        "p90": counts[int(0.9 * (len(counts) - 1))] if counts else 0,
+    }
 
     ndays_active = len([d for d in day_users if d])
     sum_daily_users = sum(len(s) for d, s in day_users.items() if d)
@@ -353,20 +461,38 @@ def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
         if not day:
             continue
         trend.append({"day": day, "users": len(day_users[day]),
-                      "conv": day_conv[day], "direct": len(day_direct[day])})
+                      "conv": day_conv[day], "direct": len(day_direct[day]),
+                      "anomali": day_anom.get(day, 0)})
 
     identified = sum(1 for u in users.values() if u["taxid"] or u["name"])
     with_taxid = sum(1 for u in users.values() if u["taxid"])
     non_npwp_users = sum(1 for u in users.values() if u.get("non_npwp"))
+
+    # --- Tabel anomali / Tidak Teridentifikasi ---
+    anom_list = sorted(anom_users.values(), key=lambda x: -x["conv"])
+    anomali_out = {
+        "conv": anom_conv_total,
+        "conv_pct": round(100 * anom_conv_total / total_rows, 1) if total_rows else 0,
+        "users": len(anom_users),
+        "themes": [{"label": k, "value": v} for k, v in anom_theme.most_common(12)],
+        "rows": [{
+            "label": u["label"], "conv": u["conv"], "direct": u["direct"],
+            "days": len(u["days"]),
+            "themes": ", ".join(k for k, _ in u["themes"].most_common(3)),
+            "first": u["first"], "last": u["last"], "reason": u["reason"],
+        } for u in anom_list],
+    }
 
     return {
         "ok": True,
         "range": {"start": start or "", "end": end or ""},
         "limit_users": limit_users,
         "users_truncated": total_users > limit_users,
-        "meta": {"total_conv": total_conv, "total_users": total_users,
+        "meta": {"total_conv": total_conv, "total_rows": total_rows,
+                 "total_users": total_users,
                  "identified": identified, "with_taxid": with_taxid,
                  "non_npwp_users": non_npwp_users,
+                 "anomali_conv": anom_conv_total, "anomali_users": len(anom_users),
                  "date_min": dmin, "date_max": dmax, "active_days": ndays_active},
         "kpi": {
             "total_users": total_users,
@@ -378,10 +504,15 @@ def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
             "repeat_users": repeat_users,
             "identified_pct": round(100 * identified / total_users, 1) if total_users else 0,
             "with_taxid_pct": round(100 * with_taxid / total_users, 1) if total_users else 0,
+            "anomali_users": len(anom_users),
+            "anomali_conv": anom_conv_total,
         },
         "trend": trend,
         "users": user_list[:limit_users],
-        "repeat_direct": repeat_direct[:50],
+        "hit_causes": hit_causes,
+        "freq_dist": freq_dist,
+        "identity_comp": identity_comp,
+        "contact_stats": contact_stats,
         "direct_focus": {
             "themes": [{"label": k, "value": v} for k, v in direct_theme.most_common(12)],
             "sentiment": {"Positif": direct_sent.get("Positif", 0),
@@ -399,7 +530,7 @@ def daily_users(conn, start=None, end=None, limit_users=2000, limit_conv=400):
             "themes": [{"label": k, "value": v} for k, v in non_npwp_theme.most_common(12)],
         },
         "idtype_dist": [{"label": k, "value": v} for k, v in idtype_dist.most_common()],
-        "conversations": conv_out,
+        "anomali": anomali_out,
     }
 
 
