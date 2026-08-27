@@ -6,8 +6,10 @@ TERPISAH total dari alur Chat. Handler didaftarkan oleh awe/routes.py
 Aksi:
   - action="search": uji pencarian Phone (Increment 1), tampilkan sampel baris.
   - action="media": ambil locator audio via GetMedia + unduh/gabung segmen DASH
-    (Increment 2a/2b) dan - bila body.stt true (default) - transkrip STT lokal
-    via faster-whisper (Increment 2c). Berkas audio bersifat SEMENTARA (temp OS);
+    (Increment 2a/2b) dan - bila body.stt true (DEFAULT OFF; STT lambat karena
+    mengunduh model ~3GB, jadi jangan memblok request web -> uji STT lewat skrip
+    terminal probe_stt.py) - transkrip STT lokal via faster-whisper (Increment 2c).
+    Berkas audio bersifat SEMENTARA (temp OS);
     transkrip TIDAK disimpan ke DB pada tahap uji ini.
 Butuh izin 'awe_manage' (sama seperti Kelola Data AWE). Kredensial dipakai
 sekali lalu dilupakan (tidak ditulis ke disk/DB).
@@ -45,7 +47,11 @@ async def awe_phone_probe(request: Request):
     base_url = str(body.get("base_url") or "").strip()
     itype = str(body.get("interaction_type") or "1").strip() or "1"
     limit_rows = body.get("limit_rows") or 25
-    do_stt = bool(body.get("stt", True))
+    # DEFAULT OFF: STT (unduh model ~3GB + transkripsi) lambat -> jangan blok
+    # request web; kalau diblok, request menggantung lalu balik HTML dan browser
+    # error "Unexpected token '<'". Uji STT via terminal: python probe_stt.py.
+    # Tombol STT khusus nanti kirim stt=true agar aktif hanya saat diminta.
+    do_stt = bool(body.get("stt", False))
     stt_lang = str(body.get("stt_lang") or "id").strip() or "id"
     if not df or not dt:
         return JSONResponse({"ok": False, "error": "Tanggal (dari & sampai) wajib diisi."}, status_code=400)
