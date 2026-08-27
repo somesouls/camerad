@@ -4,28 +4,38 @@
 Uji banding transkripsi untuk 2-3 sampel audio Telepon (.mp4 8 kHz mono):
   A. faster-whisper large-v3 (baseline yang selama ini dipakai).
   B. Qwen3-ASR (paket 'qwen-asr') - ASR khusus, klaim ungguli Whisper large-v3
-     multibahasa termasuk Indonesia; model 1.7B (~3.5 GB) muat di 16 GB.
+     multibahasa termasuk Indonesia; model 1.7B (~3.5 GB).
 
 STANDALONE: tidak mengimpor modul repo, jadi AMAN dijalankan di venv TERPISAH
-supaya paket qwen-asr (menarik transformers baru) tidak mengganggu venv pipeline
-utama (yang pakai sentence-transformers). Saran setup:
+supaya paket qwen-asr (menarik transformers 4.57.6) tidak mengganggu venv
+pipeline utama (sentence-transformers). Saran setup:
     python -m venv .venv-asr
     (Windows: .venv-asr/Scripts/activate atau Activate.ps1)
     pip install -U faster-whisper qwen-asr
     python probe_multimodal.py
+
+CATATAN CUDA (penting): venv baru biasanya dapat torch CPU-only, sehingga
+Qwen3-ASR jatuh ke CPU (akurasi tetap valid, hanya lambat) dan faster-whisper
+tidak menemukan cublas lalu jatuh ke CPU juga. Untuk GPU, pasang torch CUDA
+yang SAMA dengan venv utama, contoh:
+    pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu121
+Cek versi cuXXX venv utama dengan:
+    python -c "import torch; print(torch.__version__)"
 
 faster-whisper dipakai sekaligus sebagai dekoder audio (mp4 8 kHz -> wav 16 kHz
 mono) untuk sisi Qwen, jadi pasang keduanya. Tanpa argumen: ambil beberapa
 awe_audio_*.mp4 terbaru di folder Temp. Dengan argumen: beri path .mp4 sendiri.
 
 Env opsional:
-  AWE_ASR_SAMPLES  jumlah berkas terbaru bila tanpa argumen (default 3)
-  AWE_QWEN_MODEL   repo Qwen3-ASR (default Qwen/Qwen3-ASR-1.7B; ...-0.6B lebih ringan)
-  AWE_QWEN_LANG    paksa bahasa (default Indonesian; set kosong = auto-deteksi)
-  AWE_QWEN_MAXTOK  batas token keluaran (default 1024)
-  AWE_QWEN_DTYPE   bfloat16 | float16 | float32 (default bfloat16)
-  AWE_QWEN_DEVICE  cuda:0 | cpu (default cuda:0)
-  AWE_STT_MODEL    model whisper (default large-v3); AWE_STT_* lain spt phone_stt.
+  AWE_ASR_SAMPLES       jumlah berkas terbaru bila tanpa argumen (default 3)
+  AWE_ASR_SKIP_WHISPER  '1' = lewati sisi Whisper
+  AWE_ASR_SKIP_QWEN     '1' = lewati sisi Qwen3-ASR
+  AWE_QWEN_MODEL        repo Qwen3-ASR (default Qwen/Qwen3-ASR-1.7B; ...-0.6B ringan)
+  AWE_QWEN_LANG         paksa bahasa (default Indonesian; set kosong = auto-deteksi)
+  AWE_QWEN_MAXTOK       batas token keluaran (default 1024)
+  AWE_QWEN_DTYPE        bfloat16 | float16 | float32 (default auto: cpu=float32)
+  AWE_QWEN_DEVICE       cuda:0 | cpu (default auto: cuda bila tersedia)
+  AWE_STT_MODEL         model whisper (default large-v3); AWE_STT_* lain spt phone_stt.
 """
 import glob
 import os
@@ -40,6 +50,10 @@ _QWEN_CACHE = {}
 
 def _attr(o, k):
     return o.get(k) if isinstance(o, dict) else getattr(o, k, None)
+
+
+def _flag(name):
+    return (os.environ.get(name) or "").strip().lower() in ("1", "true", "yes")
 
 
 def _newest_audio(n):
@@ -72,47 +86,44 @@ def _decode_opts(beam_size=5):
     return opts
 
 
-def _whisper_model():
-    if "m" in _WHISPER_CACHE:
-        return _WHISPER_CACHE["m"]
+def whisper_transcribe(path):
     from faster_whisper import WhisperModel
     size = os.environ.get("AWE_STT_MODEL") or "large-v3"
     dev = (os.environ.get("AWE_STT_DEVICE") or "").strip().lower()
     ct = (os.environ.get("AWE_STT_COMPUTE") or "").strip().lower()
     order = [("cpu", ct or "int8")] if dev == "cpu" else [("cuda", ct or "float16"), ("cpu", ct or "int8")]
+    lang = os.environ.get("AWE_STT_LANG") or "id"
+    opts = _decode_opts()
+    out = {"model": size, "device": "", "text": "", "elapsed": 0.0, "language": "", "ok": False}
+    t0 = time.time()
     last = None
     for device, compute in order:
+        key = (size, device, compute)
         try:
-            m = WhisperModel(size, device=device, compute_type=compute)
-            _WHISPER_CACHE["m"] = (m, size, device, compute)
-            return _WHISPER_CACHE["m"]
+            m = _WHISPER_CACHE.get(key)
+            if m is None:
+                m = WhisperModel(size, device=device, compute_type=compute)
+                _WHISPER_CACHE[key] = m
+            if device != "cuda":
+                print("  [whisper] pakai %s/%s (lambat, bisa beberapa menit)" % (device, compute))
+            try:
+                segments, info = m.transcribe(path, language=lang, **opts)
+            except TypeError:
+                segments, info = m.transcribe(path, language=lang,
+                                              beam_size=opts.get("beam_size", 5),
+                                              condition_on_previous_text=False,
+                                              vad_filter=opts.get("vad_filter", True))
+            texts = [(getattr(s, "text", "") or "").strip() for s in segments]
+            out["text"] = " ".join(t for t in texts if t).strip()
+            out["language"] = getattr(info, "language", "") or ""
+            out["device"] = "%s/%s" % (device, compute)
+            out["ok"] = True
+            break
         except Exception as e:
             last = e
-    raise RuntimeError("gagal load whisper: %r" % last)
-
-
-def whisper_transcribe(path):
-    out = {"model": "", "device": "", "text": "", "elapsed": 0.0, "language": "", "ok": False}
-    t0 = time.time()
-    try:
-        m, size, device, compute = _whisper_model()
-        out["model"] = size
-        out["device"] = "%s/%s" % (device, compute)
-        lang = os.environ.get("AWE_STT_LANG") or "id"
-        opts = _decode_opts()
-        try:
-            segments, info = m.transcribe(path, language=lang, **opts)
-        except TypeError:
-            segments, info = m.transcribe(path, language=lang,
-                                          beam_size=opts.get("beam_size", 5),
-                                          condition_on_previous_text=False,
-                                          vad_filter=opts.get("vad_filter", True))
-        out["language"] = getattr(info, "language", "") or ""
-        texts = [(getattr(s, "text", "") or "").strip() for s in segments]
-        out["text"] = " ".join(t for t in texts if t).strip()
-        out["ok"] = True
-    except Exception as e:
-        out["error"] = repr(e)
+            _WHISPER_CACHE.pop(key, None)
+    if not out["ok"]:
+        out["error"] = repr(last)
     out["elapsed"] = round(time.time() - t0, 2)
     return out
 
@@ -137,30 +148,44 @@ def _qwen_model():
     import torch
     from qwen_asr import Qwen3ASRModel
     model_id = os.environ.get("AWE_QWEN_MODEL") or "Qwen/Qwen3-ASR-1.7B"
-    name = (os.environ.get("AWE_QWEN_DTYPE") or "bfloat16").strip().lower()
-    dtype = {"bfloat16": torch.bfloat16, "float16": torch.float16,
-             "float32": torch.float32}.get(name, torch.bfloat16)
-    device = os.environ.get("AWE_QWEN_DEVICE") or "cuda:0"
     try:
         maxtok = int(os.environ.get("AWE_QWEN_MAXTOK") or 1024)
     except Exception:
         maxtok = 1024
-    try:
-        m = Qwen3ASRModel.from_pretrained(model_id, dtype=dtype, device_map=device,
-                                          max_inference_batch_size=8, max_new_tokens=maxtok)
-    except TypeError:
-        m = Qwen3ASRModel.from_pretrained(model_id, torch_dtype=dtype,
-                                          device_map=device, max_new_tokens=maxtok)
-    _QWEN_CACHE["m"] = (m, model_id)
-    return _QWEN_CACHE["m"]
+    dev = (os.environ.get("AWE_QWEN_DEVICE") or "").strip()
+    if not dev:
+        dev = "cuda:0" if torch.cuda.is_available() else "cpu"
+    tries = [dev] if dev.startswith("cpu") else [dev, "cpu"]
+    dmap = {"bfloat16": torch.bfloat16, "float16": torch.float16, "float32": torch.float32}
+    last = None
+    for d in tries:
+        name = (os.environ.get("AWE_QWEN_DTYPE") or "").strip().lower()
+        if not name:
+            name = "float32" if d.startswith("cpu") else "bfloat16"
+        dtype = dmap.get(name, torch.float32)
+        if d.startswith("cpu"):
+            print("  [qwen] pakai CPU (lambat); pasang torch CUDA utk GPU")
+        try:
+            try:
+                m = Qwen3ASRModel.from_pretrained(model_id, dtype=dtype, device_map=d,
+                                                  max_inference_batch_size=8, max_new_tokens=maxtok)
+            except TypeError:
+                m = Qwen3ASRModel.from_pretrained(model_id, torch_dtype=dtype,
+                                                  device_map=d, max_new_tokens=maxtok)
+            _QWEN_CACHE["m"] = (m, model_id, d)
+            return _QWEN_CACHE["m"]
+        except Exception as e:
+            last = e
+    raise RuntimeError("gagal load Qwen3-ASR: %r" % last)
 
 
 def qwen_transcribe(wav_path):
-    out = {"model": "", "text": "", "elapsed": 0.0, "language": "", "ok": False}
+    out = {"model": "", "device": "", "text": "", "elapsed": 0.0, "language": "", "ok": False}
     t0 = time.time()
     try:
-        m, model_id = _qwen_model()
+        m, model_id, dev = _qwen_model()
         out["model"] = model_id
+        out["device"] = dev
         raw = os.environ.get("AWE_QWEN_LANG", "Indonesian")
         lang = (raw.strip() or None) if raw is not None else None
         results = m.transcribe(audio=wav_path, language=lang)
@@ -201,21 +226,28 @@ def main(argv):
         print("Tidak ada audio. Klik 'Uji Locator Audio' di /awe/telepon dulu, atau beri path .mp4.")
         return 2
 
-    have_whisper = True
-    try:
-        import faster_whisper  # noqa: F401
-    except Exception:
-        have_whisper = False
-        print("[info] faster-whisper tidak terpasang; sisi Whisper dilewati. pip install faster-whisper")
-    have_qwen = True
-    try:
-        import qwen_asr  # noqa: F401
-    except Exception:
-        have_qwen = False
-        print("[info] qwen-asr tidak terpasang; sisi Qwen3-ASR dilewati. pip install qwen-asr")
-    if have_qwen and not have_whisper:
-        print("[info] Qwen butuh faster-whisper sbg dekoder audio (mp4->wav16k). pip install faster-whisper")
+    have_whisper = False
+    if _flag("AWE_ASR_SKIP_WHISPER"):
+        print("[info] AWE_ASR_SKIP_WHISPER aktif; sisi Whisper dilewati.")
+    else:
+        try:
+            import faster_whisper  # noqa: F401
+            have_whisper = True
+        except Exception:
+            print("[info] faster-whisper tidak terpasang; sisi Whisper dilewati. pip install faster-whisper")
+
+    have_qwen = False
+    if _flag("AWE_ASR_SKIP_QWEN"):
+        print("[info] AWE_ASR_SKIP_QWEN aktif; sisi Qwen3-ASR dilewati.")
+    else:
+        try:
+            import qwen_asr  # noqa: F401
+            have_qwen = True
+        except Exception:
+            print("[info] qwen-asr tidak terpasang; sisi Qwen3-ASR dilewati. pip install qwen-asr")
+
     if not (have_whisper or have_qwen):
+        print("Tidak ada backend STT aktif.")
         return 1
 
     print(_hr())
@@ -229,7 +261,7 @@ def main(argv):
         print("[%d/%d] %s" % (i, len(paths), path))
         wres = qres = None
         if have_whisper:
-            print("  ... Whisper large-v3")
+            print("  ... Whisper %s" % (os.environ.get("AWE_STT_MODEL") or "large-v3"))
             wres = whisper_transcribe(path)
         if have_qwen:
             print("  ... Qwen3-ASR (dekode 16 kHz + transkripsi)")
@@ -247,14 +279,14 @@ def main(argv):
 
         print()
         if wres:
-            print("  --- Whisper large-v3  (%s, %ss, lang=%s) ---" % (
-                wres.get("device") or "?", wres.get("elapsed"), wres.get("language") or "?"))
+            print("  --- Whisper %s  (%s, %ss, lang=%s) ---" % (
+                wres.get("model") or "?", wres.get("device") or "?", wres.get("elapsed"), wres.get("language") or "?"))
             body = (wres.get("text") or "(kosong)") if wres.get("ok") else "ERROR: " + str(wres.get("error"))
             print("  " + body)
         if qres:
             print()
-            print("  --- Qwen3-ASR %s  (%ss, lang=%s) ---" % (
-                qres.get("model") or "?", qres.get("elapsed"), qres.get("language") or "?"))
+            print("  --- Qwen3-ASR %s  (%s, %ss, lang=%s) ---" % (
+                qres.get("model") or "?", qres.get("device") or "?", qres.get("elapsed"), qres.get("language") or "?"))
             body = (qres.get("text") or "(kosong)") if qres.get("ok") else "ERROR: " + str(qres.get("error"))
             print("  " + body)
         timings.append((path, wres, qres))
