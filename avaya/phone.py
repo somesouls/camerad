@@ -9,13 +9,19 @@ dengan pencarian Chat (DateRange Between, FTSLanguage "en", dsb).
 `probe_search()` menjalankan satu pencarian lalu mengembalikan header + sampel
 baris MENTAH untuk inspeksi kolom (Increment 1).
 
-`probe_media()` (Increment 2a) mengambil LOCATOR audio via GetMedia untuk satu
-interaksi telepon. Karena format param GetMedia belum pasti (terutama startTime
-GMT vs lokal, dan apakah `cli` wajib), probe mencoba beberapa kombinasi dan
-mengembalikan status + teks error MENTAH tiap percobaan. TIDAK mengunduh audio
-dan TIDAK menyimpan apa pun.
+`probe_media()` (Increment 2a/2b-probe): ambil LOCATOR audio via GetMedia untuk
+satu interaksi telepon, lalu COBA AMBIL manifest .mpd dari recsvr01 memakai token
+VWT. KONTRAK GetMedia yang sudah TERKONFIRMASI (data 24 Agu 2026):
+  - startTime WAJIB GMT (kolom audio_start_time_gmt), BUKAN waktu lokal.
+  - cli WAJIB diisi = personal_id baris tsb (agent ultra-ID). Tanpa cli -> HTTP 400.
+Hasil sukses: mediaInfo[Audio].LocatorStatus=0, HttpPath=.mpd, VWT terisi,
+EncryptionStatus=2.
+
+Semua fungsi di sini READ-ONLY: TIDAK mengunduh byte audio ke disk dan TIDAK
+menyimpan apa pun.
 """
 import json
+import requests
 import avaya.client as avc
 
 
@@ -84,15 +90,13 @@ class AvayaPhoneClient(avc.AvayaClient):
         }
 
     # ------------------------------------------------------------------
-    # Increment 2a — LOCATOR audio (GetMedia). Read-only: tidak unduh/simpan.
+    # Increment 2a/2b — LOCATOR audio (GetMedia) + ambil manifest .mpd.
+    # Read-only: tidak mengunduh byte audio, tidak menyimpan apa pun.
     # ------------------------------------------------------------------
     def get_media(self, sid, site_id, audio_channel, audio_module, start_time,
                   cli="", is_screen=False, numeric_ids=True):
-        """Panggil GetMedia untuk satu interaksi telepon.
-
-        Kembalikan dict {http_status, json, text, sent}. `text` = body respons
-        mentah (dipotong) supaya error 400 WCF kelihatan. Hanya meminta lokasi
-        media (URL .mpd + token) — TIDAK mengunduh byte audio.
+        """Panggil GetMedia. Kembalikan dict {http_status, json, text, sent}.
+        `text` = body respons mentah (dipotong) agar error WCF kelihatan.
         """
         def _v(x):
             s = str(x if x is not None else "").strip()
@@ -130,12 +134,71 @@ class AvayaPhoneClient(avc.AvayaClient):
             "sent": body,
         }
 
+    @staticmethod
+    def _vwt_kid(vwt):
+        for part in str(vwt or "").replace(" ", ",").split(","):
+            part = part.strip()
+            if part.startswith("kid="):
+                return part[4:]
+        return ""
+
+    def fetch_manifest(self, http_path, vwt, timeout=15):
+        """Coba GET manifest .mpd dari recsvr01 memakai token VWT. Mencoba
+        beberapa cara auth dan BERHENTI begitu dapat manifest DASH valid.
+        Mengembalikan list hasil (status + potongan body). TIDAK menyimpan apa pun.
+        """
+        if not http_path:
+            return []
+        sess = getattr(self, "session", None)
+        verify = getattr(self, "verify", False)
+        plans = [
+            {"label": "1: VWT saja (Authorization, tanpa cookie sesi)",
+             "use_session": False, "headers": {"Authorization": vwt}},
+            {"label": "2: tanpa auth (kontrol)",
+             "use_session": False, "headers": {}},
+            {"label": "3: sesi login + Authorization=VWT",
+             "use_session": True, "headers": {"Authorization": vwt}},
+        ]
+        out = []
+        for p in plans:
+            rec = {"label": p["label"]}
+            try:
+                if p["use_session"] and sess is not None:
+                    r = sess.get(http_path, headers=p["headers"],
+                                 verify=verify, timeout=timeout)
+                else:
+                    r = requests.get(http_path, headers=p["headers"],
+                                     verify=verify, timeout=timeout)
+                body = ""
+                try:
+                    body = r.text or ""
+                except Exception:
+                    body = ""
+                ct = None
+                try:
+                    ct = r.headers.get("Content-Type")
+                except Exception:
+                    ct = None
+                rec.update({
+                    "http_status": getattr(r, "status_code", None),
+                    "content_type": ct,
+                    "length": len(body),
+                    "looks_like_dash": ("<MPD" in body or "urn:mpeg:dash" in body),
+                    "has_content_protection": ("ContentProtection" in body),
+                    "body_head": body[:1500],
+                })
+            except Exception as e:
+                rec.update({"http_status": None, "error": "%r" % e})
+            out.append(rec)
+            if rec.get("http_status") == 200 and rec.get("looks_like_dash"):
+                break
+        return out
+
     def probe_media(self, day_from, day_to):
-        """Uji ambil LOCATOR audio: cari Phone pada rentang, ambil baris pertama
-        yang punya audio_ch_num + audio_module_num, lalu coba GetMedia dengan
-        matriks kombinasi (startTime GMT vs lokal, dengan/tanpa cli). Kembalikan
-        field baris, kandidat cli, format waktu tersedia, dan hasil tiap
-        percobaan (status + teks mentah). TIDAK mengunduh audio.
+        """Uji rantai audio (read-only): cari Phone -> ambil baris pertama
+        ber-audio -> GetMedia dgn kontrak terkonfirmasi (startTime GMT +
+        cli=personal_id) -> coba ambil manifest .mpd via VWT. Laporkan locator +
+        hasil fetch manifest. TIDAK mengunduh audio & TIDAK menyimpan apa pun.
         """
         if not self._logged_in:
             raise avc.AvayaAuthError("Belum login.")
@@ -185,63 +248,85 @@ class AvayaPhoneClient(avc.AvayaClient):
             "dnis": _txt(picked, "dnis"),
             "interaction_type_id": _txt(picked, "interaction_type_id"),
         }
-        candidates = {
-            "personal_id": _txt(picked, "personal_id"),
-            "call_id": _txt(picked, "call_id"),
-            "uniquecallfield": _txt(picked, "uniquecallfield"),
-            "string_extension": _txt(picked, "string_extension"),
-            "sri": _txt(picked, "sri"),
-            "transaction_id": _txt(picked, "transaction_id"),
-            "media_type_bit_mask": _txt(picked, "media_type_bit_mask"),
-        }
-        time_fields = {
-            "audio_start_time": _full(picked, "audio_start_time"),
-            "audio_start_time_gmt": _full(picked, "audio_start_time_gmt"),
-            "local_audio_start_time": _full(picked, "local_audio_start_time"),
-        }
+        personal_id = _txt(picked, "personal_id")
         gmt_iso = _date(picked, "audio_start_time_gmt")
-        local_iso = _date(picked, "audio_start_time")
-        personal_id = candidates["personal_id"]
 
-        plans = [
-            {"label": "A: GMT + tanpa cli", "start": gmt_iso, "cli": ""},
-            {"label": "B: GMT + cli=personal_id", "start": gmt_iso, "cli": personal_id},
-            {"label": "C: LOKAL + tanpa cli", "start": local_iso, "cli": ""},
-            {"label": "D: LOKAL + cli=personal_id", "start": local_iso, "cli": personal_id},
-        ]
-        attempts = []
-        for p in plans:
-            try:
-                r = self.get_media(
-                    used["sid"], used["site_id"], used["audio_ch_num"],
-                    used["audio_module_num"], p["start"], cli=p["cli"])
-            except Exception as e:
-                r = {"http_status": None, "json": None,
-                     "text": "EXC: %r" % e, "sent": None}
-            attempts.append({
-                "label": p["label"],
-                "http_status": r.get("http_status"),
-                "sent": r.get("sent"),
-                "text": r.get("text"),
-                "json": r.get("json"),
+        media = self.get_media(
+            used["sid"], used["site_id"], used["audio_ch_num"],
+            used["audio_module_num"], gmt_iso, cli=personal_id)
+        mj = media.get("json") if isinstance(media, dict) else None
+
+        all_items = []
+        audio_item = None
+        if isinstance(mj, dict):
+            mi = mj.get("mediaInfo")
+            if isinstance(mi, list):
+                all_items = mi
+                for it in mi:
+                    if isinstance(it, dict) and it.get("MediaType") == "Audio":
+                        audio_item = it
+                        break
+
+        http_path = ""
+        vwt = ""
+        enc = None
+        locstat = None
+        fname = ""
+        mstart = ""
+        if isinstance(audio_item, dict):
+            http_path = audio_item.get("HttpPath") or ""
+            vwt = audio_item.get("VWT") or ""
+            enc = audio_item.get("EncryptionStatus")
+            locstat = audio_item.get("LocatorStatus")
+            fname = audio_item.get("FileName") or ""
+            mstart = audio_item.get("StartTime") or ""
+
+        manifest_attempts = self.fetch_manifest(http_path, vwt) if http_path else []
+
+        media_items = []
+        for it in all_items:
+            if not isinstance(it, dict):
+                continue
+            hp = it.get("HttpPath") or ""
+            media_items.append({
+                "MediaType": it.get("MediaType"),
+                "LocatorStatus": it.get("LocatorStatus"),
+                "EncryptionStatus": it.get("EncryptionStatus"),
+                "FileName": it.get("FileName") or "",
+                "HttpPath_head": (hp[:80] + "\u2026") if len(hp) > 80 else hp,
+                "has_VWT": bool(it.get("VWT")),
             })
 
-        media_summary = []
-        for a in attempts:
-            if a["json"] is not None:
-                resp_preview = json.dumps(a["json"])[:160]
+        media_summary = [{
+            "item": "GetMedia (locator)",
+            "http": media.get("http_status") if isinstance(media, dict) else None,
+            "locator_status": locstat,
+            "encryption": enc,
+            "detail": ("Audio .mpd + VWT terisi" if http_path else "TIDAK ada HttpPath audio (locator gagal)"),
+        }]
+        for a in manifest_attempts:
+            if a.get("error"):
+                det = "ERR: " + str(a.get("error"))[:90]
             else:
-                resp_preview = (a["text"] or "")[:160]
-            sent = a["sent"] or {}
+                det = "%s • len=%s%s%s" % (
+                    a.get("content_type") or "?",
+                    a.get("length"),
+                    " • DASH" if a.get("looks_like_dash") else "",
+                    " • ContentProtection" if a.get("has_content_protection") else "")
             media_summary.append({
-                "attempt": a["label"],
-                "http": a["http_status"],
-                "startTime": sent.get("startTime"),
-                "cli": sent.get("cli"),
-                "resp": resp_preview,
+                "item": "Manifest " + str(a.get("label", "")),
+                "http": a.get("http_status"),
+                "locator_status": "",
+                "encryption": "",
+                "detail": det,
             })
-        status_summary = " / ".join(
-            "%s:%s" % (a["label"].split(":")[0], a["http_status"]) for a in attempts)
+
+        man_str = " / ".join(
+            "%s:%s" % (str(a.get("label", "?")).split(":")[0], a.get("http_status"))
+            for a in manifest_attempts) or "(dilewati: tak ada locator)"
+        status_summary = "Locator http=%s locStatus=%s enc=%s | Manifest %s" % (
+            (media.get("http_status") if isinstance(media, dict) else None),
+            locstat, enc, man_str)
 
         return {
             "found_row": True,
@@ -251,8 +336,18 @@ class AvayaPhoneClient(avc.AvayaClient):
             "http_status": status_summary,
             "media_summary": media_summary,
             "media_raw": {
-                "candidates": candidates,
-                "time_fields": time_fields,
-                "attempts": attempts,
+                "locator_audio": {
+                    "http_path": http_path,
+                    "encryption_status": enc,
+                    "locator_status": locstat,
+                    "file_name": fname,
+                    "media_start_time": mstart,
+                    "vwt_present": bool(vwt),
+                    "vwt_kid": self._vwt_kid(vwt),
+                    "vwt_preview": (vwt[:48] + "\u2026") if vwt else "",
+                },
+                "media_items": media_items,
+                "manifest_attempts": manifest_attempts,
+                "used_extra": {"personal_id": personal_id, "gmt_start": gmt_iso},
             },
         }
