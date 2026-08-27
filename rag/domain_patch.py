@@ -220,3 +220,17 @@ except Exception as _e_nomor_pin:  # pragma: no cover
         print("[rag_domain_patch] nomor_pin_patch dilewati:", _e_nomor_pin, flush=True)
     except Exception:
         pass
+
+
+# --- Guard tata kelola masa berlaku (Tahap 2). Dimuat SESUDAH nomor_pin (dan
+#     karenanya sesudah rag_successor_patch) agar membungkus _ctx_peraturan
+#     hasil successor-tracing sebagai lapis terluar konteks peraturan: bila
+#     satu-satunya dukungan berstatus dicabut/diubah tanpa pengganti berlaku ->
+#     dorong abstain. Default NONAKTIF; aktifkan via RAG_VALIDITY_GUARD=1.
+try:
+    import rag.validity_guard_patch  # noqa: F401
+except Exception as _e_validity_guard:  # pragma: no cover
+    try:
+        print("[rag_domain_patch] validity_guard_patch dilewati:", _e_validity_guard, flush=True)
+    except Exception:
+        pass
