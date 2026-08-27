@@ -207,3 +207,16 @@ if _on():
           flush=True)
 else:
     print("[rag_domain_patch] dimatikan (RAG_DOMAIN_BOOST=0).", flush=True)
+
+
+# --- Pin nomor-eksak untuk query sitasi. Dimuat PALING AKHIR (sesudah domain)
+#     agar wrapper-nya jadi lapis TERLUAR peraturan_db.search: query yang
+#     menyebut nomor peraturan spesifik -> peraturan ber-nomor sama
+#     diprioritaskan. Fail-open; matikan via RAG_NOMOR_PIN=0.
+try:
+    import rag.nomor_pin_patch  # noqa: F401
+except Exception as _e_nomor_pin:  # pragma: no cover
+    try:
+        print("[rag_domain_patch] nomor_pin_patch dilewati:", _e_nomor_pin, flush=True)
+    except Exception:
+        pass
