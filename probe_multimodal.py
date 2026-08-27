@@ -1,41 +1,21 @@
 # -*- coding: utf-8 -*-
 """probe_multimodal.py - Sanding STT: Whisper large-v3 vs Qwen3-ASR.
 
-Uji banding transkripsi untuk 2-3 sampel audio Telepon (.mp4 8 kHz mono):
-  A. faster-whisper large-v3 (baseline yang selama ini dipakai).
-  B. Qwen3-ASR (paket 'qwen-asr') - ASR khusus, klaim ungguli Whisper large-v3
-     multibahasa termasuk Indonesia; model 1.7B (~3.5 GB).
-
-STANDALONE: tidak mengimpor modul repo, jadi AMAN dijalankan di venv TERPISAH
-supaya paket qwen-asr (menarik transformers 4.57.6) tidak mengganggu venv
-pipeline utama (sentence-transformers). Saran setup:
+Uji banding transkripsi sampel audio Telepon (.mp4 8 kHz) di venv TERPISAH
+(.venv-asr) supaya paket qwen-asr tidak mengganggu venv pipeline utama:
     python -m venv .venv-asr
-    (Windows: .venv-asr/Scripts/activate atau Activate.ps1)
+    .venv-asr/Scripts/Activate.ps1
     pip install -U faster-whisper qwen-asr
     python probe_multimodal.py
 
-CATATAN CUDA (penting): venv baru biasanya dapat torch CPU-only, sehingga
-Qwen3-ASR jatuh ke CPU (akurasi tetap valid, hanya lambat) dan faster-whisper
-tidak menemukan cublas lalu jatuh ke CPU juga. Untuk GPU, pasang torch CUDA
-yang SAMA dengan venv utama, contoh:
-    pip install --force-reinstall torch --index-url https://download.pytorch.org/whl/cu121
-Cek versi cuXXX venv utama dengan:
-    python -c "import torch; print(torch.__version__)"
-
-faster-whisper dipakai sekaligus sebagai dekoder audio (mp4 8 kHz -> wav 16 kHz
-mono) untuk sisi Qwen, jadi pasang keduanya. Tanpa argumen: ambil beberapa
-awe_audio_*.mp4 terbaru di folder Temp. Dengan argumen: beri path .mp4 sendiri.
-
-Env opsional:
-  AWE_ASR_SAMPLES       jumlah berkas terbaru bila tanpa argumen (default 3)
-  AWE_ASR_SKIP_WHISPER  '1' = lewati sisi Whisper
-  AWE_ASR_SKIP_QWEN     '1' = lewati sisi Qwen3-ASR
-  AWE_QWEN_MODEL        repo Qwen3-ASR (default Qwen/Qwen3-ASR-1.7B; ...-0.6B ringan)
-  AWE_QWEN_LANG         paksa bahasa (default Indonesian; set kosong = auto-deteksi)
-  AWE_QWEN_MAXTOK       batas token keluaran (default 1024)
-  AWE_QWEN_DTYPE        bfloat16 | float16 | float32 (default auto: cpu=float32)
-  AWE_QWEN_DEVICE       cuda:0 | cpu (default auto: cuda bila tersedia)
-  AWE_STT_MODEL         model whisper (default large-v3); AWE_STT_* lain spt phone_stt.
+Qwen3-ASR dipotong per potongan (default 30 dtk, di titik paling hening) supaya
+audio panjang TIDAK looping/mengulang. faster-whisper dipakai juga sebagai
+dekoder 16 kHz. Tanpa argumen: ambil awe_audio_*.mp4 terbaru di Temp; dengan
+argumen: beri path .mp4 sendiri. Env opsional:
+  AWE_ASR_SAMPLES(3) AWE_ASR_SKIP_WHISPER AWE_ASR_SKIP_QWEN
+  AWE_QWEN_MODEL(Qwen/Qwen3-ASR-1.7B) AWE_QWEN_LANG(Indonesian) AWE_QWEN_MAXTOK(1024)
+  AWE_QWEN_DTYPE(auto) AWE_QWEN_DEVICE(auto) AWE_QWEN_CHUNK_SEC(30)
+  AWE_STT_MODEL(large-v3) AWE_STT_DEVICE AWE_STT_COMPUTE AWE_STT_LANG(id) AWE_STT_BEAM AWE_STT_VAD AWE_STT_PROMPT
 """
 import glob
 import os
@@ -128,18 +108,48 @@ def whisper_transcribe(path):
     return out
 
 
-def _to_wav16k(mp4_path):
+def _decode_pcm16k(path):
     from faster_whisper.audio import decode_audio
     import numpy as np
-    pcm = np.asarray(decode_audio(mp4_path, sampling_rate=16000), dtype="float32")
-    pcm16 = (np.clip(pcm, -1.0, 1.0) * 32767.0).astype("<i2")
-    wav_path = mp4_path + ".q16k.wav"
-    with wave.open(wav_path, "wb") as w:
+    return np.asarray(decode_audio(path, sampling_rate=16000), dtype="float32")
+
+
+def _write_wav16k(pcm_slice, path):
+    import numpy as np
+    pcm16 = (np.clip(pcm_slice, -1.0, 1.0) * 32767.0).astype("<i2")
+    with wave.open(path, "wb") as w:
         w.setnchannels(1)
         w.setsampwidth(2)
         w.setframerate(16000)
         w.writeframes(pcm16.tobytes())
-    return wav_path
+
+
+def _chunk_bounds(pcm, sr=16000, win_sec=30.0, search_sec=3.0):
+    import numpy as np
+    n = len(pcm)
+    win = int(win_sec * sr)
+    if win <= 0 or n <= win:
+        return [(0, n)]
+    frame = int(0.02 * sr)
+    search = int(search_sec * sr)
+    bounds = []
+    start = 0
+    while start < n:
+        target = start + win
+        if target >= n:
+            bounds.append((start, n))
+            break
+        lo = max(start + frame, target - search)
+        seg = pcm[lo:target]
+        cut = target
+        k = len(seg) // frame
+        if k > 0:
+            fr = seg[:k * frame].reshape(k, frame)
+            rms = np.sqrt((fr * fr).mean(axis=1) + 1e-12)
+            cut = lo + int(rms.argmin()) * frame + frame // 2
+        bounds.append((start, cut))
+        start = cut
+    return bounds
 
 
 def _qwen_model():
@@ -179,22 +189,47 @@ def _qwen_model():
     raise RuntimeError("gagal load Qwen3-ASR: %r" % last)
 
 
-def qwen_transcribe(wav_path):
-    out = {"model": "", "device": "", "text": "", "elapsed": 0.0, "language": "", "ok": False}
+def qwen_transcribe(path):
+    out = {"model": "", "device": "", "text": "", "elapsed": 0.0, "language": "",
+           "ok": False, "chunks": 0}
     t0 = time.time()
+    tmps = []
     try:
+        pcm = _decode_pcm16k(path)
+        try:
+            win_sec = float(os.environ.get("AWE_QWEN_CHUNK_SEC") or 30.0)
+        except Exception:
+            win_sec = 30.0
+        bounds = _chunk_bounds(pcm, 16000, win_sec)
         m, model_id, dev = _qwen_model()
         out["model"] = model_id
         out["device"] = dev
         raw = os.environ.get("AWE_QWEN_LANG", "Indonesian")
         lang = (raw.strip() or None) if raw is not None else None
-        results = m.transcribe(audio=wav_path, language=lang)
-        r0 = results[0]
-        out["text"] = (_attr(r0, "text") or "").strip()
-        out["language"] = _attr(r0, "language") or ""
+        texts = []
+        lang_seen = ""
+        for i, (s, e) in enumerate(bounds):
+            wav_path = "%s.q%02d.wav" % (path, i)
+            _write_wav16k(pcm[s:e], wav_path)
+            tmps.append(wav_path)
+            results = m.transcribe(audio=wav_path, language=lang)
+            r0 = results[0]
+            t = (_attr(r0, "text") or "").strip()
+            if t:
+                texts.append(t)
+            lang_seen = lang_seen or (_attr(r0, "language") or "")
+        out["text"] = " ".join(texts).strip()
+        out["language"] = lang_seen
+        out["chunks"] = len(bounds)
         out["ok"] = True
     except Exception as e:
         out["error"] = repr(e)
+    finally:
+        for p in tmps:
+            try:
+                os.remove(p)
+            except Exception:
+                pass
     out["elapsed"] = round(time.time() - t0, 2)
     return out
 
@@ -264,18 +299,8 @@ def main(argv):
             print("  ... Whisper %s" % (os.environ.get("AWE_STT_MODEL") or "large-v3"))
             wres = whisper_transcribe(path)
         if have_qwen:
-            print("  ... Qwen3-ASR (dekode 16 kHz + transkripsi)")
-            wav = ""
-            try:
-                wav = _to_wav16k(path)
-            except Exception as e:
-                print("  [wav16k GAGAL] %r" % e)
-            if wav:
-                qres = qwen_transcribe(wav)
-                try:
-                    os.remove(wav)
-                except Exception:
-                    pass
+            print("  ... Qwen3-ASR (dekode 16 kHz + potong + transkripsi)")
+            qres = qwen_transcribe(path)
 
         print()
         if wres:
@@ -285,8 +310,9 @@ def main(argv):
             print("  " + body)
         if qres:
             print()
-            print("  --- Qwen3-ASR %s  (%s, %ss, lang=%s) ---" % (
-                qres.get("model") or "?", qres.get("device") or "?", qres.get("elapsed"), qres.get("language") or "?"))
+            print("  --- Qwen3-ASR %s  (%s, %ss, %s potongan, lang=%s) ---" % (
+                qres.get("model") or "?", qres.get("device") or "?", qres.get("elapsed"),
+                qres.get("chunks"), qres.get("language") or "?"))
             body = (qres.get("text") or "(kosong)") if qres.get("ok") else "ERROR: " + str(qres.get("error"))
             print("  " + body)
         timings.append((path, wres, qres))
