@@ -99,3 +99,15 @@ except Exception as _e_speedup:  # pragma: no cover
         print("[rag_rerank_patch] sources_speedup_patch dilewati:", _e_speedup, flush=True)
     except Exception:
         pass
+
+
+# --- Sumber 'awe' pakai index vektor bge-m3 (avaya.semantic_index) alih-alih
+#     scan brute-force. Dimuat SETELAH sources_speedup_patch agar wiring
+#     _DISPATCH['awe'] menang terakhir. Fail-open; matikan via AWE_INDEX=0.
+try:
+    import rag.awe_speedup_patch  # noqa: F401
+except Exception as _e_awe:  # pragma: no cover
+    try:
+        print("[rag_rerank_patch] awe_speedup_patch dilewati:", _e_awe, flush=True)
+    except Exception:
+        pass
