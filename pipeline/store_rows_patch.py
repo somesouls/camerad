@@ -72,3 +72,9 @@ _wrap("step6_save", 6)
 _wrap("step7_mkta", 7)
 _wrap("step8_run", 8)
 print("[store_rows_patch] step4/5/6/7/8 -> penyimpanan baris (row-based) aktif.", flush=True)
+
+# Rakit Excel secara LAZY (hanya saat unduh / dipakai step berikutnya), bukan tiap
+# polling status atau tiap simpan. Menghilangkan beban perakitan Excel berulang
+# TANPA mengubah data/logika/format/rumus. Di-chain di sini karena helpers &
+# rowstore sudah pasti siap saat store_rows_patch dimuat.
+import pipeline.lazy_excel_patch  # noqa: E402,F401
