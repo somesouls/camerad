@@ -121,13 +121,14 @@ def _register_routes():
         return
     from fastapi.responses import JSONResponse
     from starlette.concurrency import run_in_threadpool
+    from starlette.requests import Request
 
-    async def awe_index_stats(request):
+    async def awe_index_stats(request: Request):
         def _do():
             return {"ok": True, "index": _stats()}
         return JSONResponse(await run_in_threadpool(_do))
 
-    async def awe_index_reindex(request):
+    async def awe_index_reindex(request: Request):
         def _do():
             return _build(False)
         return JSONResponse(await run_in_threadpool(_do))
@@ -139,7 +140,7 @@ def _register_routes():
     # reindex hanya tampil utk pengelola via can_awe_manage di template).
     render_page = getattr(appmod, "render_page", None)
     if render_page is not None:
-        async def awe_index_page(request):
+        async def awe_index_page(request: Request):
             return render_page(request, "awe_index.html", "awe")
         app.add_api_route("/awe/index", awe_index_page, methods=["GET"])
 
