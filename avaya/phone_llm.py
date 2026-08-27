@@ -52,6 +52,14 @@ _INSTRUKSI = _NL.join([
     "- catatan_kualitas: catatan singkat soal bagian transkrip yang diragukan.",
 ])
 
+_GLOSARIUM = _NL.join([
+    "Glosarium domain untuk membantu menafsirkan salah dengar STT (audio 8 kHz):",
+    "- MELATI = Meja Layanan TI di DJP: kanal/helpdesk pelaporan tiket kendala aplikasi. STT sering salah dengar menjadi 'melati', 'tiga pengakti', 'pengakti', atau 'tiga pengaktifan'; bila konteksnya tiket kendala, tafsirkan sebagai MELATI.",
+    "- Kring Pajak = layanan call center DJP (1500200).",
+    "- Istilah umum yang mungkin muncul: NPWP, NIK, EFIN, SPT, DJP Online, e-Faktur, e-Bupot, Coretax, tiket, nomor tiket.",
+    "Pakai glosarium untuk mengoreksi frasa yang mirip bunyi, tetapi jangan memaksakan koreksi bila konteks jelas menunjukkan makna lain.",
+])
+
 
 def _strip_json(s):
     """Ambil satu objek JSON dari keluaran LLM (buang markdown/teks lain)."""
@@ -92,6 +100,8 @@ def _build_user(text, segments):
             except Exception:
                 continue
         parts.append("")
+    parts.append(_GLOSARIUM)
+    parts.append("")
     parts.append(_INSTRUKSI)
     return _NL.join(parts)
 
