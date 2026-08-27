@@ -40,7 +40,7 @@
 
 {% block content %}
 <div class="page-header">
-  <h1 class="page-title">Uji Tarik Telepon (Increment 1)</h1>
+  <h1 class="page-title">Uji Tarik Telepon (Increment 1 &amp; 2a)</h1>
   <p class="page-desc">Halaman uji untuk memastikan pencarian interaksi <b>Telepon (Phone)</b> berjalan dan kolom hasilnya (<span class="code-inline">audio_ch_num</span>, <span class="code-inline">audio_module_num</span>, <span class="code-inline">ani</span>, <span class="code-inline">dnis</span>, dll) benar-benar terisi &mdash; <b>sebelum</b> membangun pengambilan audio/STT. Pencarian ini identik dengan alur Chat yang sudah ada; hanya <span class="code-inline">InteractionType</span> diganti ke <b>Phone (Id 1)</b>. Tidak ada audio yang diunduh dan tidak ada data yang disimpan.</p>
 </div>
 
@@ -71,6 +71,14 @@
   </button>
   <div class="hint-text">Proses: login &rarr; buat pencarian (Phone) &rarr; ambil Header &rarr; ambil Data. Hanya menampilkan sampel baris; tidak menyimpan apa pun.</div>
 
+  <div class="sub-divider" style="height:1px;background:var(--panel-border);margin:18px 0;"></div>
+
+  <button class="btn-modern" id="tMediaBtn" style="background:var(--c-orange);color:var(--c-orange-txt);box-shadow:none;">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.9.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"></path></svg>
+    Uji Locator Audio (baris pertama)
+  </button>
+  <div class="hint-text"><b>Increment 2a:</b> ambil <b>lokasi audio</b> (URL <span class="code-inline">.mpd</span> + token) untuk 1 interaksi telepon via <span class="code-inline">GetMedia</span>. Belum mengunduh/menyandi audio &mdash; hanya memastikan server bisa mendapat locator + token.</div>
+
   <div class="status" id="tStat"></div>
 </section>
 
@@ -88,6 +96,17 @@
   </div>
   <div class="hint-text">Kolom berwarna = kolom kunci untuk langkah audio (Increment 2). Jika terisi, kita siap map ke <span class="code-inline">GetMedia</span>.</div>
 </section>
+
+<section class="c-card" id="mediaCard" style="display:none;">
+  <div class="stage-head">
+    <h2 class="stage-title">Locator Audio (Increment 2a)</h2>
+    <span class="pill" id="mediaPill">GetMedia</span>
+  </div>
+  <div id="mediaMeta"></div>
+  <div id="mediaSummaryWrap"></div>
+  <p class="hint-text" style="margin-top:14px;">Respons <b>mentah</b> <span class="code-inline">GetMedia</span> &mdash; perhatikan nama field pasti: <span class="code-inline">HttpPath</span>/.mpd, token (VWT), <span class="code-inline">EncryptionStatus</span>, <span class="code-inline">LocatorStatus</span>. Field <span class="code-inline">cli</span> sengaja dikosongkan dulu; jika server menolak, berarti ia wajib.</p>
+  <pre id="mediaRaw" style="margin:8px 0 0;padding:14px;background:rgba(0,0,0,0.18);border:1px solid var(--panel-border);border-radius:10px;overflow:auto;max-height:420px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:1.5;color:var(--text-main);white-space:pre;"></pre>
+</section>
 {% endblock %}
 
 {% block scripts %}
@@ -96,6 +115,7 @@
 function el(id){return document.getElementById(id);}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setT(msg,k){var s=el('tStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
+function pj(o){try{return JSON.stringify(o,null,2);}catch(e){return String(o);}}
 var KEY_COLS={audio_ch_num:1,audio_module_num:1,ani:1,dnis:1,sid:1,site_id:1,interaction_type_id:1,audio_start_time:1};
 
 (function(){var d=new Date(Date.now()-864e5);var s=d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);if(el('t_from')&&!el('t_from').value)el('t_from').value=s;if(el('t_to')&&!el('t_to').value)el('t_to').value=s;})();
@@ -115,6 +135,32 @@ function render(d){
   el('resBody').innerHTML=rows.map(function(r){return '<tr>'+cols.map(function(c){return '<td class="'+(KEY_COLS[c]?'key':'')+'">'+esc(r[c])+'</td>';}).join('')+'</tr>';}).join('');
 }
 
+function renderMedia(d){
+  el('mediaCard').style.display='block';
+  if(!d.found_row){
+    el('mediaMeta').innerHTML='<div class="meta-line">Search ID: <span class="code-inline">'+esc(d.search_id||'-')+'</span> \u2022 baris: <b>'+(d.n_rows||0)+'</b></div><div class="meta-line" style="color:var(--c-orange-txt)"><b>'+esc(d.note||'Tidak ada baris audio.')+'</b></div>';
+    el('mediaSummaryWrap').innerHTML='';
+    el('mediaRaw').textContent='';
+    return;
+  }
+  var u=d.used||{};
+  var meta=[];
+  meta.push('<div class="meta-line">Baris dipakai &mdash; sid: <span class="code-inline">'+esc(u.sid)+'</span>, site_id: <span class="code-inline">'+esc(u.site_id)+'</span>, ch: <span class="code-inline">'+esc(u.audio_ch_num)+'</span>, module: <span class="code-inline">'+esc(u.audio_module_num)+'</span></div>');
+  meta.push('<div class="meta-line">start: <span class="code-inline">'+esc(u.audio_start_time)+'</span> \u2022 ani: <span class="code-inline">'+esc(u.ani)+'</span> \u2022 dnis: <span class="code-inline">'+esc(u.dnis)+'</span> \u2022 type: <span class="code-inline">'+esc(u.interaction_type_id)+'</span></div>');
+  meta.push('<div class="meta-line">HTTP GetMedia: <b>'+esc(d.http_status==null?'-':d.http_status)+'</b> \u2022 Search ID: <span class="code-inline">'+esc(d.search_id||'-')+'</span></div>');
+  el('mediaMeta').innerHTML=meta.join('');
+  var sm=d.media_summary||[];
+  if(sm.length){
+    var keys={};sm.forEach(function(it){Object.keys(it||{}).forEach(function(k){keys[k]=1;});});
+    var kl=Object.keys(keys);
+    var html='<div class="table-wrap" style="margin-top:14px;"><table class="table-modern"><thead><tr>'+kl.map(function(k){return '<th>'+esc(k)+'</th>';}).join('')+'</tr></thead><tbody>'+sm.map(function(it){return '<tr>'+kl.map(function(k){var v=it[k];var t=(v==null?'':String(v));if(t.length>80)t=t.slice(0,80)+'\u2026';return '<td>'+esc(t)+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table></div>';
+    el('mediaSummaryWrap').innerHTML='<div class="meta-line" style="margin-top:8px;"><b>Ringkasan locator ('+sm.length+'):</b></div>'+html;
+  } else {
+    el('mediaSummaryWrap').innerHTML='<div class="meta-line" style="margin-top:8px;color:var(--text-muted)">Tidak terdeteksi array locator standar &mdash; lihat respons mentah di bawah.</div>';
+  }
+  el('mediaRaw').textContent=pj(d.media_raw);
+}
+
 el('tRunBtn').addEventListener('click',function(){
   var df=el('t_from').value,dt=el('t_to').value,u=el('t_user').value.trim(),pw=el('t_pass').value;
   var itype=el('t_itype').value||'1',base=el('t_base').value.trim();
@@ -129,6 +175,24 @@ el('tRunBtn').addEventListener('click',function(){
      el('t_pass').value='';
      render(d);
    }).catch(function(e){setT('\u274c Gagal: '+e,'err');el('tRunBtn').disabled=false;});
+});
+
+el('tMediaBtn').addEventListener('click',function(){
+  var df=el('t_from').value,dt=el('t_to').value,u=el('t_user').value.trim(),pw=el('t_pass').value;
+  var base=el('t_base').value.trim();
+  if(!df||!dt){setT('Isi rentang tanggal dulu.','err');return;}
+  if(!pw){setT('Password wajib diisi.','err');return;}
+  el('tMediaBtn').disabled=true;el('tRunBtn').disabled=true;
+  setT('Login &amp; mengambil locator audio (GetMedia) untuk baris telepon pertama\u2026 (bisa beberapa detik)');
+  fetch('/api/awe/phone/probe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'media',date_from:df,date_to:dt,username:u,password:pw,base_url:base})})
+   .then(function(r){return r.json();}).then(function(d){
+     el('tMediaBtn').disabled=false;el('tRunBtn').disabled=false;
+     if(!d.ok){setT('\u274c '+esc(d.error||'Gagal.')+(d.need_login?' (periksa kredensial)':''),'err');return;}
+     if(!d.found_row){setT('\u2705 Selesai, tapi tak ada baris audio pada rentang ini.','ok');renderMedia(d);return;}
+     setT('\u2705 Locator audio diambil (HTTP '+esc(d.http_status)+'). Lihat kartu di bawah.','ok');
+     el('t_pass').value='';
+     renderMedia(d);
+   }).catch(function(e){setT('\u274c Gagal: '+e,'err');el('tMediaBtn').disabled=false;el('tRunBtn').disabled=false;});
 });
 })();
 </script>

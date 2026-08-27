@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""awe/phone_routes.py — Increment 1 (telepon): halaman uji + endpoint probe.
+"""awe/phone_routes.py — halaman uji telepon + endpoint probe.
 
 TERPISAH total dari alur Chat. Handler didaftarkan oleh awe/routes.py
-(register()) memakai objek app yang sama dengan route AWE lain. Endpoint HANYA
-menguji pencarian Phone lalu menampilkan kolom/baris mentah untuk verifikasi;
-tidak menyimpan apa pun & tidak mengambil audio. Butuh izin 'awe_manage'
-(sama seperti Kelola Data AWE).
+(register()) memakai objek app yang sama dengan route AWE lain. Endpoint
+menguji pencarian Phone (action="search") atau mengambil locator audio via
+GetMedia (action="media", Increment 2a) lalu menampilkan hasil MENTAH untuk
+verifikasi; tidak menyimpan apa pun & tidak mengunduh audio. Butuh izin
+'awe_manage' (sama seperti Kelola Data AWE).
 """
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -22,7 +23,8 @@ async def awe_telepon_page(request: Request):
 
 
 async def awe_phone_probe(request: Request):
-    """Uji pencarian Phone (login-then-forget). Kredensial tidak disimpan."""
+    """Uji pencarian Phone / locator audio (login-then-forget). Kredensial
+    tidak disimpan."""
     user = getattr(request.state, "user", None) or {}
     if not usr.area_allowed(user.get("role"), "awe_manage"):
         return JSONResponse({"ok": False, "error": "Akses ditolak untuk peran Anda."}, status_code=403)
@@ -30,6 +32,7 @@ async def awe_phone_probe(request: Request):
         body = await request.json() or {}
     except Exception:
         body = {}
+    action = str(body.get("action") or "search").strip().lower()
     df = str(body.get("date_from") or "").strip()
     dt = str(body.get("date_to") or "").strip()
     username = body.get("username") or ""
@@ -41,6 +44,20 @@ async def awe_phone_probe(request: Request):
         return JSONResponse({"ok": False, "error": "Tanggal (dari & sampai) wajib diisi."}, status_code=400)
     if not password:
         return JSONResponse({"ok": False, "error": "Password AWE wajib diisi.", "need_login": True}, status_code=400)
+
+    if action == "media":
+        def _do_media():
+            client = avphone.AvayaPhoneClient(base_url=(base_url or None))
+            client.login(username, password)
+            return client.probe_media(df, dt)
+        try:
+            res = await run_in_threadpool(_do_media)
+            res["ok"] = True
+            return JSONResponse(res)
+        except avc.AvayaAuthError as e:
+            return JSONResponse({"ok": False, "need_login": True, "error": str(e)})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
 
     def _do():
         client = avphone.AvayaPhoneClient(base_url=(base_url or None))
