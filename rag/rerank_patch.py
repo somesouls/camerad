@@ -111,3 +111,16 @@ except Exception as _e_awe:  # pragma: no cover
         print("[rag_rerank_patch] awe_speedup_patch dilewati:", _e_awe, flush=True)
     except Exception:
         pass
+
+
+# --- Endpoint status/reindex index AWE + auto-reindex latar. Dimuat SETELAH
+#     awe_speedup_patch (butuh avaya.semantic_index). Mendaftarkan rute lewat
+#     app global (app_core) tanpa menyentuh awe/routes.py. Fail-open; interval
+#     via AWE_REINDEX_EVERY_S, matikan index via AWE_INDEX=0.
+try:
+    import awe.index_routes  # noqa: F401
+except Exception as _e_awe_idx:  # pragma: no cover
+    try:
+        print("[rag_rerank_patch] awe.index_routes dilewati:", _e_awe_idx, flush=True)
+    except Exception:
+        pass
