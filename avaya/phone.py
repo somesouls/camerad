@@ -9,18 +9,29 @@ dengan pencarian Chat (DateRange Between, FTSLanguage "en", dsb).
 `probe_search()` menjalankan satu pencarian lalu mengembalikan header + sampel
 baris MENTAH untuk inspeksi kolom (Increment 1).
 
-`probe_media()` (Increment 2a/2b-probe): ambil LOCATOR audio via GetMedia untuk
-satu interaksi telepon, lalu COBA AMBIL manifest .mpd dari recsvr01 memakai token
-VWT. KONTRAK GetMedia yang sudah TERKONFIRMASI (data 24 Agu 2026):
+`probe_media()` (Increment 2a/2b): ambil LOCATOR audio via GetMedia untuk satu
+interaksi telepon, COBA AMBIL manifest .mpd dari recsvr01 memakai token VWT, lalu
+(Increment 2b) UNDUH segmen audio (init + fragmen) + gabung jadi satu .mp4
+sementara + transkode ke wav bila ffmpeg tersedia. KONTRAK GetMedia yang sudah
+TERKONFIRMASI (data 24 Agu 2026):
   - startTime WAJIB GMT (kolom audio_start_time_gmt), BUKAN waktu lokal.
   - cli WAJIB diisi = personal_id baris tsb (agent ultra-ID). Tanpa cli -> HTTP 400.
 Hasil sukses: mediaInfo[Audio].LocatorStatus=0, HttpPath=.mpd, VWT terisi,
-EncryptionStatus=2.
+EncryptionStatus=2, dan manifest DASH TANPA ContentProtection (tidak ada DRM;
+segmen bisa langsung diunduh + didekode).
 
-Semua fungsi di sini READ-ONLY: TIDAK mengunduh byte audio ke disk dan TIDAK
-menyimpan apa pun.
+Catatan penyimpanan: probe_search & locator bersifat read-only. Increment 2b pada
+probe_media MENYIMPAN berkas audio gabungan SEMENTARA di folder temp OS (untuk
+verifikasi), BUKAN ke DB, dan tidak menyimpan kredensial.
 """
 import json
+import os
+import re
+import shutil
+import subprocess
+import tempfile
+import xml.etree.ElementTree as ET
+
 import requests
 import avaya.client as avc
 
@@ -90,8 +101,8 @@ class AvayaPhoneClient(avc.AvayaClient):
         }
 
     # ------------------------------------------------------------------
-    # Increment 2a/2b — LOCATOR audio (GetMedia) + ambil manifest .mpd.
-    # Read-only: tidak mengunduh byte audio, tidak menyimpan apa pun.
+    # Increment 2a/2b — LOCATOR audio (GetMedia) + manifest .mpd + unduh segmen.
+    # 2a/manifest: read-only. 2b (probe_media): unduh + simpan .mp4 SEMENTARA.
     # ------------------------------------------------------------------
     def get_media(self, sid, site_id, audio_channel, audio_module, start_time,
                   cli="", is_screen=False, numeric_ids=True):
@@ -194,160 +205,42 @@ class AvayaPhoneClient(avc.AvayaClient):
                 break
         return out
 
-    def probe_media(self, day_from, day_to):
-        """Uji rantai audio (read-only): cari Phone -> ambil baris pertama
-        ber-audio -> GetMedia dgn kontrak terkonfirmasi (startTime GMT +
-        cli=personal_id) -> coba ambil manifest .mpd via VWT. Laporkan locator +
-        hasil fetch manifest. TIDAK mengunduh audio & TIDAK menyimpan apa pun.
-        """
-        if not self._logged_in:
-            raise avc.AvayaAuthError("Belum login.")
-        self._probe_itype = "1"  # Phone
-        frm = str(day_from)[:10] + "T00:00:00"
-        to = str(day_to)[:10] + "T23:59:59"
-        sid = self.create_search(frm, to)
-        self.exec_search(sid)
-        info = self.get_header(sid)
-        rows = self.get_data(sid)
-        header = info.get("header") or []
-        cm = self.col_map(header)
+    @staticmethod
+    def _seg_base(http_path):
+        """Base URL untuk segmen = direktori manifest (buang 'manifest.mpd')."""
+        if not http_path:
+            return ""
+        return http_path.rsplit("/", 1)[0] + "/"
 
-        def _full(row, key):
-            idx = cm.get(key)
-            if idx is None or idx >= len(row) or not isinstance(row[idx], dict):
-                return {}
-            return row[idx]
-
-        def _txt(row, key):
-            c = _full(row, key)
-            return str(c.get("Text") or c.get("Date") or c.get("ItemId") or "").strip()
-
-        def _date(row, key):
-            c = _full(row, key)
-            return str(c.get("Date") or c.get("Text") or "").strip()
-
-        picked = None
-        for row in rows:
-            if _txt(row, "audio_ch_num") and _txt(row, "audio_module_num"):
-                picked = row
-                break
-        if picked is None:
-            return {
-                "found_row": False,
-                "search_id": sid,
-                "n_rows": len(rows),
-                "note": "Tidak ada baris dengan audio_ch_num + audio_module_num pada rentang ini.",
-            }
-
-        used = {
-            "sid": _txt(picked, "sid"),
-            "site_id": _txt(picked, "site_id"),
-            "audio_ch_num": _txt(picked, "audio_ch_num"),
-            "audio_module_num": _txt(picked, "audio_module_num"),
-            "ani": _txt(picked, "ani"),
-            "dnis": _txt(picked, "dnis"),
-            "interaction_type_id": _txt(picked, "interaction_type_id"),
-        }
-        personal_id = _txt(picked, "personal_id")
-        gmt_iso = _date(picked, "audio_start_time_gmt")
-
-        media = self.get_media(
-            used["sid"], used["site_id"], used["audio_ch_num"],
-            used["audio_module_num"], gmt_iso, cli=personal_id)
-        mj = media.get("json") if isinstance(media, dict) else None
-
-        all_items = []
-        audio_item = None
-        if isinstance(mj, dict):
-            mi = mj.get("mediaInfo")
-            if isinstance(mi, list):
-                all_items = mi
-                for it in mi:
-                    if isinstance(it, dict) and it.get("MediaType") == "Audio":
-                        audio_item = it
-                        break
-
-        http_path = ""
-        vwt = ""
-        enc = None
-        locstat = None
-        fname = ""
-        mstart = ""
-        if isinstance(audio_item, dict):
-            http_path = audio_item.get("HttpPath") or ""
-            vwt = audio_item.get("VWT") or ""
-            enc = audio_item.get("EncryptionStatus")
-            locstat = audio_item.get("LocatorStatus")
-            fname = audio_item.get("FileName") or ""
-            mstart = audio_item.get("StartTime") or ""
-
-        manifest_attempts = self.fetch_manifest(http_path, vwt) if http_path else []
-
-        media_items = []
-        for it in all_items:
-            if not isinstance(it, dict):
-                continue
-            hp = it.get("HttpPath") or ""
-            media_items.append({
-                "MediaType": it.get("MediaType"),
-                "LocatorStatus": it.get("LocatorStatus"),
-                "EncryptionStatus": it.get("EncryptionStatus"),
-                "FileName": it.get("FileName") or "",
-                "HttpPath_head": (hp[:80] + "\u2026") if len(hp) > 80 else hp,
-                "has_VWT": bool(it.get("VWT")),
-            })
-
-        media_summary = [{
-            "item": "GetMedia (locator)",
-            "http": media.get("http_status") if isinstance(media, dict) else None,
-            "locator_status": locstat,
-            "encryption": enc,
-            "detail": ("Audio .mpd + VWT terisi" if http_path else "TIDAK ada HttpPath audio (locator gagal)"),
-        }]
-        for a in manifest_attempts:
-            if a.get("error"):
-                det = "ERR: " + str(a.get("error"))[:90]
-            else:
-                det = "%s • len=%s%s%s" % (
-                    a.get("content_type") or "?",
-                    a.get("length"),
-                    " • DASH" if a.get("looks_like_dash") else "",
-                    " • ContentProtection" if a.get("has_content_protection") else "")
-            media_summary.append({
-                "item": "Manifest " + str(a.get("label", "")),
-                "http": a.get("http_status"),
-                "locator_status": "",
-                "encryption": "",
-                "detail": det,
-            })
-
-        man_str = " / ".join(
-            "%s:%s" % (str(a.get("label", "?")).split(":")[0], a.get("http_status"))
-            for a in manifest_attempts) or "(dilewati: tak ada locator)"
-        status_summary = "Locator http=%s locStatus=%s enc=%s | Manifest %s" % (
-            (media.get("http_status") if isinstance(media, dict) else None),
-            locstat, enc, man_str)
-
-        return {
-            "found_row": True,
-            "search_id": sid,
-            "n_rows": len(rows),
-            "used": used,
-            "http_status": status_summary,
-            "media_summary": media_summary,
-            "media_raw": {
-                "locator_audio": {
-                    "http_path": http_path,
-                    "encryption_status": enc,
-                    "locator_status": locstat,
-                    "file_name": fname,
-                    "media_start_time": mstart,
-                    "vwt_present": bool(vwt),
-                    "vwt_kid": self._vwt_kid(vwt),
-                    "vwt_preview": (vwt[:48] + "\u2026") if vwt else "",
-                },
-                "media_items": media_items,
-                "manifest_attempts": manifest_attempts,
-                "used_extra": {"personal_id": personal_id, "gmt_start": gmt_iso},
-            },
-        }
+    def _parse_mpd(self, mpd_text, base_url):
+        """Parse manifest DASH: RepresentationID, template segmen, jumlah segmen
+        (dari SegmentTimeline), plus info audio (codec/rate/channel/durasi).
+        Bangun URL absolut init + tiap fragmen relatif terhadap base_url."""
+        res = {"rep_id": "", "seg_count": 0, "init_url": "", "frag_urls": [],
+               "duration": "", "codecs": "", "mime": "", "sample_rate": "",
+               "bandwidth": "", "channels": ""}
+        try:
+            txt = (mpd_text or "").lstrip("\ufeff").strip()
+            ns = {"m": "urn:mpeg:dash:schema:mpd:2011"}
+            root = ET.fromstring(txt)
+            res["duration"] = root.get("mediaPresentationDuration") or ""
+            rep = root.find(".//m:Representation", ns)
+            if rep is not None:
+                res["rep_id"] = rep.get("id") or ""
+                res["codecs"] = rep.get("codecs") or ""
+                res["mime"] = rep.get("mimeType") or ""
+                res["sample_rate"] = rep.get("audioSamplingRate") or ""
+                res["bandwidth"] = rep.get("bandwidth") or ""
+            acc = root.find(".//m:AudioChannelConfiguration", ns)
+            if acc is not None:
+                res["channels"] = acc.get("value") or ""
+            st = root.find(".//m:SegmentTemplate", ns)
+            if st is not None:
+                media_tmpl = st.get("media") or ""
+                init_tmpl = st.get("initialization") or ""
+                try:
+                    start_number = int(st.get("startNumber", "1"))
+                except Exception:
+                    start_number = 1
+                seg_count = 0
+                tl = st.find(
