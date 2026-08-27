@@ -9,10 +9,11 @@ dengan pencarian Chat (DateRange Between, FTSLanguage "en", dsb).
 `probe_search()` menjalankan satu pencarian lalu mengembalikan header + sampel
 baris MENTAH untuk inspeksi kolom (Increment 1).
 
-`probe_media()` (Increment 2a) mengambil LOCATOR audio (URL .mpd + token) untuk
-satu interaksi telepon via GetMedia — untuk memverifikasi audio bisa diakses
-dari sisi server SEBELUM membangun unduh/decode/STT. TIDAK mengunduh audio dan
-TIDAK menyimpan apa pun.
+`probe_media()` (Increment 2a) mengambil LOCATOR audio via GetMedia untuk satu
+interaksi telepon. Karena format param GetMedia belum pasti (terutama startTime
+GMT vs lokal, dan apakah `cli` wajib), probe mencoba beberapa kombinasi dan
+mengembalikan status + teks error MENTAH tiap percobaan. TIDAK mengunduh audio
+dan TIDAK menyimpan apa pun.
 """
 import json
 import avaya.client as avc
@@ -86,20 +87,26 @@ class AvayaPhoneClient(avc.AvayaClient):
     # Increment 2a — LOCATOR audio (GetMedia). Read-only: tidak unduh/simpan.
     # ------------------------------------------------------------------
     def get_media(self, sid, site_id, audio_channel, audio_module, start_time,
-                  cli="", is_screen=False):
+                  cli="", is_screen=False, numeric_ids=True):
         """Panggil GetMedia untuk satu interaksi telepon.
 
-        Kembalikan (json_mentah, http_status, body_terkirim). Hanya meminta
-        lokasi media (URL .mpd + token) — TIDAK mengunduh byte audio.
+        Kembalikan dict {http_status, json, text, sent}. `text` = body respons
+        mentah (dipotong) supaya error 400 WCF kelihatan. Hanya meminta lokasi
+        media (URL .mpd + token) — TIDAK mengunduh byte audio.
         """
-        def _numish(v):
-            s = str(v if v is not None else "").strip()
-            return int(s) if s.isdigit() else s
+        def _v(x):
+            s = str(x if x is not None else "").strip()
+            if numeric_ids and s.isdigit():
+                try:
+                    return int(s)
+                except Exception:
+                    return s
+            return s
         body = {
-            "sid": _numish(sid),
-            "siteId": _numish(site_id),
-            "audioChannel": _numish(audio_channel),
-            "audioModule": _numish(audio_module),
+            "sid": _v(sid),
+            "siteId": _v(site_id),
+            "audioChannel": _v(audio_channel),
+            "audioModule": _v(audio_module),
             "startTime": str(start_time or ""),
             "cli": str(cli or ""),
             "isScreen": bool(is_screen),
@@ -111,15 +118,24 @@ class AvayaPhoneClient(avc.AvayaClient):
         }
         url = "/Player/Services/PlayerService.svc/GetMedia"
         r = self._post(url, headers=self._headers_post(), data=json.dumps(body))
-        return avc._safe_json(r), getattr(r, "status_code", None), body
+        txt = ""
+        try:
+            txt = r.text or ""
+        except Exception:
+            txt = ""
+        return {
+            "http_status": getattr(r, "status_code", None),
+            "json": avc._safe_json(r),
+            "text": txt[:2000],
+            "sent": body,
+        }
 
     def probe_media(self, day_from, day_to):
         """Uji ambil LOCATOR audio: cari Phone pada rentang, ambil baris pertama
-        yang punya audio_ch_num + audio_module_num, panggil GetMedia, lalu
-        kembalikan field yang dipakai + respons mentah (untuk melihat
-        HttpPath/.mpd, token, EncryptionStatus, LocatorStatus).
-
-        TIDAK mengunduh audio & TIDAK menyimpan apa pun.
+        yang punya audio_ch_num + audio_module_num, lalu coba GetMedia dengan
+        matriks kombinasi (startTime GMT vs lokal, dengan/tanpa cli). Kembalikan
+        field baris, kandidat cli, format waktu tersedia, dan hasil tiap
+        percobaan (status + teks mentah). TIDAK mengunduh audio.
         """
         if not self._logged_in:
             raise avc.AvayaAuthError("Belum login.")
@@ -133,18 +149,23 @@ class AvayaPhoneClient(avc.AvayaClient):
         header = info.get("header") or []
         cm = self.col_map(header)
 
-        def _cell(row, key):
+        def _full(row, key):
             idx = cm.get(key)
             if idx is None or idx >= len(row) or not isinstance(row[idx], dict):
-                return ""
-            c = row[idx]
-            return c.get("Text") or c.get("Date") or c.get("ItemId") or ""
+                return {}
+            return row[idx]
+
+        def _txt(row, key):
+            c = _full(row, key)
+            return str(c.get("Text") or c.get("Date") or c.get("ItemId") or "").strip()
+
+        def _date(row, key):
+            c = _full(row, key)
+            return str(c.get("Date") or c.get("Text") or "").strip()
 
         picked = None
         for row in rows:
-            ch = str(_cell(row, "audio_ch_num")).strip()
-            mod = str(_cell(row, "audio_module_num")).strip()
-            if ch and mod:
+            if _txt(row, "audio_ch_num") and _txt(row, "audio_module_num"):
                 picked = row
                 break
         if picked is None:
@@ -156,41 +177,82 @@ class AvayaPhoneClient(avc.AvayaClient):
             }
 
         used = {
-            "sid": str(_cell(picked, "sid")).strip(),
-            "site_id": str(_cell(picked, "site_id")).strip(),
-            "audio_ch_num": str(_cell(picked, "audio_ch_num")).strip(),
-            "audio_module_num": str(_cell(picked, "audio_module_num")).strip(),
-            "audio_start_time": str(_cell(picked, "audio_start_time")).strip(),
-            "ani": str(_cell(picked, "ani")).strip(),
-            "dnis": str(_cell(picked, "dnis")).strip(),
-            "interaction_type_id": str(_cell(picked, "interaction_type_id")).strip(),
+            "sid": _txt(picked, "sid"),
+            "site_id": _txt(picked, "site_id"),
+            "audio_ch_num": _txt(picked, "audio_ch_num"),
+            "audio_module_num": _txt(picked, "audio_module_num"),
+            "ani": _txt(picked, "ani"),
+            "dnis": _txt(picked, "dnis"),
+            "interaction_type_id": _txt(picked, "interaction_type_id"),
         }
-        media, status, sent = self.get_media(
-            used["sid"], used["site_id"], used["audio_ch_num"],
-            used["audio_module_num"], used["audio_start_time"])
+        candidates = {
+            "personal_id": _txt(picked, "personal_id"),
+            "call_id": _txt(picked, "call_id"),
+            "uniquecallfield": _txt(picked, "uniquecallfield"),
+            "string_extension": _txt(picked, "string_extension"),
+            "sri": _txt(picked, "sri"),
+            "transaction_id": _txt(picked, "transaction_id"),
+            "media_type_bit_mask": _txt(picked, "media_type_bit_mask"),
+        }
+        time_fields = {
+            "audio_start_time": _full(picked, "audio_start_time"),
+            "audio_start_time_gmt": _full(picked, "audio_start_time_gmt"),
+            "local_audio_start_time": _full(picked, "local_audio_start_time"),
+        }
+        gmt_iso = _date(picked, "audio_start_time_gmt")
+        local_iso = _date(picked, "audio_start_time")
+        personal_id = candidates["personal_id"]
 
-        summary = []
-        mi = None
-        if isinstance(media, dict):
-            mi = (media.get("mediaInfo") or media.get("MediaInfo")
-                  or media.get("Media") or media.get("Locators"))
-        if isinstance(mi, list):
-            for item in mi:
-                if not isinstance(item, dict):
-                    continue
-                entry = {}
-                for k, v in item.items():
-                    if isinstance(v, (str, int, float, bool)) or v is None:
-                        entry[k] = v
-                summary.append(entry)
+        plans = [
+            {"label": "A: GMT + tanpa cli", "start": gmt_iso, "cli": ""},
+            {"label": "B: GMT + cli=personal_id", "start": gmt_iso, "cli": personal_id},
+            {"label": "C: LOKAL + tanpa cli", "start": local_iso, "cli": ""},
+            {"label": "D: LOKAL + cli=personal_id", "start": local_iso, "cli": personal_id},
+        ]
+        attempts = []
+        for p in plans:
+            try:
+                r = self.get_media(
+                    used["sid"], used["site_id"], used["audio_ch_num"],
+                    used["audio_module_num"], p["start"], cli=p["cli"])
+            except Exception as e:
+                r = {"http_status": None, "json": None,
+                     "text": "EXC: %r" % e, "sent": None}
+            attempts.append({
+                "label": p["label"],
+                "http_status": r.get("http_status"),
+                "sent": r.get("sent"),
+                "text": r.get("text"),
+                "json": r.get("json"),
+            })
+
+        media_summary = []
+        for a in attempts:
+            if a["json"] is not None:
+                resp_preview = json.dumps(a["json"])[:160]
+            else:
+                resp_preview = (a["text"] or "")[:160]
+            sent = a["sent"] or {}
+            media_summary.append({
+                "attempt": a["label"],
+                "http": a["http_status"],
+                "startTime": sent.get("startTime"),
+                "cli": sent.get("cli"),
+                "resp": resp_preview,
+            })
+        status_summary = " / ".join(
+            "%s:%s" % (a["label"].split(":")[0], a["http_status"]) for a in attempts)
 
         return {
             "found_row": True,
             "search_id": sid,
             "n_rows": len(rows),
             "used": used,
-            "sent_body": sent,
-            "http_status": status,
-            "media_summary": summary,
-            "media_raw": media,
+            "http_status": status_summary,
+            "media_summary": media_summary,
+            "media_raw": {
+                "candidates": candidates,
+                "time_fields": time_fields,
+                "attempts": attempts,
+            },
         }
