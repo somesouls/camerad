@@ -6,10 +6,16 @@ phone_dash.download_and_save memakai faster-whisper. faster-whisper mendekode
 via PyAV (pustaka ffmpeg bawaan) sehingga ffmpeg SISTEM tidak wajib.
 
 Backend otomatis: coba CUDA float16 dulu, lalu fallback CPU int8. Model
-di-cache di memori proses (tidak reload tiap panggilan). Override via env:
+di-cache di memori proses (tidak reload tiap panggilan). Dekode dipasang
+anti-ulang/anti-halusinasi (VAD, condition_on_previous_text=False, temperature
+fallback, repetition_penalty, no_repeat_ngram) - penting utk audio telepon
+8 kHz yang gampang bikin Whisper mengulang. Override via env:
   AWE_STT_MODEL   (default 'large-v3'; pakai 'small'/'medium' utk uji cepat)
   AWE_STT_DEVICE  ('cuda' | 'cpu')
   AWE_STT_COMPUTE ('float16' | 'int8' | 'int8_float16' | ...)
+  AWE_STT_BEAM    (ukuran beam; default 5)
+  AWE_STT_VAD     ('1' aktif / '0' nonaktif VAD; default '1')
+  AWE_STT_PROMPT  (initial_prompt domain, opsional; default kosong)
 
 Instal (venv): pip install faster-whisper
 Model large-v3 (~3 GB) diunduh otomatis saat pertama dipakai.
@@ -39,7 +45,32 @@ def _backend_order():
     return [("cuda", ct or "float16"), ("cpu", ct or "int8")]
 
 
-def transcribe_file(path, lang="id", model_size=None, beam_size=1, max_seg=60):
+def _decode_opts(beam_size):
+    """Opsi dekode anti-ulang/anti-halusinasi utk audio telepon 8 kHz."""
+    try:
+        beam = int(os.environ.get("AWE_STT_BEAM") or beam_size)
+    except Exception:
+        beam = beam_size
+    vad = (os.environ.get("AWE_STT_VAD") or "1").strip().lower() not in ("0", "false", "no")
+    prompt = (os.environ.get("AWE_STT_PROMPT") or "").strip() or None
+    opts = {
+        "beam_size": beam,
+        "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
+        "condition_on_previous_text": False,
+        "compression_ratio_threshold": 2.4,
+        "log_prob_threshold": -1.0,
+        "no_speech_threshold": 0.6,
+        "repetition_penalty": 1.1,
+        "no_repeat_ngram_size": 3,
+        "vad_filter": vad,
+        "vad_parameters": {"min_silence_duration_ms": 500},
+    }
+    if prompt:
+        opts["initial_prompt"] = prompt
+    return opts
+
+
+def transcribe_file(path, lang="id", model_size=None, beam_size=5, max_seg=120):
     """Transkrip satu berkas audio; kembalikan dict ringkas & aman untuk JSON."""
     out = {"ok": False, "path": path or "", "model": "", "device": "",
            "compute_type": "", "language": "", "duration": 0.0, "n_segments": 0,
@@ -65,8 +96,16 @@ def transcribe_file(path, lang="id", model_size=None, beam_size=1, max_seg=60):
         out["elapsed_sec"] = round(time.time() - t0, 2)
         out["error"] = "Gagal memuat model STT: %r (pip install faster-whisper)" % last_err
         return out
+    opts = _decode_opts(beam_size)
     try:
-        segments, info = model.transcribe(path, language=(lang or None), beam_size=beam_size)
+        try:
+            segments, info = model.transcribe(path, language=(lang or None), **opts)
+        except TypeError:
+            segments, info = model.transcribe(
+                path, language=(lang or None),
+                beam_size=opts.get("beam_size", 5),
+                condition_on_previous_text=False,
+                vad_filter=opts.get("vad_filter", True))
         out["language"] = getattr(info, "language", "") or (lang or "")
         out["duration"] = round(float(getattr(info, "duration", 0.0) or 0.0), 3)
         texts = []
