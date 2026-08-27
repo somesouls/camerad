@@ -8,6 +8,7 @@ siap, route & thread dilewati tanpa mengganggu boot.
 Rute (area akses "awe"):
   GET  /api/awe/index/stats   -> status index vektor (vec, db)
   POST /api/awe/index/reindex -> rebuild inkremental index vektor AWE
+  GET  /awe/index             -> halaman kecil status + tombol reindex
 
 Auto-reindex: thread latar memantau perubahan tabel awe_conversations
 (COUNT, MAX(rowid)) tiap AWE_REINDEX_EVERY_S detik (default 300; 0 = mati),
@@ -133,7 +134,16 @@ def _register_routes():
 
     app.add_api_route("/api/awe/index/stats", awe_index_stats, methods=["GET"])
     app.add_api_route("/api/awe/index/reindex", awe_index_reindex, methods=["POST"])
-    print("[rag_awe_index] rute /api/awe/index/* terpasang", flush=True)
+
+    # Halaman kecil status index + tombol reindex (area akses "awe"; tombol
+    # reindex hanya tampil utk pengelola via can_awe_manage di template).
+    render_page = getattr(appmod, "render_page", None)
+    if render_page is not None:
+        async def awe_index_page(request):
+            return render_page(request, "awe_index.html", "awe")
+        app.add_api_route("/awe/index", awe_index_page, methods=["GET"])
+
+    print("[rag_awe_index] rute /api/awe/index/* + halaman /awe/index terpasang", flush=True)
 
 
 def _install():
