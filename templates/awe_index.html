@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Index Vektor · AWE{% endblock %}
+{% block head %}
+<style>
+.ax-wrap{max-width:900px;margin:0 auto;padding:22px 26px 60px;}
+.ax-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
+.ax-sub{color:var(--text-muted);font-size:12.5px;margin-top:4px;max-width:720px;line-height:1.55;}
+.ax-card{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:18px 20px;margin-top:18px;}
+.ax-card h3{margin:0 0 4px;font-size:15px;font-weight:700;}
+.ax-card p.hint{color:var(--text-muted);font-size:12px;margin:0 0 12px;line-height:1.55;}
+.kpi{display:flex;gap:14px;flex-wrap:wrap;margin-top:6px;}
+.kpi .k{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:10px;padding:11px 16px;min-width:110px;}
+.kpi .k b{font-size:22px;display:block;line-height:1.2;}
+.kpi .k span{font-size:11px;color:var(--text-muted);}
+.ax-btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-weight:600;cursor:pointer;font-size:12.5px;}
+.ax-btn:disabled{opacity:.5;cursor:default;}
+.ax-btn.ghost{background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);}
+.ax-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px;}
+.ax-out{margin-top:12px;font-size:12.5px;padding:10px 12px;border-radius:9px;display:none;}
+.ax-out.ok{display:block;background:rgba(38,166,91,.12);color:#2ea86a;}
+.ax-out.err{display:block;background:rgba(239,83,80,.12);color:#ef5350;}
+.ax-note{font-size:11.5px;color:var(--text-muted);margin-top:10px;line-height:1.55;}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:20px;margin-top:8px;}
+.badge.okc{background:rgba(38,166,91,.15);color:#2ea86a;}
+.badge.warn{background:rgba(240,173,78,.15);color:#e0932f;}
+</style>
+{% endblock %}
+{% block content %}
+<div class="ax-wrap">
+  <h1 class="ax-title">Index Vektor Data AWE</h1>
+  <p class="ax-sub">Status index pencarian cepat (semantik bge-m3) untuk sumber Percakapan AWE (Live-Chat). Index dibangun otomatis saat boot dan diperbarui otomatis di latar tiap ada data AWE baru (mis. setelah tarik harian). Tombol di bawah untuk memicu pembangunan ulang inkremental manual bila diperlukan.</p>
+
+  <div class="ax-card">
+    <h3>Status Index</h3>
+    <p class="hint">“Terindeks” = jumlah percakapan yang punya vektor. “Total sumber” = jumlah percakapan AWE di database. Idealnya sama.</p>
+    <div class="kpi" id="statBox">
+      <div class="k"><b>…</b><span>Terindeks</span></div>
+      <div class="k"><b>…</b><span>Total sumber</span></div>
+    </div>
+    <div id="syncBadge"></div>
+    {% if can_awe_manage %}
+    <div class="ax-row">
+      <button class="ax-btn" id="btnReindex">Index data baru</button>
+      <button class="ax-btn ghost" id="btnRefresh">Segarkan status</button>
+    </div>
+    <div class="ax-out" id="reindexOut"></div>
+    {% else %}
+    <div class="ax-row">
+      <button class="ax-btn ghost" id="btnRefresh">Segarkan status</button>
+    </div>
+    <p class="ax-note">Pembangunan ulang manual hanya untuk peran pengelola AWE. Index tetap diperbarui otomatis di latar.</p>
+    {% endif %}
+    <p class="ax-note">Auto-reindex berjalan tiap <b>AWE_REINDEX_EVERY_S</b> detik (default 300) dan hanya meng-embed percakapan baru/berubah — aman &amp; murah. Matikan index via <b>AWE_INDEX=0</b>.</p>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+const $=s=>document.querySelector(s);
+function out(el,ok,msg){el.className='ax-out '+(ok?'ok':'err');el.textContent=msg;}
+async function jget(u){const r=await fetch(u);return r.json();}
+async function jpost(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return {code:r.status,data:await r.json()};}
+
+async function loadStats(){
+  try{
+    const d=await jget('/api/awe/index/stats');
+    const ix=(d&&d.index)||{};
+    const vec=ix.vec||0, dbn=ix.db||0;
+    $('#statBox').innerHTML=
+      `<div class='k'><b>${vec}</b><span>Terindeks</span></div>`+
+      `<div class='k'><b>${dbn}</b><span>Total sumber</span></div>`;
+    const sb=$('#syncBadge');
+    if(dbn>0 && vec>=dbn){sb.innerHTML="<span class='badge okc'>✓ Index sinkron</span>";}
+    else if(dbn>0){sb.innerHTML=`<span class='badge warn'>⚠ ${dbn-vec} percakapan belum terindeks</span>`;}
+    else{sb.innerHTML='';}
+  }catch(e){ $('#statBox').innerHTML="<div class='k'><b>—</b><span>Gagal memuat</span></div>"; }
+}
+const btnR=$('#btnReindex');
+if(btnR){btnR.onclick=async()=>{
+  btnR.disabled=true;out($('#reindexOut'),true,'Mengindeks data baru…');
+  const {data}=await jpost('/api/awe/index/reindex',{});
+  btnR.disabled=false;
+  if(data&&data.ok){out($('#reindexOut'),true,`Selesai: ${data.n} percakapan baru diindeks, total ${data.total} terindeks.`);loadStats();}
+  else out($('#reindexOut'),false,(data&&data.reason)||'Index nonaktif atau gagal. Cek AWE_INDEX.');
+};}
+const btnRef=$('#btnRefresh');
+if(btnRef){btnRef.onclick=loadStats;}
+loadStats();
+</script>
+{% endblock %}
