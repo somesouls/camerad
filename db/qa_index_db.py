@@ -16,6 +16,12 @@ MENDAHULUI pembuatan indeks idx_qa_conv; pada qa.db lama (Fase 5) kolom itu
 belum ada sehingga CREATE INDEX di dalam executescript gagal
 ("no such column: conv_id"). Kini: tabel dasar -> migrasi kolom -> indeks.
 
+Tahap 4e-3: ambang cosine Q2Q (RAG_QA_MIN_COS) kini PER-PROFIL via
+rag.knob_store (store-profil > env > default 0.50). min_cos() membaca profil
+aktif dari rag.calibration (di-set rag.engine di thread retrieval; Q2Q search
+berjalan di thread yang sama). Tanpa store/profil, perilaku env>default 0.50
+TETAP identik.
+
 Penyimpanan (pola peraturan_db / sop_db):
   * qa_unit : id, sumber ('sosmed'|'awe'), ref_id, conv_id, question, answer,
               topik, url, reg_json (rujukan terdeteksi+teresolusi saat build),
@@ -51,6 +57,14 @@ try:
     import common.text_norm as tnorm
 except Exception:            # pragma: no cover
     tnorm = None
+try:
+    import rag.knob_store as _ks
+except Exception:            # pragma: no cover
+    _ks = None
+try:
+    import rag.calibration as _cal
+except Exception:            # pragma: no cover
+    _cal = None
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket db/ -> root repo
 _BUSY_TIMEOUT_MS = 30000
@@ -416,11 +430,38 @@ def _load_vectors(conn):
     return ids, mat
 
 
-def min_cos():
+def _env_min_cos():
+    """Ambang env murni (fallback tingkat kedua). Default 0.50."""
     try:
         return float(os.environ.get("RAG_QA_MIN_COS", "0.50"))
     except Exception:
         return 0.50
+
+
+def min_cos():
+    """Ambang cosine Q2Q, PER-PROFIL (Tahap 4e-3).
+
+    Precedence: knob_store store-profil > env RAG_QA_MIN_COS > default 0.50.
+    Profil aktif dibaca dari rag.calibration (di-set rag.engine di THREAD
+    RETRIEVAL; Q2Q search berjalan di thread yang sama via _DISPATCH). Bila modul
+    knob tak tersedia / profil belum ditandai / store kosong -> jatuh ke
+    env>default 0.50 (perilaku lama TETAP identik). GAGAL-ANGGUN.
+    """
+    if _ks is None:
+        return _env_min_cos()
+    prof = None
+    if _cal is not None:
+        try:
+            prof = _cal.get_profile()
+        except Exception:
+            prof = None
+    try:
+        v = _ks.resolve(prof, "RAG_QA_MIN_COS")
+        if v is None:
+            return _env_min_cos()
+        return float(v)
+    except Exception:
+        return _env_min_cos()
 
 
 def search(query, k=3, conn=None):
