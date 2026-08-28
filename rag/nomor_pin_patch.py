@@ -18,8 +18,17 @@ di dalam hasil yang SUDAH difilter status (mis. 'berlaku'), jadi tidak membangki
 peraturan yang sudah dicabut. Pencarian tertarget dipanggil paling banyak sekali dan
 selalu ke search bawaan (tanpa rekursi ke wrapper ini), jadi aman dari loop.
 
-Env:
-  RAG_NOMOR_PIN=0   mematikan patch.
+Env / knob (Tahap 4e-2):
+  RAG_NOMOR_PIN kini PER-PROFIL via rag.knob_store dgn precedence
+  store-profil > env > default(True). Profil aktif dibaca dari rag.calibration
+  (di-set rag.engine di THREAD RETRIEVAL). Artinya tiap profil (agent/chatbot)
+  bisa mengaktif/menonaktifkan pin nomor sendiri dari panel /rag-harness tanpa
+  memengaruhi profil lain, dan tanpa redeploy (store dibaca live).
+
+  Catatan pemasangan: keputusan MEMASANG wrapper saat import tetap berbasis ENV
+  (RAG_NOMOR_PIN=0 -> wrapper tak dipasang, patch mati global). Selama wrapper
+  terpasang (default on), gate PER-PANGGILAN yang menentukan per-profil. Bila
+  profil belum ditandai / modul knob tak tersedia -> jatuh ke perilaku ENV lama.
 
 Gagal-anggun penuh: bila apa pun error, hasil search bawaan dikembalikan.
 """
@@ -27,6 +36,15 @@ import os
 import re
 
 import peraturan.db as _pdb
+
+try:
+    import rag.knob_store as _ks
+except Exception:            # pragma: no cover
+    _ks = None
+try:
+    import rag.calibration as _cal
+except Exception:            # pragma: no cover
+    _cal = None
 
 _orig_search = _pdb.search
 
@@ -39,9 +57,34 @@ _RE_NOMOR = re.compile(
 )
 
 
-def _on():
+def _env_on():
+    """Gate berbasis ENV: fallback tingkat kedua DAN penentu pemasangan wrapper
+    saat import. Default ON (hanya RAG_NOMOR_PIN=0/false/no/off yang mematikan)."""
     return str(os.environ.get("RAG_NOMOR_PIN", "1")).strip().lower() not in (
         "0", "false", "no", "off")
+
+
+def _on():
+    """Gate EFEKTIF per-panggilan, PER-PROFIL. Baca knob_store.resolve(
+    profil_aktif, 'RAG_NOMOR_PIN') dgn precedence store-profil > env > default.
+    Profil aktif dari rag.calibration (di-set rag.engine di thread retrieval).
+    Bila modul knob tak ada / profil belum ditandai -> jatuh ke _env_on().
+    GAGAL-ANGGUN: error apa pun -> _env_on()."""
+    if _ks is None:
+        return _env_on()
+    prof = None
+    if _cal is not None:
+        try:
+            prof = _cal.get_profile()
+        except Exception:
+            prof = None
+    try:
+        v = _ks.resolve(prof, "RAG_NOMOR_PIN")
+        if v is None:
+            return _env_on()
+        return bool(v)
+    except Exception:
+        return _env_on()
 
 
 def _norm(s):
@@ -107,10 +150,11 @@ def _search_nomor_pin(query, k=10, status_list=("berlaku",), conn=None):
         return rows
 
 
-if _on():
+if _env_on():
     _pdb.search = _search_nomor_pin
     print("[rag_nomor_pin] pin nomor-eksak aktif "
-          "(query menyebut nomor -> peraturan ber-nomor sama diprioritaskan).",
+          "(query menyebut nomor -> peraturan ber-nomor sama diprioritaskan; "
+          "gate per-profil via knob_store).",
           flush=True)
 else:
     print("[rag_nomor_pin] dimatikan (RAG_NOMOR_PIN=0).", flush=True)
