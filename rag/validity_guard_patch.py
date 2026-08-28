@@ -30,8 +30,19 @@ rag_successor_patch):
 Sumber lain (intent/sosmed/awe) TIDAK disentuh: bila ada dasar berlaku lain,
 jawaban tetap bisa diberikan. Guard hanya membentuk konteks PERATURAN.
 
+Tahap 4e-4: gate kini PER-PROFIL. Dulu keputusan pasang-wrapper env-gated
+(default OFF => wrapper tak pernah terpasang), sehingga store per-profil tak
+bisa menyalakannya. Kini wrapper SELALU dipasang tetapi INERT saat off
+(passthrough persis _ctx_peraturan bawaan); keputusan aktif dibaca per-call:
+  _on() = knob_store.resolve(calibration.get_profile(), 'RAG_VALIDITY_GUARD')
+          (store-profil > env > default False), fail-open ke _env_on().
+Profil aktif ditandai rag.engine di thread retrieval (4e-1). Tanpa store/profil
+(mis. saat eval: get_profile()=None) => env>default OFF => passthrough; recall
+eval TIDAK berubah.
+
 Env:
-  RAG_VALIDITY_GUARD=1  aktifkan (default: NONAKTIF saat uji).
+  RAG_VALIDITY_GUARD=1  aktifkan global via env (default: NONAKTIF). Per-profil
+                        via panel/knob_store menimpa env untuk profil terkait.
 
 Gagal-anggun penuh: error apa pun -> hasil _ctx_peraturan bawaan dikembalikan.
 Dimuat PALING AKHIR (via tail-import rag_domain_patch, sesudah nomor_pin) agar
@@ -40,6 +51,15 @@ membungkus _ctx_peraturan hasil rag_successor_patch di eval maupun produksi.
 import os
 
 import rag.engine as _re
+
+try:
+    import rag.knob_store as _ks
+except Exception:            # pragma: no cover
+    _ks = None
+try:
+    import rag.calibration as _cal
+except Exception:            # pragma: no cover
+    _cal = None
 
 _MARKER = "CATATAN STATUS HUKUM"
 
@@ -53,9 +73,31 @@ _DIRECTIVE = (
 )
 
 
-def _on():
+def _env_on():
+    """Gate env murni (fallback per-call). Default OFF."""
     return str(os.environ.get("RAG_VALIDITY_GUARD", "0")).strip().lower() in (
         "1", "true", "yes", "on")
+
+
+def _on():
+    """Gate PER-PROFIL per-call: knob_store.resolve(profil, RAG_VALIDITY_GUARD)
+    (store-profil > env > default False), fail-open ke _env_on(). Profil aktif
+    dari rag.calibration (di-set rag.engine di thread retrieval)."""
+    if _ks is None:
+        return _env_on()
+    prof = None
+    if _cal is not None:
+        try:
+            prof = _cal.get_profile()
+        except Exception:
+            prof = None
+    try:
+        v = _ks.resolve(prof, "RAG_VALIDITY_GUARD")
+        if v is None:
+            return _env_on()
+        return bool(v)
+    except Exception:
+        return _env_on()
 
 
 _orig_ctx_peraturan = getattr(_re, "_ctx_peraturan", None)
@@ -79,15 +121,16 @@ def _ctx_peraturan_validity(q, limit=4):
 if _orig_ctx_peraturan is None:
     print("[rag_validity_guard] dilewati: _ctx_peraturan belum tersedia "
           "(rag_successor_patch harus dimuat lebih dulu).", flush=True)
-elif _on():
+else:
+    # 4e-4: SELALU pasang wrapper (inert saat off => passthrough); gate per-call
+    # per-profil. Ini memungkinkan toggle per-profil via panel tanpa restart,
+    # tanpa mengubah perilaku default (env/store off => identik _ctx_peraturan).
     _re._ctx_peraturan = _ctx_peraturan_validity
     try:
         if isinstance(getattr(_re, "_DISPATCH", None), dict):
             _re._DISPATCH["peraturan"] = _ctx_peraturan_validity
     except Exception:
         pass
-    print("[rag_validity_guard] aktif (dorong abstain bila satu-satunya dukungan "
-          "peraturan berstatus dicabut/diubah tanpa pengganti berlaku).", flush=True)
-else:
-    print("[rag_validity_guard] nonaktif (set RAG_VALIDITY_GUARD=1 untuk mengaktifkan).",
-          flush=True)
+    print("[rag_validity_guard] terpasang per-profil (gate per-call via knob_store "
+          "RAG_VALIDITY_GUARD, fail-open env; default off=passthrough). "
+          "env_global=%s" % ("on" if _env_on() else "off"), flush=True)
