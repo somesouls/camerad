@@ -4,13 +4,18 @@
 Menu baru mandiri /rag-harness (4 tab: Golden · Gerbang eval · Tambang feedback ·
 Knob per-profil). LANGKAH 3a = HANYA backend READ-ONLY: endpoint GET yang
 menyajikan (a) knob efektif per-profil, (b) ringkasan golden set, (c) baseline
-gerbang, (d) laporan eval terbaru dari _runs. Aksi tulis (jalankan eval, tambang
-feedback, CRUD golden) menyusul di langkah berikut, dengan konfirmasi.
+gerbang, (d) laporan eval terbaru dari _runs.
 
 LANGKAH 4b menambah AKSI TULIS KNOB per-profil (POST /api/harness/knob/set &
 /api/harness/knob/clear). Menulis knob HANYA mengisi knob store; pipeline runtime
 BELUM membacanya (penyambungan = langkah 4e), jadi aksi ini INERT terhadap
-perilaku produksi & aman diuji. Tetap area admin 'peraturan' + GAGAL-ANGGUN.
+perilaku produksi & aman diuji.
+
+LANGKAH 4c menambah AKSI TULIS GOLDEN SET (POST /api/harness/golden/{upsert,
+aktif,delete,seed,mirror}) via rag.golden_db. upsert/aktif/seed/mirror aman;
+delete DESTRUKTIF (lebih aman set aktif=false utk mengeluarkan dari eval).
+Mengubah golden set memengaruhi GERBANG eval, bukan runtime retrieval. Semua
+tetap area admin 'peraturan' + GAGAL-ANGGUN.
 
 Helper di bawah MURNI (tanpa FastAPI) supaya bisa diuji lewat CLI:
     python -m routes.harness_routes --section overview --profile agent
@@ -20,6 +25,11 @@ Helper di bawah MURNI (tanpa FastAPI) supaya bisa diuji lewat CLI:
     python -m routes.harness_routes --section runs --limit 3
     python -m routes.harness_routes --profile agent --set RAG_MIN_COS --value 0.61
     python -m routes.harness_routes --profile agent --clear RAG_MIN_COS
+    python -m routes.harness_routes --golden-seed
+    python -m routes.harness_routes --golden-upsert "contoh query" --jenis hit --expect '{"keywords":["pkp"]}'
+    python -m routes.harness_routes --golden-aktif <ID> --aktif false
+    python -m routes.harness_routes --golden-delete <ID>
+    python -m routes.harness_routes --golden-mirror
 
 Daftarkan (langkah 3b): import routes.harness_routes as h; h.register(app)
 Area admin (langkah 3c): tambah '/rag-harness' & '/api/harness' ke _route_area
@@ -45,6 +55,7 @@ except Exception:            # pragma: no cover
     gdb = None
 
 _PROFILES = ("agent", "chatbot")
+_VALID_JENIS = ("hit", "abstain")
 
 
 def _norm_profile(p):
@@ -57,6 +68,16 @@ def _strict_profile(p):
     jatuh ke 'agent' bila salah ketik)."""
     v = (p or "").strip().lower()
     return v if v in _PROFILES else None
+
+
+def _as_bool(v):
+    """Tafsir longgar nilai kebenaran (bool/angka/teks) -> bool."""
+    if isinstance(v, bool):
+        return v
+    if isinstance(v, (int, float)):
+        return v != 0
+    s = str(v or "").strip().lower()
+    return s in ("1", "true", "yes", "on", "ya", "aktif")
 
 
 # ------------------------------------------------------------ helper MURNI
@@ -218,6 +239,134 @@ def clear_knob_action(profile, name):
             "deleted": res.get("deleted", 0), "knobs": ov.get("knobs", {})}
 
 
+# ---------------------------------------------------- AKSI TULIS (4c) golden
+def golden_upsert_action(query, jenis_harapan="hit", expect=None, catatan="",
+                         aktif=True):
+    """Tambah/ubah satu entri golden. id diturunkan dari query (gid), jadi
+    meng-upsert query yang sama = mengedit entri itu. expect boleh dict atau
+    string JSON. GAGAL-ANGGUN.
+    """
+    if gdb is None:
+        return {"ok": False, "error": "golden_db tak tersedia"}
+    q = (query or "").strip()
+    if not q:
+        return {"ok": False, "error": "query wajib diisi"}
+    jh = (jenis_harapan or "hit").strip().lower()
+    if jh not in _VALID_JENIS:
+        return {"ok": False, "error": "jenis_harapan tak dikenal: %r (pilih: %s)"
+                % (jenis_harapan, ", ".join(_VALID_JENIS))}
+    ex = expect
+    if isinstance(ex, str):
+        s = ex.strip()
+        if s == "":
+            ex = {}
+        else:
+            try:
+                ex = json.loads(s)
+            except Exception as e:
+                return {"ok": False,
+                        "error": "expect bukan JSON valid: %s" % (str(e)[:120])}
+    if ex is None:
+        ex = {}
+    if not isinstance(ex, dict):
+        return {"ok": False, "error": "expect harus objek/dict"}
+    try:
+        res = gdb.upsert_golden(q, jenis_harapan=jh, expect=ex,
+                                catatan=(catatan or ""),
+                                aktif=1 if _as_bool(aktif) else 0)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+    return {"ok": True, "id": res.get("id"), "query": q, "jenis_harapan": jh,
+            "aktif": bool(_as_bool(aktif)),
+            "golden": golden_overview(include_rows=False)}
+
+
+def golden_set_aktif_action(golden_id, aktif):
+    """Aktifkan/nonaktifkan satu entri golden (soft: nonaktif = keluar dari
+    eval tanpa dihapus). GAGAL-ANGGUN.
+    """
+    if gdb is None:
+        return {"ok": False, "error": "golden_db tak tersedia"}
+    gidv = (golden_id or "").strip()
+    if not gidv:
+        return {"ok": False, "error": "id wajib diisi"}
+    val = _as_bool(aktif)
+    try:
+        gdb.set_aktif(gidv, 1 if val else 0)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+    return {"ok": True, "id": gidv, "aktif": bool(val),
+            "golden": golden_overview(include_rows=False)}
+
+
+def golden_delete_action(golden_id):
+    """Hapus PERMANEN satu entri golden. DESTRUKTIF — utk sekadar mengeluarkan
+    dari eval, lebih aman golden_set_aktif_action(id, False). GAGAL-ANGGUN.
+    """
+    if gdb is None:
+        return {"ok": False, "error": "golden_db tak tersedia"}
+    gidv = (golden_id or "").strip()
+    if not gidv:
+        return {"ok": False, "error": "id wajib diisi"}
+    conn = None
+    try:
+        conn = gdb.init_db(gdb.connect())
+        cur = conn.execute("DELETE FROM rag_golden WHERE id=?", (gidv,))
+        conn.commit()
+        deleted = cur.rowcount or 0
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return {"ok": True, "id": gidv, "deleted": deleted,
+            "golden": golden_overview(include_rows=False)}
+
+
+def golden_seed_action(mirror=True):
+    """Isi golden set bawaan (merge idempoten) + longgarkan ekspektasi v2, lalu
+    (opsional) cermin ke /rag-eval. Setara CLI 'phase4_eval.py --seed'.
+    GAGAL-ANGGUN per tahap.
+    """
+    if gdb is None:
+        return {"ok": False, "error": "golden_db tak tersedia"}
+    out = {"ok": True}
+    try:
+        out["seeded"] = gdb.seed_default()
+    except Exception as e:
+        return {"ok": False, "error": "seed_default gagal: %s" % (str(e)[:160])}
+    try:
+        fx = gdb.fix_seed_v2()
+        out["fixed"] = fx.get("updated", 0) if isinstance(fx, dict) else 0
+    except Exception as e:
+        out["fixed_error"] = str(e)[:160]
+    if mirror:
+        try:
+            out["mirror"] = gdb.mirror_to_eval()
+        except Exception as e:
+            out["mirror_error"] = str(e)[:160]
+    out["golden"] = golden_overview(include_rows=False)
+    return out
+
+
+def golden_mirror_action():
+    """Cerminkan golden AKTIF ke eval_sample (jenis='golden') utk LLM-judge di
+    /rag-eval. GAGAL-ANGGUN.
+    """
+    if gdb is None:
+        return {"ok": False, "error": "golden_db tak tersedia"}
+    try:
+        res = gdb.mirror_to_eval()
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+    ok = bool(res.get("ok")) if isinstance(res, dict) else False
+    return {"ok": ok, "mirror": res,
+            "golden": golden_overview(include_rows=False)}
+
+
 # ------------------------------------------------------------ route FastAPI
 try:
     from fastapi import Request
@@ -239,7 +388,8 @@ async def _read_json_body(request):
 
 
 def register(app):
-    """Daftarkan endpoint harness. GET read-only (3a) + POST tulis knob (4b)."""
+    """Daftarkan endpoint harness. GET read-only (3a) + POST tulis knob (4b) +
+    POST tulis golden (4c)."""
     async def api_overview(request: Request):
         prof = request.query_params.get("profile") if hasattr(request, "query_params") else "agent"
         try:
@@ -298,6 +448,51 @@ def register(app):
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
 
+    async def api_golden_upsert(request: Request):
+        body = await _read_json_body(request)
+        try:
+            res = await run_in_threadpool(
+                golden_upsert_action,
+                body.get("query"), body.get("jenis_harapan", "hit"),
+                body.get("expect"), body.get("catatan", ""),
+                body.get("aktif", True))
+            return JSONResponse(res)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    async def api_golden_aktif(request: Request):
+        body = await _read_json_body(request)
+        try:
+            res = await run_in_threadpool(golden_set_aktif_action,
+                                          body.get("id"), body.get("aktif"))
+            return JSONResponse(res)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    async def api_golden_delete(request: Request):
+        body = await _read_json_body(request)
+        try:
+            res = await run_in_threadpool(golden_delete_action, body.get("id"))
+            return JSONResponse(res)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    async def api_golden_seed(request: Request):
+        body = await _read_json_body(request)
+        try:
+            res = await run_in_threadpool(golden_seed_action,
+                                          _as_bool(body.get("mirror", True)))
+            return JSONResponse(res)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    async def api_golden_mirror(request: Request):
+        try:
+            res = await run_in_threadpool(golden_mirror_action)
+            return JSONResponse(res)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
     app.add_api_route("/api/harness/overview", api_overview, methods=["GET"])
     app.add_api_route("/api/harness/knobs", api_knobs, methods=["GET"])
     app.add_api_route("/api/harness/golden", api_golden, methods=["GET"])
@@ -305,6 +500,11 @@ def register(app):
     app.add_api_route("/api/harness/runs", api_runs, methods=["GET"])
     app.add_api_route("/api/harness/knob/set", api_knob_set, methods=["POST"])
     app.add_api_route("/api/harness/knob/clear", api_knob_clear, methods=["POST"])
+    app.add_api_route("/api/harness/golden/upsert", api_golden_upsert, methods=["POST"])
+    app.add_api_route("/api/harness/golden/aktif", api_golden_aktif, methods=["POST"])
+    app.add_api_route("/api/harness/golden/delete", api_golden_delete, methods=["POST"])
+    app.add_api_route("/api/harness/golden/seed", api_golden_seed, methods=["POST"])
+    app.add_api_route("/api/harness/golden/mirror", api_golden_mirror, methods=["POST"])
 
 
 # ------------------------------------------------------------ CLI uji cepat
@@ -321,6 +521,21 @@ def _cli(argv=None):
                     help="nilai utk --set")
     ap.add_argument("--clear", dest="clear_name", default=None,
                     help="NAMA knob utk dihapus (kembali ke env/default)")
+    ap.add_argument("--golden-upsert", dest="golden_upsert", default=None,
+                    help="QUERY utk upsert golden (perlu --jenis/--expect opsional)")
+    ap.add_argument("--jenis", default="hit", help="hit|abstain (utk --golden-upsert)")
+    ap.add_argument("--expect", default=None, help="JSON expect (utk --golden-upsert)")
+    ap.add_argument("--catatan", default="", help="catatan (utk --golden-upsert)")
+    ap.add_argument("--golden-aktif", dest="golden_aktif", default=None,
+                    help="ID golden utk set aktif (pakai --aktif true|false)")
+    ap.add_argument("--golden-delete", dest="golden_delete", default=None,
+                    help="ID golden utk hapus PERMANEN")
+    ap.add_argument("--golden-seed", dest="golden_seed", action="store_true",
+                    help="seed bawaan + fix v2 + cermin ke /rag-eval")
+    ap.add_argument("--golden-mirror", dest="golden_mirror", action="store_true",
+                    help="cermin golden aktif ke /rag-eval")
+    ap.add_argument("--aktif", dest="aktif_flag", default=None,
+                    help="true|false (utk --golden-upsert / --golden-aktif)")
     args = ap.parse_args(argv)
 
     if args.set_name is not None:
@@ -329,6 +544,30 @@ def _cli(argv=None):
         return 0 if data.get("ok") else 1
     if args.clear_name is not None:
         data = clear_knob_action(args.profile, args.clear_name)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if data.get("ok") else 1
+
+    if args.golden_upsert is not None:
+        aktif = True if args.aktif_flag is None else _as_bool(args.aktif_flag)
+        data = golden_upsert_action(args.golden_upsert, args.jenis, args.expect,
+                                    args.catatan, aktif)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if data.get("ok") else 1
+    if args.golden_aktif is not None:
+        aktif = True if args.aktif_flag is None else _as_bool(args.aktif_flag)
+        data = golden_set_aktif_action(args.golden_aktif, aktif)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if data.get("ok") else 1
+    if args.golden_delete is not None:
+        data = golden_delete_action(args.golden_delete)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if data.get("ok") else 1
+    if args.golden_seed:
+        data = golden_seed_action(mirror=True)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if data.get("ok") else 1
+    if args.golden_mirror:
+        data = golden_mirror_action()
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return 0 if data.get("ok") else 1
 
