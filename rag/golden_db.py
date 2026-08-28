@@ -81,6 +81,10 @@ def init_db(conn):
 # v20: dua ekspektasi dilonggarkan berdasar temuan uji pertama (angka di pasal
 # ditulis lengkap "183 (seratus delapan puluh tiga) hari"; istilah BKP tidak
 # selalu dieja "barang kena pajak" pada unit yang sama).
+# v21: ekspektasi PKP dilonggarkan ke akronim "pkp" — dokumen teratas hasil
+# rerank untuk kueri PKP memakai akronim, sedangkan frasa penuh "pengusaha kena
+# pajak" umumnya hanya muncul di pasal definisi UU yang terdemosi reranker
+# (temuan Tahap 3 #2; retrieval sehat, ekspektasi yang terlalu literal).
 _DEFAULT_SEED = [
     # ---- HIT: harus menemukan rujukan ----
     ("peraturan yang mengatur SPLN", "hit",
@@ -128,7 +132,10 @@ _DEFAULT_SEED = [
       "gold": "PER-8/PJ/2025 — ketentuan peralihan"},
      "Dokumen teramati ada di basis data. Query bernomor exact — menguji FTS v3."),
     ("pengertian pengusaha kena pajak", "hit",
-     {"keywords": ["pengusaha kena pajak"], "gold": "Definisi PKP"}, ""),
+     {"keywords": ["pkp"],
+      "gold": "Definisi/pengukuhan PKP — dokumen relevan lazim memakai akronim 'PKP'"},
+     "v21: keyword dilonggarkan 'pengusaha kena pajak' -> 'pkp' (dokumen teratas "
+     "hasil rerank memakai akronim; frasa penuh umumnya hanya di pasal definisi UU)."),
 
     # ---- HIT: pasangan formal<->kolokial (Tahap 3 #2) ----
     # Twin gaya-santai dari kueri formal di atas; expect SAMA persis agar
@@ -136,9 +143,9 @@ _DEFAULT_SEED = [
     # (rekomendasi laporan), BUKAN celah cakupan data — dokumen dijamin ada
     # karena ini kembaran kueri yang sudah terbukti HIT.
     ("pkp itu apa sih", "hit",
-     {"keywords": ["pengusaha kena pajak"],
-      "gold": "Definisi PKP — twin kolokial 'pengertian pengusaha kena pajak'"},
-     "Pasangan kolokial (Tahap 3 #2): akronim + gaya santai."),
+     {"keywords": ["pkp"],
+      "gold": "Definisi PKP (twin kolokial) — terima akronim 'PKP'"},
+     "Pasangan kolokial (Tahap 3 #2). v21: keyword dilonggarkan -> 'pkp'."),
     ("bkp tuh apa ya", "hit",
      {"keywords": ["barang kena pajak"],
       "gold": "Definisi BKP — twin kolokial 'apa itu barang kena pajak'"},
@@ -177,6 +184,7 @@ _DEFAULT_SEED = [
 # v20: perbaikan ekspektasi untuk entri yang SUDAH ter-seed versi lama (v19).
 # Hanya menyentuh entri yang expect-nya MASIH versi lama — suntingan admin
 # tidak pernah ditimpa.
+# v21: dua entri PKP ditambahkan (formal + twin kolokial) — longgarkan ke 'pkp'.
 _SEED_V2_FIX = (
     ("kriteria orang pribadi menjadi subjek pajak dalam negeri",
      ["183 hari", "bertempat tinggal"],
@@ -186,6 +194,14 @@ _SEED_V2_FIX = (
      ["kawasan berikat", "barang kena pajak"],
      {"nomor": [], "keywords": ["kawasan berikat"],
       "gold": "Ketentuan PPN penyerahan TLDDP -> kawasan berikat"}),
+    ("pengertian pengusaha kena pajak",
+     ["pengusaha kena pajak"],
+     {"nomor": [], "keywords": ["pkp"],
+      "gold": "Definisi/pengukuhan PKP — dokumen relevan lazim memakai akronim 'PKP'"}),
+    ("pkp itu apa sih",
+     ["pengusaha kena pajak"],
+     {"nomor": [], "keywords": ["pkp"],
+      "gold": "Definisi PKP (twin kolokial) — terima akronim 'PKP'"}),
 )
 
 
@@ -280,7 +296,7 @@ def seed_default(conn=None):
 
 
 def fix_seed_v2(conn=None):
-    """v20: longgarkan ekspektasi yang terbukti terlalu ketat pada uji pertama
+    """v20/v21: longgarkan ekspektasi yang terbukti terlalu ketat pada uji
     (lihat _SEED_V2_FIX). Hanya menyentuh entri yang expect-nya MASIH versi
     lama; suntingan admin tidak pernah ditimpa. Kembalikan {'updated': n}."""
     own = conn is None
