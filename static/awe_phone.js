@@ -38,16 +38,14 @@ function pollJob(job,statId,btn,onDone){
   }).catch(function(e){setStat(statId,'Gagal: '+e,'err');if(btn)btn.disabled=false;});
 }
 
-// ---- Tahap 1: Tarik ----
+// ---- Tahap 1: Tarik (kredensial .env di server) ----
 el('tPullBtn').addEventListener('click',function(){
-  var df=el('t_from').value,dt=el('t_to').value,u=el('t_user').value.trim(),pw=el('t_pass').value;
+  var df=el('t_from').value,dt=el('t_to').value;
   if(!df||!dt){setStat('tStat','Isi rentang tanggal dulu.','err');return;}
-  if(!pw){setStat('tStat','Password wajib diisi.','err');return;}
   var lim=parseInt(el('t_limit').value,10)||25;
-  el('tPullBtn').disabled=true;setStat('tStat','Login & menarik data telepon...');
-  api({action:'pull_start',date_from:df,date_to:dt,username:u,password:pw,base_url:el('t_base').value.trim(),limit_rows:lim}).then(function(d){
-    if(!d.ok){setStat('tStat','Gagal: '+esc(d.error||'')+(d.need_login?' (periksa kredensial)':''),'err');el('tPullBtn').disabled=false;return;}
-    el('t_pass').value='';
+  el('tPullBtn').disabled=true;setStat('tStat','Login (kredensial .env) & menarik data telepon...');
+  api({action:'pull_start',date_from:df,date_to:dt,limit_rows:lim}).then(function(d){
+    if(!d.ok){setStat('tStat','Gagal: '+esc(d.error||'')+(d.need_login?' (set AVAYA_USERNAME/AVAYA_PASSWORD di .env)':''),'err');el('tPullBtn').disabled=false;return;}
     pollJob(d.job,'tStat',el('tPullBtn'),function(r){setStat('tStat',esc(r.message||'Selesai.'),'ok');});
   }).catch(function(e){setStat('tStat','Gagal: '+e,'err');el('tPullBtn').disabled=false;});
 });
