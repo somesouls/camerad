@@ -3,9 +3,11 @@
 
 Terpisah dari phone_routes.py agar tiap berkas kecil & aman push. Meniru pola
 job Chat di awe/routes.py (_AWE_PULL_JOBS): mulai thread -> progress -> fetch,
-kredensial login-then-forget (tidak disimpan). Tahap 1 (tarik) butuh login;
-Tahap 2 (analisis STT+LLM) tidak (audio sudah lokal). Chat tak tersentuh.
+kredensial login-then-forget (tidak disimpan). Tahap 1 (tarik) butuh login
+(kredensial dari .env, sama seperti AWE Chat); Tahap 2 (analisis STT+LLM) tidak
+(audio sudah lokal). Chat tak tersentuh.
 """
+import os
 import sqlite3
 import threading as _threading
 import uuid as _uuid
@@ -80,7 +82,13 @@ def _pull_worker(job_id, day_from, day_to, username, password, base_url, limit, 
         _job_set(job_id, status="error", finished=True, ok=False, need_login=False, error=str(e))
 
 
-def start_pull(day_from, day_to, username, password, base_url, limit=25, pulled_by=""):
+def start_pull(day_from, day_to, limit=25, pulled_by=""):
+    # Kredensial diambil dari .env (AVAYA_USERNAME/AVAYA_PASSWORD/AVAYA_BASE_URL),
+    # sama seperti alur AWE Chat (auto-pull). Login-then-forget: dipakai di worker
+    # lalu dilupakan, tidak pernah ditulis ke disk/DB.
+    username = (os.environ.get("AVAYA_USERNAME") or "").strip()
+    password = os.environ.get("AVAYA_PASSWORD") or ""
+    base_url = (os.environ.get("AVAYA_BASE_URL") or "").strip()
     job_id = _uuid.uuid4().hex
     _job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan")
     _threading.Thread(target=_pull_worker,
