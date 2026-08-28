@@ -1,9 +1,15 @@
 # -*- coding: utf-8 -*-
 """rag_calibration.py — State & helper kalibrasi ambang cosine RAG (Point 3).
 
-Menyimpan "ambang cosine aktif" (min_cos) PER-THREAD, sehingga proses evaluasi
+Menyimpan \"ambang cosine aktif\" (min_cos) PER-THREAD, sehingga proses evaluasi
 (eval_harness / eval_sweep) bisa menyapu beberapa nilai ambang tanpa mengubah
 konfigurasi global, sementara produksi memakai default dari env RAG_MIN_COS.
+
+Tahap 4 #1: selain override per-thread (sweep) dan env, get_min_cos() kini juga
+membaca knob PER-PROFIL dari rag.knob_store (precedence: override sweep >
+store-profil > env > default). Profil aktif diset handler request via
+set_profile(\"agent\"/\"chatbot\"). Bila profil tak diset atau knob_store tak
+tersedia, perilaku kembali PERSIS ke env>default (fail-open).
 
 Juga menyediakan penilai cosine yang dipakai rag_calibration_patch untuk
 menggerbang hasil retrieval:
@@ -32,6 +38,39 @@ def default_min_cos():
         return 0.0
 
 
+# ---- Profil aktif per-thread (Tahap 4 #1) -----------------------------------
+# Handler request (agent/chatbot) boleh menandai profil yang sedang dilayani
+# via set_profile(); get_min_cos() lalu membaca knob per-profil dari
+# rag.knob_store (precedence store>env>default). Bila profil TIDAK diset atau
+# knob_store tak tersedia, perilaku kembali PERSIS ke env>default (fail-open).
+def set_profile(p):
+    _LOCAL.profile = p
+
+
+def get_profile():
+    return getattr(_LOCAL, "profile", None)
+
+
+def reset_profile():
+    _LOCAL.profile = None
+
+
+def _store_min_cos():
+    """Ambang efektif dari knob_store utk profil aktif; None bila tak bisa.
+
+    Bila profil aktif None, knob_store.resolve() melewati lapisan store dan
+    hanya membaca env>default — setara default_min_cos() (tanpa membuka DB)."""
+    try:
+        import rag.knob_store as _ks
+    except Exception:
+        return None
+    try:
+        v = _ks.resolve(get_profile(), "RAG_MIN_COS")
+        return float(v) if v is not None else None
+    except Exception:
+        return None
+
+
 def set_min_cos(v):
     """Set ambang aktif untuk thread ini (None = pakai default env)."""
     if v is None:
@@ -48,10 +87,16 @@ def reset_min_cos():
 
 
 def get_min_cos():
+    # 1) Override eksplisit per-thread (sweep /rag-eval) tetap TERTINGGI.
     v = getattr(_LOCAL, "min_cos", None)
-    if v is None:
-        return default_min_cos()
-    return v
+    if v is not None:
+        return v
+    # 2) Knob per-profil (store>env>default) bila knob_store tersedia.
+    sv = _store_min_cos()
+    if sv is not None:
+        return sv
+    # 3) Fallback lama: env>default.
+    return default_min_cos()
 
 
 def aktif():
