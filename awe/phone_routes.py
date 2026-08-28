@@ -7,15 +7,18 @@ TERPISAH total dari alur Chat. Handler didaftarkan oleh awe/routes.py
     - search  : uji pencarian Phone (Increment 1), sampel baris.
     - media   : locator + unduh 1 audio DASH (2a/2b) + opsional STT (stt=true).
   MENU Kelola Data Phone (Fase 3+):
-    - pull_start    : TARIK harian ke DB (async, butuh login). -> {job}
+    - pull_start    : TARIK harian ke DB (async, kredensial .env). -> {job}
     - analyze_start : STT+LLM baris pending (async, tanpa login). -> {job}
     - job_progress  : status job berjalan (butuh job).
     - job_fetch     : status akhir job lalu buang dari memori (butuh job).
     - coverage      : ringkasan per hari (audio/transkrip/analisis) + stats.
     - list          : daftar interaksi (opsional rentang tanggal).
     - detail        : satu interaksi lengkap (butuh sid).
-Butuh izin 'awe_manage'. Kredensial dipakai sekali lalu dilupakan (tak ke disk/DB).
+Butuh izin 'awe_manage'. Kredensial tarik diambil dari .env (AVAYA_USERNAME/
+AVAYA_PASSWORD), sama seperti AWE Chat; dipakai sekali lalu dilupakan.
 """
+import os
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
@@ -66,7 +69,7 @@ async def awe_phone_probe(request: Request):
     if action in _MENU_ACTIONS and pjobs is None:
         return JSONResponse({"ok": False, "error": "Modul job telepon tidak tersedia."}, status_code=500)
 
-    # ---- Aksi baca / job tanpa kredensial ----
+    # ---- Aksi baca / job tanpa kredensial manual ----
     if action in ("job_progress", "job_fetch"):
         job = str(body.get("job") or "").strip()
         if not job:
@@ -122,20 +125,25 @@ async def awe_phone_probe(request: Request):
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
 
-    # ---- Aksi yang butuh tanggal + kredensial ----
-    if not df or not dt:
-        return JSONResponse({"ok": False, "error": "Tanggal (dari & sampai) wajib diisi."}, status_code=400)
-    if not password:
-        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi.", "need_login": True}, status_code=400)
-
     if action == "pull_start":
+        # Kredensial diambil dari .env (sama seperti AWE Chat) - tanpa input manual.
+        if not df or not dt:
+            return JSONResponse({"ok": False, "error": "Tanggal (dari & sampai) wajib diisi."}, status_code=400)
+        if not (os.environ.get("AVAYA_PASSWORD") or "").strip():
+            return JSONResponse({"ok": False, "need_login": True,
+                                 "error": "Kredensial AWE belum diset di .env (AVAYA_USERNAME/AVAYA_PASSWORD)."}, status_code=400)
         try:
-            job = pjobs.start_pull(df, dt, username, password, base_url,
-                                   limit=int(limit_rows or 25),
+            job = pjobs.start_pull(df, dt, limit=int(limit_rows or 25),
                                    pulled_by=(user.get("username") or ""))
             return JSONResponse({"ok": True, "job": job})
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
+
+    # ---- Aksi UJI (search/media) - masih pakai kredensial manual ----
+    if not df or not dt:
+        return JSONResponse({"ok": False, "error": "Tanggal (dari & sampai) wajib diisi."}, status_code=400)
+    if not password:
+        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi.", "need_login": True}, status_code=400)
 
     if action == "media":
         def _do_media():
