@@ -1,0 +1,347 @@
+{% extends "base.html" %}
+{% block title %}RAG Harness · Camerad Studio{% endblock %}
+{% block head %}
+<style>
+.hz-wrap{ max-width:1180px; margin:0 auto; padding:8px 28px 60px; }
+.hz-head h1{ font-size:24px; font-weight:800; letter-spacing:-.02em; margin:6px 0 4px; }
+.hz-head p{ color:var(--text-muted); margin:0 0 18px; font-size:14px; }
+.tabbar{ display:flex; gap:6px; border-bottom:1px solid var(--panel-border); margin-bottom:20px; flex-wrap:wrap; }
+.tabbtn{ border:none; background:transparent; color:var(--text-muted); padding:10px 16px; font-size:14px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-1px; font-family:inherit; }
+.tabbtn:hover{ color:var(--text-main); }
+.tabbtn.active{ color:var(--accent); border-bottom-color:var(--accent); }
+.tabpane{ display:none; }
+.tabpane.active{ display:block; animation:fadeUp .25s ease-out; }
+.card{ background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:16px; padding:18px 20px; margin-bottom:18px; }
+.card h3{ font-size:15px; font-weight:700; margin:0 0 4px; display:flex; align-items:center; gap:8px; }
+.card .sub{ color:var(--text-muted); font-size:12.5px; margin:0 0 14px; }
+.card .sub code{ background:var(--panel-border); padding:1px 5px; border-radius:5px; color:var(--accent); }
+.btn{ border:1px solid var(--panel-border); background:transparent; color:var(--text-main); border-radius:10px; padding:9px 16px; font-size:13.5px; font-weight:600; cursor:pointer; transition:.15s; font-family:inherit; }
+.btn:hover{ border-color:var(--accent); color:var(--accent); }
+.btn.primary{ background:var(--accent); border-color:var(--accent); color:#fff; }
+.btn.primary:hover{ background:var(--accent-hover); color:#fff; }
+.btn.danger:hover{ border-color:var(--c-red-txt); color:var(--c-red-txt); }
+.btn.sm{ padding:5px 10px; font-size:12px; border-radius:8px; }
+.btn:disabled{ opacity:.5; cursor:not-allowed; }
+input,select,textarea{ background:var(--bg-base); border:1px solid var(--panel-border); color:var(--text-main); border-radius:9px; padding:8px 11px; font-size:13.5px; font-family:inherit; outline:none; }
+input:focus,select:focus,textarea:focus{ border-color:var(--accent); }
+textarea{ resize:vertical; line-height:1.5; }
+label.fld{ display:block; font-size:12px; font-weight:600; color:var(--text-muted); margin-bottom:5px; }
+.msg-ok{ color:var(--c-green-txt); font-size:13px; }
+.msg-err{ color:var(--c-red-txt); font-size:13px; }
+.mono{ font-family:ui-monospace,monospace; font-size:11.5px; white-space:pre-wrap; color:var(--text-muted); background:var(--bg-base); border:1px solid var(--panel-border); border-radius:10px; padding:12px; max-height:340px; overflow:auto; }
+table.hz{ width:100%; border-collapse:collapse; font-size:13px; min-width:640px; }
+table.hz th,table.hz td{ text-align:left; padding:9px 11px; border-bottom:1px solid var(--panel-border); vertical-align:top; }
+table.hz th{ font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
+table.hz tr:last-child td{ border-bottom:none; }
+.tbl-scroll{ overflow-x:auto; border:1px solid var(--panel-border); border-radius:12px; }
+.badge{ font-size:11px; font-weight:700; padding:2px 8px; border-radius:6px; display:inline-block; }
+.badge.store{ background:var(--c-green); color:var(--c-green-txt); }
+.badge.env{ background:var(--c-orange); color:var(--c-orange-txt); }
+.badge.default{ background:var(--panel-border); color:var(--text-muted); }
+.badge.g{ background:var(--c-green); color:var(--c-green-txt); }
+.badge.f{ background:var(--c-orange); color:var(--c-orange-txt); }
+.stat-row{ display:flex; flex-wrap:wrap; gap:10px; margin:4px 0 16px; }
+.stat{ flex:1; min-width:110px; border:1px solid var(--panel-border); border-radius:12px; padding:12px 14px; }
+.stat b{ display:block; font-size:22px; font-weight:800; line-height:1.1; }
+.stat span{ font-size:12px; color:var(--text-muted); }
+.empty-r{ text-align:center; color:var(--text-muted); padding:22px; font-size:13px; }
+.row{ display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; }
+.knob{ border:1px solid var(--panel-border); border-radius:12px; padding:14px 16px; margin-bottom:12px; }
+.knob .kh{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+.knob .kname{ font-family:ui-monospace,monospace; font-size:13px; font-weight:700; }
+.knob .klabel{ font-size:12.5px; color:var(--text-muted); margin-top:2px; }
+.knob .khelp{ font-size:11.5px; color:var(--text-muted); margin-top:6px; }
+.knob .kctl{ display:flex; align-items:center; gap:8px; margin-top:10px; flex-wrap:wrap; }
+.seg{ display:inline-flex; border:1px solid var(--panel-border); border-radius:999px; overflow:hidden; }
+.seg button{ border:none; background:transparent; color:var(--text-muted); padding:6px 16px; font-size:13px; cursor:pointer; font-family:inherit; }
+.seg button.on{ background:var(--accent); color:#fff; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="hz-wrap">
+  <div class="hz-head">
+    <h1>🧰 RAG Harness</h1>
+    <p>Panel admin untuk menguji &amp; menyetel mesin RAG: golden set, gerbang eval regresi, tambang feedback produksi, dan knob per-profil (agent &amp; chatbot). Knob dibaca runtime tanpa restart (precedence: store-profil &gt; env &gt; default).</p>
+  </div>
+  <div class="tabbar">
+    <button class="tabbtn" data-tab="golden">🎯 Golden Set</button>
+    <button class="tabbtn" data-tab="eval">🚦 Gerbang Eval</button>
+    <button class="tabbtn" data-tab="mine">⛏️ Tambang Feedback</button>
+    <button class="tabbtn" data-tab="knob">🎚️ Knob per-profil</button>
+  </div>
+
+  <!-- GOLDEN -->
+  <div class="tabpane" data-pane="golden">
+    <div class="card">
+      <h3>🎯 Ringkasan Golden Set</h3>
+      <div class="sub">Kumpulan kueri uji (hit/abstain) acuan gerbang regresi. Perubahan memengaruhi eval, bukan runtime retrieval.</div>
+      <div class="stat-row" id="gStats"></div>
+      <div class="row">
+        <button class="btn" id="gSeed">🌱 Seed bawaan</button>
+        <button class="btn" id="gMirror">🔁 Mirror ke /rag-eval</button>
+        <button class="btn" id="gRefresh">↻ Segarkan</button>
+        <span id="gMsg"></span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>➕ Tambah / Edit Entri</h3>
+      <div class="sub">Upsert berdasarkan query (query sama = mengedit entri itu). <code>expect</code> berupa JSON, mis. <code>{"keywords":["pkp"]}</code> atau <code>{"nomor":"PER-23/PJ/2016"}</code>. Kosongkan untuk abstain.</div>
+      <div class="row" style="margin-bottom:12px">
+        <div style="flex:1;min-width:280px"><label class="fld">Query</label><input id="gQuery" style="width:100%" placeholder="mis. pengertian pengusaha kena pajak"></div>
+        <div><label class="fld">Jenis</label><select id="gJenis"><option value="hit">hit</option><option value="abstain">abstain</option></select></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><input type="checkbox" id="gAktif" checked style="width:16px;height:16px"> <label class="fld" style="margin:0">Aktif</label></div>
+      </div>
+      <div class="row" style="margin-bottom:12px">
+        <div style="flex:1;min-width:280px"><label class="fld">Expect (JSON)</label><textarea id="gExpect" style="width:100%;min-height:70px" placeholder='{"keywords":["pkp"]}'></textarea></div>
+        <div style="flex:1;min-width:220px"><label class="fld">Catatan</label><textarea id="gCatatan" style="width:100%;min-height:70px"></textarea></div>
+      </div>
+      <button class="btn primary" id="gUpsertBtn">💾 Simpan Entri</button>
+    </div>
+    <div class="card">
+      <h3>📋 Daftar Entri</h3>
+      <div id="gTbl"><div class="empty-r">Memuat…</div></div>
+    </div>
+  </div>
+
+  <!-- EVAL -->
+  <div class="tabpane" data-pane="eval">
+    <div class="card">
+      <h3>🚦 Baseline Gerbang</h3>
+      <div class="sub"><code>golden_base.json</code> — acuan regresi. Regresi &gt; toleransi = gerbang gagal (rc=1).</div>
+      <div id="eBase"><div class="empty-r">Memuat…</div></div>
+    </div>
+    <div class="card">
+      <h3>▶ Jalankan Eval</h3>
+      <div class="sub">Menjalankan <code>phase4_eval.py</code> sebagai sub-proses terisolasi (tak mencemari server). Deterministik = apel-ke-apel; mode produksi (rewrite AI) untuk angka nyata.</div>
+      <div class="row" style="margin-bottom:12px">
+        <div><label class="fld">recall@k</label><input type="number" id="eK" value="10" min="1" max="50" style="width:90px"></div>
+        <div><label class="fld">Toleransi regresi</label><input type="number" id="eTol" value="0.05" step="0.01" style="width:120px"></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><input type="checkbox" id="eDet" checked style="width:16px;height:16px"><label class="fld" style="margin:0">Deterministik</label></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><input type="checkbox" id="eRw" style="width:16px;height:16px"><label class="fld" style="margin:0">Mode produksi (rewrite AI)</label></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><input type="checkbox" id="eCheck" style="width:16px;height:16px"><label class="fld" style="margin:0">Cek baseline</label></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:9px"><input type="checkbox" id="eSave" style="width:16px;height:16px"><label class="fld" style="margin:0">Simpan baseline</label></div>
+      </div>
+      <button class="btn primary" id="eRun">▶ Jalankan</button>
+      <div id="eResult" style="margin-top:12px"></div>
+    </div>
+    <div class="card">
+      <h3>🗂️ Laporan Terbaru</h3>
+      <div id="eRuns"><div class="empty-r">Memuat…</div></div>
+    </div>
+  </div>
+
+  <!-- MINE -->
+  <div class="tabpane" data-pane="mine">
+    <div class="card">
+      <h3>⛏️ Kandidat dari Feedback Produksi</h3>
+      <div class="sub">Pertanyaan 👎 / fallback dari log. Human-in-the-loop: klik "Kurasi → Golden" untuk memuat query ke form Golden, lalu lengkapi ekspektasi &amp; simpan. Mining chatbot belum tersedia.</div>
+      <div class="row" style="margin-bottom:12px">
+        <div><label class="fld">Profil</label><select id="mProfile"><option value="agent">agent</option><option value="chatbot">chatbot</option></select></div>
+        <div><label class="fld">Batas baris log</label><input type="number" id="mLimit" value="400" style="width:120px"></div>
+        <div style="margin-bottom:1px"><button class="btn" id="mReload">↻ Segarkan</button></div>
+      </div>
+      <div id="mTbl"><div class="empty-r">Memuat…</div></div>
+    </div>
+  </div>
+
+  <!-- KNOB -->
+  <div class="tabpane" data-pane="knob">
+    <div class="card">
+      <h3>🎚️ Knob per-profil</h3>
+      <div class="sub">Setel knob retrieval per profil. <span class="badge store">store</span> = override tersimpan, <span class="badge env">env</span> = dari environment, <span class="badge default">default</span> = default kode. Dibaca runtime tanpa restart.</div>
+      <div class="row" style="margin-bottom:8px">
+        <div><label class="fld">Profil</label><div class="seg" id="kProfSeg"><button data-prof="agent" class="on">agent</button><button data-prof="chatbot">chatbot</button></div></div>
+        <span id="kMsg" style="margin-bottom:8px"></span>
+      </div>
+      <div id="kList"></div>
+      <div class="khelp" style="margin-top:6px;color:var(--c-orange-txt)">⚠️ Perubahan knob baru aktif di produksi setelah wiring runtime (4e) ter-deploy. Pastikan HEAD terbaru sudah ter-deploy + uvicorn di-restart.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var el=function(id){return document.getElementById(id);};
+  function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function jget(u){ return fetch(u).then(function(r){return r.json();}); }
+  function jpost(u,b){ return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(function(r){return r.json();}); }
+  function flash(id,ok,txt){ var e=el(id); if(!e)return; e.textContent=txt; e.className=ok?'msg-ok':'msg-err'; if(ok) setTimeout(function(){ if(e.textContent===txt){ e.textContent=''; } },4000); }
+  function pick(o,ks){ for(var i=0;i<ks.length;i++){ if(o&&o[ks[i]]!=null) return o[ks[i]]; } return null; }
+  function fmtNum(x){ return (x==null?'—':x); }
+
+  // ---------- Tabs
+  function switchTab(name){
+    var b=document.querySelectorAll('.tabbtn'); for(var i=0;i<b.length;i++){ b[i].classList.toggle('active', b[i].getAttribute('data-tab')===name); }
+    var p=document.querySelectorAll('.tabpane'); for(var j=0;j<p.length;j++){ p[j].classList.toggle('active', p[j].getAttribute('data-pane')===name); }
+    if(name==='golden') loadGolden();
+    else if(name==='eval') loadEval();
+    else if(name==='mine') loadMine();
+    else if(name==='knob') loadKnobs();
+    try{ localStorage.setItem('harness_tab', name); }catch(e){}
+  }
+
+  // ---------- GOLDEN
+  var _gRows={};
+  function loadGolden(){
+    jget('/api/harness/golden').then(function(d){
+      if(!(d&&d.ok)){ el('gTbl').innerHTML='<div class="empty-r msg-err">Gagal: '+esc(d&&d.error)+'</div>'; return; }
+      el('gStats').innerHTML=
+        '<div class="stat"><b>'+esc(d.total)+'</b><span>Total entri</span></div>'+
+        '<div class="stat"><b>'+esc(d.n_hit)+'</b><span>Hit</span></div>'+
+        '<div class="stat"><b>'+esc(d.n_abstain)+'</b><span>Abstain</span></div>'+
+        '<div class="stat"><b>'+esc(d.n_aktif)+'</b><span>Aktif</span></div>';
+      var rows=d.rows||[]; _gRows={};
+      if(!rows.length){ el('gTbl').innerHTML='<div class="empty-r">Golden set kosong. Klik "Seed bawaan".</div>'; return; }
+      var body=rows.map(function(r){
+        _gRows[r.id]=r;
+        var ex=''; try{ ex=JSON.stringify(r.expect||{}); }catch(e){ ex=''; }
+        return '<tr>'+
+          '<td class="mono" style="max-width:140px;overflow:hidden;text-overflow:ellipsis">'+esc(r.id)+'</td>'+
+          '<td style="max-width:260px">'+esc(r.query)+'</td>'+
+          '<td>'+(r.jenis_harapan==='abstain'?'<span class="badge f">abstain</span>':'<span class="badge g">hit</span>')+'</td>'+
+          '<td class="mono" style="max-width:200px;overflow:hidden;text-overflow:ellipsis">'+esc(ex)+'</td>'+
+          '<td>'+(r.aktif?'✔':'—')+'</td>'+
+          '<td style="white-space:nowrap">'+
+            '<button class="btn sm" data-act="edit" data-id="'+esc(r.id)+'">Edit</button> '+
+            '<button class="btn sm" data-act="toggle" data-id="'+esc(r.id)+'" data-aktif="'+(r.aktif?'0':'1')+'">'+(r.aktif?'Nonaktif':'Aktif')+'</button> '+
+            '<button class="btn sm danger" data-act="del" data-id="'+esc(r.id)+'">Hapus</button>'+
+          '</td></tr>';
+      }).join('');
+      el('gTbl').innerHTML='<div class="tbl-scroll"><table class="hz"><thead><tr><th>ID</th><th>Query</th><th>Jenis</th><th>Expect</th><th>Aktif</th><th>Aksi</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+    }).catch(function(){ el('gTbl').innerHTML='<div class="empty-r msg-err">Gagal terhubung.</div>'; });
+  }
+  function gUpsert(){
+    var q=el('gQuery').value.trim(); if(!q){ flash('gMsg',false,'Query wajib.'); return; }
+    var body={ query:q, jenis_harapan:el('gJenis').value, expect:el('gExpect').value, catatan:el('gCatatan').value, aktif: el('gAktif').checked };
+    jpost('/api/harness/golden/upsert',body).then(function(d){
+      if(d&&d.ok){ flash('gMsg',true,'Tersimpan: '+d.id); el('gQuery').value=''; el('gExpect').value=''; el('gCatatan').value=''; loadGolden(); }
+      else flash('gMsg',false,(d&&d.error)||'Gagal.');
+    });
+  }
+
+  // ---------- EVAL
+  function loadEval(){
+    jget('/api/harness/baseline').then(function(d){
+      if(!(d&&d.ok)){ el('eBase').innerHTML='<div class="empty-r msg-err">Gagal.</div>'; return; }
+      if(!d.exists){ el('eBase').innerHTML='<div class="empty-r">Belum ada baseline ('+esc(d.path)+'). Jalankan eval dengan "Simpan baseline".</div>'; return; }
+      var b=d.baseline||{};
+      var rc=pick(b,['recall','recall@10','recall_at_k','recall_k']);
+      var mrr=pick(b,['mrr','MRR']);
+      var rw=pick(b,['rewrite_ai']);
+      el('eBase').innerHTML=
+        '<div class="stat-row">'+
+        '<div class="stat"><b>'+fmtNum(rc)+'</b><span>recall@k</span></div>'+
+        '<div class="stat"><b>'+fmtNum(mrr)+'</b><span>MRR</span></div>'+
+        '<div class="stat"><b>'+fmtNum(rw)+'</b><span>rewrite_ai</span></div>'+
+        '</div><div class="mono">'+esc(JSON.stringify(b,null,2))+'</div>';
+    });
+    jget('/api/harness/runs?limit=5').then(function(d){
+      if(!(d&&d.ok)||!(d.runs||[]).length){ el('eRuns').innerHTML='<div class="empty-r">Belum ada laporan eval.</div>'; return; }
+      var body=d.runs.map(function(it){ var r=it.report||{}; return '<tr><td class="mono">'+esc(it.file)+'</td><td>'+fmtNum(pick(r,['recall','recall@10','recall_at_k']))+'</td><td>'+fmtNum(pick(r,['mrr','MRR']))+'</td><td>'+fmtNum(pick(r,['rewrite_ai']))+'</td></tr>'; }).join('');
+      el('eRuns').innerHTML='<div class="tbl-scroll"><table class="hz"><thead><tr><th>File</th><th>recall</th><th>MRR</th><th>rewrite_ai</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+    });
+  }
+  function runEval(){
+    var body={ k: parseInt(el('eK').value||'10',10), rewrite_ai: el('eRw').checked, deterministik: el('eDet').checked, baseline_save: el('eSave').checked, baseline_check: el('eCheck').checked, tolerance: parseFloat(el('eTol').value||'0.05') };
+    el('eRun').disabled=true; el('eResult').innerHTML='<div class="empty-r">Menjalankan eval (sub-proses, bisa lama)…</div>';
+    jpost('/api/harness/eval/run',body).then(function(d){
+      el('eRun').disabled=false;
+      if(!d){ el('eResult').innerHTML='<div class="empty-r msg-err">Gagal.</div>'; return; }
+      var head='';
+      if(d.gate_pass===true) head='<span class="badge g">GATE OK</span> ';
+      else if(d.regresi===true) head='<span class="badge f">REGRESI</span> ';
+      head+='<span class="badge default">rc='+esc(d.returncode)+'</span> <span class="badge default">rewrite_ai='+esc(d.rewrite_ai)+'</span>';
+      var errln=d.error?('<div class="msg-err" style="margin:8px 0">'+esc(d.error)+'</div>'):'';
+      var std=esc(d.stdout_tail||''); if(d.stderr_tail){ std+='\n\n[stderr]\n'+esc(d.stderr_tail); }
+      el('eResult').innerHTML='<div style="margin-bottom:8px">'+head+'</div>'+errln+'<div class="mono">'+std+'</div>';
+      loadEval();
+    }).catch(function(){ el('eRun').disabled=false; el('eResult').innerHTML='<div class="empty-r msg-err">Gagal terhubung.</div>'; });
+  }
+
+  // ---------- MINE
+  function loadMine(){
+    var prof=el('mProfile').value; var lim=parseInt(el('mLimit').value||'400',10);
+    el('mTbl').innerHTML='<div class="empty-r">Memuat…</div>';
+    jget('/api/harness/mine?profile='+encodeURIComponent(prof)+'&limit='+lim).then(function(d){
+      if(!(d&&d.ok)){ el('mTbl').innerHTML='<div class="empty-r msg-err">Gagal: '+esc(d&&d.error)+'</div>'; return; }
+      var note=d.catatan?('<div class="sub" style="margin-bottom:10px">ℹ️ '+esc(d.catatan)+'</div>'):'';
+      var items=d.items||[];
+      if(!items.length){ el('mTbl').innerHTML=note+'<div class="empty-r">Tidak ada kandidat feedback.</div>'; return; }
+      var body=items.map(function(it){
+        return '<tr>'+
+          '<td style="max-width:300px">'+esc(it.query)+'</td>'+
+          '<td style="text-align:center">'+esc(it.n_down)+'</td>'+
+          '<td style="text-align:center">'+esc(it.n_fallback)+'</td>'+
+          '<td style="text-align:center">'+esc(it.n_total)+'</td>'+
+          '<td>'+(it.sudah_di_golden?'<span class="badge g">sudah</span>':'<span class="badge f">belum</span>')+'</td>'+
+          '<td><button class="btn sm" data-q="'+esc(it.query)+'">Kurasi → Golden</button></td>'+
+        '</tr>';
+      }).join('');
+      el('mTbl').innerHTML=note+'<div class="tbl-scroll"><table class="hz"><thead><tr><th>Query</th><th>👎</th><th>Fallback</th><th>Total</th><th>Di golden?</th><th>Aksi</th></tr></thead><tbody>'+body+'</tbody></table></div>';
+    }).catch(function(){ el('mTbl').innerHTML='<div class="empty-r msg-err">Gagal terhubung.</div>'; });
+  }
+
+  // ---------- KNOB
+  function currentProfile(){ var b=document.querySelector('#kProfSeg button.on'); return b?b.getAttribute('data-prof'):'agent'; }
+  function badgeSrc(s){ var cls=(s==='store'?'store':(s==='env'?'env':'default')); return '<span class="badge '+cls+'">'+esc(s)+'</span>'; }
+  function knobCard(n,k){
+    var eff=(k.type==='bool')?(k.value?'on':'off'):k.value;
+    var def=(k.type==='bool')?(k.default?'on':'off'):k.default;
+    var ctl;
+    if(k.type==='bool'){
+      ctl='<div class="seg"><button data-k="'+esc(n)+'" data-v="on" class="'+(k.value?'on':'')+'">on</button><button data-k="'+esc(n)+'" data-v="off" class="'+(!k.value?'on':'')+'">off</button></div>';
+    } else {
+      ctl='<input type="number" step="0.01" id="kv_'+esc(n)+'" value="'+esc(k.value)+'" style="width:120px"> <button class="btn sm primary" data-set="'+esc(n)+'">Simpan</button>';
+    }
+    return '<div class="knob"><div class="kh">'+
+      '<div><span class="kname">'+esc(n)+'</span><div class="klabel">'+esc(k.label)+'</div></div>'+
+      '<div>'+badgeSrc(k.source)+' <span class="badge default">default: '+esc(def)+'</span></div>'+
+      '</div><div class="khelp">'+esc(k.help)+'</div>'+
+      '<div class="kctl">'+ctl+' <button class="btn sm" data-clear="'+esc(n)+'">Reset ke env/default</button> <span class="klabel">nilai efektif: <b>'+esc(eff)+'</b></span></div></div>';
+  }
+  function loadKnobs(){
+    var prof=currentProfile();
+    el('kList').innerHTML='<div class="empty-r">Memuat…</div>';
+    jget('/api/harness/knobs?profile='+encodeURIComponent(prof)).then(function(d){
+      if(!(d&&d.ok)){ el('kList').innerHTML='<div class="empty-r msg-err">Gagal: '+esc(d&&d.error)+'</div>'; return; }
+      var knobs=d.knobs||{}; var names=Object.keys(knobs).sort();
+      if(!names.length){ el('kList').innerHTML='<div class="empty-r">Tidak ada knob.</div>'; return; }
+      el('kList').innerHTML=names.map(function(n){ return knobCard(n,knobs[n]); }).join('');
+    }).catch(function(){ el('kList').innerHTML='<div class="empty-r msg-err">Gagal terhubung.</div>'; });
+  }
+  function setKnob(prof,name,value){ jpost('/api/harness/knob/set',{profile:prof,name:name,value:value}).then(function(d){ if(d&&d.ok){ flash('kMsg',true,name+' disimpan utk '+prof+'.'); loadKnobs(); } else flash('kMsg',false,(d&&d.error)||'Gagal.'); }); }
+  function clearKnob(prof,name){ jpost('/api/harness/knob/clear',{profile:prof,name:name}).then(function(d){ if(d&&d.ok){ flash('kMsg',true,name+' direset utk '+prof+'.'); loadKnobs(); } else flash('kMsg',false,(d&&d.error)||'Gagal.'); }); }
+
+  // ---------- Wiring
+  var tb=document.querySelectorAll('.tabbtn'); for(var i=0;i<tb.length;i++){ (function(b){ b.onclick=function(){ switchTab(b.getAttribute('data-tab')); }; })(tb[i]); }
+  el('gUpsertBtn').onclick=gUpsert;
+  el('gRefresh').onclick=loadGolden;
+  el('gSeed').onclick=function(){ if(!confirm('Seed golden set bawaan + fix v2 + mirror ke /rag-eval?'))return; el('gSeed').disabled=true; jpost('/api/harness/golden/seed',{mirror:true}).then(function(d){ el('gSeed').disabled=false; if(d&&d.ok){ flash('gMsg',true,'Seed selesai.'); loadGolden(); } else flash('gMsg',false,(d&&d.error)||'Gagal.'); }); };
+  el('gMirror').onclick=function(){ el('gMirror').disabled=true; jpost('/api/harness/golden/mirror',{}).then(function(d){ el('gMirror').disabled=false; if(d&&d.ok) flash('gMsg',true,'Mirror ke /rag-eval selesai.'); else flash('gMsg',false,(d&&d.error)||'Gagal.'); }); };
+  el('gTbl').addEventListener('click',function(ev){
+    var b=ev.target.closest?ev.target.closest('button[data-act]'):null; if(!b)return;
+    var act=b.getAttribute('data-act'), id=b.getAttribute('data-id');
+    if(act==='toggle'){ jpost('/api/harness/golden/aktif',{id:id,aktif:b.getAttribute('data-aktif')==='1'}).then(function(d){ if(d&&d.ok)loadGolden(); else flash('gMsg',false,(d&&d.error)||'Gagal.'); }); }
+    else if(act==='del'){ if(!confirm('Hapus PERMANEN entri golden ini? Untuk sekadar keluar dari eval, pakai Nonaktif.'))return; jpost('/api/harness/golden/delete',{id:id}).then(function(d){ if(d&&d.ok)loadGolden(); else flash('gMsg',false,(d&&d.error)||'Gagal.'); }); }
+    else if(act==='edit'){ var r=_gRows[id]; if(!r)return; el('gQuery').value=r.query||''; el('gJenis').value=r.jenis_harapan||'hit'; try{ el('gExpect').value=r.expect?JSON.stringify(r.expect):''; }catch(e){ el('gExpect').value=''; } el('gCatatan').value=r.catatan||''; el('gAktif').checked=!!r.aktif; el('gQuery').scrollIntoView({block:'center'}); flash('gMsg',true,'Dimuat ke form (upsert query sama = edit).'); }
+  });
+  el('eRun').onclick=runEval;
+  el('mReload').onclick=loadMine; el('mProfile').onchange=loadMine;
+  el('mTbl').addEventListener('click',function(ev){ var b=ev.target.closest?ev.target.closest('button[data-q]'):null; if(!b)return; el('gQuery').value=b.getAttribute('data-q'); el('gJenis').value='hit'; el('gExpect').value=''; el('gCatatan').value='dari feedback produksi'; el('gAktif').checked=true; switchTab('golden'); el('gQuery').scrollIntoView({block:'center'}); flash('gMsg',true,'Query dimuat. Lengkapi expect lalu Simpan.'); });
+  document.getElementById('kProfSeg').addEventListener('click',function(ev){ var b=ev.target.closest?ev.target.closest('button[data-prof]'):null; if(!b)return; var bs=this.querySelectorAll('button'); for(var i=0;i<bs.length;i++){ bs[i].classList.toggle('on', bs[i]===b); } loadKnobs(); });
+  el('kList').addEventListener('click',function(ev){
+    var prof=currentProfile();
+    var seg=ev.target.closest?ev.target.closest('.seg button[data-k]'):null;
+    if(seg){ setKnob(prof, seg.getAttribute('data-k'), seg.getAttribute('data-v')); return; }
+    var setb=ev.target.closest?ev.target.closest('button[data-set]'):null;
+    if(setb){ var n=setb.getAttribute('data-set'); var v=el('kv_'+n).value; setKnob(prof,n,v); return; }
+    var clr=ev.target.closest?ev.target.closest('button[data-clear]'):null;
+    if(clr){ clearKnob(prof, clr.getAttribute('data-clear')); return; }
+  });
+
+  var start=null; try{ start=localStorage.getItem('harness_tab'); }catch(e){}
+  switchTab(start||'golden');
+})();
+</script>
+{% endblock %}
