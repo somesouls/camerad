@@ -38,7 +38,9 @@ _MENU_ACTIONS = ("pull_start", "analyze_start", "job_progress", "job_fetch",
 
 
 async def awe_telepon_page(request: Request):
-    return render_page(request, "awe_telepon.html", "awe_telepon")
+    # /awe/telepon kini menyajikan menu "Kelola Data Phone" (Fase 4+).
+    # Template uji lama (awe_telepon.html) tetap ada di disk sebagai cadangan.
+    return render_page(request, "awe_phone.html", "awe_telepon")
 
 
 async def awe_phone_probe(request: Request):
