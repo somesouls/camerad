@@ -17,6 +17,16 @@ delete DESTRUKTIF (lebih aman set aktif=false utk mengeluarkan dari eval).
 Mengubah golden set memengaruhi GERBANG eval, bukan runtime retrieval. Semua
 tetap area admin 'peraturan' + GAGAL-ANGGUN.
 
+LANGKAH 4d menambah AKSI JALANKAN EVAL & TAMBANG FEEDBACK. POST
+/api/harness/eval/run menjalankan phase4_eval.py sebagai SUB-PROSES TERISOLASI
+(baseline save/check opsional). Isolasi ini disengaja: phase4_eval menyetel env
+global (RAG_REWRITE_AI=0, CUBLAS_WORKSPACE_CONFIG) saat impor dan
+_setup_determinism() memaksa torch.use_deterministic_algorithms(True) +
+cudnn.deterministic utk SELURUH proses — bila in-process itu mencemari server
+produksi. GET /api/harness/mine menyajikan kandidat golden dari feedback
+produksi (mine_feedback, read-only). Keduanya area admin 'peraturan' +
+GAGAL-ANGGUN; INERT terhadap runtime retrieval.
+
 Helper di bawah MURNI (tanpa FastAPI) supaya bisa diuji lewat CLI:
     python -m routes.harness_routes --section overview --profile agent
     python -m routes.harness_routes --section knobs   --profile chatbot
@@ -30,6 +40,9 @@ Helper di bawah MURNI (tanpa FastAPI) supaya bisa diuji lewat CLI:
     python -m routes.harness_routes --golden-aktif <ID> --aktif false
     python -m routes.harness_routes --golden-delete <ID>
     python -m routes.harness_routes --golden-mirror
+    python -m routes.harness_routes --mine --limit 50
+    python -m routes.harness_routes --eval-run --k 10
+    python -m routes.harness_routes --eval-run --k 10 --eval-baseline-check
 
 Daftarkan (langkah 3b): import routes.harness_routes as h; h.register(app)
 Area admin (langkah 3c): tambah '/rag-harness' & '/api/harness' ke _route_area
@@ -40,6 +53,7 @@ import sys
 import json
 import glob
 import argparse
+import subprocess
 
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _BASE_DIR not in sys.path:
@@ -367,6 +381,150 @@ def golden_mirror_action():
             "golden": golden_overview(include_rows=False)}
 
 
+# ------------------------------------------------------ AKSI (4d) eval & mine
+def _eval_script_path():
+    return os.path.join(_BASE_DIR, "phase4_eval.py")
+
+
+def mine_action(limit=400, profile="agent"):
+    """Kandidat golden dari feedback produksi (jempol-down / fallback), read-only.
+
+    Sumber = db.agent_log_db (profil 'agent'). Mining feedback chatbot
+    (Dialogflow) BELUM tersedia; utk profile != 'agent' kembalikan daftar
+    kosong dengan catatan. Menandai kandidat yang SUDAH ada di golden set.
+    GAGAL-ANGGUN.
+    """
+    if gdb is None:
+        return {"ok": False, "error": "golden_db tak tersedia"}
+    prof = _norm_profile(profile)
+    out = {"ok": True, "profile": prof, "items": [], "n": 0}
+    if prof != "agent":
+        out["catatan"] = ("mining feedback hanya tersedia utk profil 'agent' "
+                          "(log agent); chatbot belum diwire")
+        return out
+    try:
+        lim = int(limit or 400)
+    except Exception:
+        lim = 400
+    try:
+        res = gdb.mine_feedback(limit=lim)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+    if not isinstance(res, dict) or not res.get("ok"):
+        return {"ok": False,
+                "error": (res.get("error") if isinstance(res, dict)
+                          else "mine_feedback gagal")}
+    exist = set()
+    try:
+        for row in gdb.list_golden():
+            exist.add(row.get("id"))
+    except Exception:
+        pass
+    items = res.get("items") or []
+    rows = []
+    for it in items:
+        q = it.get("question") or ""
+        try:
+            gidv = gdb.gid(q)
+        except Exception:
+            gidv = None
+        rows.append({
+            "id": gidv,
+            "query": q,
+            "n_down": it.get("n_down", 0),
+            "n_fallback": it.get("n_fallback", 0),
+            "n_total": it.get("n_total", 0),
+            "last_ts": it.get("last_ts", ""),
+            "sudah_di_golden": bool(gidv and gidv in exist),
+        })
+    out["items"] = rows
+    out["n"] = len(rows)
+    return out
+
+
+def run_eval_action(k=10, limit=None, rewrite_ai=False, deterministik=True,
+                    baseline_save=False, baseline_check=False,
+                    baseline_path=None, tolerance=0.05, timeout=3600):
+    """Jalankan phase4_eval.py sebagai SUB-PROSES TERISOLASI.
+
+    Isolasi disengaja: phase4_eval menyetel env global (RAG_REWRITE_AI=0,
+    CUBLAS_WORKSPACE_CONFIG) saat impor dan _setup_determinism() memaksa
+    torch.use_deterministic_algorithms(True) + cudnn.deterministic utk SELURUH
+    proses. Bila dijalankan in-process, itu akan MENCEMARI server produksi
+    (mematikan rewrite AI live + mengubah mode torch reranker). Sub-proses
+    membuat semua efek itu MATI saat proses anak selesai.
+
+    returncode phase4_eval: 0 = sukses / gerbang OK; 1 = regresi baseline;
+    2 = baseline tak terbaca / golden kosong. GAGAL-ANGGUN.
+    """
+    script = _eval_script_path()
+    if not os.path.exists(script):
+        return {"ok": False, "error": "phase4_eval.py tak ditemukan: %s" % script}
+    argv = [sys.executable, "-u", script]
+    try:
+        argv += ["--k", str(int(k or 10))]
+    except Exception:
+        argv += ["--k", "10"]
+    if limit is not None:
+        try:
+            argv += ["--limit", str(int(limit))]
+        except Exception:
+            pass
+    bpath = _baseline_path(baseline_path)
+    if baseline_save:
+        argv += ["--baseline-save", bpath]
+    if baseline_check:
+        argv += ["--baseline-check", bpath]
+    if baseline_save or baseline_check:
+        try:
+            argv += ["--tolerance", str(float(tolerance))]
+        except Exception:
+            pass
+    env = dict(os.environ)
+    env["PHASE4_REWRITE_AI"] = "1" if _as_bool(rewrite_ai) else "0"
+    env["PHASE4_DETERMINISTIK"] = "1" if _as_bool(deterministik) else "0"
+    try:
+        to = int(timeout) if timeout else None
+    except Exception:
+        to = 3600
+    try:
+        proc = subprocess.run(argv, cwd=_BASE_DIR, env=env,
+                              capture_output=True, text=True, timeout=to)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "eval melewati batas waktu %ss" % to,
+                "argv": argv}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "argv": argv}
+    rc = proc.returncode
+    tail = (proc.stdout or "")[-4000:]
+    err_tail = (proc.stderr or "")[-1500:]
+    if rc == 0:
+        ok = True
+    elif rc == 1 and baseline_check:
+        ok = True                 # regresi terdeteksi, bukan crash
+    else:
+        ok = False
+    out = {
+        "ok": ok,
+        "returncode": rc,
+        "gate_pass": (rc == 0) if baseline_check else None,
+        "regresi": (rc == 1) if baseline_check else None,
+        "rewrite_ai": env["PHASE4_REWRITE_AI"],
+        "deterministik": env["PHASE4_DETERMINISTIK"],
+        "baseline_path": bpath if (baseline_save or baseline_check) else None,
+        "stdout_tail": tail,
+        "latest_run": latest_runs(1),
+    }
+    if err_tail.strip():
+        out["stderr_tail"] = err_tail
+    if not ok and "error" not in out:
+        if rc == 2:
+            out["error"] = "eval gagal (rc=2): baseline tak terbaca / golden kosong"
+        else:
+            out["error"] = "eval gagal (rc=%s)" % rc
+    return out
+
+
 # ------------------------------------------------------------ route FastAPI
 try:
     from fastapi import Request
@@ -389,7 +547,7 @@ async def _read_json_body(request):
 
 def register(app):
     """Daftarkan endpoint harness. GET read-only (3a) + POST tulis knob (4b) +
-    POST tulis golden (4c)."""
+    POST tulis golden (4c) + eval/mine (4d)."""
     async def api_overview(request: Request):
         prof = request.query_params.get("profile") if hasattr(request, "query_params") else "agent"
         try:
@@ -493,11 +651,38 @@ def register(app):
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
 
+    async def api_mine(request: Request):
+        lim = request.query_params.get("limit") or "400"
+        prof = request.query_params.get("profile") or "agent"
+        try:
+            res = await run_in_threadpool(mine_action, lim, prof)
+            return JSONResponse(res)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    async def api_eval_run(request: Request):
+        body = await _read_json_body(request)
+        try:
+            res = await run_in_threadpool(
+                run_eval_action,
+                body.get("k", 10), body.get("limit"),
+                _as_bool(body.get("rewrite_ai", False)),
+                _as_bool(body.get("deterministik", True)),
+                _as_bool(body.get("baseline_save", False)),
+                _as_bool(body.get("baseline_check", False)),
+                body.get("baseline_path"),
+                body.get("tolerance", 0.05),
+                body.get("timeout", 3600))
+            return JSONResponse(res)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
     app.add_api_route("/api/harness/overview", api_overview, methods=["GET"])
     app.add_api_route("/api/harness/knobs", api_knobs, methods=["GET"])
     app.add_api_route("/api/harness/golden", api_golden, methods=["GET"])
     app.add_api_route("/api/harness/baseline", api_baseline, methods=["GET"])
     app.add_api_route("/api/harness/runs", api_runs, methods=["GET"])
+    app.add_api_route("/api/harness/mine", api_mine, methods=["GET"])
     app.add_api_route("/api/harness/knob/set", api_knob_set, methods=["POST"])
     app.add_api_route("/api/harness/knob/clear", api_knob_clear, methods=["POST"])
     app.add_api_route("/api/harness/golden/upsert", api_golden_upsert, methods=["POST"])
@@ -505,6 +690,7 @@ def register(app):
     app.add_api_route("/api/harness/golden/delete", api_golden_delete, methods=["POST"])
     app.add_api_route("/api/harness/golden/seed", api_golden_seed, methods=["POST"])
     app.add_api_route("/api/harness/golden/mirror", api_golden_mirror, methods=["POST"])
+    app.add_api_route("/api/harness/eval/run", api_eval_run, methods=["POST"])
 
 
 # ------------------------------------------------------------ CLI uji cepat
@@ -514,7 +700,8 @@ def _cli(argv=None):
     ap.add_argument("--section", default="overview",
                     help="overview|knobs|golden|baseline|runs")
     ap.add_argument("--profile", default="agent", help="agent|chatbot")
-    ap.add_argument("--limit", default=1, type=int)
+    ap.add_argument("--limit", default=None, type=int,
+                    help="runs: jumlah laporan; mine: batas baris log (default 400)")
     ap.add_argument("--set", dest="set_name", default=None,
                     help="NAMA knob utk disetel (perlu --value)")
     ap.add_argument("--value", dest="value", default=None,
@@ -536,6 +723,25 @@ def _cli(argv=None):
                     help="cermin golden aktif ke /rag-eval")
     ap.add_argument("--aktif", dest="aktif_flag", default=None,
                     help="true|false (utk --golden-upsert / --golden-aktif)")
+    ap.add_argument("--mine", dest="mine", action="store_true",
+                    help="tampilkan kandidat golden dari feedback (read-only)")
+    ap.add_argument("--eval-run", dest="eval_run", action="store_true",
+                    help="jalankan phase4_eval (sub-proses terisolasi)")
+    ap.add_argument("--k", type=int, default=10, help="recall@k utk --eval-run")
+    ap.add_argument("--eval-limit", dest="eval_limit", type=int, default=None,
+                    help="batasi jumlah entri golden saat --eval-run")
+    ap.add_argument("--rewrite-ai", dest="rewrite_ai", action="store_true",
+                    help="--eval-run mode produksi (RAG_REWRITE_AI=1)")
+    ap.add_argument("--no-deterministik", dest="no_deterministik",
+                    action="store_true", help="--eval-run matikan determinisme")
+    ap.add_argument("--eval-baseline-save", dest="eval_baseline_save",
+                    action="store_true", help="simpan baseline saat --eval-run")
+    ap.add_argument("--eval-baseline-check", dest="eval_baseline_check",
+                    action="store_true", help="cek regresi baseline saat --eval-run")
+    ap.add_argument("--baseline-path", dest="baseline_path", default=None,
+                    help="path baseline (default golden_base.json)")
+    ap.add_argument("--tolerance", type=float, default=0.05,
+                    help="toleransi regresi utk --eval-baseline-check")
     args = ap.parse_args(argv)
 
     if args.set_name is not None:
@@ -568,6 +774,22 @@ def _cli(argv=None):
         return 0 if data.get("ok") else 1
     if args.golden_mirror:
         data = golden_mirror_action()
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if data.get("ok") else 1
+
+    if args.mine:
+        data = mine_action(args.limit, args.profile)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if data.get("ok") else 1
+    if args.eval_run:
+        data = run_eval_action(
+            k=args.k, limit=args.eval_limit,
+            rewrite_ai=args.rewrite_ai,
+            deterministik=(not args.no_deterministik),
+            baseline_save=args.eval_baseline_save,
+            baseline_check=args.eval_baseline_check,
+            baseline_path=args.baseline_path,
+            tolerance=args.tolerance)
         print(json.dumps(data, ensure_ascii=False, indent=2))
         return 0 if data.get("ok") else 1
 
