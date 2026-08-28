@@ -19,6 +19,12 @@ Determinisme gerbang: secara DEFAULT eval ini mematikan query-rewrite AI
 (RAG_REWRITE_AI=0) supaya skor stabil & --baseline-check apel-ke-apel. Untuk
 mengukur perilaku produksi apa adanya, jalankan dengan PHASE4_REWRITE_AI=1.
 
+Selain rewrite-AI, reranker GPU (bge-reranker-v2-m3, CUDA/fp16) juga sumber
+nondeterminisme: urutan kandidat yang skornya nyaris seri bisa bergeser
+antar-run sehingga recall/MRR goyang walau retrieval identik. _setup_determinism()
+mengunci seed + algoritma deterministik agar hasil reprodusibel (fail-open;
+matikan dgn PHASE4_DETERMINISTIK=0).
+
 Pemakaian:
   python phase4_eval.py --seed                          # isi golden set + cermin ke /rag-eval
   python phase4_eval.py                                 # jalankan evaluasi retrieval
@@ -60,6 +66,13 @@ else:
 _REWRITE_AI = os.environ.get("RAG_REWRITE_AI", "0")
 print("[phase4_eval] rewrite_ai=%s (0=deterministik utk gerbang; "
       "set PHASE4_REWRITE_AI=1 utk mode produksi)" % _REWRITE_AI, flush=True)
+
+# CUBLAS_WORKSPACE_CONFIG WAJIB di-set SEBELUM konteks CUDA/cuBLAS dibuat agar
+# torch.use_deterministic_algorithms(True) tidak menolak operasi cuBLAS. Set di
+# sini (sebelum blok impor patch yang menarik torch) supaya efektif. Fail-open
+# utk CPU / non-CUDA (variabel ini diabaikan). Determinisme penuh diaktifkan
+# oleh _setup_determinism() saat run_eval(); matikan semua dgn PHASE4_DETERMINISTIK=0.
+os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
 
 # Impor patch RANKING retrieval (successor -> rerank -> domain), urutan sama
 # seperti web_app.py. rag.calibration_patch (gerbang abstain cosine >=
@@ -140,7 +153,61 @@ def _gate_min_cos():
         return None
 
 
+def _setup_determinism(seed=1234):
+    """Kunci semua sumber acak + paksa algoritma deterministik agar skor eval
+    STABIL antar-run (--baseline-check apel-ke-apel).
+
+    Nondeterminisme reranker GPU (bge-reranker-v2-m3, CUDA/fp16) dapat menggeser
+    urutan kandidat yang skornya nyaris seri (mis. klaster IKN / kawasan berikat)
+    sehingga recall@k & MRR goyang antar-run walau RETRIEVAL identik. Ini pernah
+    memicu [GAGAL] palsu pada gerbang baseline. Fungsi ini menyetel seed +
+    cudnn.deterministic + use_deterministic_algorithms(warn_only) agar hasil
+    reprodusibel. FAIL-OPEN: bila torch/CUDA tak mendukung mode deterministik,
+    eval tetap jalan (hanya kembali sedikit goyang). Nonaktifkan dengan
+    PHASE4_DETERMINISTIK=0.
+    """
+    if os.environ.get("PHASE4_DETERMINISTIK", "1").strip().lower() in ("0", "false", "no"):
+        print("[phase4_eval] determinisme dimatikan (PHASE4_DETERMINISTIK=0).", flush=True)
+        return
+    try:
+        import random as _random
+        _random.seed(seed)
+    except Exception:
+        pass
+    try:
+        import numpy as _np
+        _np.random.seed(seed)
+    except Exception:
+        pass
+    try:
+        import torch as _torch
+    except Exception as _e:
+        print("[phase4_eval] torch tak tersedia; determinisme dilewati: %s" % _e, flush=True)
+        return
+    try:
+        _torch.manual_seed(seed)
+        if _torch.cuda.is_available():
+            _torch.cuda.manual_seed_all(seed)
+    except Exception as _e:
+        print("[phase4_eval] set seed torch gagal: %s" % _e, flush=True)
+    try:
+        _torch.backends.cudnn.deterministic = True
+        _torch.backends.cudnn.benchmark = False
+    except Exception:
+        pass
+    try:
+        # warn_only=True: bila ada operasi tanpa implementasi deterministik,
+        # JANGAN meledak — cukup peringatan; eval tetap jalan.
+        _torch.use_deterministic_algorithms(True, warn_only=True)
+        print("[phase4_eval] determinisme AKTIF (seed=%d, cudnn.deterministic=on, "
+              "use_deterministic_algorithms=warn_only)." % seed, flush=True)
+    except Exception as _e:
+        print("[phase4_eval] use_deterministic_algorithms gagal (fail-open): %s"
+              % _e, flush=True)
+
+
 def run_eval(k=10, limit=None, quiet=False):
+    _setup_determinism()
     entries = gdb.list_golden(only_aktif=True)
     if limit:
         entries = entries[:int(limit)]
