@@ -21,6 +21,14 @@ v30: sertakan konteks mentah hasil retrieval di kunci privat
 rag_grounding_patch sebelum respons keluar) agar guardrail anti-karang-pasal
 menilai dukungan rujukan terhadap SELURUH konteks — bukan hanya judul/ref
 sumber (akar abstain semu "gimana cara aktivasi EFIN?", 19 Agu 2026).
+
+v31 (Tahap 4e): jawab_chat/jawab_lab menandai profil aktif ke rag.calibration
+(set_profile) DI THREAD RETRIEVAL sehingga gerbang cosine (rag.calibration_patch)
++ knob retrieval dibaca PER-PROFIL dari rag.knob_store (precedence store-profil >
+env > default). set_profile bersifat thread-local, jadi wajib dipanggil di thread
+yang sama dengan pdb.search (jawab_chat berjalan via threadpool / thread latar,
+bukan di handler async). INERT bila knob belum diset (jatuh ke env>default);
+direset di finally agar tidak bocor antar-request pada worker threadpool.
 """
 import re
 import json
@@ -64,6 +72,10 @@ try:
     import sop.db as sopdb
 except Exception:            # pragma: no cover
     sopdb = None
+try:
+    import rag.calibration as _cal
+except Exception:            # pragma: no cover
+    _cal = None
 
 MAKS_KONTEKS = 6500
 
@@ -935,11 +947,41 @@ def answer(question, profile, override=None, history=None, diagnostics=False,
     return res
 
 
+def _set_profile_cal(pid):
+    """Tandai profil aktif (thread-local rag.calibration) agar gerbang cosine
+    (rag.calibration_patch) + resolusi knob memakai nilai PER-PROFIL dari
+    rag.knob_store. WAJIB dipanggil di thread retrieval (jawab_chat/jawab_lab
+    berjalan via threadpool / thread latar), bukan di handler async, karena
+    set_profile bersifat thread-local. INERT bila knob belum diset (jatuh ke
+    env>default). Gagal-anggun."""
+    if _cal is None:
+        return
+    try:
+        _cal.set_profile((pid or "").strip() or None)
+    except Exception:
+        pass
+
+
+def _reset_profile_cal():
+    """Bersihkan profil aktif thread-local (finally) agar tak bocor ke tugas
+    berikutnya pada worker threadpool yang dipakai ulang. Gagal-anggun."""
+    if _cal is None:
+        return
+    try:
+        _cal.reset_profile()
+    except Exception:
+        pass
+
+
 def jawab_chat(question, history=None, profil="chatbot"):
     p = rcfg.get_profile(profil) or rcfg.get_profile("chatbot")
     if not p:
         return {"ok": False, "error": "Profil RAG belum tersedia."}
-    return answer(question, p, override=None, history=history, diagnostics=False)
+    _set_profile_cal(p.get("id") or profil)
+    try:
+        return answer(question, p, override=None, history=history, diagnostics=False)
+    finally:
+        _reset_profile_cal()
 
 
 def jawab_lab(question, profil, sumber_override, history=None, prod_mode=False):
@@ -948,5 +990,9 @@ def jawab_lab(question, profil, sumber_override, history=None, prod_mode=False):
         return {"ok": False, "error": "Profil RAG belum tersedia."}
     if sumber_override is not None and not isinstance(sumber_override, list):
         sumber_override = None
-    return answer(question, p, override=sumber_override, history=history,
-                  diagnostics=True, honor_mode=bool(prod_mode))
+    _set_profile_cal(p.get("id") or profil)
+    try:
+        return answer(question, p, override=sumber_override, history=history,
+                      diagnostics=True, honor_mode=bool(prod_mode))
+    finally:
+        _reset_profile_cal()
