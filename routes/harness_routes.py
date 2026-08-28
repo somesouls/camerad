@@ -27,6 +27,11 @@ produksi. GET /api/harness/mine menyajikan kandidat golden dari feedback
 produksi (mine_feedback, read-only). Keduanya area admin 'peraturan' +
 GAGAL-ANGGUN; INERT terhadap runtime retrieval.
 
+LANGKAH 5 menambah HALAMAN /rag-harness (GET) yang me-render templates/
+rag_harness.html (4 tab yang memakai endpoint di atas). render_page di-import
+SECARA LAZY di dalam handler agar modul ini tetap MURNI utk uji CLI (tanpa
+menarik app_core/FastAPI saat impor) dan menghindari circular import.
+
 Helper di bawah MURNI (tanpa FastAPI) supaya bisa diuji lewat CLI:
     python -m routes.harness_routes --section overview --profile agent
     python -m routes.harness_routes --section knobs   --profile chatbot
@@ -547,7 +552,13 @@ async def _read_json_body(request):
 
 def register(app):
     """Daftarkan endpoint harness. GET read-only (3a) + POST tulis knob (4b) +
-    POST tulis golden (4c) + eval/mine (4d)."""
+    POST tulis golden (4c) + eval/mine (4d) + halaman /rag-harness (5)."""
+    async def page_rag_harness(request: Request):
+        # Lazy import: jaga modul tetap murni utk uji CLI (tak menarik
+        # app_core/FastAPI saat impor) & hindari circular import.
+        from app_core import render_page
+        return render_page(request, "rag_harness.html", "rag_harness")
+
     async def api_overview(request: Request):
         prof = request.query_params.get("profile") if hasattr(request, "query_params") else "agent"
         try:
@@ -677,6 +688,7 @@ def register(app):
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
 
+    app.add_api_route("/rag-harness", page_rag_harness, methods=["GET"])
     app.add_api_route("/api/harness/overview", api_overview, methods=["GET"])
     app.add_api_route("/api/harness/knobs", api_knobs, methods=["GET"])
     app.add_api_route("/api/harness/golden", api_golden, methods=["GET"])
