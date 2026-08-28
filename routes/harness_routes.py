@@ -5,7 +5,12 @@ Menu baru mandiri /rag-harness (4 tab: Golden · Gerbang eval · Tambang feedbac
 Knob per-profil). LANGKAH 3a = HANYA backend READ-ONLY: endpoint GET yang
 menyajikan (a) knob efektif per-profil, (b) ringkasan golden set, (c) baseline
 gerbang, (d) laporan eval terbaru dari _runs. Aksi tulis (jalankan eval, tambang
-feedback, set knob, CRUD golden) menyusul di langkah berikut, dengan konfirmasi.
+feedback, CRUD golden) menyusul di langkah berikut, dengan konfirmasi.
+
+LANGKAH 4b menambah AKSI TULIS KNOB per-profil (POST /api/harness/knob/set &
+/api/harness/knob/clear). Menulis knob HANYA mengisi knob store; pipeline runtime
+BELUM membacanya (penyambungan = langkah 4e), jadi aksi ini INERT terhadap
+perilaku produksi & aman diuji. Tetap area admin 'peraturan' + GAGAL-ANGGUN.
 
 Helper di bawah MURNI (tanpa FastAPI) supaya bisa diuji lewat CLI:
     python -m routes.harness_routes --section overview --profile agent
@@ -13,6 +18,8 @@ Helper di bawah MURNI (tanpa FastAPI) supaya bisa diuji lewat CLI:
     python -m routes.harness_routes --section golden
     python -m routes.harness_routes --section baseline
     python -m routes.harness_routes --section runs --limit 3
+    python -m routes.harness_routes --profile agent --set RAG_MIN_COS --value 0.61
+    python -m routes.harness_routes --profile agent --clear RAG_MIN_COS
 
 Daftarkan (langkah 3b): import routes.harness_routes as h; h.register(app)
 Area admin (langkah 3c): tambah '/rag-harness' & '/api/harness' ke _route_area
@@ -43,6 +50,13 @@ _PROFILES = ("agent", "chatbot")
 def _norm_profile(p):
     v = (p or "").strip().lower()
     return v if v in _PROFILES else "agent"
+
+
+def _strict_profile(p):
+    """Kembalikan profil valid atau None (utk AKSI TULIS: jangan diam-diam
+    jatuh ke 'agent' bila salah ketik)."""
+    v = (p or "").strip().lower()
+    return v if v in _PROFILES else None
 
 
 # ------------------------------------------------------------ helper MURNI
@@ -161,6 +175,49 @@ def overview(profile="agent"):
     }
 
 
+# ------------------------------------------------------ AKSI TULIS (4b) knob
+def set_knob_action(profile, name, value):
+    """Setel satu knob utk satu profil (store). Kembalikan knob efektif terbaru.
+
+    Validasi profil & knob KETAT (profil salah ketik -> error, bukan diam-diam
+    'agent'). INERT terhadap runtime: menulis di sini hanya mengisi knob store;
+    pipeline belum membacanya (penyambungan = langkah 4e). GAGAL-ANGGUN.
+    """
+    if ks is None:
+        return {"ok": False, "error": "knob_store tak tersedia"}
+    prof = _strict_profile(profile)
+    if prof is None:
+        return {"ok": False, "error": "profil tak dikenal: %r (pilih: %s)"
+                % (profile, ", ".join(_PROFILES))}
+    try:
+        res = ks.set_knob(prof, name, value)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+    ov = knobs_overview(prof)
+    return {"ok": True, "profile": prof, "name": res.get("name"),
+            "stored": res.get("value"), "knobs": ov.get("knobs", {})}
+
+
+def clear_knob_action(profile, name):
+    """Hapus override knob utk satu profil -> kembali ke env/default.
+
+    Validasi ketat + GAGAL-ANGGUN, seperti set_knob_action.
+    """
+    if ks is None:
+        return {"ok": False, "error": "knob_store tak tersedia"}
+    prof = _strict_profile(profile)
+    if prof is None:
+        return {"ok": False, "error": "profil tak dikenal: %r (pilih: %s)"
+                % (profile, ", ".join(_PROFILES))}
+    try:
+        res = ks.clear_knob(prof, name)
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200]}
+    ov = knobs_overview(prof)
+    return {"ok": True, "profile": prof, "name": res.get("name"),
+            "deleted": res.get("deleted", 0), "knobs": ov.get("knobs", {})}
+
+
 # ------------------------------------------------------------ route FastAPI
 try:
     from fastapi import Request
@@ -172,8 +229,17 @@ except Exception:            # pragma: no cover
     run_in_threadpool = None
 
 
+async def _read_json_body(request):
+    """Baca body JSON jadi dict; kembalikan {} bila kosong/tak valid."""
+    try:
+        body = await request.json()
+    except Exception:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 def register(app):
-    """Daftarkan endpoint GET read-only. Dipanggil dari web_app (langkah 3b)."""
+    """Daftarkan endpoint harness. GET read-only (3a) + POST tulis knob (4b)."""
     async def api_overview(request: Request):
         prof = request.query_params.get("profile") if hasattr(request, "query_params") else "agent"
         try:
@@ -211,22 +277,60 @@ def register(app):
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
 
+    async def api_knob_set(request: Request):
+        body = await _read_json_body(request)
+        prof = body.get("profile")
+        name = body.get("name")
+        value = body.get("value")
+        try:
+            res = await run_in_threadpool(set_knob_action, prof, name, value)
+            return JSONResponse(res)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    async def api_knob_clear(request: Request):
+        body = await _read_json_body(request)
+        prof = body.get("profile")
+        name = body.get("name")
+        try:
+            res = await run_in_threadpool(clear_knob_action, prof, name)
+            return JSONResponse(res)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
     app.add_api_route("/api/harness/overview", api_overview, methods=["GET"])
     app.add_api_route("/api/harness/knobs", api_knobs, methods=["GET"])
     app.add_api_route("/api/harness/golden", api_golden, methods=["GET"])
     app.add_api_route("/api/harness/baseline", api_baseline, methods=["GET"])
     app.add_api_route("/api/harness/runs", api_runs, methods=["GET"])
+    app.add_api_route("/api/harness/knob/set", api_knob_set, methods=["POST"])
+    app.add_api_route("/api/harness/knob/clear", api_knob_clear, methods=["POST"])
 
 
 # ------------------------------------------------------------ CLI uji cepat
 def _cli(argv=None):
     ap = argparse.ArgumentParser(
-        description="Uji read-only backend RAG Harness (Tahap 4 #1).")
+        description="Uji backend RAG Harness (Tahap 4 #1).")
     ap.add_argument("--section", default="overview",
                     help="overview|knobs|golden|baseline|runs")
     ap.add_argument("--profile", default="agent", help="agent|chatbot")
     ap.add_argument("--limit", default=1, type=int)
+    ap.add_argument("--set", dest="set_name", default=None,
+                    help="NAMA knob utk disetel (perlu --value)")
+    ap.add_argument("--value", dest="value", default=None,
+                    help="nilai utk --set")
+    ap.add_argument("--clear", dest="clear_name", default=None,
+                    help="NAMA knob utk dihapus (kembali ke env/default)")
     args = ap.parse_args(argv)
+
+    if args.set_name is not None:
+        data = set_knob_action(args.profile, args.set_name, args.value)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if data.get("ok") else 1
+    if args.clear_name is not None:
+        data = clear_knob_action(args.profile, args.clear_name)
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+        return 0 if data.get("ok") else 1
 
     sec = (args.section or "overview").strip().lower()
     if sec == "knobs":
