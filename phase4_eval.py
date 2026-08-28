@@ -15,6 +15,10 @@ Rantai yang diukur = rantai RANKING produksi (successor -> rerank -> domain).
 Gerbang abstain (rag.calibration_patch) sengaja TIDAK dibungkus ke retrieval di
 sini: ia keputusan abstain, dilaporkan terpisah pada bagian PROKSI ABSTAIN.
 
+Determinisme gerbang: secara DEFAULT eval ini mematikan query-rewrite AI
+(RAG_REWRITE_AI=0) supaya skor stabil & --baseline-check apel-ke-apel. Untuk
+mengukur perilaku produksi apa adanya, jalankan dengan PHASE4_REWRITE_AI=1.
+
 Pemakaian:
   python phase4_eval.py --seed                          # isi golden set + cermin ke /rag-eval
   python phase4_eval.py                                 # jalankan evaluasi retrieval
@@ -40,6 +44,22 @@ try:
     load_dotenv()
 except Exception:
     pass
+
+# --- Determinisme gerbang (Tahap 3) -----------------------------------------
+# phase4_eval dipakai sebagai GERBANG regresi, jadi skornya harus STABIL agar
+# --baseline-check membandingkan apel-ke-apel. Query-rewrite berbasis LLM
+# (RAG_REWRITE_AI=1) membuat ranking sedikit non-deterministik (MRR goyang).
+# Karena itu DEFAULT eval di sini = rewrite AI OFF (deterministik). Untuk
+# mengukur perilaku produksi apa adanya, jalankan dengan PHASE4_REWRITE_AI=1.
+# CATATAN: RAG_REWRITE_AI dibaca rag.rerank_patch saat IMPOR, jadi env ini
+# WAJIB di-set sebelum blok impor patch di bawah.
+if os.environ.get("PHASE4_REWRITE_AI", "0").strip().lower() in ("1", "true", "yes"):
+    os.environ.setdefault("RAG_REWRITE_AI", "1")
+else:
+    os.environ["RAG_REWRITE_AI"] = "0"
+_REWRITE_AI = os.environ.get("RAG_REWRITE_AI", "0")
+print("[phase4_eval] rewrite_ai=%s (0=deterministik utk gerbang; "
+      "set PHASE4_REWRITE_AI=1 utk mode produksi)" % _REWRITE_AI, flush=True)
 
 # Impor patch RANKING retrieval (successor -> rerank -> domain), urutan sama
 # seperti web_app.py. rag.calibration_patch (gerbang abstain cosine >=
@@ -193,6 +213,7 @@ def run_eval(k=10, limit=None, quiet=False):
         "recall_at_k": round(recall, 4),
         "mrr": round(mrr, 4),
         "min_cos_gate": mc_gate,
+        "rewrite_ai": _REWRITE_AI,
         "per_query": per_q,
         "abstain": abs_rows,
     }
@@ -214,11 +235,13 @@ def _save_report(rep):
 # ------------------------------------------------------------------ baseline
 def baseline_save(rep, path):
     ringkas = {"ts": rep["ts"], "k": rep["k"], "n_hit_queries": rep["n_hit_queries"],
-               "recall_at_k": rep["recall_at_k"], "mrr": rep["mrr"]}
+               "recall_at_k": rep["recall_at_k"], "mrr": rep["mrr"],
+               "rewrite_ai": rep.get("rewrite_ai")}
     with open(path, "w", encoding="utf-8") as f:
         json.dump(ringkas, f, ensure_ascii=False, indent=2)
-    print("Baseline tersimpan ke %s : recall@%d=%.3f mrr=%.3f (n=%d)"
-          % (path, rep["k"], rep["recall_at_k"], rep["mrr"], rep["n_hit_queries"]),
+    print("Baseline tersimpan ke %s : recall@%d=%.3f mrr=%.3f (n=%d) rewrite_ai=%s"
+          % (path, rep["k"], rep["recall_at_k"], rep["mrr"], rep["n_hit_queries"],
+             rep.get("rewrite_ai")),
           flush=True)
 
 
@@ -232,6 +255,10 @@ def baseline_check(rep, path, tolerance=0.05):
     d_recall = rep["recall_at_k"] - float(base.get("recall_at_k") or 0.0)
     d_mrr = rep["mrr"] - float(base.get("mrr") or 0.0)
     print("\n== GERBANG BASELINE ==")
+    if base.get("rewrite_ai") is not None and str(base.get("rewrite_ai")) != str(rep.get("rewrite_ai")):
+        print("  [!] MODE BEDA: baseline rewrite_ai=%s vs run=%s — skor tak apel-ke-apel; "
+              "re-baseline pada mode sama (default eval kini deterministik)."
+              % (base.get("rewrite_ai"), rep.get("rewrite_ai")))
     print("  recall: %.3f vs baseline %.3f (delta %+.3f)"
           % (rep["recall_at_k"], base.get("recall_at_k") or 0.0, d_recall))
     print("  mrr   : %.3f vs baseline %.3f (delta %+.3f)"
