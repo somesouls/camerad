@@ -130,6 +130,37 @@ _DEFAULT_SEED = [
     ("pengertian pengusaha kena pajak", "hit",
      {"keywords": ["pengusaha kena pajak"], "gold": "Definisi PKP"}, ""),
 
+    # ---- HIT: pasangan formal<->kolokial (Tahap 3 #2) ----
+    # Twin gaya-santai dari kueri formal di atas; expect SAMA persis agar
+    # apel-ke-apel. MISS di twin = celah robustness gaya bahasa/akronim
+    # (rekomendasi laporan), BUKAN celah cakupan data — dokumen dijamin ada
+    # karena ini kembaran kueri yang sudah terbukti HIT.
+    ("pkp itu apa sih", "hit",
+     {"keywords": ["pengusaha kena pajak"],
+      "gold": "Definisi PKP — twin kolokial 'pengertian pengusaha kena pajak'"},
+     "Pasangan kolokial (Tahap 3 #2): akronim + gaya santai."),
+    ("bkp tuh apa ya", "hit",
+     {"keywords": ["barang kena pajak"],
+      "gold": "Definisi BKP — twin kolokial 'apa itu barang kena pajak'"},
+     "Pasangan kolokial (Tahap 3 #2): akronim + gaya santai."),
+    ("jkp maksudnya gimana", "hit",
+     {"keywords": ["jasa kena pajak"],
+      "gold": "Definisi JKP — twin kolokial 'apa yang dimaksud jasa kena pajak'"},
+     "Pasangan kolokial (Tahap 3 #2): akronim + gaya santai."),
+    ("bedanya spdn sama spln apa", "hit",
+     {"keywords": ["subjek pajak dalam negeri", "subjek pajak luar negeri"],
+      "gold": "SPDN vs SPLN — twin kolokial akronim"},
+     "Pasangan kolokial (Tahap 3 #2): akronim SPDN/SPLN."),
+    ("keringanan pajak buat perusahaan di ikn", "hit",
+     {"nomor": ["PMK 28 TAHUN 2024", "28 TAHUN 2024"],
+      "keywords": ["ibu kota nusantara"],
+      "gold": "PMK 28/2024 fasilitas PPh badan IKN — twin kolokial"},
+     "Pasangan kolokial (Tahap 3 #2): 'keringanan pajak' <-> 'fasilitas pengurangan PPh badan'."),
+    ("kirim barang dari luar negeri ke kawasan berikat gimana aturannya", "hit",
+     {"keywords": ["kawasan berikat"],
+      "gold": "PPN penyerahan ke kawasan berikat — twin kolokial"},
+     "Pasangan kolokial (Tahap 3 #2): frasa awam impor/TLDDP."),
+
     # ---- ABSTAIN: topik sengaja di luar basis data ----
     ("cara mengajukan SPLN di coretax", "abstain",
      {"gold": "Bukan prosedur yang ada (SPLN = status, bukan aplikasi)"},
