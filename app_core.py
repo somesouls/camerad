@@ -174,6 +174,13 @@ def _route_area(path):
     # /api/rag agar tidak jatuh ke aturan 'common' di bawah. Ditaruh paling awal.
     if path in ("/rag-eval", "/rag-eval-chatbot") or path.startswith("/api/eval"):
         return "peraturan"
+    # Menu RAG Harness (Tahap 4 #1) = khusus admin. Halaman /rag-harness + API
+    # /api/harness/* diperlakukan area 'peraturan'. Ditaruh di sini (sebelum
+    # aturan generik di bawah) agar tidak jatuh ke default 'dialogflow'. Path
+    # sengaja TIDAK memakai prefix /api/rag agar tidak tertangkap aturan
+    # 'common'.
+    if path == "/rag-harness" or path.startswith("/api/harness"):
+        return "peraturan"
     # Playground RAG (uji sumber/prompt) + Konfigurasi RAG Agent + Konfigurasi
     # RAG Chatbot + kelola profil + kuota harian + review log feedback = khusus
     # admin. Ditaruh sebelum aturan /api/rag generik agar tidak jatuh ke 'common'.
