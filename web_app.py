@@ -367,6 +367,16 @@ sop_routes.register(app)
 import rag.kamus_routes as rag_kamus_routes
 rag_kamus_routes.register(app)
 
+# --- Menu RAG Harness (Tahap 4 #1): panel admin mandiri /rag-harness (Golden ·
+#     Gerbang eval · Tambang feedback · Knob per-profil). LANGKAH 3b = daftarkan
+#     endpoint READ-ONLY /api/harness/* (knob efektif per-profil, ringkasan
+#     golden set, baseline gerbang, laporan eval terbaru). Aksi tulis menyusul.
+#     Area admin 'peraturan' diatur di app_core._route_area (langkah 3c).
+#     Memakai rag.knob_store + rag.golden_db, jadi didaftarkan bersama menu
+#     Peraturan/Kamus. ---
+import routes.harness_routes as harness_routes
+harness_routes.register(app)
+
 # --- Menu Perutean Layanan (Handoff): kelola tabel handoff_routing TANPA
 #     redeploy (intent LAYANAN + kanal mandiri/agent/KPP + frasa pemicu).
 #     Perutean diterapkan oleh handoff_routing_patch; halaman ini hanya CRUD.
