@@ -18,7 +18,9 @@ Keluaran JSON:
        "chunks": 3, "elapsed": 12.3, "model": "...", "device": "cuda:0"}, ...]}
 
 Env: sama seperti probe_multimodal (AWE_QWEN_MODEL/LANG/CHUNK_SEC/DEVICE/DTYPE/
-MAXTOK, AWE_ASR_SAMPLES).
+MAXTOK, AWE_ASR_SAMPLES). Tambahan: AWE_QWEN_CONTEXT = teks konteks/kosakata
+(hotwords) domain untuk membiaskan Qwen3-ASR (disuntik app utama dari Glosarium
+Pajak; lihat avaya/phone_glossary.asr_context).
 """
 import glob
 import json
@@ -86,7 +88,32 @@ def main(argv):
         print("[worker] tak ada berkas audio", file=sys.stderr)
         return 2
 
+    import probe_multimodal as _pm
     from probe_multimodal import qwen_transcribe
+
+    # Konteks/kosakata domain (hotwords) untuk membiaskan Qwen3-ASR. Disuntik
+    # lewat env AWE_QWEN_CONTEXT oleh app utama (Glosarium Pajak). qwen_transcribe
+    # memanggil m.transcribe(audio=..., language=...) tanpa context, jadi kita
+    # muat model lebih awal lalu bungkus .transcribe agar context ikut terkirim.
+    # Semua dibungkus try/except supaya STT tetap jalan bila gagal/param beda versi.
+    _ctx = (os.environ.get("AWE_QWEN_CONTEXT") or "").strip()
+    if _ctx:
+        try:
+            _m = _pm._qwen_model()[0]
+            _orig_tx = _m.transcribe
+
+            def _tx_with_ctx(*a, **k):
+                if "context" not in k:
+                    try:
+                        return _orig_tx(*a, context=_ctx, **k)
+                    except TypeError:
+                        return _orig_tx(*a, **k)
+                return _orig_tx(*a, **k)
+
+            _m.transcribe = _tx_with_ctx
+            print("[worker] konteks STT (glosarium) aktif: %d char" % len(_ctx), file=sys.stderr)
+        except Exception as e:
+            print("[worker] konteks STT dilewati: %r" % e, file=sys.stderr)
 
     results = []
     t0 = time.time()
