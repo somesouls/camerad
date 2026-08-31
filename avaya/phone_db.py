@@ -49,9 +49,32 @@ def _to_text(v):
     return str(v)
 
 
+def _first_str(v):
+    """Ambil satu string dari nilai yang mungkin list/str/None."""
+    if isinstance(v, list):
+        for x in v:
+            s = str(x).strip()
+            if s:
+                return s
+        return ""
+    return str(v or "").strip()
+
+
+def _scalar(v):
+    """Paksa nilai analisis jadi TEXT aman untuk SQLite (list -> gabung, dict -> JSON)."""
+    if v is None:
+        return None
+    if isinstance(v, list):
+        s = ", ".join(str(x).strip() for x in v if str(x).strip())
+        return s or None
+    if isinstance(v, dict):
+        return _json.dumps(v, ensure_ascii=False)
+    return str(v)
+
+
 def _entitas_nama(a):
     e = (a or {}).get("entitas")
-    return ((e.get("nama") or "").strip() or None) if isinstance(e, dict) else None
+    return (_first_str(e.get("nama")) or None) if isinstance(e, dict) else None
 
 
 def _norm_dialog(dialog):
@@ -67,6 +90,12 @@ def _norm_dialog(dialog):
     return out or None
 
 
+def _sql_safe(v):
+    if isinstance(v, (list, dict)):
+        return _json.dumps(v, ensure_ascii=False)
+    return v
+
+
 def _upsert(conn, sid, fields):
     sid = str(sid or "").strip()
     if not sid:
@@ -80,7 +109,7 @@ def _upsert(conn, sid, fields):
     setc = ",".join(k + "=excluded." + k for k in fields.keys())
     conn.execute("INSERT INTO awe_phone_interactions(" + ",".join(cols) +
                  ") VALUES(" + ph + ") ON CONFLICT(sid) DO UPDATE SET " + setc,
-                 [sid] + list(fields.values()))
+                 [sid] + [_sql_safe(v) for v in fields.values()])
     return True
 
 
@@ -126,8 +155,8 @@ def save_phone_analysis(conn, sid, transkrip=None, transkrip_source=None,
     }
     if analisis:
         f.update({
-            "ringkasan": analisis.get("ringkasan"), "topik": analisis.get("topik"),
-            "jenis_layanan": analisis.get("jenis_layanan"),
+            "ringkasan": _scalar(analisis.get("ringkasan")), "topik": _scalar(analisis.get("topik")),
+            "jenis_layanan": _scalar(analisis.get("jenis_layanan")),
             "sentiment": analisis.get("sentimen") or analisis.get("sentiment"),
             "emotion": analisis.get("emosi") or analisis.get("emotion"),
             "resolusi": analisis.get("resolusi"),
@@ -137,7 +166,7 @@ def save_phone_analysis(conn, sid, transkrip=None, transkrip_source=None,
             "analisis_json": _json.dumps(analisis, ensure_ascii=False),
             "analyzed_at": _jkt_now_iso(),
         })
-    nm = (customer or "").strip() if customer else _entitas_nama(analisis)
+    nm = _first_str(customer) if customer else _entitas_nama(analisis)
     if nm:
         f["customer"] = nm
     _upsert(conn, sid, f)
