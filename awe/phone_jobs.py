@@ -226,3 +226,16 @@ try:
     _pautopull.maybe_start_scheduler()
 except Exception as _pa_exc:
     print("[AWE-PHONE] auto-pull dilewati:", _pa_exc, flush=True)
+
+
+# =============================================================
+# Halaman Dashboard & Pengguna Harian Telepon (menu AWE Phone)
+#   phone_dash_routes mendaftarkan rute HALAMAN /awe/telepon/dashboard dan
+#   /awe/telepon/pengguna. Fail-soft & terpisah dari blok auto-pull agar satu
+#   kegagalan tidak mematikan yang lain.
+# =============================================================
+try:
+    import awe.phone_dash_routes as _pdash
+    _pdash.register_app()
+except Exception as _pd_exc:
+    print("[AWE-PHONE] halaman dashboard/pengguna telepon dilewati:", _pd_exc, flush=True)
