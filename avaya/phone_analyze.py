@@ -47,6 +47,23 @@ def pending_phone(conn, day=None, limit=25, min_durasi=0):
     return [dict(r) for r in conn.execute(sql, p).fetchall()]
 
 
+def pending_llm(conn, day=None, limit=25):
+    """Baris yang STT-nya sudah ada tapi analisis LLM belum jadi (mis. LLM gagal
+    atau di-skip). Dipakai untuk mengulang HANYA tahap LLM tanpa STT ulang."""
+    init_phone_db(conn)
+    sql = ("SELECT sid, stt_text FROM awe_phone_interactions "
+           "WHERE transkrip_source='qwen3-asr' "
+           "AND (analisis_json IS NULL OR analisis_json='') "
+           "AND stt_text IS NOT NULL AND stt_text<>''")
+    p = []
+    if day:
+        sql += " AND day=?"
+        p.append(str(day)[:10])
+    sql += " ORDER BY tanggal DESC, sid DESC LIMIT ?"
+    p.append(int(limit))
+    return [dict(r) for r in conn.execute(sql, p).fetchall()]
+
+
 def run_stt(paths, timeout=1800):
     """Jalankan awe_stt_worker.py di .venv-asr utk daftar mp4. Kembalikan JSON worker."""
     paths = [p for p in (paths or []) if p]
@@ -84,45 +101,72 @@ def _by_basename(results):
 
 
 def analyze_day(conn, day=None, limit=25, min_durasi=3, do_llm=True, timeout=1800):
-    """Tahap 2 penuh: STT + LLM utk baris pending, lalu simpan. Kembalikan ringkasan."""
-    rows = pending_phone(conn, day=day, limit=limit, min_durasi=min_durasi)
-    if not rows:
-        return {"ok": True, "pending": 0, "stt_ok": 0, "llm_ok": 0, "details": []}
-    stt = run_stt([r["audio_ref"] for r in rows], timeout=timeout)
-    if stt.get("error") and not stt.get("results"):
-        return {"ok": False, "pending": len(rows), "stt_ok": 0, "llm_ok": 0,
-                "error": stt.get("error"), "details": []}
-    res_map = _by_basename(stt.get("results"))
+    """Tahap 2 penuh: STT + LLM utk baris pending, PLUS ulang HANYA LLM utk baris
+    yang transkripnya sudah ada tapi analisis belum jadi. Kembalikan ringkasan."""
     details = []
     stt_ok = 0
     llm_ok = 0
-    for r in rows:
-        sid = r["sid"]
-        wr = res_map.get(os.path.basename(str(r["audio_ref"])))
-        if wr is None:
-            details.append({"sid": sid, "stt": False, "note": "hasil worker tak ditemukan"})
-            continue
-        text = (wr.get("text") or "").strip() if wr.get("ok") else ""
-        info = {"model": wr.get("model"), "chunks": wr.get("chunks"),
-                "elapsed": wr.get("elapsed"), "text": text}
-        if not text:
-            save_phone_analysis(conn, sid, transkrip_source="kosong", stt=info)
-            details.append({"sid": sid, "stt": False,
-                            "note": wr.get("error") or "transkrip kosong"})
-            continue
-        stt_ok += 1
-        analisis = None
-        note = ""
-        if do_llm:
-            a = pllm.analyze_transcript(text)
+    llm_err = ""
+    stt_error = None
+    rows = pending_phone(conn, day=day, limit=limit, min_durasi=min_durasi)
+    llm_rows = pending_llm(conn, day=day, limit=limit) if do_llm else []
+    if not rows and not llm_rows:
+        return {"ok": True, "pending": 0, "stt_ok": 0, "llm_ok": 0,
+                "llm_error": "", "details": []}
+    if rows:
+        stt = run_stt([r["audio_ref"] for r in rows], timeout=timeout)
+        stt_error = stt.get("error")
+        if stt.get("error") and not stt.get("results"):
+            return {"ok": False, "pending": len(rows) + len(llm_rows),
+                    "stt_ok": 0, "llm_ok": 0, "error": stt.get("error"),
+                    "llm_error": "", "details": []}
+        res_map = _by_basename(stt.get("results"))
+        for r in rows:
+            sid = r["sid"]
+            wr = res_map.get(os.path.basename(str(r["audio_ref"])))
+            if wr is None:
+                details.append({"sid": sid, "stt": False, "note": "hasil worker tak ditemukan"})
+                continue
+            text = (wr.get("text") or "").strip() if wr.get("ok") else ""
+            info = {"model": wr.get("model"), "chunks": wr.get("chunks"),
+                    "elapsed": wr.get("elapsed"), "text": text}
+            if not text:
+                save_phone_analysis(conn, sid, transkrip_source="kosong", stt=info)
+                details.append({"sid": sid, "stt": False,
+                                "note": wr.get("error") or "transkrip kosong"})
+                continue
+            stt_ok += 1
+            analisis = None
+            note = ""
+            if do_llm:
+                a = pllm.analyze_transcript(text)
+                if a.get("ok"):
+                    analisis = a.get("analysis")
+                    llm_ok += 1
+                else:
+                    note = a.get("error") or "LLM gagal"
+                    if not llm_err:
+                        llm_err = note
+            transkrip = (analisis or {}).get("dialog")
+            save_phone_analysis(conn, sid, transkrip=transkrip,
+                                transkrip_source="qwen3-asr", stt=info, analisis=analisis)
+            details.append({"sid": sid, "stt": True, "llm": bool(analisis), "note": note})
+    if do_llm and llm_rows:
+        for r in llm_rows:
+            sid = r["sid"]
+            a = pllm.analyze_transcript(r.get("stt_text") or "")
             if a.get("ok"):
                 analisis = a.get("analysis")
+                save_phone_analysis(conn, sid,
+                                    transkrip=(analisis or {}).get("dialog"),
+                                    transkrip_source="qwen3-asr", analisis=analisis)
                 llm_ok += 1
+                details.append({"sid": sid, "stt": True, "llm": True, "note": "ulang-llm"})
             else:
                 note = a.get("error") or "LLM gagal"
-        transkrip = (analisis or {}).get("dialog")
-        save_phone_analysis(conn, sid, transkrip=transkrip,
-                            transkrip_source="qwen3-asr", stt=info, analisis=analisis)
-        details.append({"sid": sid, "stt": True, "llm": bool(analisis), "note": note})
-    return {"ok": True, "pending": len(rows), "stt_ok": stt_ok, "llm_ok": llm_ok,
-            "stt_error": stt.get("error"), "details": details}
+                if not llm_err:
+                    llm_err = note
+                details.append({"sid": sid, "stt": True, "llm": False, "note": note})
+    return {"ok": True, "pending": len(rows) + len(llm_rows),
+            "stt_ok": stt_ok, "llm_ok": llm_ok, "stt_error": stt_error,
+            "llm_error": llm_err, "details": details}
