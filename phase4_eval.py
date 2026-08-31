@@ -15,6 +15,13 @@ Rantai yang diukur = rantai RANKING produksi (successor -> rerank -> domain).
 Gerbang abstain (rag.calibration_patch) sengaja TIDAK dibungkus ke retrieval di
 sini: ia keputusan abstain, dilaporkan terpisah pada bagian PROKSI ABSTAIN.
 
+Mode sadar-gerbang (Tahap 4 #1 / A2): jalankan dengan --gate agar eval MENIRU
+gerbang cosine produksi (rag.calibration_patch._search_gated) TANPA membungkus
+pdb.search — recall tetap terukur apa adanya, lalu dihitung terpisah recall
+POST-GATE + false-abstain (kueri 'hit' yang jatuh gara-gara gerbang). Ambang
+gerbang di-resolusi PERSIS seperti produksi lewat rag.calibration.get_min_cos()
+(knob_store per-profil: store>env>default); override manual via --gate-min-cos.
+
 Determinisme gerbang: secara DEFAULT eval ini mematikan query-rewrite AI
 (RAG_REWRITE_AI=0) supaya skor stabil & --baseline-check apel-ke-apel. Untuk
 mengukur perilaku produksi apa adanya, jalankan dengan PHASE4_REWRITE_AI=1.
@@ -29,6 +36,9 @@ Pemakaian:
   python phase4_eval.py --seed                          # isi golden set + cermin ke /rag-eval
   python phase4_eval.py                                 # jalankan evaluasi retrieval
   python phase4_eval.py --k 10                          # recall@10
+  python phase4_eval.py --gate                          # mode sadar-gerbang (profil agent)
+  python phase4_eval.py --gate --gate-min-cos 0.61      # gerbang eksplisit 0.61
+  python phase4_eval.py --gate --gate-profile chatbot   # ambang dari profil chatbot
   python phase4_eval.py --baseline-save golden_base.json
   python phase4_eval.py --baseline-check golden_base.json [--tolerance 0.05]
   python phase4_eval.py --mine                          # kandidat golden dari feedback produksi
@@ -153,6 +163,61 @@ def _gate_min_cos():
         return None
 
 
+def _resolve_gate(gate_profile=None, explicit=None):
+    """Ambang gerbang efektif untuk mode sadar-gerbang (Tahap 4 #1 / A2).
+
+    Precedence PERSIS seperti produksi via rag.calibration.get_min_cos():
+    --gate-min-cos eksplisit > knob_store per-profil (store>env>default) >
+    env RAG_MIN_COS. Kembalikan None / <= 0 sebagai 'gerbang mati'. GAGAL-ANGGUN:
+    bila rag.calibration/knob_store tak tersedia, jatuh ke env RAG_MIN_COS.
+    """
+    if explicit is not None:
+        try:
+            mc = float(explicit)
+        except Exception:
+            return None
+        return mc if mc > 0 else None
+    if _cal is not None:
+        try:
+            _cal.set_profile((gate_profile or "").strip() or None)
+            try:
+                mc = float(_cal.get_min_cos())
+            finally:
+                _cal.reset_profile()
+            return mc if mc > 0 else None
+        except Exception:
+            pass
+    return _gate_min_cos()
+
+
+def _cos_map(query, rows):
+    """{id: cosine} untuk baris hasil retrieval (fail-open kosong)."""
+    if not rows or _cal is None:
+        return {}
+    try:
+        ids = [r.get("id") for r in rows if isinstance(r, dict) and r.get("id")]
+        return _cal.skor_peraturan(query, ids) or {}
+    except Exception:
+        return {}
+
+
+def _apply_gate(rows, cos, mc):
+    """Tiru rag.calibration_patch._search_gated: buang baris dgn cosine < mc;
+    baris tanpa skor cosine di-fail-open (dipertahankan). mc None/0 -> apa adanya.
+    """
+    if not mc:
+        return list(rows or [])
+    keep = []
+    for d in (rows or []):
+        if not isinstance(d, dict):
+            keep.append(d)
+            continue
+        c = cos.get(d.get("id"))
+        if c is None or c >= mc:
+            keep.append(d)
+    return keep
+
+
 def _setup_determinism(seed=1234):
     """Kunci semua sumber acak + paksa algoritma deterministik agar skor eval
     STABIL antar-run (--baseline-check apel-ke-apel).
@@ -206,7 +271,8 @@ def _setup_determinism(seed=1234):
               % _e, flush=True)
 
 
-def run_eval(k=10, limit=None, quiet=False):
+def run_eval(k=10, limit=None, quiet=False, gate=False, gate_min_cos=None,
+             gate_profile="agent"):
     _setup_determinism()
     entries = gdb.list_golden(only_aktif=True)
     if limit:
@@ -217,8 +283,26 @@ def run_eval(k=10, limit=None, quiet=False):
         print("Golden set kosong. Jalankan dulu: python phase4_eval.py --seed")
         return None
 
+    # Mode sadar-gerbang (Tahap 4 #1 / A2): resolusi ambang PERSIS seperti
+    # produksi (sweep > knob_store per-profil > env > default). Gerbang TIDAK
+    # dibungkus ke pdb.search; kita hitung cosine hasil lalu tiru penyaringan
+    # rag.calibration_patch._search_gated untuk mengukur recall POST-GATE +
+    # false-abstain (kueri 'hit' yang jatuh gara-gara gerbang).
+    gate_mc = _resolve_gate(gate_profile, gate_min_cos) if gate else None
+    if gate:
+        if gate_mc is None:
+            print("\n[phase4_eval] mode --gate diminta tetapi ambang gerbang "
+                  "<= 0 / tak teresolusi (profil=%s). Metrik post-gate dilewati."
+                  % gate_profile, flush=True)
+        else:
+            print("\n[phase4_eval] MODE SADAR-GERBANG aktif: min_cos=%.3f (profil=%s%s)."
+                  % (gate_mc, gate_profile,
+                     ", eksplisit" if gate_min_cos is not None else ""),
+                  flush=True)
+
     print("\n== EVALUASI HIT (recall@%d) ==" % k, flush=True)
     per_q, n_hit, rr_sum = [], 0, 0.0
+    n_hit_gated, n_false_abstain, false_abstain_q = 0, 0, []
     for e in hits:
         q = e["query"]
         try:
@@ -230,11 +314,30 @@ def run_eval(k=10, limit=None, quiet=False):
         ok = bool(rank and rank <= k)
         n_hit += 1 if ok else 0
         rr_sum += (1.0 / rank) if ok else 0.0
-        per_q.append({"query": q, "hit": ok, "rank": rank, "top1": _top1_label(rows)})
+        rec = {"query": q, "hit": ok, "rank": rank, "top1": _top1_label(rows)}
+        if gate and gate_mc is not None:
+            cos = _cos_map(q, rows)
+            gated = _apply_gate(rows, cos, gate_mc)
+            grank = _match_rank(gated, e.get("expect") or {})
+            gok = bool(grank and grank <= k)
+            vals = [float(v) for v in cos.values() if v is not None]
+            rec["gated_rank"] = grank
+            rec["gated_hit"] = gok
+            rec["max_cos"] = round(max(vals), 4) if vals else None
+            if gok:
+                n_hit_gated += 1
+            if ok and not gok:
+                n_false_abstain += 1
+                false_abstain_q.append(q)
+        per_q.append(rec)
         if not quiet:
-            print("  [%s] rank=%-2d | %s%s"
+            extra = ""
+            if gate and gate_mc is not None:
+                extra = "  | post-gate=%s" % ("HIT" if rec.get("gated_hit") else "ABSTAIN")
+            print("  [%s] rank=%-2d | %s%s%s"
                   % ("HIT " if ok else "MISS", rank, q,
-                     ("  <- top1: " + _top1_label(rows)) if not ok and rows else ""),
+                     ("  <- top1: " + _top1_label(rows)) if not ok and rows else "",
+                     extra),
                   flush=True)
 
     recall = (n_hit / len(hits)) if hits else 0.0
@@ -242,9 +345,25 @@ def run_eval(k=10, limit=None, quiet=False):
     print("  -> recall@%d = %.3f (%d/%d) | MRR = %.3f"
           % (k, recall, n_hit, len(hits), mrr), flush=True)
 
+    post_gate_recall = None
+    false_abstain_rate = None
+    if gate and gate_mc is not None and hits:
+        post_gate_recall = n_hit_gated / len(hits)
+        false_abstain_rate = n_false_abstain / len(hits)
+        print("  -> [sadar-gerbang] recall POST-GATE@%d = %.3f (%d/%d) | "
+              "false-abstain = %.3f (%d/%d) @min_cos=%.3f"
+              % (k, post_gate_recall, n_hit_gated, len(hits),
+                 false_abstain_rate, n_false_abstain, len(hits), gate_mc),
+              flush=True)
+        if false_abstain_q and not quiet:
+            print("     false-abstain (hit ungated -> abstain post-gate):", flush=True)
+            for _fq in false_abstain_q:
+                print("       - %s" % _fq, flush=True)
+
     print("\n== PROKSI ABSTAIN (bukan keputusan LLM) ==", flush=True)
-    mc_gate = _gate_min_cos()
+    mc_gate = gate_mc if (gate and gate_mc is not None) else _gate_min_cos()
     abs_rows = []
+    n_abstain_leak = 0
     for e in abst:
         q = e["query"]
         try:
@@ -262,6 +381,8 @@ def run_eval(k=10, limit=None, quiet=False):
             except Exception:
                 max_cos = None
         risk = bool(mc_gate and max_cos is not None and max_cos >= mc_gate)
+        if risk:
+            n_abstain_leak += 1
         abs_rows.append({"query": q, "n_hasil": len(rows),
                          "max_cos": (round(max_cos, 4) if max_cos is not None else None),
                          "berisiko_lolos_gerbang": risk})
@@ -270,6 +391,12 @@ def run_eval(k=10, limit=None, quiet=False):
                   % (("%.3f" % max_cos) if max_cos is not None else "-", q), flush=True)
     if mc_gate is None:
         print("  (gerbang RAG_MIN_COS belum aktif — kolom risiko tidak dinilai)",
+              flush=True)
+    elif gate:
+        n_ab = len(abst)
+        print("  -> [sadar-gerbang] abstain benar = %d/%d | bocor (lolos gerbang) "
+              "= %d/%d @min_cos=%.3f"
+              % (n_ab - n_abstain_leak, n_ab, n_abstain_leak, n_ab, mc_gate),
               flush=True)
 
     return {
@@ -280,6 +407,17 @@ def run_eval(k=10, limit=None, quiet=False):
         "recall_at_k": round(recall, 4),
         "mrr": round(mrr, 4),
         "min_cos_gate": mc_gate,
+        "gate_mode": bool(gate and gate_mc is not None),
+        "gate_min_cos": (round(gate_mc, 4) if gate_mc is not None else None),
+        "gate_profile": (gate_profile if gate else None),
+        "post_gate_recall_at_k": (round(post_gate_recall, 4)
+                                  if post_gate_recall is not None else None),
+        "n_false_abstain": (n_false_abstain if (gate and gate_mc is not None) else None),
+        "false_abstain_rate": (round(false_abstain_rate, 4)
+                               if false_abstain_rate is not None else None),
+        "false_abstain_queries": (false_abstain_q
+                                  if (gate and gate_mc is not None) else None),
+        "n_abstain_leak": (n_abstain_leak if (gate and gate_mc is not None) else None),
         "rewrite_ai": _REWRITE_AI,
         "per_query": per_q,
         "abstain": abs_rows,
@@ -371,6 +509,14 @@ def main():
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--limit", type=int, default=None)
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--gate", action="store_true",
+                    help="mode sadar-gerbang: ukur recall POST-GATE + false-abstain "
+                         "(ambang di-resolusi knob_store per-profil, spt produksi)")
+    ap.add_argument("--gate-min-cos", type=float, default=None,
+                    help="override ambang gerbang (mis. 0.61); default = resolusi "
+                         "knob_store profil --gate-profile")
+    ap.add_argument("--gate-profile", default="agent",
+                    help="profil sumber ambang gerbang (agent|chatbot); default agent")
     ap.add_argument("--baseline-save", metavar="FILE", default=None)
     ap.add_argument("--baseline-check", metavar="FILE", default=None)
     ap.add_argument("--tolerance", type=float, default=0.05)
@@ -395,7 +541,9 @@ def main():
         if not any([args.baseline_save, args.baseline_check]):
             return 0
 
-    rep = run_eval(k=args.k, limit=args.limit, quiet=args.quiet)
+    rep = run_eval(k=args.k, limit=args.limit, quiet=args.quiet,
+                   gate=args.gate, gate_min_cos=args.gate_min_cos,
+                   gate_profile=args.gate_profile)
     if rep is None:
         return 2
     _save_report(rep)
