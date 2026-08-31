@@ -13,7 +13,19 @@ except Exception:
     from phone_db import stage_phone_pull
 
 _ROW_KEYS = ("sid", "site_id", "audio_ch_num", "audio_module_num", "ani",
-             "dnis", "call_id", "interaction_type_id", "personal_id")
+             "dnis", "call_id", "interaction_type_id", "personal_id",
+             "personal_name")
+
+
+def _agent_name(raw):
+    """personal_name 'Belakang, Depan' -> 'Depan Belakang' (nama agen)."""
+    s = str(raw or "").strip()
+    if "," in s:
+        last, first = s.split(",", 1)
+        last, first = last.strip(), first.strip()
+        if last and first:
+            return first + " " + last
+    return s
 
 
 def _dur_seconds(iso):
@@ -122,6 +134,7 @@ def pull_day(client, conn, day_from, day_to=None, limit=25, pulled_by=None, down
             "ani": r.get("ani"), "dnis": r.get("dnis"), "call_id": r.get("call_id"),
             "site_id": r.get("site_id"), "durasi": dur, "audio_ref": audio_ref,
             "has_audio": 1 if audio_ref else 0,
+            "agent_name": _agent_name(r.get("personal_name")),
         })
         details.append({"sid": r["sid"], "audio": bool(audio_ref),
                         "durasi": dur, "note": note})
