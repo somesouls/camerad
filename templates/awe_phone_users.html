@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Pengguna Harian AWE Phone · Camerad Studio{% endblock %}
+{% block head %}
+<style>
+.page-header{margin-bottom:24px;}
+.page-title{font-size:24px;font-weight:800;margin:0 0 8px;color:var(--text-main);}
+.page-desc{font-size:14.5px;color:var(--text-muted);margin:0;line-height:1.6;max-width:820px;}
+.c-card{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:16px;padding:24px;margin-bottom:20px;box-shadow:var(--shadow-sm);}
+.stage-head{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
+.stage-title{margin:0;font-size:18px;font-weight:700;color:var(--text-main);}
+.pill{font-size:12px;padding:4px 12px;border-radius:99px;background:var(--c-green);color:var(--c-green-txt);font-weight:600;}
+.form-row{display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px;align-items:flex-end;}
+.field{display:flex;flex-direction:column;gap:6px;min-width:170px;}
+.field label{font-size:13px;font-weight:600;color:var(--text-muted);}
+.field input{padding:11px 14px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base);color:var(--text-main);font-size:14.5px;font-family:inherit;outline:none;transition:.2s;}
+.field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
+.btn-modern{padding:11px 20px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;font-size:14px;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 12px var(--accent-glow);}
+.btn-modern:hover{background:var(--accent-hover);transform:translateY(-1px);}
+.btn-outline{background:transparent;border:1px solid var(--panel-border);color:var(--text-main);box-shadow:none;}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-glow);}
+.table-modern{width:100%;border-collapse:collapse;margin-top:8px;font-size:13.5px;}
+.table-modern th,.table-modern td{border:1px solid var(--panel-border);padding:9px 12px;text-align:left;}
+.table-modern th{background:var(--c-blue);color:var(--c-blue-txt);font-weight:600;}
+.table-modern td{color:var(--text-main);background:rgba(0,0,0,.10);}
+[data-theme="light"] .table-modern td{background:var(--bg-base);}
+.muted-text{color:var(--text-muted);font-size:13.5px;line-height:1.5;margin:0 0 8px;}
+.code-inline{font-family:ui-monospace,Menlo,monospace;font-size:12.5px;padding:1px 6px;border-radius:6px;background:var(--panel-border);color:var(--text-main);}
+.status{margin-top:16px;padding:12px 16px;border-radius:10px;font-size:14px;display:none;line-height:1.5;}
+.status.show{display:block;background:var(--panel-border);color:var(--text-main);}
+.status.ok{background:var(--c-green);color:var(--c-green-txt);}
+.status.err{background:var(--c-red);color:var(--c-red-txt);}
+.sec-h{font-size:13px;font-weight:700;color:var(--text-main);margin:0 0 8px;}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:6px 0 4px;}
+.kpi{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:12px;padding:12px 14px;}
+.kpi .n{font-size:21px;font-weight:800;color:var(--text-main);}
+.kpi .l{font-size:12px;color:var(--text-muted);margin-top:2px;}
+.bar-row{display:flex;align-items:center;gap:8px;margin:5px 0;font-size:13px;}
+.bar-row .lab{width:44%;color:var(--text-main);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.bar-row .bar{flex:1;height:13px;border-radius:7px;background:var(--panel-border);overflow:hidden;}
+.bar-row .bar span{display:block;height:100%;background:var(--accent);}
+.bar-row .val{width:56px;text-align:right;color:var(--text-muted);}
+.row-click{cursor:pointer;}
+.row-click:hover td{background:var(--accent-glow);}
+</style>
+{% endblock %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">Pengguna Harian AWE Phone</h1>
+  <p class="page-desc">Siapa yang paling sering menghubungi Kring Pajak, dikelompokkan per <b>nomor telepon penelepon (ANI)</b> dengan <b>deteksi tema otomatis</b>. Klik satu nomor untuk melihat seluruh panggilannya. Terpisah total dari data Chat.</p>
+</div>
+<section class="c-card">
+  <div class="stage-head"><h2 class="stage-title">Ringkasan Penelepon</h2><span class="pill" id="puPill">&mdash;</span></div>
+  <div class="form-row">
+    <div class="field"><label>Dari tanggal</label><input type="date" id="pu_from"></div>
+    <div class="field"><label>Sampai tanggal</label><input type="date" id="pu_to"></div>
+    <div class="field"><button class="btn-modern" id="puLoad">Muat</button></div>
+  </div>
+  <div class="kpi-grid" id="puKpi"></div>
+  <div class="sec-h" style="margin-top:16px;">Frekuensi menghubungi</div>
+  <div id="puFreq"><p class="muted-text">&mdash;</p></div>
+</section>
+<section class="c-card">
+  <div class="stage-head"><h2 class="stage-title">Penelepon Teratas</h2></div>
+  <div style="overflow-x:auto;">
+    <table class="table-modern"><thead><tr><th>No. Penelepon</th><th>Panggilan</th><th>Hari</th><th>Tema teratas</th><th>Sentimen</th><th>Resolusi</th><th>Agen tersering</th></tr></thead><tbody id="puBody"><tr><td colspan="7" style="text-align:center;">&mdash;</td></tr></tbody></table>
+  </div>
+  <div class="status" id="puStat"></div>
+  <div id="puConvPanel" style="display:none;margin-top:16px;"></div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script src="/static/awe_phone_users.js?v=1"></script>
+{% endblock %}
