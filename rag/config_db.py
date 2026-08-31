@@ -24,6 +24,12 @@ v30: migrasi lunak tambahan — bila prompt profil chatbot ternyata PERSIS promp
 bawaan AGENT (salah-isi bawaan lama), dikembalikan ke prompt bawaan chatbot
 (anti over-abstain). Prompt kustom admin tidak disentuh.
 
+v33 (paritas prompt agent): prompt profil AGENT dinaikkan agar setara chatbot —
+anti over-abstain untuk kueri singkat/informal, mencantumkan catatan status atau
+peraturan pengubah (induk) sebagai caveat dasar hukum, serta larangan
+menampilkan nomor/pasal yang tak hadir di konteks. Migrasi lunak: agent hanya
+di-upgrade bila prompt tersimpan masih PERSIS bawaan lama (belum dikustom admin).
+
 Env: PIPELINE_RAG_DB_FILE atau 'rag.db'.
 """
 import os
@@ -102,7 +108,9 @@ _PROMPT_CHATBOT = (
     "menampilkan nama sumber internal kepada pengguna."
 )
 
-_PROMPT_AGENT = (
+# Versi LAMA prompt agent (dipakai untuk migrasi lunak: hanya di-upgrade bila
+# prompt tersimpan di DB masih PERSIS sama dengan ini alias belum dikustom admin).
+_PROMPT_AGENT_LAMA = (
     "PERAN\n"
     "Kamu adalah asisten untuk petugas Agent Kring Pajak. Bantu petugas "
     "menemukan jawaban yang akurat beserta rujukannya. Bahasa Indonesia "
@@ -117,6 +125,35 @@ _PROMPT_AGENT = (
     "{{sumber}}\n\n"
     "BILA TIDAK ADA DI DATA\n"
     "Jika konteks tidak memuat informasi relevan, balas PERSIS: \"{{fallback}}\""
+)
+
+_PROMPT_AGENT = (
+    "PERAN\n"
+    "Kamu adalah asisten untuk petugas Agent Kring Pajak. Bantu petugas "
+    "menemukan jawaban yang akurat beserta rujukannya. Bahasa Indonesia "
+    "formal dan lugas.\n\n"
+    "SUMBER JAWABAN\n"
+    "Gunakan HANYA \"KONTEKS INTERNAL\". Petakan: pertanyaan aplikasi/prosedur "
+    "-> @sop @sosmed @awe; dasar hukum -> @peraturan; maksud/intent -> @intent. "
+    "Dilarang memakai pengetahuan umum/web atau mengarang.\n\n"
+    "{{konteks}}\n\n"
+    "CARA MENJAWAB\n"
+    "- Bila konteks memuat informasi yang relevan (meski hanya SEBAGIAN), "
+    "JAWAB dari bagian yang relevan itu. Jangan menolak menjawab hanya karena "
+    "konteks terasa kurang lengkap atau pertanyaan singkat/informal.\n"
+    "- Berikan jawaban runut. Bila konteks memuat catatan status peraturan "
+    "(mis. peraturan telah diubah/dicabut, atau ada peraturan pengubah maupun "
+    "induk pengubahnya), cantumkan pula catatan itu pada bagian dasar hukum "
+    "sebagai caveat agar petugas memverifikasi versi mutakhir.\n"
+    "- Jangan menampilkan nomor atau pasal peraturan yang TIDAK hadir di "
+    "konteks. Kutip hanya rujukan yang benar-benar ada pada \"KONTEKS "
+    "INTERNAL\".\n"
+    "- Cantumkan rujukan pada bagian akhir:\n"
+    "{{sumber}}\n\n"
+    "BILA TIDAK ADA DI DATA\n"
+    "Gunakan kalimat fallback PERSIS berikut HANYA bila konteks benar-benar "
+    "TIDAK memuat informasi apa pun yang berkaitan dengan pertanyaan: "
+    "\"{{fallback}}\""
 )
 
 _DEFAULTS = {
@@ -193,10 +230,24 @@ def init_db(conn):
     # chatbot. Prompt kustom admin TIDAK diubah.
     try:
         r = conn.execute("SELECT system_prompt FROM rag_profile WHERE id='chatbot'").fetchone()
-        if r and (r[0] or "").strip() == _PROMPT_AGENT.strip():
+        if r and (r[0] or "").strip() == _PROMPT_AGENT_LAMA.strip():
             conn.execute(
                 "UPDATE rag_profile SET system_prompt=?, updated_at=? WHERE id='chatbot'",
                 (_PROMPT_CHATBOT, now),
+            )
+    except Exception:
+        pass
+    # Migrasi lunak v33 (paritas prompt agent): bila prompt profil agent masih
+    # PERSIS bawaan LAMA (belum dikustom admin), naikkan ke prompt agent baru
+    # (anti over-abstain kueri singkat/informal + caveat induk pengubah/status
+    # peraturan + larangan pasal di luar konteks). Prompt kustom admin TIDAK
+    # diubah.
+    try:
+        r = conn.execute("SELECT system_prompt FROM rag_profile WHERE id='agent'").fetchone()
+        if r and (r[0] or "").strip() == _PROMPT_AGENT_LAMA.strip():
+            conn.execute(
+                "UPDATE rag_profile SET system_prompt=?, updated_at=? WHERE id='agent'",
+                (_PROMPT_AGENT, now),
             )
     except Exception:
         pass
