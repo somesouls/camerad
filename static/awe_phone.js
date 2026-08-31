@@ -108,10 +108,10 @@ function renderDetail(it){
   var ent=it.entitas||a.entitas||{};var poin=it.poin_penting||a.poin_penting||[];
   var catatan=(a.catatan_kualitas!=null?a.catatan_kualitas:(it.catatan_kualitas||''));
   var dialog=(a.dialog&&a.dialog.length)?a.dialog:(it.transkrip||[]);
-  var pelanggan=it.customer||it.ani||'-';
+  var nomor=it.ani||'-';
   function box(k,v){return '<div class="meta-box"><div class="k">'+k+'</div><div class="v">'+esc(v||'-')+'</div></div>';}
   var html='<div class="detail-wrap"><div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><div class="sec-h" style="margin-top:0;">Detail interaksi <span class="code-inline">'+esc(it.sid||'')+'</span></div><button class="btn-modern btn-outline" id="dClose">Tutup</button></div>';
-  html+='<div class="detail-grid">'+box('Waktu',fmtTime(it))+box('Durasi',fmtDur(it.durasi))+box('Agen',it.agent_name)+box('Penelepon',pelanggan)+box('Topik',topik)+box('Jenis layanan',jenis)+box('Sentimen',sentimen)+box('Emosi',emosi)+box('Resolusi',resolusi)+'<div class="meta-box"><div class="k">Frustrasi</div><div class="v">'+yn(frust)+'</div></div></div>';
+  html+='<div class="detail-grid">'+box('Waktu',fmtTime(it))+box('Durasi',fmtDur(it.durasi))+box('Agen',it.agent_name)+box('No. Penelepon',nomor)+box('Topik',topik)+box('Jenis layanan',jenis)+box('Sentimen',sentimen)+box('Emosi',emosi)+box('Resolusi',resolusi)+'<div class="meta-box"><div class="k">Frustrasi</div><div class="v">'+yn(frust)+'</div></div></div>';
   if(ringkasan){html+='<div class="sec-h">Ringkasan</div><p class="muted-text">'+esc(ringkasan)+'</p>';}
   html+='<div class="sec-h">Entitas</div><div class="muted-text" style="margin-bottom:4px;">Nama: '+tags(ent.nama)+'</div><div class="muted-text" style="margin-bottom:4px;">Nomor: '+tags(ent.nomor)+'</div><div class="muted-text">Lainnya: '+tags(ent.lainnya)+'</div>';
   if(poin&&poin.length){html+='<div class="sec-h">Poin penting</div><ul class="muted-text" style="padding-left:18px;">'+poin.map(function(x){return '<li>'+esc(x)+'</li>';}).join('')+'</ul>';}
