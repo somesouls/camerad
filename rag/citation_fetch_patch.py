@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """rag/citation_fetch_patch.py — fetch sitasi eksplisit nomor+pasal (Tahap 4f).
 
-Masalah yang diperbaiki: query sitasi seperti \"isi Pasal 40 PMK 81 Tahun 2024\"
+Masalah yang diperbaiki: query sitasi seperti "isi Pasal 40 PMK 81 Tahun 2024"
 bisa ABSTAIN walau unit-nya ADA di DB. Tiga penyebab bertumpuk di jalur
 peraturan:
   1. filter status keras di peraturan.db.search (default hanya 'berlaku') ->
@@ -14,7 +14,9 @@ peraturan:
 Patch ini memasang lapis TERLUAR pada _ctx_peraturan. BILA query menyebut nomor
 peraturan + pasal EKSPLISIT: tarik unit persis via SQL mentah LINTAS SEMUA
 STATUS (kebal FTS/vektor/gerbang), tampilkan ISI-nya + penanda status + pointer
-penerus (via trace_successor) untuk status diubah/dicabut. Query tanpa sitasi
+pengubah SADAR-PASAL (Tahap 4f-1: cari peraturan pengubah INDUK lewat pola judul
+"NOMOR <n> TAHUN <t>", tandai yang menyebut pasal ini secara spesifik; fallback
+redaksi aman yang TIDAK mengklaim pengganti tanpa verifikasi). Query tanpa sitasi
 nomor+pasal -> passthrough ke perilaku lama (nol dampak).
 
 Knob RAG_CITATION_FETCH per-profil via rag.knob_store (store>env>default True),
@@ -24,7 +26,7 @@ normal (delegasi _prev) tetap memakai successor+validity+drilldown yang ada.
 Gagal-anggun penuh: error apa pun -> jalur lama. Tanpa f-string (gaya repo).
 
 Uji cepat mandiri:
-    python rag/citation_fetch_patch.py \"isi Pasal 40 PMK 81 Tahun 2024\"
+    python -m rag.citation_fetch_patch "isi Pasal 40 PMK 81 Tahun 2024"
 """
 import os as _os
 import re as _re_std
@@ -55,12 +57,15 @@ except Exception:            # pragma: no cover
         r"|(?:PMK|KMK|PP|UU|PERPU|PERPPU|PERMENKEU)\s*-?\s*\d+\s*(?:TAHUN\s*)?/?\s*\d{4}",
         _re_std.IGNORECASE)
 
-# nomor + pasal EKSPLISIT: \"pasal 40\", \"Pasal 40A\", \"pasal40\".
+# nomor + pasal EKSPLISIT: "pasal 40", "Pasal 40A", "pasal40".
 _RE_PASAL = _re_std.compile(r"pasal\s*(\d+[a-z]?)", _re_std.IGNORECASE)
 _RE_JENIS = _re_std.compile(
     r"(PERMENKEU|PERPPU|PERPU|PMK|KMK|KEP|PENG|PER|SE|PP|UU)", _re_std.IGNORECASE)
 _RE_TAHUN = _re_std.compile(r"(?:19|20)\d{2}")
 _RE_ANGKA = _re_std.compile(r"\d+")
+# verba perubahan utk deteksi pasal SPESIFIK di teks peraturan pengubah.
+_RE_UBAH = _re_std.compile(r"diubah|dihapus|disisip|diganti|dicabut",
+                           _re_std.IGNORECASE)
 
 _prev = None  # _ctx_peraturan sebelum patch ini (diisi saat pasang)
 
@@ -167,37 +172,74 @@ def _fetch_units(jenis, nomor, tahun, pasal):
     return _rows_to_dicts(rows)
 
 
-def _successor_pointer(d):
-    """Label penerus (nomor/judul/tanggal/status) via trace_successor. '' bila
-    tak ada / gagal."""
-    if _pdb is None:
-        return ""
-    sid = str(d.get("source_id") or "").strip()
-    if not sid:
-        return ""
-    langkah = []
+def _amender_pointer(base_nomor, base_tahun, pasal):
+    """Cari peraturan PENGUBAH INDUK secara SADAR-PASAL (Tahap 4f-1).
+
+    Alih-alih trace_successor (relasi dokumen-level yang bisa salah-topik — mis.
+    untuk Pasal 40 PMK 81/2024 malah menunjuk PMK 11/2025 soal Nilai Lain PPN),
+    telusuri unit yang JUDUL-nya menyebut "NOMOR <base_nomor> TAHUN <base_tahun>"
+    dan berstatus 'berlaku' -> itulah peraturan pengubah induk yang sebenarnya
+    (PMK 54/2025, PMK 1/2026, dst). Bila ada unit pengubah yang menyebut
+    "Pasal <pasal>" + verba perubahan -> tandai sebagai kandidat pengubah
+    SPESIFIK pasal ini.
+
+    Kembalikan (spesifik, umum): dua daftar label peraturan (jenis+nomor), unik
+    & urut. Gagal-anggun -> ([], []).
+    """
+    if _pdb is None or not base_nomor or not base_tahun:
+        return ([], [])
+    conn = None
+    rows = []
     try:
-        tr = getattr(_pdb, "trace_successor", None)
-        if callable(tr):
-            langkah = tr(sid, 3) or []
+        conn = _pdb.init_db(_pdb.connect())
+        like = "%NOMOR " + str(base_nomor) + " TAHUN " + str(base_tahun) + "%"
+        sql = ("SELECT jenis_peraturan, nomor, tahun, judul, isi, status "
+               "FROM peraturan_unit WHERE judul LIKE ? AND status = 'berlaku' "
+               "ORDER BY tahun DESC, nomor DESC LIMIT 500")
+        rows = conn.execute(sql, (like,)).fetchall()
     except Exception:
-        langkah = []
-    labels = []
-    for st in langkah:
-        if not isinstance(st, dict):
+        rows = []
+    finally:
+        try:
+            if conn is not None:
+                conn.close()
+        except Exception:
+            pass
+    rows = _rows_to_dicts(rows)
+    pasal_l = str(pasal or "").strip()
+    ref_re = None
+    if pasal_l:
+        ref_re = _re_std.compile(
+            r"pasal\s*0*" + _re_std.escape(pasal_l) + r"(?![0-9a-zA-Z])",
+            _re_std.IGNORECASE)
+    base_digits = ""
+    mb = _RE_ANGKA.search(str(base_nomor))
+    if mb:
+        base_digits = mb.group(0)
+    base_key = (base_digits, str(base_tahun).strip())
+    spesifik, umum, seen = [], [], set()
+    for d in rows:
+        jenis = str(d.get("jenis_peraturan") or "").strip()
+        nomor = str(d.get("nomor") or "").strip()
+        tahun = str(d.get("tahun") or "").strip()
+        num_digits = ""
+        mn = _RE_ANGKA.search(nomor)
+        if mn:
+            num_digits = mn.group(0)
+        # lewati induk itu sendiri (nomor+tahun sama dgn yang diminta).
+        if (num_digits, tahun) == base_key:
             continue
-        lab = " ".join(x for x in [str(st.get("nomor") or "").strip(),
-                                   str(st.get("judul") or "").strip()] if x).strip()
-        if not lab:
+        reg = " ".join(x for x in [jenis, nomor] if x).strip()
+        if not reg:
             continue
-        tgl = str(st.get("tanggal") or "").strip()
-        stat = str(st.get("status") or "").strip()
-        if tgl:
-            lab = lab + " (" + tgl + ")"
-        if stat:
-            lab = lab + " [" + stat + "]"
-        labels.append(lab)
-    return "; ".join(labels)
+        isi = str(d.get("isi") or "")
+        is_spesifik = bool(ref_re and ref_re.search(isi) and _RE_UBAH.search(isi))
+        if reg not in seen:
+            seen.add(reg)
+            umum.append(reg)
+        if is_spesifik and reg not in spesifik:
+            spesifik.append(reg)
+    return (spesifik[:3], umum[:5])
 
 
 def _clip(s, n):
@@ -242,6 +284,13 @@ def _ctx_peraturan_citation(q, limit=4):
         # Sitasi terdeteksi tapi unit tak ketemu -> jalur lama (jangan memburukkan).
         return _prev(q, limit)
 
+    # Pointer pengubah SADAR-PASAL (Tahap 4f-1): dihitung sekali dari sitasi.
+    try:
+        sp_regs, um_regs = _amender_pointer(cit.get("nomor"), cit.get("tahun"),
+                                            cit.get("pasal"))
+    except Exception:
+        sp_regs, um_regs = [], []
+
     blocks, sources, catatan = [], [], []
     seen = set()
     for d in units:
@@ -267,20 +316,32 @@ def _ctx_peraturan_citation(q, limit=4):
         sources.append({"sumber": "Peraturan", "judul": head,
                         "ref": (reference or hierarchy), "url": source_url})
         if status in ("diubah", "dicabut"):
-            pointer = _successor_pointer(d)
-            if pointer:
+            pasal_txt = str(cit.get("pasal") or d.get("pasal") or "").strip()
+            if sp_regs:
                 catatan.append(
                     "CATATAN STATUS HUKUM: " + head + " berstatus " + status
                     + ". Isi di atas adalah bunyi ASLI pasal tersebut dan BOLEH "
-                    "dikutip sebagai isi pasal yang diminta pengguna, NAMUN untuk "
-                    "ketentuan yang berlaku saat ini rujuk penerus: " + pointer
-                    + ". Sebutkan status ini pada bagian DASAR HUKUM.")
+                    "dikutip sebagai isi pasal yang diminta pengguna. Peraturan yang "
+                    "MENGUBAH pasal ini (verifikasi bunyi perubahannya sebelum "
+                    "dijadikan dasar): " + "; ".join(sp_regs)
+                    + ". Sebutkan status '" + status + "' ini pada bagian DASAR HUKUM.")
+            elif um_regs:
+                catatan.append(
+                    "CATATAN STATUS HUKUM: " + head + " berstatus " + status
+                    + ". Isi di atas adalah bunyi ASLI pasal tersebut dan BOLEH "
+                    "dikutip sebagai isi pasal yang diminta pengguna. Peraturan "
+                    "INDUK-nya telah beberapa kali diubah oleh: " + "; ".join(um_regs)
+                    + ". JANGAN mengklaim salah satu pasti mengubah Pasal "
+                    + (pasal_txt or "tersebut") + " tanpa verifikasi; periksa "
+                    "perubahan spesifik pasal ini di peraturan pengubah. Sebutkan "
+                    "status '" + status + "' ini pada bagian DASAR HUKUM.")
             else:
                 catatan.append(
                     "CATATAN STATUS HUKUM: " + head + " berstatus " + status
                     + ". Isi di atas adalah bunyi ASLI pasal tersebut (boleh dikutip "
-                    "sebagai isi pasal yang diminta); penerus resmi belum tercatat "
-                    "di database — sarankan konfirmasi ke TL/SC.")
+                    "sebagai isi pasal yang diminta); peraturan pengubah spesifik "
+                    "belum tercatat di database — JANGAN mengarang pengganti, "
+                    "sarankan konfirmasi ke TL/SC.")
 
     if not blocks:
         return _prev(q, limit)
@@ -356,6 +417,9 @@ def _selftest(q):
     for d in units:
         print("-", d.get("jenis_peraturan"), d.get("nomor"), "pasal",
               d.get("pasal"), "status", d.get("status"), "sid", d.get("source_id"))
+    sp, um = _amender_pointer(cit.get("nomor"), cit.get("tahun"), cit.get("pasal"))
+    print("pengubah spesifik-pasal:", sp)
+    print("pengubah induk (umum):", um)
     txt, src = _ctx_peraturan_citation(q, 4)
     print("\n=== KONTEKS ===\n" + (txt or "(kosong)"))
     print("\n=== SUMBER (%d) ===" % len(src))
