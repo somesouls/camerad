@@ -54,6 +54,13 @@ def _rows_from_search(client, day_from, day_to, limit):
         c = row[i]
         return str(c.get("Text") or c.get("Date") or c.get("ItemId") or "").strip()
 
+    def _dat(row, key):
+        i = cm.get(key)
+        if i is None or i >= len(row) or not isinstance(row[i], dict):
+            return ""
+        c = row[i]
+        return str(c.get("Date") or c.get("Text") or "").strip()
+
     try:
         cap = max(1, int(limit or 25))
     except Exception:
@@ -63,7 +70,7 @@ def _rows_from_search(client, day_from, day_to, limit):
         if not (_txt(row, "audio_ch_num") and _txt(row, "audio_module_num")):
             continue
         r = {k: _txt(row, k) for k in _ROW_KEYS}
-        r["gmt"] = _txt(row, "audio_start_time_gmt")
+        r["gmt"] = _dat(row, "audio_start_time_gmt")
         if r.get("sid"):
             out.append(r)
         if len(out) >= cap:
