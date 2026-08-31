@@ -7,23 +7,39 @@ retrieval hybrid (dipakai lewat rag_rerank_patch yang membungkus
 peraturan_db.search):
 
   1. expand_kamus(q)  -> tambah istilah baku/sinonim dari rag_kamus_db.
-  2. rewrite_ai(q)    -> FITUR REWRITING OTOMATIS AI: mengubah pertanyaan awam
+  2. varian_baku(q)   -> REWRITE DUA-ARAH DETERMINISTIK (non-LLM): ubah gaya
+                         kolokial/akronim menjadi istilah baku pajak (mis.
+                         "pkp itu apa sih" -> "pkp apa Pengusaha Kena Pajak";
+                         "batas daftar NPWP PT baru berdiri" -> tambah
+                         "jangka waktu pendaftaran Nomor Pokok Wajib Pajak
+                         Perseroan Terbatas Wajib Pajak Badan yang baru
+                         didirikan"). Tetap jalan saat AI-rewrite dimatikan
+                         (RAG_REWRITE_AI=0) maupun di eval (rewrite_ai=0).
+  3. rewrite_ai(q)    -> FITUR REWRITING OTOMATIS AI: mengubah pertanyaan awam
                          menjadi query hukum formal + menebak jenis peraturan /
                          pasal / istilah terkait (hanya sebagai PETUNJUK
                          pencarian, BUKAN fakta jawaban).
-  3. untuk_retrieval(q) -> gabungan query efektif (q + kamus + istilah formal AI)
-                          yang dipakai untuk retrieval. Rerank tetap memakai
+  4. untuk_retrieval(q) -> gabungan query efektif (q + baku deterministik +
+                          kamus + istilah formal AI) yang dipakai untuk
+                          retrieval. Rerank & gerbang cosine tetap memakai
                           query ASLI.
+  5. varian_kueri(q)  -> [q_asli, q_baku] (deduplikasi) untuk penilai gerbang
+                          yang ingin menilai cosine MAKS lintas-varian.
+                          Deterministik; dikonsumsi rag_calibration_patch pada
+                          langkah penyambungan gerbang (menyusul).
 
 AI rewriting hanya dijalankan untuk pertanyaan bergaya natural (bukan sekadar
 kutipan nomor peraturan) dan hasilnya di-cache per-query agar tidak memanggil
 LLM berkali-kali dalam satu jawaban.
 
 Konfigurasi (env):
-  RAG_REWRITE_AI            '1' (default) aktif; '0' matikan (kamus tetap jalan).
+  RAG_REWRITE_AI            '1' (default) aktif; '0' matikan (kamus + rewrite
+                            dua-arah deterministik tetap jalan).
   RAG_REWRITE_AI_PROFILES   daftar profil (dipisah koma) yang boleh AI-rewrite;
                             kosong = semua boleh. Mis. 'agent' -> chatbot dilewati.
-Gagal-anggun: setiap kegagalan -> kembali ke query asli/tanpa AI.
+  RAG_TWOWAY_REWRITE        '1' (default) aktif rewrite dua-arah deterministik;
+                            '0' matikan (kembali ke perilaku lama: q + kamus + AI).
+Gagal-anggun: setiap kegagalan -> kembali ke query asli/tanpa rewrite.
 """
 import os
 import re
@@ -54,6 +70,12 @@ _KATA_TANYA = ("apa", "apakah", "bagaimana", "gimana", "kenapa", "mengapa",
 
 def _ai_enabled():
     return str(os.environ.get("RAG_REWRITE_AI", "1")).strip().lower() not in (
+        "0", "false", "no", "off")
+
+
+def _twoway_enabled():
+    """True bila rewrite dua-arah deterministik aktif (default ON)."""
+    return str(os.environ.get("RAG_TWOWAY_REWRITE", "1")).strip().lower() not in (
         "0", "false", "no", "off")
 
 
@@ -117,19 +139,139 @@ def expand_kamus(q):
         return []
 
 
-def _is_natural(q):
-    """True bila query layak di-rewrite AI (pertanyaan natural, bukan kutipan)."""
-    ql = (q or "").strip().lower()
-    if len(ql) < 8:
-        return False
-    if _RE_SITASI.search(ql):
-        return False
-    n_kata = len(re.findall(r"\w+", ql))
-    if n_kata < 3:
-        return False
-    if any(k in ql.split() for k in _KATA_TANYA):
-        return True
-    return n_kata >= 5
+# ==========================================================================
+# Rewrite DUA-ARAH deterministik (non-LLM) — kolokial/akronim -> baku pajak.
+# Bekerja tanpa LLM, jadi tetap aktif pada mode 'cepat', RAG_REWRITE_AI=0,
+# maupun evaluasi (phase4_eval rewrite_ai=0). Semua bersifat ADITIF: istilah
+# baku ditambahkan, tidak menghapus makna asli, sehingga aman (gagal-anggun).
+# ==========================================================================
+
+# Akronim/istilah pendek -> frasa baku. Dicocokkan sebagai KATA UTUH (\b).
+_ISTILAH_BAKU = {
+    "pkp": "Pengusaha Kena Pajak",
+    "bkp": "Barang Kena Pajak",
+    "jkp": "Jasa Kena Pajak",
+    "npwp": "Nomor Pokok Wajib Pajak",
+    "nppn": "Norma Penghitungan Penghasilan Neto",
+    "spln": "Subjek Pajak Luar Negeri",
+    "spdn": "Subjek Pajak Dalam Negeri",
+    "wpln": "Wajib Pajak Luar Negeri",
+    "wpdn": "Wajib Pajak Dalam Negeri",
+    "wpop": "Wajib Pajak Orang Pribadi",
+    "pt": "Perseroan Terbatas Wajib Pajak Badan",
+    "ppn": "Pajak Pertambahan Nilai",
+    "pph": "Pajak Penghasilan",
+    "pbb": "Pajak Bumi dan Bangunan",
+    "ptkp": "Penghasilan Tidak Kena Pajak",
+    "njop": "Nilai Jual Objek Pajak",
+    "njoptkp": "Nilai Jual Objek Pajak Tidak Kena Pajak",
+    "skb": "Surat Keterangan Bebas",
+    "sktd": "Surat Keterangan Tidak Dipungut",
+    "skd": "Surat Keterangan Domisili",
+    "spt": "Surat Pemberitahuan",
+    "efin": "Electronic Filing Identification Number",
+    "ikn": "Ibu Kota Nusantara",
+    "umkm": "Usaha Mikro Kecil dan Menengah",
+    "p3b": "Persetujuan Penghindaran Pajak Berganda",
+}
+_RE_AKRONIM = re.compile(
+    r"\b(" + "|".join(
+        sorted((re.escape(k) for k in _ISTILAH_BAKU), key=len, reverse=True))
+    + r")\b",
+    re.IGNORECASE,
+)
+
+# Frasa kolokial -> frasa baku (substring, case-insensitive). Aditif.
+_FRASA_BAKU = (
+    ("keringanan pajak", "fasilitas pengurangan pajak"),
+    ("batas daftar", "jangka waktu pendaftaran"),
+    ("batas setor", "jangka waktu penyetoran"),
+    ("batas bayar", "jangka waktu penyetoran"),
+    ("batas lapor", "jangka waktu pelaporan"),
+    ("telat lapor", "terlambat menyampaikan"),
+    ("telat bayar", "terlambat menyetor"),
+    ("denda telat", "sanksi administrasi keterlambatan"),
+    ("baru berdiri", "yang baru didirikan"),
+    ("baru bikin", "yang baru didirikan"),
+    ("daftar npwp", "pendaftaran Nomor Pokok Wajib Pajak"),
+    ("peralihan", "ketentuan peralihan"),
+    ("bedanya", "perbedaan"),
+)
+
+# Kata pengisi kolokial yang dibuang pada varian baku (tak mengubah makna).
+_FILLER = set("""sih dong kok nih deh tuh min kak pak bu bang gan aja doang bgt
+banget gitu gtu loh lho ya yaa yah dah nya kan woy bro sis ges gaes""".split())
+
+# Normalisasi ejaan singkat kolokial -> baku.
+_EJAAN = {
+    "gmn": "bagaimana", "gmna": "bagaimana", "gimana": "bagaimana",
+    "klo": "kalau", "kalo": "kalau", "utk": "untuk", "yg": "yang",
+    "dgn": "dengan", "tdk": "tidak", "gak": "tidak", "ga": "tidak",
+    "nggak": "tidak", "brp": "berapa", "dr": "dari", "krn": "karena",
+    "bikin": "membuat", "buat": "untuk",
+}
+
+
+def _strip_normalize(q):
+    """Buang kata pengisi kolokial + normalisasi ejaan singkat. Aman & cepat."""
+    out = []
+    for w in re.findall(r"[A-Za-z0-9/\-]+", q or ""):
+        lw = w.lower()
+        if lw in _FILLER:
+            continue
+        out.append(_EJAAN.get(lw, w))
+    return " ".join(out)
+
+
+def varian_baku(q):
+    """Varian BAKU deterministik dari query kolokial (string, non-LLM).
+
+    = query (setelah buang filler + normalisasi ejaan) + frasa baku hasil
+    ekspansi akronim/frasa. ADITIF: tak menghapus makna asli. Gagal-anggun ->
+    string kosong bila input kosong/tak ada tambahan.
+    """
+    q = (q or "").strip()
+    if not q:
+        return ""
+    base = _strip_normalize(q)
+    base_l = base.lower()
+    extra = []
+    for m in _RE_AKRONIM.findall(q):
+        baku = _ISTILAH_BAKU.get(str(m).lower())
+        if baku and baku.lower() not in base_l and baku not in extra:
+            extra.append(baku)
+    ql = q.lower()
+    for src, dst in _FRASA_BAKU:
+        if src in ql and dst.lower() not in base_l and dst not in extra:
+            extra.append(dst)
+    extra = extra[:8]
+    v = (base + (" " + " ".join(extra) if extra else "")).strip()
+    return v
+
+
+def varian_kueri(q):
+    """Daftar varian kueri untuk penilai gerbang cosine MAKS lintas-varian.
+
+    Kembalikan [q_asli] bila rewrite dua-arah nonaktif / tak ada varian baru,
+    atau [q_asli, q_baku] (deduplikasi case-insensitive). Dikonsumsi
+    rag_calibration_patch untuk menilai cosine terbaik antar-varian sehingga
+    kueri sah bergaya kolokial tidak keburu digerbang (false-abstain), tanpa
+    menurunkan ambang bagi kueri luar-domain (OOD tak punya padanan baku).
+    Deterministik & gagal-anggun.
+    """
+    q = (q or "").strip()
+    if not q:
+        return []
+    out = [q]
+    if not _twoway_enabled():
+        return out
+    try:
+        v = varian_baku(q)
+    except Exception:
+        v = ""
+    if v and v.lower() != q.lower():
+        out.append(v)
+    return out
 
 
 _SYS_REWRITE = (
@@ -195,8 +337,24 @@ def rewrite_ai(q, force=False):
         return base
 
 
+def _is_natural(q):
+    """True bila query layak di-rewrite AI (pertanyaan natural, bukan kutipan)."""
+    ql = (q or "").strip().lower()
+    if len(ql) < 8:
+        return False
+    if _RE_SITASI.search(ql):
+        return False
+    n_kata = len(re.findall(r"\w+", ql))
+    if n_kata < 3:
+        return False
+    if any(k in ql.split() for k in _KATA_TANYA):
+        return True
+    return n_kata >= 5
+
+
 def untuk_retrieval(q):
-    """Query efektif untuk retrieval = q + kamus + istilah formal AI.
+    """Query efektif untuk retrieval = q + baku deterministik + kamus + istilah
+    formal AI.
 
     Dipakai rag_rerank_patch sebelum memanggil peraturan_db.search asli.
     Rerank & gerbang cosine tetap memakai query ASLI (bukan hasil ini).
@@ -211,6 +369,12 @@ def untuk_retrieval(q):
         if f and f.lower() not in [x.lower() for x in frags]:
             frags.append(f)
 
+    # (0) Rewrite dua-arah deterministik (non-LLM) — aktif walau AI dimatikan.
+    if _twoway_enabled():
+        try:
+            _add(varian_baku(q))
+        except Exception:
+            pass
     for t in expand_kamus(q):
         _add(t)
     try:
