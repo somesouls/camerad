@@ -21,6 +21,14 @@ try:
 except Exception:
     from phone_db import save_phone_analysis, init_phone_db
 
+try:
+    from .phone_glossary import asr_context as _asr_context
+except Exception:
+    try:
+        from phone_glossary import asr_context as _asr_context
+    except Exception:
+        _asr_context = None
+
 
 def _asr_python():
     return os.environ.get("AWE_ASR_PY") or os.path.join(".venv-asr", "Scripts", "python.exe")
@@ -64,15 +72,23 @@ def pending_llm(conn, day=None, limit=25):
     return [dict(r) for r in conn.execute(sql, p).fetchall()]
 
 
-def run_stt(paths, timeout=1800):
-    """Jalankan awe_stt_worker.py di .venv-asr utk daftar mp4. Kembalikan JSON worker."""
+def run_stt(paths, timeout=1800, context=None):
+    """Jalankan awe_stt_worker.py di .venv-asr utk daftar mp4. Kembalikan JSON worker.
+
+    context (opsional): teks kosakata/hotwords domain (Glosarium Pajak) yang
+    dikirim ke worker lewat env AWE_QWEN_CONTEXT untuk membiaskan Qwen3-ASR.
+    """
     paths = [p for p in (paths or []) if p]
     if not paths:
         return {"ok": False, "error": "tak ada berkas audio", "results": []}
     out_json = os.path.join(tempfile.gettempdir(), "awe_stt_out_%d.json" % os.getpid())
     cmd = [_asr_python(), _worker_path(), "--out", out_json] + list(paths)
+    env = dict(os.environ)
+    ctx = (context or "").strip()
+    if ctx:
+        env["AWE_QWEN_CONTEXT"] = ctx
     try:
-        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout)
+        proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, env=env)
     except Exception as e:
         return {"ok": False, "error": "worker gagal dijalankan: %r" % e, "results": []}
     data = None
@@ -113,8 +129,14 @@ def analyze_day(conn, day=None, limit=25, min_durasi=3, do_llm=True, timeout=180
     if not rows and not llm_rows:
         return {"ok": True, "pending": 0, "stt_ok": 0, "llm_ok": 0,
                 "llm_error": "", "details": []}
+    asr_ctx = ""
+    if _asr_context is not None:
+        try:
+            asr_ctx = _asr_context() or ""
+        except Exception:
+            asr_ctx = ""
     if rows:
-        stt = run_stt([r["audio_ref"] for r in rows], timeout=timeout)
+        stt = run_stt([r["audio_ref"] for r in rows], timeout=timeout, context=asr_ctx)
         stt_error = stt.get("error")
         if stt.get("error") and not stt.get("results"):
             return {"ok": False, "pending": len(rows) + len(llm_rows),
