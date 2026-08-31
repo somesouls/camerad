@@ -193,7 +193,7 @@ import pipeline.step9_signals_patch  # noqa: F401
 import pipeline.step6_idtrace_patch  # noqa: F401
 
 
-# --- Fase 2 (UX Step 6/9): id_trace utk tombol "mata" (lihat percakapan penuh) +
+# --- Fase 2 (UX Step 6/9): id_trace utk tombol \"mata\" (lihat percakapan penuh) +
 #     aksi 'intents' utk kolom pencarian intent di dropdown Step 6/9.
 #     step6_patch & step9_signals_patch (sinyal Fase 1) sudah di-chain-import oleh
 #     step10_patch; impor eksplisit di sini AMAN (modul di-cache Python, tak
@@ -205,7 +205,7 @@ import pipeline.step9_signals_patch as step9_signals_patch  # noqa: F401  (idemp
 import pipeline.step6_idtrace_patch as step6_idtrace_patch  # noqa: F401  (id_trace tombol mata Step 6)
 import pipeline.intents_patch as intents_patch  # noqa: F401  (aksi 'intents' pencarian intent Step 6/9)
 
-# --- Poin #1 arsitektur RAG final — "successor-tracing" peraturan:
+# --- Poin #1 arsitektur RAG final — \"successor-tracing\" peraturan:
 #     monkey-patch rag_engine._ctx_peraturan agar bila kandidat termirip
 #     berstatus dicabut/diubah, mesin menelusuri peraturan pengganti yang
 #     berlaku dan menyisipkan catatan status hukum ke konteks. Patch mengimpor
@@ -231,7 +231,7 @@ import rag.calibration_patch as rag_calibration_patch  # noqa: F401  (menerapkan
 # --- Fase 2 (sinyal domain hukum di ranking + filter temporal as-of):
 #     membungkus peraturan_db.search versi terakhir (gate -> rerank -> hybrid)
 #     agar kekuatan_hukum/recency/entitas/definisi ikut menentukan urutan akhir,
-#     dan query bertahun ("... tahun 2019") difilter as-of. WAJIB setelah
+#     dan query bertahun (\"... tahun 2019\") difilter as-of. WAJIB setelah
 #     rag_calibration_patch agar membungkus rantai terakhir. ---
 import rag.domain_patch as rag_domain_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
@@ -239,9 +239,18 @@ import rag.domain_patch as rag_domain_patch  # noqa: F401  (menerapkan patch saa
 #     peraturan berlevel UU/PERPU/PERPRES/PP (umum), cari dokumen berlevel lebih
 #     rendah (PMK/PER/SE, dst.) yang TERVERIFIKASI merujuk nomor induknya
 #     (regex multi-format regref atas isi), lalu sertakan sebagai blok
-#     "Ketentuan pelaksana". WAJIB setelah rag_domain_patch (membungkus
+#     \"Ketentuan pelaksana\". WAJIB setelah rag_domain_patch (membungkus
 #     _ctx_peraturan versi terakhir). ---
 import rag.drilldown_patch as rag_drilldown_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
+# --- Tahap 4f (fetch sitasi eksplisit nomor+pasal): bila query menyebut nomor
+#     peraturan + pasal EKSPLISIT, tarik ISI pasal itu langsung via SQL mentah
+#     LINTAS SEMUA STATUS (kebal FTS/vektor/gerbang cosine), tampilkan + penanda
+#     status + pointer penerus. Query tanpa sitasi -> passthrough (nol dampak).
+#     Knob RAG_CITATION_FETCH per-profil via knob_store. WAJIB PALING AKHIR di
+#     antara patch _ctx_peraturan (setelah drilldown) agar jadi lapis TERLUAR
+#     dan delegasi jalur normalnya memakai successor+validity+drilldown. ---
+import rag.citation_fetch_patch as rag_citation_fetch_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- Tahap 3 (guardrail grounding jawaban): monkey-patch rag_engine.answer agar
 #     (a) membuang/menormalkan tautan tidak resmi/pemendek (t.co/x.com/bit.ly)
@@ -253,7 +262,7 @@ import rag.grounding_patch as rag_grounding_patch  # noqa: F401  (menerapkan pat
 
 # --- Pembersihan knowledge AWE: monkey-patch rag_engine._ctx_awe agar retrieval
 #     Percakapan AWE MEMBUANG giliran Bot / CCAI dan MENGABAIKAN percakapan
-#     full-bot (kolom Agent = "Chatbot, Google"). Hanya giliran pelanggan +
+#     full-bot (kolom Agent = \"Chatbot, Google\"). Hanya giliran pelanggan +
 #     agent manusia yang dijadikan konteks. WAJIB setelah rag_grounding_patch. ---
 import awe.botfilter_patch as awe_botfilter_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
@@ -306,19 +315,19 @@ sosmed_routes.register(app)
 import sosmed.ingest as sosmed_ingest
 sosmed_ingest.register(app)
 
-# --- Menu RAG (Pilot) "Agent Kring Pajak": chat berbasis 3 basis data internal ---
+# --- Menu RAG (Pilot) \"Agent Kring Pajak\": chat berbasis 3 basis data internal ---
 import rag.routes as rag_routes
 rag_routes.register(app)
 
-# --- Chat RAG "Agent Kring Pajak" (halaman utama "/" untuk SEMUA peran) +
+# --- Chat RAG \"Agent Kring Pajak\" (halaman utama \"/\" untuk SEMUA peran) +
 #     feedback jempol + log keandalan + kuota harian admin. Berbagi mesin RAG
 #     (rag_engine) & profil 'agent', jadi didaftarkan setelah rag_routes. ---
 import chat.agent_routes as agent_chat_routes
 agent_chat_routes.register(app)
 
 # --- Webhook Dialogflow ES (Point 5): endpoint fulfillment chatbot Kring Pajak
-#     dengan fast-path + deadline guard ~4,5 dtk, plus menu admin "Webhook
-#     Chatbot" untuk mengatur token/profil/deadline/fallback. Memakai mesin RAG
+#     dengan fast-path + deadline guard ~4,5 dtk, plus menu admin \"Webhook
+#     Chatbot\" untuk mengatur token/profil/deadline/fallback. Memakai mesin RAG
 #     (rag_engine) & app_core.render_page, jadi didaftarkan setelah rag_routes. ---
 import df_webhook.routes as df_webhook_routes
 df_webhook_routes.register(app)
@@ -356,7 +365,7 @@ eval_compare_routes.register(app)
 import peraturan.routes as peraturan_routes
 peraturan_routes.register(app)
 
-# --- Menu SOP/Proses Bisnis (sumber grounding RAG #6, tampil "Sumber 5"):
+# --- Menu SOP/Proses Bisnis (sumber grounding RAG #6, tampil \"Sumber 5\"):
 #     ekstrak dokumen (pdf/pptx/docx/txt/html/gambar) -> disimpan permanen. ---
 import sop.routes as sop_routes
 sop_routes.register(app)
