@@ -18,6 +18,7 @@ import avaya.phone as avphone
 import avaya.phone_pull as ppull
 import avaya.phone_analyze as panalyze
 import avaya.phone_query as pquery
+import avaya.phone_daily as pdaily
 
 _JOBS = {}
 _LOCK = _threading.Lock()
@@ -154,5 +155,31 @@ def detail(sid):
     conn = _conn()
     try:
         return pquery.get_phone_interaction(conn, sid)
+    finally:
+        conn.close()
+
+
+def daily_users(day_from=None, day_to=None, limit=1000):
+    """Agregasi Pengguna Harian telepon (per ANI) untuk rentang tanggal."""
+    conn = _conn()
+    try:
+        preset = "custom" if (day_from or day_to) else "30d"
+        s, e = pdaily.resolve_range(preset, day_from or None, day_to or None)
+        data = pdaily.compute(conn, s, e, limit_users=int(limit or 1000))
+        data["bounds"] = pdaily.data_bounds(conn)
+        return data
+    finally:
+        conn.close()
+
+
+def daily_conversations(ani, day_from=None, day_to=None, limit=500):
+    """Daftar panggilan satu nomor telepon (untuk modal detail pengguna)."""
+    conn = _conn()
+    try:
+        preset = "custom" if (day_from or day_to) else "all"
+        s, e = pdaily.resolve_range(preset, day_from or None, day_to or None)
+        convs, truncated = pdaily.caller_conversations(
+            conn, s, e, ani=ani, limit=int(limit or 500))
+        return {"conversations": convs, "truncated": truncated}
     finally:
         conn.close()
