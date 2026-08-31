@@ -14,6 +14,8 @@ TERPISAH total dari alur Chat. Handler didaftarkan oleh awe/routes.py
     - coverage      : ringkasan per hari (audio/transkrip/analisis) + stats.
     - list          : daftar interaksi (opsional rentang tanggal).
     - detail        : satu interaksi lengkap (butuh sid).
+    - daily_users   : agregasi Pengguna Harian per ANI + tema (rentang tanggal).
+    - daily_convs   : daftar panggilan satu nomor telepon (butuh ani).
 Butuh izin 'awe_manage'. Kredensial tarik diambil dari .env (AVAYA_USERNAME/
 AVAYA_PASSWORD), sama seperti AWE Chat; dipakai sekali lalu dilupakan.
 """
@@ -37,7 +39,7 @@ except Exception as _pjobs_exc:
     print("[AWE-PHONE] modul job telepon dilewati:", _pjobs_exc, flush=True)
 
 _MENU_ACTIONS = ("pull_start", "analyze_start", "job_progress", "job_fetch",
-                 "coverage", "list", "detail")
+                 "coverage", "list", "detail", "daily_users", "daily_convs")
 
 
 async def awe_telepon_page(request: Request):
@@ -113,6 +115,27 @@ async def awe_phone_probe(request: Request):
             if not d:
                 return JSONResponse({"ok": False, "error": "Interaksi tidak ditemukan."}, status_code=404)
             return JSONResponse({"ok": True, "interaction": d})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    if action == "daily_users":
+        try:
+            lim = int(body.get("limit_rows") or 1000)
+            d = await run_in_threadpool(pjobs.daily_users, df or None, dt or None, lim)
+            d["ok"] = True
+            return JSONResponse(d)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    if action == "daily_convs":
+        ani = str(body.get("ani") or "").strip()
+        if not ani:
+            return JSONResponse({"ok": False, "error": "ani wajib diisi."}, status_code=400)
+        try:
+            lim = int(body.get("limit_rows") or 500)
+            d = await run_in_threadpool(pjobs.daily_conversations, ani, df or None, dt or None, lim)
+            d["ok"] = True
+            return JSONResponse(d)
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
 
