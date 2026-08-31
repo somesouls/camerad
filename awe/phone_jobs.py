@@ -107,12 +107,19 @@ def _analyze_worker(job_id, day, limit, min_durasi):
         finally:
             conn.close()
         ok = bool(res.get("ok"))
+        if ok:
+            msg = "Analisis selesai: %s STT ok, %s LLM ok dari %s antre." % (
+                res.get("stt_ok"), res.get("llm_ok"), res.get("pending"))
+            le = res.get("llm_error")
+            if le:
+                msg += " Catatan LLM: " + str(le)[:300]
+        else:
+            msg = res.get("error") or "Analisis gagal."
         _job_set(job_id, status=("done" if ok else "error"), finished=True, ok=ok,
                  pending_n=res.get("pending"), stt_ok=res.get("stt_ok"),
-                 llm_ok=res.get("llm_ok"), error=res.get("error"), details=res.get("details"),
-                 message=("Analisis selesai: %s STT ok, %s LLM ok dari %s antre." % (
-                     res.get("stt_ok"), res.get("llm_ok"), res.get("pending")))
-                 if ok else (res.get("error") or "Analisis gagal."))
+                 llm_ok=res.get("llm_ok"), error=res.get("error"),
+                 llm_error=res.get("llm_error"), details=res.get("details"),
+                 message=msg)
     except Exception as e:
         _job_set(job_id, status="error", finished=True, ok=False, error=str(e))
 
