@@ -15,12 +15,15 @@ awe_audio_*.mp4 terbaru di %TEMP%, jumlah = AWE_ASR_SAMPLES, default 3).
 Keluaran JSON:
     {"ok": true, "count": N, "elapsed": S, "results": [
       {"file": "...", "ok": true, "text": "...", "language": "Indonesian",
-       "chunks": 3, "elapsed": 12.3, "model": "...", "device": "cuda:0"}, ...]}
+       "chunks": 3, "elapsed": 12.3, "model": "...", "device": "cuda:0",
+       "dual": false, "channels": []}, ...]}
 
 Env: sama seperti probe_multimodal (AWE_QWEN_MODEL/LANG/CHUNK_SEC/DEVICE/DTYPE/
 MAXTOK, AWE_ASR_SAMPLES). Tambahan: AWE_QWEN_CONTEXT = teks konteks/kosakata
 (hotwords) domain untuk membiaskan Qwen3-ASR (disuntik app utama dari Glosarium
-Pajak; lihat avaya/phone_glossary.asr_context).
+Pajak; lihat avaya/phone_glossary.asr_context). Tambahan: AWE_STT_DUAL_CHANNEL
+(1/true/yes) memisah audio stereo per kanal (agen vs penelepon) via awe_stt_dual;
+audio mono otomatis fallback ke jalur biasa.
 """
 import glob
 import json
@@ -115,11 +118,33 @@ def main(argv):
         except Exception as e:
             print("[worker] konteks STT dilewati: %r" % e, file=sys.stderr)
 
+    # Mode DWI-KANAL (opsional): pisah audio stereo -> transkrip tiap kanal
+    # sebagai satu penutur (agen vs penelepon). Mono otomatis fallback -> aman.
+    _dual = (os.environ.get("AWE_STT_DUAL_CHANNEL") or "").strip().lower() in ("1", "true", "yes")
+    _dual_fn = None
+    _probe_ch = None
+    if _dual:
+        try:
+            from awe_stt_dual import qwen_transcribe_dual as _dual_fn
+            from awe_stt_dual import probe_channels as _probe_ch
+            print("[worker] mode DWI-KANAL aktif (AWE_STT_DUAL_CHANNEL)", file=sys.stderr)
+        except Exception as e:
+            print("[worker] modul dwi-kanal gagal, pakai mono: %r" % e, file=sys.stderr)
+            _dual_fn = None
+            _probe_ch = None
+
     results = []
     t0 = time.time()
     for i, f in enumerate(files, 1):
-        print("[worker] %d/%d %s" % (i, len(files), os.path.basename(f)), file=sys.stderr)
-        r = qwen_transcribe(f)
+        nch = None
+        if _probe_ch is not None:
+            try:
+                nch = _probe_ch(f)
+            except Exception:
+                nch = None
+        extra = (" (kanal=%s)" % nch) if nch is not None else ""
+        print("[worker] %d/%d %s%s" % (i, len(files), os.path.basename(f), extra), file=sys.stderr)
+        r = _dual_fn(f) if _dual_fn else qwen_transcribe(f)
         results.append({
             "file": f,
             "ok": bool(r.get("ok")),
@@ -129,6 +154,8 @@ def main(argv):
             "elapsed": r.get("elapsed") or 0.0,
             "model": r.get("model") or "",
             "device": r.get("device") or "",
+            "dual": bool(r.get("dual")),
+            "channels": r.get("channels") or [],
             "error": r.get("error"),
         })
 
