@@ -66,6 +66,17 @@ _PENUTUR = _NL.join([
     "Penelepon.",
 ])
 
+_PENUTUR_KNOWN = _NL.join([
+    "PENTING - penentuan penutur: transkrip berasal dari DUA KANAL AUDIO "
+    "TERPISAH, jadi label penutur pada tiap segmen SUDAH DIKETAHUI dan ANDAL "
+    "dari kanal (bukan tebakan). Gunakan label 'Agen'/'Penelepon' pada tiap "
+    "segmen APA ADANYA dan JANGAN menukar peran. Segmen sudah diurutkan menurut "
+    "waktu; susun 'dialog' mengikuti urutan waktu itu. Bila dua segmen waktunya "
+    "berdekatan atau tumpang tindih, pertahankan keduanya sebagai giliran "
+    "terpisah. Nama yang disebut pada salam pembuka tetap nama AGEN, bukan "
+    "penelepon.",
+])
+
 _INSTRUKSI = _NL.join([
     "Kembalikan HANYA satu objek JSON dengan kunci persis berikut:",
     '- dialog: array objek {"penutur":"Agen" atau "Penelepon","teks":"..."} rekonstruksi giliran bicara.',
@@ -137,20 +148,29 @@ def _glossary_text():
 
 def _build_user(text, segments):
     parts = ["Transkrip mentah STT:", (text or "(kosong)").strip(), ""]
+    has_spk = False
     if segments:
-        parts.append("Segmen berwaktu (detik):")
+        has_spk = any(isinstance(s, dict) and (s.get("penutur") or "").strip()
+                      for s in segments)
+        head = "Segmen berwaktu (detik)"
+        if has_spk:
+            head += " dengan penutur dari kanal audio terpisah"
+        parts.append(head + ":")
         for s in segments[:80]:
             try:
-                parts.append("[%.1f-%.1f] %s" % (
+                spk = (s.get("penutur") or "").strip()
+                pre = (spk + ": ") if spk else ""
+                parts.append("[%.1f-%.1f] %s%s" % (
                     float(s.get("start") or 0.0),
                     float(s.get("end") or 0.0),
+                    pre,
                     (s.get("text") or "").strip()))
             except Exception:
                 continue
         parts.append("")
     parts.append(_glossary_text())
     parts.append("")
-    parts.append(_PENUTUR)
+    parts.append(_PENUTUR_KNOWN if has_spk else _PENUTUR)
     parts.append("")
     parts.append(_INSTRUKSI)
     return _NL.join(parts)
