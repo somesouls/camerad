@@ -133,6 +133,34 @@ def start_analyze(day="", limit=25, min_durasi=3):
     return job_id
 
 
+# ---------- Versi SINKRON (untuk auto-pull penjadwal) ----------
+def pull_sync(day_from, day_to, limit=25, pulled_by=""):
+    """Tarik (Tahap 1) SINKRON - blok sampai selesai; utk auto-pull penjadwal.
+
+    Sama seperti start_pull tetapi tanpa thread; kembalikan dict hasil job.
+    Kredensial dari .env (login-then-forget).
+    """
+    username = (os.environ.get("AVAYA_USERNAME") or "").strip()
+    password = os.environ.get("AVAYA_PASSWORD") or ""
+    base_url = (os.environ.get("AVAYA_BASE_URL") or "").strip()
+    job_id = _uuid.uuid4().hex
+    _pull_worker(job_id, day_from, day_to, username, password, base_url, limit, pulled_by)
+    res = job_get(job_id)
+    with _LOCK:
+        _JOBS.pop(job_id, None)
+    return res
+
+
+def analyze_sync(day="", limit=25, min_durasi=3):
+    """Analisis (Tahap 2 STT+LLM) SINKRON; utk auto-pull opsional (LAMBAT)."""
+    job_id = _uuid.uuid4().hex
+    _analyze_worker(job_id, day, limit, min_durasi)
+    res = job_get(job_id)
+    with _LOCK:
+        _JOBS.pop(job_id, None)
+    return res
+
+
 # ---------- Baca (sinkron) untuk UI menu ----------
 def coverage(day_from=None, day_to=None):
     conn = _conn()
@@ -183,3 +211,18 @@ def daily_conversations(ani, day_from=None, day_to=None, limit=500):
         return {"conversations": convs, "truncated": truncated}
     finally:
         conn.close()
+
+
+# =============================================================
+# Auto-pull harian Kelola Data Telepon (mirror auto-pull Livechat)
+#   phone_autopull mendaftarkan rute /api/awe/phone/autopull/* & (opsional)
+#   memulai penjadwal harian. Fail-soft: kegagalan di sini TIDAK boleh
+#   mematikan menu Telepon. Diletakkan di BAWAH agar pull_sync/analyze_sync
+#   sudah terdefinisi saat phone_autopull diimpor.
+# =============================================================
+try:
+    import awe.phone_autopull as _pautopull
+    _pautopull.register_app()
+    _pautopull.maybe_start_scheduler()
+except Exception as _pa_exc:
+    print("[AWE-PHONE] auto-pull dilewati:", _pa_exc, flush=True)
