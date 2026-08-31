@@ -8,6 +8,8 @@ STT jalan sebagai SUBPROCESS ke .venv-asr agar tidak mencemari .venv utama
 jangan langsung dari request web. Terpisah dari alur Chat.
 
 Env: AWE_ASR_PY (python .venv-asr), AWE_STT_WORKER (path awe_stt_worker.py).
+Dwi-kanal (opsional): AWE_STT_DUAL_CHANNEL aktifkan di worker; AWE_STT_AGENT_CHANNEL
+(0/1, default 0) menentukan kanal mana yang dianggap AGEN.
 """
 import json
 import os
@@ -36,6 +38,42 @@ def _asr_python():
 
 def _worker_path():
     return os.environ.get("AWE_STT_WORKER") or "awe_stt_worker.py"
+
+
+def _agent_channel():
+    """Indeks kanal yang dianggap AGEN (0/1). Sisanya = penelepon."""
+    try:
+        return int(os.environ.get("AWE_STT_AGENT_CHANNEL") or 0)
+    except Exception:
+        return 0
+
+
+def _dual_segments(channels):
+    """Gabung segmen 2 kanal -> daftar berwaktu berlabel penutur (urut waktu).
+
+    channels: [{ch:int, text, segments:[{start,end,text}]}]. Kanal == kanal agen
+    (AWE_STT_AGENT_CHANNEL, default 0) diberi label 'Agen', sisanya 'Penelepon'.
+    """
+    ac = _agent_channel()
+    merged = []
+    for c in channels or []:
+        try:
+            ch = int(c.get("ch"))
+        except Exception:
+            ch = 0
+        role = "Agen" if ch == ac else "Penelepon"
+        for s in c.get("segments") or []:
+            teks = (s.get("text") or "").strip()
+            if not teks:
+                continue
+            try:
+                start = float(s.get("start") or 0.0)
+                end = float(s.get("end") or 0.0)
+            except Exception:
+                start = end = 0.0
+            merged.append({"start": start, "end": end, "text": teks, "penutur": role})
+    merged.sort(key=lambda x: x["start"])
+    return merged or None
 
 
 def pending_phone(conn, day=None, limit=25, min_durasi=0):
@@ -150,8 +188,10 @@ def analyze_day(conn, day=None, limit=25, min_durasi=3, do_llm=True, timeout=180
                 details.append({"sid": sid, "stt": False, "note": "hasil worker tak ditemukan"})
                 continue
             text = (wr.get("text") or "").strip() if wr.get("ok") else ""
+            is_dual = bool(wr.get("ok") and wr.get("dual") and wr.get("channels"))
+            seg_arg = _dual_segments(wr.get("channels")) if is_dual else None
             info = {"model": wr.get("model"), "chunks": wr.get("chunks"),
-                    "elapsed": wr.get("elapsed"), "text": text}
+                    "elapsed": wr.get("elapsed"), "text": text, "dual": is_dual}
             if not text:
                 save_phone_analysis(conn, sid, transkrip_source="kosong", stt=info)
                 details.append({"sid": sid, "stt": False,
@@ -161,7 +201,7 @@ def analyze_day(conn, day=None, limit=25, min_durasi=3, do_llm=True, timeout=180
             analisis = None
             note = ""
             if do_llm:
-                a = pllm.analyze_transcript(text)
+                a = pllm.analyze_transcript(text, segments=seg_arg)
                 if a.get("ok"):
                     analisis = a.get("analysis")
                     llm_ok += 1
@@ -172,7 +212,8 @@ def analyze_day(conn, day=None, limit=25, min_durasi=3, do_llm=True, timeout=180
             transkrip = (analisis or {}).get("dialog")
             save_phone_analysis(conn, sid, transkrip=transkrip,
                                 transkrip_source="qwen3-asr", stt=info, analisis=analisis)
-            details.append({"sid": sid, "stt": True, "llm": bool(analisis), "note": note})
+            details.append({"sid": sid, "stt": True, "llm": bool(analisis),
+                            "note": note, "dual": is_dual})
     if do_llm and llm_rows:
         for r in llm_rows:
             sid = r["sid"]
