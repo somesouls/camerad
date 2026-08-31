@@ -3,11 +3,14 @@
 
 Mengubah transkrip STT yang masih kasar (audio telepon 8 kHz) menjadi keluaran
 terstruktur: dialog 2 penutur yang rapi, ringkasan, topik, sentimen, emosi,
-resolusi, dan entitas. Dipakai probe_llm.py (uji terminal) dan nanti jalur web.
+resolusi, dan entitas. Dipakai probe_llm.py (uji terminal) dan jalur web.
 
 Backend LLM = common.llm_client (provider via .env: openai/azure/gemini/local).
 Untuk data pajak yang sensitif, set LLM_PROVIDER=local (vLLM Qwen) agar
 transkrip TIDAK keluar dari mesin.
+
+Glosarium koreksi STT diambil dari Glosarium Pajak internal via phone_glossary
+(istilah status 'aktif'); bila tak tersedia, pakai fallback ringkas _GLOSARIUM.
 
 Taksonomi diselaraskan dengan pipeline Chat (avaya/pipeline.py):
   sentimen: Positif | Negatif | Netral
@@ -17,6 +20,14 @@ Taksonomi diselaraskan dengan pipeline Chat (avaya/pipeline.py):
 """
 import json
 import os
+
+try:
+    from .phone_glossary import glossary_block as _glossary_block
+except Exception:
+    try:
+        from phone_glossary import glossary_block as _glossary_block
+    except Exception:
+        _glossary_block = None
 
 _NL = chr(10)
 
@@ -37,6 +48,24 @@ _SYSTEM = (
     "markdown."
 )
 
+_PENUTUR = _NL.join([
+    "PENTING - penentuan penutur: transkrip TIDAK memuat penanda pembicara "
+    "(hasil STT polos), jadi Anda harus menyimpulkan sendiri tiap giliran "
+    "dengan patokan berikut:",
+    "- AGEN = petugas Kring Pajak. Ciri: membuka dengan salam seperti 'Kring "
+    "Pajak, dengan <nama>' atau memperkenalkan diri 'dengan <nama>', menyapa "
+    "'baik ibu/bapak', MEMANDU langkah, MENJELASKAN prosedur/aturan, MEMINTA "
+    "data verifikasi, dan berbahasa formal-sopan.",
+    "- PENELEPON = wajib pajak. Ciri: MENYAMPAIKAN keluhan/pertanyaan ('saya "
+    "mau daftar NPWP', 'kok error', 'bagaimana caranya'), sering bingung, dan "
+    "meminta bantuan.",
+    "Nama yang disebut pada salam pembuka ('dengan <nama>') adalah nama AGEN, "
+    "BUKAN penelepon. Jaga konsistensi peran: giliran bicara berselang-seling "
+    "secara wajar, jangan menukar peran di tengah percakapan. Bila satu kalimat "
+    "ambigu, pakai alur: yang menjelaskan solusi = Agen; yang punya masalah = "
+    "Penelepon.",
+])
+
 _INSTRUKSI = _NL.join([
     "Kembalikan HANYA satu objek JSON dengan kunci persis berikut:",
     '- dialog: array objek {"penutur":"Agen" atau "Penelepon","teks":"..."} rekonstruksi giliran bicara.',
@@ -47,17 +76,22 @@ _INSTRUKSI = _NL.join([
     "- emosi: salah satu 'Senang/Bahagia','Marah/Frustrasi','Sedih/Kecewa','Takut/Cemas','Terkejut','Jijik/Bosan','Netral/Datar'.",
     "- resolusi: salah satu 'Terselesaikan','Belum Terselesaikan'.",
     "- frustrasi: true atau false.",
-    '- entitas: objek {"nama":[...],"nomor":[...],"lainnya":[...]}.',
+    '- entitas: objek {"nama":[...],"nomor":[...],"lainnya":[...]}; pada "nama" JANGAN masukkan nama agen, hanya nama/pihak yang benar-benar disebut dalam percakapan.',
     "- poin_penting: array kalimat pendek.",
     "- catatan_kualitas: catatan singkat soal bagian transkrip yang diragukan.",
 ])
 
+# Fallback ringkas bila Glosarium Pajak internal tak tersedia. Juga selalu
+# disertakan untuk istilah kanal yang biasanya belum ada di glosarium DB.
 _GLOSARIUM = _NL.join([
-    "Glosarium domain untuk membantu menafsirkan salah dengar STT (audio 8 kHz):",
-    "- MELATI = Meja Layanan TI di DJP: kanal/helpdesk pelaporan tiket kendala aplikasi. STT sering salah dengar menjadi 'melati', 'tiga pengakti', 'pengakti', atau 'tiga pengaktifan'; bila konteksnya tiket kendala, tafsirkan sebagai MELATI.",
+    "Catatan domain untuk membantu menafsirkan salah dengar STT (audio 8 kHz):",
     "- Kring Pajak = layanan call center DJP (1500200).",
-    "- Istilah umum yang mungkin muncul: NPWP, NIK, EFIN, SPT, DJP Online, e-Faktur, e-Bupot, Coretax, tiket, nomor tiket.",
-    "Pakai glosarium untuk mengoreksi frasa yang mirip bunyi, tetapi jangan memaksakan koreksi bila konteks jelas menunjukkan makna lain.",
+    "- MELATI = Meja Layanan TI di DJP (helpdesk tiket kendala aplikasi); STT "
+    "sering salah dengar menjadi 'melati', 'pengakti', atau 'pengaktifan'.",
+    "- Istilah umum yang mungkin muncul: NPWP, NIK, EFIN, SPT, DJP Online, "
+    "Coretax, e-Faktur, e-Bupot, kode billing, NTPN, tiket.",
+    "Pakai untuk mengoreksi frasa yang mirip bunyi, tetapi jangan memaksakan "
+    "koreksi bila konteks jelas menunjukkan makna lain.",
 ])
 
 
@@ -87,6 +121,20 @@ def _coerce(val, allowed, default):
     return default
 
 
+def _glossary_text():
+    """Gabungan catatan domain statis + Glosarium Pajak internal (bila ada)."""
+    parts = [_GLOSARIUM]
+    if _glossary_block:
+        try:
+            gl = _glossary_block() or ""
+        except Exception:
+            gl = ""
+        if gl:
+            parts.append("")
+            parts.append(gl)
+    return _NL.join(parts)
+
+
 def _build_user(text, segments):
     parts = ["Transkrip mentah STT:", (text or "(kosong)").strip(), ""]
     if segments:
@@ -100,7 +148,9 @@ def _build_user(text, segments):
             except Exception:
                 continue
         parts.append("")
-    parts.append(_GLOSARIUM)
+    parts.append(_glossary_text())
+    parts.append("")
+    parts.append(_PENUTUR)
     parts.append("")
     parts.append(_INSTRUKSI)
     return _NL.join(parts)
