@@ -63,6 +63,11 @@ KNOBS = {
         "label": "Pin nomor peraturan eksak",
         "help": "Prioritaskan peraturan ber-nomor sama saat query menyebut nomor.",
     },
+    "RAG_CITATION_FETCH": {
+        "type": "bool", "default": True, "env": "RAG_CITATION_FETCH",
+        "label": "Fetch sitasi nomor+pasal (kebal gate)",
+        "help": "Bila query menyebut nomor peraturan + pasal eksplisit, tarik ISI pasal itu langsung dari DB lintas semua status (tampilkan + penanda status + penerus).",
+    },
 }
 
 _TRUE = ("1", "true", "yes", "on", "ya", "aktif")
