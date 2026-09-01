@@ -7,12 +7,33 @@
   function hideStat(){var s=el('dtStat');if(s){s.className='status';s.innerHTML='';}}
   function truthy(v){v=String(v==null?'':v).trim().toLowerCase();return v==='1'||v==='true'||v==='ya'||v==='yes'||v==='y';}
   function fmtDur(s){s=parseInt(s,10);if(isNaN(s)||s<0)return '-';if(s<60)return s+'s';return Math.floor(s/60)+'m '+('0'+(s%60)).slice(-2)+'s';}
-  function transcriptHtml(it){
-    if(it.stt_text)return esc(it.stt_text);
-    var t=it.transkrip;if(!t)return '';
-    if(typeof t==='string')return esc(t);
-    if(t.length){return t.map(function(seg){if(typeof seg==='string')return esc(seg);var spk=seg.speaker||seg.spk||seg.role||seg.channel||'';var txt=seg.text||seg.kalimat||seg.content||seg.transcript||'';return (spk?('<b>['+esc(String(spk))+']</b> '):'')+esc(String(txt));}).join('<br>');}
-    return esc(JSON.stringify(t));
+
+  // Gaya bubble transkrip disuntik sekali; kelas lain sudah ada di template.
+  (function(){
+    if(el('dtTxCss'))return;
+    var st=document.createElement('style');st.id='dtTxCss';
+    st.textContent='.chat-log{display:flex;flex-direction:column;gap:10px;margin:10px 0 4px;}.bubble{max-width:80%;padding:9px 13px;border-radius:14px;font-size:13.5px;line-height:1.5;}.bubble .who{font-size:11px;font-weight:700;opacity:.7;margin-bottom:3px;}.bubble.agen{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px;}.bubble.pel{align-self:flex-start;background:var(--panel-border);color:var(--text-main);border-bottom-left-radius:4px;}';
+    document.head.appendChild(st);
+  })();
+
+  // Transkrip satu panggilan sebagai bubble interaksi (samakan dengan Pengguna Harian).
+  function bubbles(dialog){
+    if(!dialog||!dialog.length)return '';
+    var order=[];
+    function sideFor(who){
+      var w=String(who||'').toLowerCase();
+      if(w.indexOf('agen')>=0||w.indexOf('agent')>=0||w.indexOf('petugas')>=0||w.indexOf('cs')>=0)return 'agen';
+      if(w.indexOf('pelanggan')>=0||w.indexOf('penelepon')>=0||w.indexOf('customer')>=0||w.indexOf('caller')>=0||w.indexOf('nasabah')>=0||w.indexOf('wp')>=0)return 'pel';
+      var key=w||'?';var idx=order.indexOf(key);
+      if(idx<0){order.push(key);idx=order.length-1;}
+      return (idx%2===0)?'pel':'agen';
+    }
+    return '<div class="chat-log">'+dialog.map(function(t){
+      if(typeof t==='string')return '<div class="bubble pel">'+esc(t)+'</div>';
+      var who=t.penutur||t.role||t.speaker||t.spk||'';var teks=t.teks||t.text||t.content||t.transcript||t.kalimat||'';
+      var side=sideFor(who);var label=who||(side==='agen'?'Agen':'Penelepon');
+      return '<div class="bubble '+side+'"><div class="who">'+esc(label)+'</div>'+esc(teks)+'</div>';
+    }).join('')+'</div>';
   }
   function renderList(rows){
     var tb=el('dtBody');if(!tb)return;rows=rows||[];
@@ -33,7 +54,15 @@
     if(poin&&poin.length){h.push('<div class="sec-h" style="margin-top:16px;">Poin penting</div><ul class="dt-list">'+poin.map(function(x){return '<li>'+esc(typeof x==='string'?x:JSON.stringify(x))+'</li>';}).join('')+'</ul>');}
     var ent=it.entitas;
     if(ent&&ent.length){h.push('<div class="sec-h" style="margin-top:16px;">Entitas</div><div>'+ent.map(function(x){return '<span class="chip">'+esc(typeof x==='string'?x:(x.value||x.nama||x.text||JSON.stringify(x)))+'</span>';}).join('')+'</div>');}
-    h.push('<div class="sec-h" style="margin-top:16px;">Transkrip</div><div class="mono">'+(transcriptHtml(it)||'(tidak ada transkrip)')+'</div>');
+    var a=it.analisis||{};
+    var dialog=(a.dialog&&a.dialog.length)?a.dialog:(Array.isArray(it.transkrip)?it.transkrip:null);
+    h.push('<div class="sec-h" style="margin-top:16px;">Transkrip</div>');
+    if(dialog&&dialog.length)h.push(bubbles(dialog));
+    else{
+      var plain=it.stt_text||(typeof it.transkrip==='string'?it.transkrip:'');
+      if(plain)h.push('<div class="mono">'+esc(plain)+'</div>');
+      else h.push('<p class="muted-text">(tidak ada transkrip)</p>');
+    }
     var body=el('dtDrawerBody');if(body)body.innerHTML=h.join('');
   }
   function openDetail(sid){
