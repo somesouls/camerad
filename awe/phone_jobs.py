@@ -68,7 +68,9 @@ def _pull_worker(job_id, day_from, day_to, username, password, base_url, limit, 
         _job_set(job_id, status="pull", message="Menarik & mengunduh audio telepon")
         conn = _conn()
         try:
-            res = ppull.pull_day(client, conn, day_from, day_to, limit=limit, pulled_by=pulled_by)
+            res = ppull.pull_day(client, conn, day_from, day_to, limit=limit,
+                                 pulled_by=pulled_by,
+                                 on_prog=lambda m: _job_set(job_id, status="pull", message=m))
         finally:
             conn.close()
         _job_set(job_id, status="done", finished=True, ok=True,
