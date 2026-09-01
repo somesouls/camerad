@@ -29,24 +29,46 @@
   function renderCallers(rows){
     var tb=el('puBody');if(!tb)return;rows=rows||[];
     if(!rows.length){tb.innerHTML='<tr><td colspan="7" style="text-align:center;">Belum ada penelepon pada rentang ini.</td></tr>';return;}
-    tb.innerHTML=rows.slice(0,200).map(function(r){return '<tr class="row-click" data-ani="'+esc(r.ani)+'"><td>'+esc(r.ani)+'</td><td>'+(r.calls||0)+'</td><td>'+(r.days||0)+'</td><td>'+esc(r.top_theme||'-')+'</td><td>'+esc(r.sentiment||'-')+'</td><td>'+esc(r.resolusi||'-')+'</td><td>'+esc(r.agent||'-')+'</td></tr>';}).join('');
+    tb.innerHTML=rows.map(function(r){return '<tr class="row-click" data-ani="'+esc(r.ani)+'"><td>'+esc(r.ani)+'</td><td>'+(r.calls||0)+'</td><td>'+(r.days||0)+'</td><td>'+esc(r.top_theme||'-')+'</td><td>'+esc(r.sentiment||'-')+'</td><td>'+esc(r.resolusi||'-')+'</td><td>'+esc(r.agent||'-')+'</td></tr>';}).join('');
     var trs=tb.querySelectorAll('tr.row-click');
     for(var i=0;i<trs.length;i++){trs[i].addEventListener('click',function(){loadConvs(this.getAttribute('data-ani'));});}
+  }
+  var pState={offset:0,limit:25,total:0};
+  function pLimit(){var n=parseInt((el('pu_limit')?el('pu_limit').value:''),10);return (isNaN(n)||n<1)?25:n;}
+  function updatePuPager(){
+    var pg=el('puPager');if(!pg)return;
+    var total=pState.total,off=pState.offset,lim=pState.limit;
+    if(total<=0){pg.style.display='none';return;}
+    var from=off+1,to=Math.min(off+lim,total);if(from>total)from=total;
+    if(el('puPageInfo'))el('puPageInfo').textContent='Menampilkan '+from+'-'+to+' dari '+total;
+    if(el('puPrev'))el('puPrev').disabled=(off<=0);
+    if(el('puNext'))el('puNext').disabled=(off+lim>=total);
+    pg.style.display=(total>lim)?'flex':'none';
   }
   function render(d){
     var k=d.kpi||{};
     var pill=el('puPill');if(pill)pill.textContent=(k.total_callers||0)+' penelepon';
     renderKpi(k);
     bars(d.freq_dist,'puFreq');
+    pState.total=(d.callers_total!=null?d.callers_total:((d.callers||[]).length));
+    if(d.callers_offset!=null)pState.offset=d.callers_offset;
+    if(d.callers_limit!=null)pState.limit=d.callers_limit;
     renderCallers(d.callers);
+    updatePuPager();
   }
-  function load(){
+  function load(reset){
+    if(reset)pState.offset=0;
+    pState.limit=pLimit();
     setStat('Memuat pengguna harian&hellip;');
-    api({action:'daily_users',date_from:(el('pu_from')?el('pu_from').value:''),date_to:(el('pu_to')?el('pu_to').value:''),limit_rows:2000}).then(function(d){
+    api({action:'daily_users',date_from:(el('pu_from')?el('pu_from').value:''),date_to:(el('pu_to')?el('pu_to').value:''),limit_rows:pState.limit,offset:pState.offset}).then(function(d){
       if(!d.ok){setStat('Gagal memuat: '+esc(d.error||'tidak diketahui'),'err');return;}
       hideStat();render(d);
     }).catch(function(e){setStat('Gagal: '+e,'err');});
   }
+
+  // ---- Modal overlay untuk detail percakapan ----
+  function openModal(){var m=el('puModal');if(!m)return;m.style.display='flex';document.body.style.overflow='hidden';if(el('puModalBox'))el('puModalBox').scrollTop=0;}
+  function closeModal(){var m=el('puModal');if(!m)return;m.style.display='none';document.body.style.overflow='';var p=el('puConvPanel');if(p)p.innerHTML='';}
 
   // ---- Transkrip satu panggilan sebagai bubble interaksi ----
   function bubbles(dialog){
@@ -97,11 +119,12 @@
 
   function loadConvs(ani){
     if(!ani)return;var p=el('puConvPanel');if(!p)return;
-    p.style.display='block';p.innerHTML='<p class="muted-text">Memuat panggilan '+esc(ani)+'&hellip;</p>';
+    openModal();
+    p.innerHTML='<p class="muted-text">Memuat panggilan '+esc(ani)+'&hellip;</p>';
     api({action:'daily_convs',ani:ani,date_from:(el('pu_from')?el('pu_from').value:''),date_to:(el('pu_to')?el('pu_to').value:''),limit_rows:500}).then(function(d){
       if(!d.ok){p.innerHTML='<p class="muted-text">Gagal: '+esc(d.error||'')+'</p>';return;}
       var rows=d.conversations||[];
-      var head='<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;"><div class="sec-h" style="margin-top:0;">Panggilan dari <span class="code-inline">'+esc(ani)+'</span> ('+rows.length+') &mdash; klik satu baris untuk transkrip</div><button class="btn-modern btn-outline" id="puConvClose">Tutup</button></div>';
+      var head='<div class="sec-h" style="margin-top:0;padding-right:40px;">Panggilan dari <span class="code-inline">'+esc(ani)+'</span> ('+rows.length+') &mdash; klik satu baris untuk transkrip</div>';
       if(!rows.length){p.innerHTML=head+'<p class="muted-text">Tidak ada panggilan.</p>';}
       else{
         var body=rows.map(function(r){var t=String(r.tanggal||'').replace('T',' ').slice(0,16);var judul=esc(r.theme||'-')+(r.ringkasan?(' &mdash; <span class="muted-text">'+esc(String(r.ringkasan).slice(0,120))+'</span>'):'');return '<tr class="row-click" data-sid="'+esc(r.sid||'')+'"><td>'+esc(t)+'</td><td>'+fmtDur(r.durasi)+'</td><td>'+judul+'</td><td>'+esc(r.sentiment||'-')+'</td><td>'+esc(r.resolusi||'-')+'</td><td>'+(r.analyzed?'&#10003;':'-')+'</td></tr>';}).join('');
@@ -109,8 +132,7 @@
         var trs=p.querySelectorAll('tr.row-click');
         for(var i=0;i<trs.length;i++){trs[i].addEventListener('click',function(){loadConvDetail(this.getAttribute('data-sid'));});}
       }
-      var c=el('puConvClose');if(c)c.addEventListener('click',function(){p.style.display='none';p.innerHTML='';});
-      p.scrollIntoView({behavior:'smooth',block:'nearest'});
+      if(el('puModalBox'))el('puModalBox').scrollTop=0;
     }).catch(function(e){p.innerHTML='<p class="muted-text">Gagal: '+e+'</p>';});
   }
 
@@ -118,8 +140,14 @@
     var t0=iso(new Date()),t30=iso(new Date(Date.now()-29*864e5));
     if(el('pu_to')&&!el('pu_to').value)el('pu_to').value=t0;
     if(el('pu_from')&&!el('pu_from').value)el('pu_from').value=t30;
-    if(el('puLoad'))el('puLoad').addEventListener('click',load);
-    load();
+    if(el('puLoad'))el('puLoad').addEventListener('click',function(){load(true);});
+    if(el('pu_limit'))el('pu_limit').addEventListener('change',function(){load(true);});
+    if(el('puPrev'))el('puPrev').addEventListener('click',function(){if(pState.offset>0){pState.offset=Math.max(pState.offset-pState.limit,0);load(false);}});
+    if(el('puNext'))el('puNext').addEventListener('click',function(){if(pState.offset+pState.limit<pState.total){pState.offset+=pState.limit;load(false);}});
+    if(el('puModalX'))el('puModalX').addEventListener('click',closeModal);
+    if(el('puModal'))el('puModal').addEventListener('click',function(e){if(e.target===this)closeModal();});
+    document.addEventListener('keydown',function(e){if(e.key==='Escape'||e.keyCode===27){var m=el('puModal');if(m&&m.style.display!=='none')closeModal();}});
+    load(true);
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);
   else init();
