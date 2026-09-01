@@ -348,8 +348,16 @@ def _build_rekap_harian(wb2, wb9, wb_fb):
     dates = set()
     for mp in (interaksi, fallback_total, mkta_follow, fb_follow):
         dates.update(mp.keys())
+    # Rekaman tanpa tanggal terbaca (key None) TETAP dihitung supaya total
+    # "Update Intent MKTA"/"Update Intent Fallback" tidak berkurang diam-diam
+    # (mis. 10 tindak lanjut tersimpan, 2 di antaranya waktu interaksinya
+    # kosong/tak terbaca -> jangan jadi 8). Ditaruh di baris catch-all
+    # "(Tanpa Tanggal)" paling bawah bila memang ada.
+    has_undated = None in dates
     dates.discard(None)
     ordered = sorted(dates)
+    if has_undated:
+        ordered = ordered + [None]
 
     rows = [REKAP_HARIAN_HEADER]
     for i, iso in enumerate(ordered, start=1):
@@ -360,8 +368,10 @@ def _build_rekap_harian(wb2, wb9, wb_fb):
         match = tot_int - tot_fb
         pmkta = ("=%d/(%d-%d)" % (mk, tot_int, tot_fb)) if match != 0 else "0"
         pmatch = ("=(%d-%d)/%d" % (tot_int, tot_fb, tot_int)) if tot_int != 0 else "0"
+        tgl_lbl = _tgl_id(iso) if iso else "(Tanpa Tanggal)"
+        hari_lbl = _hari_id(iso) if iso else ""
         rows.append([
-            i, _tgl_id(iso), _hari_id(iso), "", "", "",
+            i, tgl_lbl, hari_lbl, "", "", "",
             "", "", "",
             pmkta, pmatch, mk, fb,
             "", "", "", "",
