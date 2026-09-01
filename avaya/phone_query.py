@@ -12,23 +12,83 @@ _LIST_COLS = ("sid,day,tanggal,ani,dnis,call_id,durasi,hold_time_sec,has_audio,"
               "ringkasan,topik,jenis_layanan,sentiment,emotion,resolusi,frustrasi")
 
 
-def list_phone(conn, day_from=None, day_to=None, limit=200):
+def _list_where(day_from=None, day_to=None, agent=None, sentiment=None,
+                resolusi=None, frustrasi=None, status=None):
+    """Bangun klausa WHERE + params untuk daftar interaksi telepon."""
+    where = ["1=1"]
+    p = []
+    if day_from:
+        where.append("day>=?")
+        p.append(str(day_from)[:10])
+    if day_to:
+        where.append("day<=?")
+        p.append(str(day_to)[:10])
+    if agent:
+        where.append("agent_name=?")
+        p.append(str(agent))
+    if sentiment:
+        where.append("sentiment=?")
+        p.append(str(sentiment))
+    if resolusi:
+        where.append("resolusi=?")
+        p.append(str(resolusi))
+    fr = str(frustrasi or "").strip().lower()
+    if fr in ("ya", "yes", "true", "1", "y"):
+        where.append("lower(coalesce(frustrasi,'')) in ('1','true','ya','yes','y')")
+    elif fr in ("tidak", "no", "false", "0", "n"):
+        where.append("lower(coalesce(frustrasi,'')) not in ('1','true','ya','yes','y')")
+    st = str(status or "").strip().lower()
+    if st in ("analisis", "sudah", "dianalisis"):
+        where.append("analisis_json IS NOT NULL AND analisis_json<>''")
+    elif st in ("transkrip", "transkrip_saja"):
+        where.append("transkrip_json IS NOT NULL AND (analisis_json IS NULL OR analisis_json='')")
+    elif st in ("belum", "none", "kosong"):
+        where.append("transkrip_json IS NULL AND (analisis_json IS NULL OR analisis_json='')")
+    return " WHERE " + " AND ".join(where), p
+
+
+def _list_options(conn, day_from=None, day_to=None):
+    """Nilai distinct untuk dropdown filter (dibatasi rentang tanggal saja)."""
+    wsql, p = _list_where(day_from, day_to)
+
+    def _distinct(col):
+        rows = conn.execute(
+            "SELECT DISTINCT " + col + " AS v FROM awe_phone_interactions" +
+            wsql + " AND " + col + " IS NOT NULL AND " + col + "<>'' ORDER BY v",
+            p).fetchall()
+        return [r["v"] for r in rows]
+
+    return {"agents": _distinct("agent_name"),
+            "sentiments": _distinct("sentiment"),
+            "resolutions": _distinct("resolusi")}
+
+
+def list_phone(conn, day_from=None, day_to=None, limit=25, offset=0, agent=None,
+               sentiment=None, resolusi=None, frustrasi=None, status=None,
+               with_options=False):
+    """Daftar interaksi telepon dengan pagination + filter sisi-server.
+
+    Kembalikan {interactions, total, offset, limit, options?}. `total` = jumlah
+    baris yang cocok filter (bukan hanya halaman ini) supaya pager akurat.
+    """
     init_phone_db(conn)
+    wsql, p = _list_where(day_from, day_to, agent, sentiment, resolusi,
+                          frustrasi, status)
+    total = conn.execute(
+        "SELECT COUNT(*) FROM awe_phone_interactions" + wsql, p).fetchone()[0]
+    off = max(int(offset or 0), 0)
+    lim = max(int(limit or 25), 1)
     sql = ("SELECT " + _LIST_COLS +
            ", (transkrip_json IS NOT NULL) AS has_transkrip"
            ", (analisis_json IS NOT NULL) AS has_analisis"
-           " FROM awe_phone_interactions WHERE 1=1")
-    p = []
-    if day_from:
-        sql += " AND day>=?"
-        p.append(str(day_from)[:10])
-    if day_to:
-        sql += " AND day<=?"
-        p.append(str(day_to)[:10])
-    sql += " ORDER BY tanggal DESC, sid DESC LIMIT ?"
-    p.append(int(limit))
-    rows = conn.execute(sql, p).fetchall()
-    return {"interactions": [dict(r) for r in rows], "total": len(rows)}
+           " FROM awe_phone_interactions" + wsql +
+           " ORDER BY tanggal DESC, sid DESC LIMIT ? OFFSET ?")
+    rows = conn.execute(sql, p + [lim, off]).fetchall()
+    out = {"interactions": [dict(r) for r in rows], "total": int(total or 0),
+           "offset": off, "limit": lim}
+    if with_options:
+        out["options"] = _list_options(conn, day_from, day_to)
+    return out
 
 
 def get_phone_interaction(conn, sid):
