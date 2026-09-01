@@ -1,5 +1,4 @@
 (function(){
-// Kelola Data Phone - semua aksi via POST /api/awe/phone/probe (dispatch by action).
 function el(id){return document.getElementById(id);}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function iso(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
@@ -7,10 +6,8 @@ function setStat(id,msg,k){var s=el(id);if(!s)return;s.className='status show'+(
 function hideStat(id){var s=el(id);if(s){s.className='status';s.innerHTML='';}}
 function api(payload){return fetch('/api/awe/phone/probe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)}).then(function(r){return r.json();});}
 
-// Nilai awal tanggal: tarik = kemarin; status & daftar = 14 hari terakhir.
 (function(){var y=iso(new Date(Date.now()-864e5));if(el('t_from')&&!el('t_from').value)el('t_from').value=y;if(el('t_to')&&!el('t_to').value)el('t_to').value=y;var t0=iso(new Date()),t14=iso(new Date(Date.now()-13*864e5));if(el('c_to'))el('c_to').value=t0;if(el('c_from'))el('c_from').value=t14;if(el('l_to'))el('l_to').value=t0;if(el('l_from'))el('l_from').value=t14;})();
 
-// Suntik gaya detail (bubble/meta/tag) sekali - agar awe_phone.html tetap ramping.
 (function(){if(document.getElementById('awePhoneCss'))return;var st=document.createElement('style');st.id='awePhoneCss';st.textContent='.row-click{cursor:pointer;}.row-click:hover td{background:var(--accent-glow);}.detail-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px;}.meta-box{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:10px;padding:10px 12px;}.meta-box .k{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.03em;}.meta-box .v{font-size:14px;font-weight:600;color:var(--text-main);margin-top:3px;word-break:break-word;}.sec-h{font-size:14px;font-weight:700;color:var(--text-main);margin:16px 0 8px;}.tag{display:inline-block;font-size:12px;padding:2px 10px;border-radius:99px;background:var(--c-blue);color:var(--c-blue-txt);margin:2px 4px 2px 0;}.chat-log{display:flex;flex-direction:column;gap:10px;margin:8px 0 4px;}.bubble{max-width:80%;padding:9px 13px;border-radius:14px;font-size:13.5px;line-height:1.5;}.bubble .who{font-size:11px;font-weight:700;opacity:.7;margin-bottom:3px;}.bubble.agen{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px;}.bubble.pel{align-self:flex-start;background:var(--panel-border);color:var(--text-main);border-bottom-left-radius:4px;}';document.head.appendChild(st);})();
 
 // ---- Status / cakupan ----
@@ -45,8 +42,9 @@ function pollJob(job,statId,btn,onDone){
 el('tPullBtn').addEventListener('click',function(){
   var df=el('t_from').value,dt=el('t_to').value;
   if(!df||!dt){setStat('tStat','Isi rentang tanggal dulu.','err');return;}
-  var lim=parseInt(el('t_limit').value,10)||25;
-  el('tPullBtn').disabled=true;setStat('tStat','Login (kredensial .env) & menarik data telepon...');
+  var lr=el('t_limit').value,lim=(lr===''||parseInt(lr,10)===0)?-1:parseInt(lr,10);
+  if(isNaN(lim))lim=25;
+  el('tPullBtn').disabled=true;setStat('tStat','Login (.env) & menarik data telepon'+(lim<0?' (SEMUA, auto-pecah waktu)':(' (maks '+lim+')'))+'...');
   api({action:'pull_start',date_from:df,date_to:dt,limit_rows:lim}).then(function(d){
     if(!d.ok){setStat('tStat','Gagal: '+esc(d.error||'')+(d.need_login?' (set AVAYA_USERNAME/AVAYA_PASSWORD di .env)':''),'err');el('tPullBtn').disabled=false;return;}
     pollJob(d.job,'tStat',el('tPullBtn'),function(r){setStat('tStat',esc(r.message||'Selesai.'),'ok');});
@@ -92,10 +90,19 @@ function loadList(){
 }
 function bubbles(dialog){
   if(!dialog||!dialog.length)return '';
+  var order=[];
+  function sideFor(who){
+    var w=String(who||'').toLowerCase();
+    if(w.indexOf('agen')>=0||w.indexOf('agent')>=0||w.indexOf('petugas')>=0||w.indexOf('cs')>=0)return 'agen';
+    if(w.indexOf('pelanggan')>=0||w.indexOf('penelepon')>=0||w.indexOf('customer')>=0||w.indexOf('caller')>=0||w.indexOf('nasabah')>=0||w.indexOf('wp')>=0)return 'pel';
+    var key=w||'?';var idx=order.indexOf(key);
+    if(idx<0){order.push(key);idx=order.length-1;}
+    return (idx%2===0)?'pel':'agen';
+  }
   return '<div class="chat-log">'+dialog.map(function(t){
-    var who=t.penutur||t.role||t.speaker||'';var teks=t.teks||t.text||t.content||'';
-    var agen=String(who).toLowerCase().indexOf('agen')>=0;
-    return '<div class="bubble '+(agen?'agen':'pel')+'"><div class="who">'+esc(who||(agen?'Agen':'Penelepon'))+'</div>'+esc(teks)+'</div>';
+    var who=t.penutur||t.role||t.speaker||t.spk||'';var teks=t.teks||t.text||t.content||'';
+    var side=sideFor(who);var label=who||(side==='agen'?'Agen':'Penelepon');
+    return '<div class="bubble '+side+'"><div class="who">'+esc(label)+'</div>'+esc(teks)+'</div>';
   }).join('')+'</div>';
 }
 function renderDetail(it){
