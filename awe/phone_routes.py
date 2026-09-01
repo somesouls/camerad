@@ -12,9 +12,9 @@ TERPISAH total dari alur Chat. Handler didaftarkan oleh awe/routes.py
     - job_progress  : status job berjalan (butuh job).
     - job_fetch     : status akhir job lalu buang dari memori (butuh job).
     - coverage      : ringkasan per hari (audio/transkrip/analisis) + stats.
-    - list          : daftar interaksi (opsional rentang tanggal).
+    - list          : daftar interaksi (rentang tanggal + pagination + filter).
     - detail        : satu interaksi lengkap (butuh sid).
-    - daily_users   : agregasi Pengguna Harian per ANI + tema (rentang tanggal).
+    - daily_users   : agregasi Pengguna Harian per ANI + tema (pagination).
     - daily_convs   : daftar panggilan satu nomor telepon (butuh ani).
 Butuh izin 'awe_manage'. Kredensial tarik diambil dari .env (AVAYA_USERNAME/
 AVAYA_PASSWORD), sama seperti AWE Chat; dipakai sekali lalu dilupakan.
@@ -99,8 +99,16 @@ async def awe_phone_probe(request: Request):
 
     if action == "list":
         try:
-            lim = int(body.get("limit_rows") or 200)
-            d = await run_in_threadpool(pjobs.list_rows, df or None, dt or None, lim)
+            lim = int(body.get("limit_rows") or 25)
+            off = int(body.get("offset") or 0)
+            d = await run_in_threadpool(
+                pjobs.list_rows, df or None, dt or None, lim, off,
+                (str(body.get("agent") or "").strip() or None),
+                (str(body.get("sentiment") or "").strip() or None),
+                (str(body.get("resolusi") or "").strip() or None),
+                (str(body.get("frustrasi") or "").strip() or None),
+                (str(body.get("status") or "").strip() or None),
+                bool(body.get("with_options")))
             d["ok"] = True
             return JSONResponse(d)
         except Exception as e:
@@ -120,8 +128,9 @@ async def awe_phone_probe(request: Request):
 
     if action == "daily_users":
         try:
-            lim = int(body.get("limit_rows") or 1000)
-            d = await run_in_threadpool(pjobs.daily_users, df or None, dt or None, lim)
+            lim = int(body.get("limit_rows") or 25)
+            off = int(body.get("offset") or 0)
+            d = await run_in_threadpool(pjobs.daily_users, df or None, dt or None, lim, off)
             d["ok"] = True
             return JSONResponse(d)
         except Exception as e:
