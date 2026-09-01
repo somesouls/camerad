@@ -24,8 +24,9 @@ POST /api/awe/phone/autopull/now. Penjadwal via maybe_start_scheduler().
 import os
 import json
 import threading as _threading
-import uuid as _uuid
 import datetime as _dt
+
+from fastapi import Request
 
 _LOCK = _threading.Lock()
 _LAST = {}
@@ -178,7 +179,7 @@ async def autopull_status():
     })
 
 
-async def autopull_now(request):
+async def autopull_now(request: Request):
     from fastapi.responses import JSONResponse
     try:
         body = await request.json() or {}
