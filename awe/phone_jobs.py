@@ -173,10 +173,17 @@ def coverage(day_from=None, day_to=None):
         conn.close()
 
 
-def list_rows(day_from=None, day_to=None, limit=200):
+def list_rows(day_from=None, day_to=None, limit=25, offset=0, agent=None,
+              sentiment=None, resolusi=None, frustrasi=None, status=None,
+              with_options=False):
+    """Daftar interaksi telepon: pagination sisi-server + filter opsional."""
     conn = _conn()
     try:
-        return pquery.list_phone(conn, day_from or None, day_to or None, limit=limit)
+        return pquery.list_phone(conn, day_from or None, day_to or None,
+                                 limit=limit, offset=offset, agent=agent,
+                                 sentiment=sentiment, resolusi=resolusi,
+                                 frustrasi=frustrasi, status=status,
+                                 with_options=with_options)
     finally:
         conn.close()
 
@@ -189,14 +196,28 @@ def detail(sid):
         conn.close()
 
 
-def daily_users(day_from=None, day_to=None, limit=1000):
-    """Agregasi Pengguna Harian telepon (per ANI) untuk rentang tanggal."""
+def daily_users(day_from=None, day_to=None, limit=1000, offset=0):
+    """Agregasi Pengguna Harian telepon (per ANI) untuk rentang tanggal.
+
+    KPI/tren/chart dihitung utuh untuk seluruh rentang; hanya tabel pemanggil
+    yang dipotong per halaman (offset/limit) => pagination sisi-server. Kunci
+    tambahan: callers_total, callers_offset, callers_limit.
+    """
     conn = _conn()
     try:
         preset = "custom" if (day_from or day_to) else "30d"
         s, e = pdaily.resolve_range(preset, day_from or None, day_to or None)
-        data = pdaily.compute(conn, s, e, limit_users=int(limit or 1000))
+        data = pdaily.compute(conn, s, e, limit_users=1000000)
         data["bounds"] = pdaily.data_bounds(conn)
+        full = data.get("callers") or []
+        total = len(full)
+        off = max(int(offset or 0), 0)
+        lim = max(int(limit or 1000), 1)
+        data["callers"] = full[off:off + lim]
+        data["callers_total"] = total
+        data["callers_offset"] = off
+        data["callers_limit"] = lim
+        data["callers_truncated"] = False
         return data
     finally:
         conn.close()
