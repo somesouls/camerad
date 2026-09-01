@@ -17,8 +17,6 @@
 .field label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
 .field input:not([type="checkbox"]) { padding: 11px 14px; border: 1px solid var(--panel-border); border-radius: 10px; background: var(--bg-base); color: var(--text-main); font-size: 14.5px; font-family: inherit; outline: none; transition: 0.2s; }
 .field input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); background: transparent; }
-.field select { padding: 11px 14px; border: 1px solid var(--panel-border); border-radius: 10px; background: var(--bg-base); color: var(--text-main); font-size: 14.5px; font-family: inherit; outline: none; transition: 0.2s; cursor: pointer; }
-.field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-glow); }
 .btn-modern { padding: 11px 20px; border: none; border-radius: 10px; background: var(--accent); color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; transition: 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 4px 12px var(--accent-glow); }
 .btn-modern:hover:not(:disabled) { background: var(--accent-hover); transform: translateY(-1px); }
 .btn-modern:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; background: var(--panel-border); color: var(--text-muted); }
@@ -37,21 +35,6 @@
 .status.ok { background: var(--c-green); color: var(--c-green-txt); }
 .status.err { background: var(--c-red); color: var(--c-red-txt); }
 .use-note { font-size: 13px; color: var(--text-muted); background: var(--panel-border); border-radius: 8px; padding: 8px 12px; margin: 0 0 14px; line-height: 1.5; }
-.row-click { cursor: pointer; }
-.row-click:hover td { background: var(--accent-glow); }
-.detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
-.meta-box { background: var(--bg-base); border: 1px solid var(--panel-border); border-radius: 10px; padding: 10px 12px; }
-.meta-box .k { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .03em; }
-.meta-box .v { font-size: 14px; font-weight: 600; color: var(--text-main); margin-top: 3px; word-break: break-word; }
-.sec-h { font-size: 14px; font-weight: 700; color: var(--text-main); margin: 16px 0 8px; }
-.tag { display: inline-block; font-size: 12px; padding: 2px 10px; border-radius: 99px; background: var(--c-blue); color: var(--c-blue-txt); margin: 2px 4px 2px 0; }
-.chat-log { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 4px; }
-.bubble { max-width: 80%; padding: 9px 13px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; }
-.bubble .who { font-size: 11px; font-weight: 700; opacity: .7; margin-bottom: 3px; }
-.bubble.agen { align-self: flex-end; background: var(--accent); color: #fff; border-bottom-right-radius: 4px; }
-.bubble.pel { align-self: flex-start; background: var(--panel-border); color: var(--text-main); border-bottom-left-radius: 4px; }
-.pager { display: flex; align-items: center; justify-content: center; gap: 16px; margin-top: 16px; }
-.pager-info { font-size: 13.5px; color: var(--text-muted); font-weight: 600; }
 </style>
 {% endblock %}
 
@@ -116,43 +99,9 @@
   </button>
   <div class="status" id="aStat"></div>
 </section>
-
-<section class="c-card">
-  <div class="stage-head">
-    <h2 class="stage-title">Daftar &amp; Detail Interaksi</h2>
-    <span class="pill" id="lPill">&mdash;</span>
-  </div>
-  <p class="use-note">&#8505;&#65039; Klik satu baris untuk melihat <b>transkrip percakapan</b> (bubble Agen/Penelepon) beserta hasil analisis: ringkasan, topik, sentimen, emosi, resolusi, entitas, dan poin penting. Gunakan <b>filter</b> (Agen/Sentimen/Resolusi/Frustrasi/Status) dan navigasi <b>halaman</b> di bawah tabel &mdash; semuanya diproses di server.</p>
-  <div class="form-row">
-    <div class="field"><label>Dari tanggal</label><input type="date" id="l_from"></div>
-    <div class="field"><label>Sampai tanggal</label><input type="date" id="l_to"></div>
-    <div class="field"><label>Baris per halaman</label><input type="number" id="l_limit" value="25" min="5" max="200"></div>
-    <div class="field"><button class="btn-modern btn-outline" id="lLoadBtn">Muat Daftar</button></div>
-  </div>
-  <div class="form-row">
-    <div class="field"><label>Agen</label><select id="f_agent"><option value="">Semua agen</option></select></div>
-    <div class="field"><label>Sentimen</label><select id="f_sentiment"><option value="">Semua sentimen</option></select></div>
-    <div class="field"><label>Resolusi</label><select id="f_resolusi"><option value="">Semua resolusi</option></select></div>
-    <div class="field"><label>Frustrasi</label><select id="f_frustrasi"><option value="">Semua</option><option value="ya">Ya</option><option value="tidak">Tidak</option></select></div>
-    <div class="field"><label>Status</label><select id="f_status"><option value="">Semua status</option><option value="analisis">Sudah dianalisis</option><option value="transkrip">Transkrip saja</option><option value="belum">Belum</option></select></div>
-  </div>
-  <div style="overflow-x:auto;">
-    <table class="table-modern">
-      <thead><tr><th>Waktu</th><th>Durasi</th><th>Topik / Ringkasan</th><th>Sentimen</th><th>Analisis</th></tr></thead>
-      <tbody id="lBody"><tr><td colspan="5" style="text-align:center;">&mdash;</td></tr></tbody>
-    </table>
-  </div>
-  <div class="pager" id="lPager" style="display:none;">
-    <button class="btn-modern btn-outline" id="lPrev">&lsaquo; Sebelumnya</button>
-    <span class="pager-info" id="lPageInfo"></span>
-    <button class="btn-modern btn-outline" id="lNext">Berikutnya &rsaquo;</button>
-  </div>
-  <div class="status" id="lStat"></div>
-  <div id="dPanel" style="display:none;margin-top:20px;"></div>
-</section>
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/awe_phone.js?v=6"></script>
+<script src="/static/awe_phone.js?v=7"></script>
 <script src="/static/awe_phone_daily.js?v=2"></script>
 {% endblock %}
