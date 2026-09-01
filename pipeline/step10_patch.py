@@ -177,6 +177,12 @@ def _aggregate(wb_mkta, wb_fb):
     Return (order, rek) di mana rek[rid] = {
         mka, mkta, umk, mnotes[], unotes[], tgl, follow(bool)
     }.
+
+    follow=True (HASIL_LM "TINDAK LANJUT") diset bila SALAH SATU: ada baris MKTA
+    dengan "Intent Seharusnya" manual terisi, ATAU ada baris Fallback yang sudah
+    ditindaklanjuti ("Intent Judgement LLM" terisi). Setiap baris yang membuat
+    follow=True WAJIB menyumbang catatan (mnotes/unotes) supaya CATATAN_LM tidak
+    pernah kosong saat HASIL_LM = TINDAK LANJUT.
     """
     rek = {}
     order = []
@@ -216,8 +222,14 @@ def _aggregate(wb_mkta, wb_fb):
                 e["mka"] += 1
             elif cls == "MKTA":
                 e["mkta"] += 1
-                cat = pr._sv(cells, c_cat).strip()
-                seh = manual_seh or pr._sv(cells, c_llm).strip()
+            # Catatan matched dibuat bila baris ini MKTA, ATAU ditindaklanjuti
+            # manual (manual_seh terisi), ATAU ada catatan analis. Sebelumnya
+            # catatan HANYA dibuat utk cabang MKTA, sehingga baris MKA yang
+            # ditindaklanjuti (mis. PUTUSAN MENJAWAB tapi Intent Seharusnya diisi)
+            # jadi TINDAK LANJUT dengan CATATAN_LM kosong.
+            cat = pr._sv(cells, c_cat).strip()
+            seh = manual_seh or pr._sv(cells, c_llm).strip()
+            if cls == "MKTA" or manual_seh != "" or cat:
                 note = cat if cat else (("Alihkan ke intent '" + seh + "'") if seh else "")
                 if note and note not in e["mnotes"]:
                     e["mnotes"].append(note)
@@ -243,8 +255,14 @@ def _aggregate(wb_mkta, wb_fb):
             if not e["tgl"]:
                 e["tgl"] = _tgl(pr._sv(cells, c_waktu))
             e["umk"] += 1
-            if intent and user:
-                note = "Menambahkan frasa '" + user + "' sebagai training phrase intent '" + intent + "'"
+            # Fallback yang ditindaklanjuti (Intent Judgement LLM terisi) JUGA
+            # TINDAK LANJUT. Dulu follow hanya diset dari MKTA manual, sehingga
+            # rekaman yang tindak lanjutnya cuma dari fallback salah jadi TANPA
+            # CATATAN -> HASIL_LM kurang hitung.
+            if intent:
+                e["follow"] = True
+                note = (("Menambahkan frasa '" + user + "' sebagai training phrase intent '" + intent + "'")
+                        if user else ("Alihkan ke intent '" + intent + "'"))
                 if note not in e["unotes"]:
                     e["unotes"].append(note)
 
