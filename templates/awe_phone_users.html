@@ -41,18 +41,25 @@
 .bar-row .val{width:56px;text-align:right;color:var(--text-muted);}
 .row-click{cursor:pointer;}
 .row-click:hover td{background:var(--accent-glow);}
+.pager{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:16px;}
+.pager-info{font-size:13.5px;color:var(--text-muted);font-weight:600;}
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;z-index:3000;background:rgba(0,0,0,.55);display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow-y:auto;}
+.modal-box{position:relative;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:16px;padding:24px;width:100%;max-width:900px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4);}
+.modal-x{position:absolute;top:12px;right:14px;width:34px;height:34px;border:none;border-radius:9px;background:var(--panel-border);color:var(--text-main);font-size:22px;line-height:1;cursor:pointer;transition:.2s;}
+.modal-x:hover{background:var(--c-red);color:var(--c-red-txt);}
 </style>
 {% endblock %}
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Pengguna Harian AWE Phone</h1>
-  <p class="page-desc">Siapa yang paling sering menghubungi Kring Pajak, dikelompokkan per <b>nomor telepon penelepon (ANI)</b> dengan <b>deteksi tema otomatis</b>. Klik satu nomor untuk melihat seluruh panggilannya. Terpisah total dari data Chat.</p>
+  <p class="page-desc">Siapa yang paling sering menghubungi Kring Pajak, dikelompokkan per <b>nomor telepon penelepon (ANI)</b> dengan <b>deteksi tema otomatis</b>. Klik satu nomor untuk melihat seluruh panggilannya dalam jendela pop-up. Terpisah total dari data Chat.</p>
 </div>
 <section class="c-card">
   <div class="stage-head"><h2 class="stage-title">Ringkasan Penelepon</h2><span class="pill" id="puPill">&mdash;</span></div>
   <div class="form-row">
     <div class="field"><label>Dari tanggal</label><input type="date" id="pu_from"></div>
     <div class="field"><label>Sampai tanggal</label><input type="date" id="pu_to"></div>
+    <div class="field"><label>Baris per halaman</label><input type="number" id="pu_limit" value="25" min="5" max="200"></div>
     <div class="field"><button class="btn-modern" id="puLoad">Muat</button></div>
   </div>
   <div class="kpi-grid" id="puKpi"></div>
@@ -64,10 +71,20 @@
   <div style="overflow-x:auto;">
     <table class="table-modern"><thead><tr><th>No. Penelepon</th><th>Panggilan</th><th>Hari</th><th>Tema teratas</th><th>Sentimen</th><th>Resolusi</th><th>Agen tersering</th></tr></thead><tbody id="puBody"><tr><td colspan="7" style="text-align:center;">&mdash;</td></tr></tbody></table>
   </div>
+  <div class="pager" id="puPager" style="display:none;">
+    <button class="btn-modern btn-outline" id="puPrev">&lsaquo; Sebelumnya</button>
+    <span class="pager-info" id="puPageInfo"></span>
+    <button class="btn-modern btn-outline" id="puNext">Berikutnya &rsaquo;</button>
+  </div>
   <div class="status" id="puStat"></div>
-  <div id="puConvPanel" style="display:none;margin-top:16px;"></div>
 </section>
+<div class="modal-overlay" id="puModal" style="display:none;">
+  <div class="modal-box" id="puModalBox">
+    <button class="modal-x" id="puModalX" aria-label="Tutup">&times;</button>
+    <div id="puConvPanel"></div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/awe_phone_users.js?v=2"></script>
+<script src="/static/awe_phone_users.js?v=3"></script>
 {% endblock %}
