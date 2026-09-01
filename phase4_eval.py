@@ -22,9 +22,16 @@ POST-GATE + false-abstain (kueri 'hit' yang jatuh gara-gara gerbang). Ambang
 gerbang di-resolusi PERSIS seperti produksi lewat rag.calibration.get_min_cos()
 (knob_store per-profil: store>env>default); override manual via --gate-min-cos.
 
+Track D langkah 2 (cermin rewrite dua-arah): simulasi gerbang & proksi abstain
+memakai cosine MAKS lintas-varian kueri (rag.rewrite.varian_kueri -> [asli,
+baku]), SAMA seperti rag.calibration_patch produksi, agar metrik post-gate /
+false-abstain apel-ke-apel dengan perilaku nyata. Dikendalikan env
+RAG_GATE_REWRITE (default on); GAGAL-ANGGUN ke skor query-asli.
+
 Determinisme gerbang: secara DEFAULT eval ini mematikan query-rewrite AI
 (RAG_REWRITE_AI=0) supaya skor stabil & --baseline-check apel-ke-apel. Untuk
 mengukur perilaku produksi apa adanya, jalankan dengan PHASE4_REWRITE_AI=1.
+(Rewrite dua-arah baku bersifat DETERMINISTIK non-LLM, jadi aman untuk gerbang.)
 
 Selain rewrite-AI, reranker GPU (bge-reranker-v2-m3, CUDA/fp16) juga sumber
 nondeterminisme: urutan kandidat yang skornya nyaris seri bisa bergeser
@@ -103,6 +110,27 @@ try:
     import rag.calibration as _cal
 except Exception:            # pragma: no cover
     _cal = None
+
+
+# --- Rewrite dua-arah untuk gerbang (Track D langkah 2, cermin produksi) ------
+# Cermin dari rag.calibration_patch: simulasi gerbang & proksi abstain menilai
+# cosine MAKS lintas-varian kueri (varian_kueri -> [asli, baku]) agar metrik
+# post-gate/false-abstain apel-ke-apel dengan gerbang produksi. Env
+# RAG_GATE_REWRITE (default on); GAGAL-ANGGUN ke [asli] bila modul tak ada.
+def _gate_rewrite_enabled():
+    v = os.environ.get("RAG_GATE_REWRITE", "1")
+    return str(v).strip().lower() not in ("0", "false", "no")
+
+
+def _query_variants(query):
+    if not _gate_rewrite_enabled():
+        return [query]
+    try:
+        import rag.rewrite as _rw
+        vs = _rw.varian_kueri(query)
+        return vs if vs else [query]
+    except Exception:
+        return [query]
 
 
 def _utcnow():
@@ -191,12 +219,29 @@ def _resolve_gate(gate_profile=None, explicit=None):
 
 
 def _cos_map(query, rows):
-    """{id: cosine} untuk baris hasil retrieval (fail-open kosong)."""
+    """{id: cosine MAKS lintas-varian kueri} untuk baris hasil retrieval.
+
+    Cermin rag.calibration_patch._skor_maks_varian: nilai cosine tertinggi atas
+    {query asli, varian baku} (rag.rewrite.varian_kueri). Fail-open kosong.
+    """
     if not rows or _cal is None:
         return {}
     try:
         ids = [r.get("id") for r in rows if isinstance(r, dict) and r.get("id")]
-        return _cal.skor_peraturan(query, ids) or {}
+        if not ids:
+            return {}
+        best = {}
+        for v in _query_variants(query):
+            try:
+                skor = _cal.skor_peraturan(v, ids) or {}
+            except Exception:
+                skor = {}
+            for i, c in skor.items():
+                if c is None:
+                    continue
+                if i not in best or c > best[i]:
+                    best[i] = c
+        return best
     except Exception:
         return {}
 
@@ -295,9 +340,11 @@ def run_eval(k=10, limit=None, quiet=False, gate=False, gate_min_cos=None,
                   "<= 0 / tak teresolusi (profil=%s). Metrik post-gate dilewati."
                   % gate_profile, flush=True)
         else:
-            print("\n[phase4_eval] MODE SADAR-GERBANG aktif: min_cos=%.3f (profil=%s%s)."
+            print("\n[phase4_eval] MODE SADAR-GERBANG aktif: min_cos=%.3f "
+                  "(profil=%s%s | rewrite-gerbang=%s)."
                   % (gate_mc, gate_profile,
-                     ", eksplisit" if gate_min_cos is not None else ""),
+                     ", eksplisit" if gate_min_cos is not None else "",
+                     "on" if _gate_rewrite_enabled() else "off"),
                   flush=True)
 
     print("\n== EVALUASI HIT (recall@%d) ==" % k, flush=True)
@@ -373,8 +420,7 @@ def run_eval(k=10, limit=None, quiet=False, gate=False, gate_min_cos=None,
         max_cos = None
         if rows and _cal is not None:
             try:
-                ids = [r.get("id") for r in rows if isinstance(r, dict) and r.get("id")]
-                skor = _cal.skor_peraturan(q, ids) or {}
+                skor = _cos_map(q, rows)
                 vals = [float(v) for v in skor.values() if v is not None]
                 if vals:
                     max_cos = max(vals)
@@ -410,6 +456,7 @@ def run_eval(k=10, limit=None, quiet=False, gate=False, gate_min_cos=None,
         "gate_mode": bool(gate and gate_mc is not None),
         "gate_min_cos": (round(gate_mc, 4) if gate_mc is not None else None),
         "gate_profile": (gate_profile if gate else None),
+        "gate_rewrite": (_gate_rewrite_enabled() if (gate and gate_mc is not None) else None),
         "post_gate_recall_at_k": (round(post_gate_recall, 4)
                                   if post_gate_recall is not None else None),
         "n_false_abstain": (n_false_abstain if (gate and gate_mc is not None) else None),
