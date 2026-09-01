@@ -14,8 +14,13 @@
 .field label{font-size:13px;font-weight:600;color:var(--text-muted);}
 .field input{padding:11px 14px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base);color:var(--text-main);font-size:14.5px;font-family:inherit;outline:none;transition:.2s;}
 .field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
+.field select{padding:11px 14px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base);color:var(--text-main);font-size:14.5px;font-family:inherit;outline:none;transition:.2s;cursor:pointer;}
+.field select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
 .btn-modern{padding:11px 20px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;font-size:14px;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 12px var(--accent-glow);}
-.btn-modern:hover{background:var(--accent-hover);transform:translateY(-1px);}
+.btn-modern:hover:not(:disabled){background:var(--accent-hover);transform:translateY(-1px);}
+.btn-modern:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;background:var(--panel-border);color:var(--text-muted);}
+.btn-outline{background:transparent;border:1px solid var(--panel-border);color:var(--text-main);box-shadow:none;}
+.btn-outline:hover:not(:disabled){border-color:var(--accent);color:var(--accent);background:var(--accent-glow);}
 .table-modern{width:100%;border-collapse:collapse;margin-top:8px;font-size:13.5px;}
 .table-modern th,.table-modern td{border:1px solid var(--panel-border);padding:9px 12px;text-align:left;}
 .table-modern th{background:var(--c-blue);color:var(--c-blue-txt);font-weight:600;}
@@ -38,6 +43,8 @@
 .dt-list{margin:6px 0;padding-left:20px;font-size:13.5px;color:var(--text-main);}
 .mono{font-family:'JetBrains Mono','Courier New',monospace;font-size:12.5px;white-space:pre-wrap;background:rgba(0,0,0,.15);border:1px solid var(--panel-border);border-radius:10px;padding:12px;line-height:1.55;color:var(--text-main);}
 [data-theme="light"] .mono{background:#f8fafc;}
+.pager{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:16px;}
+.pager-info{font-size:13.5px;color:var(--text-muted);font-weight:600;}
 .drawer{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:60;}
 .drawer.show{display:block;}
 .drawer-panel{position:absolute;top:0;right:0;bottom:0;width:min(720px,96vw);background:var(--bg-base);border-left:1px solid var(--panel-border);overflow-y:auto;padding:20px 24px 48px;}
@@ -47,17 +54,30 @@
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Detail Percakapan — Phone</h1>
-  <p class="page-desc">Telusuri panggilan <b>Telepon</b> (Avaya) satu per satu. Klik baris untuk membuka transkrip, ringkasan, poin penting, entitas, dan hasil analisis LLM. Terpisah total dari Chat.</p>
+  <p class="page-desc">Telusuri panggilan <b>Telepon</b> (Avaya) satu per satu. Klik baris untuk membuka transkrip, ringkasan, poin penting, entitas, dan hasil analisis LLM. Gunakan <b>filter</b> (Agen/Sentimen/Resolusi/Frustrasi/Status) dan navigasi <b>halaman</b> di bawah tabel — semuanya diproses di server. Terpisah total dari Chat.</p>
 </div>
 <section class="c-card">
   <div class="stage-head"><h2 class="stage-title">Daftar Panggilan</h2><span class="pill" id="dtPill">&mdash;</span></div>
   <div class="form-row">
     <div class="field"><label>Dari tanggal</label><input type="date" id="dt_from"></div>
     <div class="field"><label>Sampai tanggal</label><input type="date" id="dt_to"></div>
+    <div class="field"><label>Baris per halaman</label><input type="number" id="dt_limit" value="25" min="5" max="200"></div>
     <div class="field"><button class="btn-modern" id="dtLoad">Muat</button></div>
+  </div>
+  <div class="form-row">
+    <div class="field"><label>Agen</label><select id="dt_agent"><option value="">Semua agen</option></select></div>
+    <div class="field"><label>Sentimen</label><select id="dt_sentiment"><option value="">Semua sentimen</option></select></div>
+    <div class="field"><label>Resolusi</label><select id="dt_resolusi"><option value="">Semua resolusi</option></select></div>
+    <div class="field"><label>Frustrasi</label><select id="dt_frustrasi"><option value="">Semua</option><option value="ya">Ya</option><option value="tidak">Tidak</option></select></div>
+    <div class="field"><label>Status</label><select id="dt_status"><option value="">Semua status</option><option value="analisis">Sudah dianalisis</option><option value="transkrip">Transkrip saja</option><option value="belum">Belum</option></select></div>
   </div>
   <div style="overflow-x:auto;">
     <table class="table-modern"><thead><tr><th>Tanggal</th><th>Nomor (ANI)</th><th>Agen</th><th>Durasi</th><th>Sentimen</th><th>Resolusi</th><th>Frustrasi</th><th>Status</th></tr></thead><tbody id="dtBody"><tr><td colspan="8" style="text-align:center;">&mdash;</td></tr></tbody></table>
+  </div>
+  <div class="pager" id="dtPager" style="display:none;">
+    <button class="btn-modern btn-outline" id="dtPrev">&lsaquo; Sebelumnya</button>
+    <span class="pager-info" id="dtPageInfo"></span>
+    <button class="btn-modern btn-outline" id="dtNext">Berikutnya &rsaquo;</button>
   </div>
   <div class="status" id="dtStat"></div>
 </section>
@@ -69,5 +89,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/awe_phone_detail.js?v=1"></script>
+<script src="/static/awe_phone_detail.js?v=2"></script>
 {% endblock %}
