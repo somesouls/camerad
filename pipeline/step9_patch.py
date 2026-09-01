@@ -14,6 +14,15 @@ PERBAIKAN INTI ("Intent Seharusnya" tak tersimpan):
 - r["row"] yang dikirim ke frontend = kunci bisnis; saveStep9 mengirim
   edits[kunci]=Intent Seharusnya, jadi otomatis ter-upsert ke kunci yang benar.
 
+CATATAN PREFILL (perbaikan "prefill muncul saat buka modal / balik lagi"):
+- Nilai "Intent Seharusnya" yang dikirim ke frontend = HANYA editan manual
+  analis (default KOSONG). TIDAK di-prefill dengan tebakan LLM. Bila di-prefill
+  dengan LLM, maka: (a) modal tampak terisi walau analis belum meninjau, dan
+  (b) saat analis mengosongkan lalu simpan, nilai manual jadi "" sehingga saat
+  dibuka lagi 'manual or llm' jatuh balik ke LLM -> prefill lama "muncul lagi".
+  Tebakan LLM tetap tersedia sebagai rekomendasi dropdown (r.kandidat) dan pada
+  kolom "Intent Seharusnya (LLM)" di sheet, jadi tidak hilang.
+
 WORKBOOK LENGKAP (perbaikan "Excel Step 9 hanya 1 sheet"):
 - step9_load kini IKUT menyimpan SEMUA sheet hulu dari Step 8 (Interaksi ..
   QA Conf MKTA) ke step_row Step 9, lalu meletakkan "Analisis MKTA" TERAKHIR.
@@ -230,7 +239,10 @@ def step9_load(cfg, ctx):
         manual = d.get(COL_MANUAL, "") or ""
         catatan = d.get(COL_CATATAN, "") or ""
         llm = d.get(COL_LLM, "") or it["llm"]
-        seharusnya = manual or llm
+        # JANGAN prefill dengan LLM: default KOSONG. Hanya editan manual analis
+        # yang tampil & persist (termasuk saat sengaja dikosongkan). Tebakan LLM
+        # tetap tersedia via rekomendasi dropdown (kandidat) & kolom LLM sheet.
+        seharusnya = manual
         rows.append({
             "row": it["biz_key"], "id_trace": it["rid"], "pertanyaan": it["user"],
             "qa": it["sc"], "df": it["df"], "nli": it["nli"],
@@ -297,7 +309,7 @@ def step9_save(cfg, ctx):
 
 pr.step9_save = step9_save
 pr.step9_load = step9_load
-print("[step9_patch] Step 9 row-based: workbook lengkap (sheet hulu + Analisis MKTA) -> step_row; editan (Intent Seharusnya/Catatan) -> step_edit (kunci bisnis stabil, persist).", flush=True)
+print("[step9_patch] Step 9 row-based: workbook lengkap (sheet hulu + Analisis MKTA) -> step_row; editan (Intent Seharusnya/Catatan) -> step_edit (kunci bisnis stabil, persist); Intent Seharusnya TANPA prefill LLM (default kosong).", flush=True)
 
 # Aktifkan penyimpanan baris (row-based) utk Step 4-8. Di-chain di sini karena
 # step9_patch di-import setelah pipeline_routes siap (fungsi step sudah ada).
