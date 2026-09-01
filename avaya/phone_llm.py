@@ -124,6 +124,23 @@ def _strip_json(s):
     return t
 
 
+_FIX_SYSTEM = ("Anda memperbaiki JSON rusak. Keluarkan HANYA satu objek JSON "
+               "valid tanpa penjelasan atau pembungkus markdown.")
+
+
+def _fix_prompt(reply, err):
+    """Prompt perbaikan: minta LLM mengubah keluaran rusak jadi JSON valid."""
+    return _NL.join([
+        "Objek JSON di bawah TIDAK valid (galat parser: " + (err or "") + ").",
+        "Perbaiki menjadi SATU objek JSON valid dengan kunci yang sama.",
+        "WAJIB escape setiap tanda kutip ganda di dalam nilai teks, dan JANGAN "
+        "memakai baris baru mentah di dalam string.",
+        "Keluarkan HANYA objek JSON, tanpa teks lain.",
+        "",
+        reply or "",
+    ])
+
+
 def _coerce(val, allowed, default):
     v = str(val or "").strip().lower()
     for a in allowed:
@@ -176,13 +193,22 @@ def _build_user(text, segments):
     return _NL.join(parts)
 
 
-def analyze_transcript(text, segments=None, max_new_tokens=1500, temperature=0.2):
+def analyze_transcript(text, segments=None, max_new_tokens=None, temperature=0.2):
     """Rapikan + analisis transkrip via LLM. Kembalikan dict aman-JSON.
 
     Bentuk: {ok, provider, model, analysis{...}, raw, error?}
+
+    Ketangguhan JSON: bila keluaran pertama gagal di-parse (mis. tanda kutip di
+    dalam teks tidak ter-escape), otomatis minta LLM sekali lagi untuk
+    memperbaikinya menjadi JSON valid sebelum menyerah.
     """
     out = {"ok": False, "provider": (os.environ.get("LLM_PROVIDER") or "openai"),
            "model": "", "analysis": None, "raw": ""}
+    if not max_new_tokens:
+        try:
+            max_new_tokens = int(os.environ.get("AWE_PHONE_LLM_MAXTOK") or 4000)
+        except Exception:
+            max_new_tokens = 4000
     if not (text or "").strip():
         out["error"] = "Transkrip kosong; tidak ada yang dianalisis."
         return out
@@ -209,11 +235,23 @@ def analyze_transcript(text, segments=None, max_new_tokens=1500, temperature=0.2
         out["error"] = "Panggilan LLM gagal: %r" % e
         return out
     out["raw"] = reply or ""
+    data = None
+    perr = ""
     try:
         data = json.loads(_strip_json(reply))
     except Exception as e:
-        out["error"] = "Keluaran LLM bukan JSON valid: %r" % e
-        return out
+        perr = "%r" % e
+    if data is None:
+        try:
+            fixed = llm.chat([{"role": "user", "content": _fix_prompt(reply, perr)}],
+                             system=_FIX_SYSTEM, max_new_tokens=max_new_tokens,
+                             temperature=0.0)
+            out["raw"] = fixed or out["raw"]
+            data = json.loads(_strip_json(fixed))
+        except Exception as e:
+            out["error"] = ("Keluaran LLM bukan JSON valid: %s (perbaikan otomatis "
+                            "gagal: %r)") % (perr, e)
+            return out
     if not isinstance(data, dict):
         out["error"] = "Keluaran LLM bukan objek JSON."
         return out
