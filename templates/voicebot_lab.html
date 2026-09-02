@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}Voicebot Lab · Camerad Studio{% endblock %}
+{% block content %}
+<div style="max-width:900px;margin:0 auto;padding:24px 28px 60px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+    <h1 style="margin:0;font-size:22px;font-weight:800;">🧪 Voicebot Lab</h1>
+    <a href="/voicebot" class="vbl-btns" style="text-decoration:none;">⚙️ Konfigurasi</a>
+  </div>
+  <p style="color:var(--text-muted);margin:8px 0 18px;font-size:14px;">
+    Uji mesin end-to-end: ketik teks atau rekam suara → STT → NLU (embedding lokal) → LLM fallback → TTS. Semua lokal.
+  </p>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center;">
+    <span class="vbl-pill" id="pillSess">Sesi: —</span>
+    <span class="vbl-pill" id="pillStt">STT: —</span>
+    <span class="vbl-pill" id="pillTts">TTS: —</span>
+    <button class="vbl-btns" id="btnNew">Sesi baru</button>
+  </div>
+
+  <section class="vbl-card">
+    <div style="display:flex;gap:10px;">
+      <input id="txt" class="vbl-inp" style="flex:1;" placeholder="Ketik pertanyaan (mis. jam buka berapa?)">
+      <button id="btnSend" class="vbl-btnp">Kirim</button>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;">
+      <button id="btnRec" class="vbl-btns">🎙️ Mulai rekam</button>
+      <span id="recMsg" style="font-size:13px;color:var(--text-muted);"></span>
+    </div>
+  </section>
+
+  <section class="vbl-card" style="margin-top:16px;">
+    <h2 style="margin:0 0 10px;font-size:15px;">Hasil</h2>
+    <div id="out" style="font-size:14px;color:var(--text-muted);">Belum ada.</div>
+  </section>
+
+  <section class="vbl-card" style="margin-top:16px;">
+    <h2 style="margin:0 0 10px;font-size:15px;">Percakapan</h2>
+    <div id="log"></div>
+  </section>
+</div>
+<style>
+.vbl-pill{background:var(--panel-bg,#fff);border:1px solid var(--panel-border,#e5e7eb);border-radius:999px;padding:6px 12px;font-size:12.5px;}
+.vbl-card{background:var(--panel-bg,#fff);border:1px solid var(--panel-border,#e5e7eb);border-radius:14px;padding:16px 18px;}
+.vbl-inp{padding:9px 12px;border-radius:10px;border:1px solid var(--panel-border,#e5e7eb);background:var(--bg-base,#fff);color:var(--text-main,#111);font-size:14px;font-family:inherit;}
+.vbl-btnp{padding:9px 16px;border-radius:10px;border:none;background:var(--accent,#2563eb);color:#fff;font-weight:600;cursor:pointer;}
+.vbl-btns{padding:9px 14px;border-radius:10px;border:1px solid var(--panel-border,#e5e7eb);background:transparent;color:var(--text-main,#111);cursor:pointer;}
+.vbl-kv{display:flex;gap:8px;margin:3px 0;} .vbl-kv b{min-width:90px;color:var(--text-muted,#6b7280);font-weight:600;}
+.vbl-turn{border-bottom:1px solid var(--panel-border,#e5e7eb);padding:8px 0;font-size:13.5px;}
+.vbl-badge{display:inline-block;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:600;}
+.b-nlu{background:rgba(34,197,94,0.15);color:#15803d;} .b-llm{background:rgba(234,179,8,0.18);color:#a16207;} .b-ho{background:rgba(239,68,68,0.15);color:#b91c1c;}
+</style>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var esc=function(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+  var sid=null, rec=null, chunks=[], recording=false;
+
+  function health(){
+    fetch('/api/voicebot/health').then(function(r){return r.json();}).then(function(d){
+      $('pillStt').textContent='STT: '+(d.stt_ready?'siap':'belum');
+      $('pillTts').textContent='TTS: '+(d.tts_ready?'siap':'belum');
+    }).catch(function(){});
+  }
+  function newSess(){
+    fetch('/api/voicebot/session',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+      sid=d.session_id; $('pillSess').textContent='Sesi: '+((sid||'—').slice(0,8)); $('log').innerHTML='';
+    });
+  }
+  function render(d){
+    if(d.error){$('out').innerHTML='<span style="color:#dc2626;">'+esc(d.error)+'</span>';return;}
+    var srcBadge='<span class="vbl-badge '+(d.sumber==='nlu'?'b-nlu':'b-llm')+'">'+esc((d.sumber||'').toUpperCase())+'</span>';
+    var ho=d.action==='handoff'?' <span class="vbl-badge b-ho">HANDOFF</span>':'';
+    var h='';
+    h+='<div class="vbl-kv"><b>Transkrip</b><span>'+esc(d.transkrip||'—')+'</span></div>';
+    h+='<div class="vbl-kv"><b>Intent</b><span>'+esc(d.intent||'(fallback)')+' · '+(d.confidence||0)+' '+srcBadge+ho+'</span></div>';
+    h+='<div class="vbl-kv"><b>Jawaban</b><span>'+esc(d.jawaban_teks||'')+'</span></div>';
+    if(d.handoff){h+='<div class="vbl-kv"><b>Alasan HO</b><span>'+esc(d.handoff.reason||'')+'</span></div>';}
+    h+='<div class="vbl-kv"><b>Latency</b><span>'+(d.elapsed_ms||0)+' ms</span></div>';
+    if(d.stt_error){h+='<div class="vbl-kv"><b>STT error</b><span style="color:#dc2626;">'+esc(d.stt_error)+'</span></div>';}
+    if(d.tts_error){h+='<div class="vbl-kv"><b>TTS error</b><span style="color:var(--text-muted);">'+esc(d.tts_error)+'</span></div>';}
+    $('out').innerHTML=h;
+    if(d.jawaban_audio_b64){try{var a=new Audio('data:audio/wav;base64,'+d.jawaban_audio_b64);a.play().catch(function(){});}catch(e){}}
+    var t=document.createElement('div');t.className='vbl-turn';
+    t.innerHTML='<b>🧑 '+esc(d.transkrip||'')+'</b><br>🤖 '+esc(d.jawaban_teks||'')+' '+srcBadge+ho;
+    $('log').insertBefore(t,$('log').firstChild);
+  }
+  function sendText(){
+    var v=$('txt').value.trim(); if(!v)return; $('txt').value='';
+    fetch('/api/voicebot/talk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({session_id:sid,text:v})}).then(function(r){return r.json();}).then(function(d){sid=d.session_id||sid;render(d);}).catch(function(e){render({error:String(e)});});
+  }
+  $('btnSend').onclick=sendText;
+  $('txt').addEventListener('keydown',function(e){if(e.key==='Enter')sendText();});
+  $('btnNew').onclick=newSess;
+
+  $('btnRec').onclick=function(){
+    if(recording){ if(rec)rec.stop(); return; }
+    if(!navigator.mediaDevices||!window.MediaRecorder){$('recMsg').textContent='Browser tak mendukung perekaman.';return;}
+    navigator.mediaDevices.getUserMedia({audio:true}).then(function(stream){
+      rec=new MediaRecorder(stream); chunks=[];
+      rec.ondataavailable=function(e){if(e.data&&e.data.size>0)chunks.push(e.data);};
+      rec.onstop=function(){
+        recording=false; $('btnRec').textContent='🎙️ Mulai rekam';
+        var blob=new Blob(chunks,{type:'audio/webm'});
+        var fd=new FormData(); fd.append('audio',blob,'rekaman.webm'); if(sid)fd.append('session_id',sid);
+        $('recMsg').textContent='Memproses…';
+        fetch('/api/voicebot/talk',{method:'POST',body:fd}).then(function(r){return r.json();}).then(function(d){sid=d.session_id||sid;$('recMsg').textContent='';render(d);}).catch(function(e){$('recMsg').textContent='Gagal: '+e;});
+        stream.getTracks().forEach(function(t){t.stop();});
+      };
+      rec.start(); recording=true; $('btnRec').textContent='⏹️ Berhenti & kirim'; $('recMsg').textContent='Merekam…';
+    }).catch(function(e){$('recMsg').textContent='Mikrofon ditolak: '+e;});
+  };
+
+  health(); newSess();
+})();
+</script>
+{% endblock %}
