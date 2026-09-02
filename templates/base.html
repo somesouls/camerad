@@ -341,7 +341,7 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
         {% endif %}
         {% endif %}
         {% if can_awe %}
-        <div class="sec-label" style="margin-top:14px;">AWE (Avaya)</div>
+        <div class="sec-label" style="margin-top:14px;">AWE Chat</div>
         {% if can_awe_manage %}
         <a class="tool-side{% if active_page == 'awe_kelola' %} active{% endif %}" href="/awe/kelola">
           <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
@@ -378,6 +378,37 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <b>Penilaian QA</b>
         </a>
         {% endif %}
+        {% endif %}
+        {% if can_awe_manage %}
+        <div class="sec-label" style="margin-top:14px;">AWE Phone</div>
+        <a class="tool-side{% if active_page == 'awe_telepon' %} active{% endif %}" href="/awe/telepon">
+          <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.81.36 1.6.68 2.34a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.74-1.74a2 2 0 0 1 2.11-.45c.74.32 1.53.55 2.34.68A2 2 0 0 1 22 16.92z"/></svg></div>
+          <b>Kelola Data Phone</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_telepon_dash' %} active{% endif %}" href="/awe/telepon/dashboard">
+          <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18"/><path d="M7 15l4-5 3 3 5-7"/></svg></div>
+          <b>Dashboard Phone</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_telepon_cov' %} active{% endif %}" href="/awe/telepon/coverage">
+          <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg></div>
+          <b>Coverage &amp; Deflection Phone</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_telepon_tax' %} active{% endif %}" href="/awe/telepon/taksonomi">
+          <div class="ic c-purple"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h7v7H3zM14 14h7v7h-7z"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></div>
+          <b>Taksonomi &amp; Peluang Phone</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_telepon_sen' %} active{% endif %}" href="/awe/telepon/sentimen">
+          <div class="ic c-orange"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg></div>
+          <b>Sentimen &amp; Agent Phone</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_telepon_detail' %} active{% endif %}" href="/awe/telepon/percakapan">
+          <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+          <b>Detail Percakapan Phone</b>
+        </a>
+        <a class="tool-side{% if active_page == 'awe_telepon_users' %} active{% endif %}" href="/awe/telepon/pengguna">
+          <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
+          <b>Pengguna Harian Phone</b>
+        </a>
         {% endif %}
         {% if can_sosmed %}
         <div class="sec-label" style="margin-top:14px;">Sosmed</div>
