@@ -233,3 +233,83 @@ def analyze_day(conn, day=None, limit=25, min_durasi=3, do_llm=True, timeout=180
     return {"ok": True, "pending": len(rows) + len(llm_rows),
             "stt_ok": stt_ok, "llm_ok": llm_ok, "stt_error": stt_error,
             "llm_error": llm_err, "details": details}
+
+
+def _int_env(name, default):
+    try:
+        return int(os.environ.get(name) or default)
+    except Exception:
+        return int(default)
+
+
+def _count_pending(conn, day=None, min_durasi=3):
+    """(n_stt, n_llm): jumlah baris butuh STT & jumlah baris butuh LLM saja."""
+    init_phone_db(conn)
+    p = []
+    sql = ("SELECT COUNT(*) FROM awe_phone_interactions WHERE audio_ref IS NOT NULL "
+           "AND audio_ref<>'' AND transkrip_source IS NULL")
+    if day:
+        sql += " AND day=?"
+        p.append(str(day)[:10])
+    if min_durasi:
+        sql += " AND (durasi IS NULL OR durasi>=?)"
+        p.append(int(min_durasi))
+    n_stt = int(conn.execute(sql, p).fetchone()[0] or 0)
+    p2 = []
+    sql2 = ("SELECT COUNT(*) FROM awe_phone_interactions WHERE transkrip_source='qwen3-asr' "
+            "AND (analisis_json IS NULL OR analisis_json='') AND stt_text IS NOT NULL AND stt_text<>''")
+    if day:
+        sql2 += " AND day=?"
+        p2.append(str(day)[:10])
+    n_llm = int(conn.execute(sql2, p2).fetchone()[0] or 0)
+    return n_stt, n_llm
+
+
+def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
+                do_llm=True, timeout=None, on_prog=None, should_stop=None):
+    """Ulang analyze_day per-batch SAMPAI HABIS (resumable) = 'transkrip semua'.
+
+    STT selalu maju (tiap baris ditandai 'qwen3-asr'/'kosong' setelah diproses)
+    sehingga antrean STT pasti menyusut. Untuk LLM-only yang gagal berulang: bila
+    satu putaran TANPA sisa STT tak menghasilkan LLM sukses, berhenti (hindari loop
+    tak berujung). max_batches = pengaman keras. Kembalikan ringkasan agregat.
+    """
+    batch = int(batch or _int_env("AWE_PHONE_STT_BATCH", 8))
+    if batch < 1:
+        batch = 8
+    if max_batches is None:
+        max_batches = _int_env("AWE_PHONE_ANALYZE_MAXBATCH", 500)
+    if timeout is None:
+        timeout = _int_env("AWE_PHONE_STT_BATCH_TIMEOUT", 2400)
+    rounds = 0
+    stt_ok = 0
+    llm_ok = 0
+    llm_err = ""
+    last_err = None
+    while True:
+        if should_stop and should_stop():
+            break
+        n_stt, n_llm = _count_pending(conn, day=day, min_durasi=min_durasi)
+        if n_stt == 0 and n_llm == 0:
+            break
+        if rounds >= max_batches:
+            break
+        if on_prog:
+            on_prog("Batch %d - sisa %d STT, %d LLM..." % (rounds + 1, n_stt, n_llm))
+        res = analyze_day(conn, day=day, limit=batch, min_durasi=min_durasi,
+                          do_llm=do_llm, timeout=timeout)
+        rounds += 1
+        if not res.get("ok"):
+            last_err = res.get("error") or "STT/analisis gagal"
+            break
+        stt_ok += int(res.get("stt_ok") or 0)
+        llm_ok += int(res.get("llm_ok") or 0)
+        if res.get("llm_error") and not llm_err:
+            llm_err = res.get("llm_error")
+        if n_stt == 0 and int(res.get("llm_ok") or 0) == 0:
+            break
+    n_stt, n_llm = _count_pending(conn, day=day, min_durasi=min_durasi)
+    return {"ok": last_err is None, "all": True, "rounds": rounds,
+            "stt_ok": stt_ok, "llm_ok": llm_ok, "pending": n_stt + n_llm,
+            "remaining_stt": n_stt, "remaining_llm": n_llm,
+            "error": last_err, "llm_error": llm_err, "details": []}
