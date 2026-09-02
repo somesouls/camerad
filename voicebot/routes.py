@@ -12,12 +12,14 @@ API engine (Mode A):
   GET  /api/voicebot/health   -> status STT/TTS
 
 API kelola:
-  GET  /api/voicebot/config           -> ambil konfigurasi
-  POST /api/voicebot/config/save      -> simpan konfigurasi
-  POST /api/voicebot/intents/list     -> daftar intent (+cari)
-  POST /api/voicebot/intents/save     -> tambah/ubah intent
-  POST /api/voicebot/intents/delete   -> hapus intent
-  POST /api/voicebot/logs             -> log turn terbaru
+  GET  /api/voicebot/config              -> ambil konfigurasi
+  POST /api/voicebot/config/save         -> simpan konfigurasi
+  POST /api/voicebot/intents/list        -> daftar intent (+cari)
+  POST /api/voicebot/intents/save        -> tambah/ubah intent
+  POST /api/voicebot/intents/delete      -> hapus intent
+  POST /api/voicebot/intents/df-preview  -> pratinjau intent tersibuk Dialogflow
+  POST /api/voicebot/intents/df-import   -> impor intent tersibuk -> vb_intents
+  POST /api/voicebot/logs                -> log turn terbaru
 
 Akses admin diatur di app_core._route_area (area 'peraturan'). Endpoint
 /api/voicebot/* juga bisa dipanggil klien luar (APK) via header X-API-Key
@@ -34,6 +36,7 @@ from voicebot import config_db as cfg
 from voicebot import engine as vb_engine
 from voicebot import stt as vb_stt
 from voicebot import tts as vb_tts
+from voicebot import df_import as vb_dfimport
 
 
 async def _json_body(request):
@@ -169,6 +172,50 @@ async def api_intents_delete(request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
+# ------------------------------------------------------- impor dari Dialogflow
+async def api_intents_df_preview(request: Request):
+    b = await _json_body(request)
+    try:
+        rows = await run_in_threadpool(
+            vb_dfimport.preview_top_intents,
+            int(b.get("limit") or 50),
+            (b.get("start") or None), (b.get("end") or None),
+            (b.get("lang") or None),
+            bool(b.get("include_system")), bool(b.get("include_umum")),
+        )
+        return JSONResponse({"ok": True, "rows": rows, "total": len(rows)})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_intents_df_import(request: Request):
+    b = await _json_body(request)
+
+    def _run():
+        return vb_dfimport.import_top_intents(
+            limit=int(b.get("limit") or 50),
+            max_phrases=int(b.get("max_phrases") or 40),
+            min_count=int(b.get("min_count") or 1),
+            start=(b.get("start") or None),
+            end=(b.get("end") or None),
+            lang=(b.get("lang") or None),
+            include_system=bool(b.get("include_system")),
+            include_umum=bool(b.get("include_umum")),
+            skip_existing=bool(b.get("skip_existing")),
+            activate=(False if b.get("activate") in (0, "0", False, "false") else True),
+        )
+
+    try:
+        res = await run_in_threadpool(_run)
+        try:
+            vb_nlu_reset()
+        except Exception:
+            pass
+        return JSONResponse(res)
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 def vb_nlu_reset():
     from voicebot import nlu as _n
     _n.reset_cache()
@@ -195,4 +242,6 @@ def register(app):
     app.add_api_route("/api/voicebot/intents/list", api_intents_list, methods=["POST"])
     app.add_api_route("/api/voicebot/intents/save", api_intents_save, methods=["POST"])
     app.add_api_route("/api/voicebot/intents/delete", api_intents_delete, methods=["POST"])
+    app.add_api_route("/api/voicebot/intents/df-preview", api_intents_df_preview, methods=["POST"])
+    app.add_api_route("/api/voicebot/intents/df-import", api_intents_df_import, methods=["POST"])
     app.add_api_route("/api/voicebot/logs", api_logs, methods=["POST"])
