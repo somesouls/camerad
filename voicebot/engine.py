@@ -1,8 +1,16 @@
 # -*- coding: utf-8 -*-
 """voicebot/engine.py -- orkestrasi voice loop (Mode A, turn-based).
 
-    audio/teks -> STT -> NLU hybrid -> (respons intent | RAG voicebot)
+    audio/teks -> STT -> [dialog manager] -> NLU hybrid
+               -> (respons intent | konfirmasi | RAG voicebot)
                -> keputusan hand-off -> TTS -> log turn.
+
+Dialog manager (voicebot.dialog) menambah lapisan percakapan bergaya agen:
+  - Perintah global: ulangi / selesai / bicara dengan agen (selalu aktif).
+  - Tier confidence: act (>= ambang) / confirm (menengah) / rag (rendah).
+  - Konfirmasi selektif + resolusi ya/tidak (state pending_confirm per sesi).
+  - Digression: klasifikasi ulang tiap giliran + simpan intent terakhir (resume).
+  - Sapaan netral + filler acknowledgment (pre-gen, diambil klien saat menunggu).
 
 Sesi disimpan in-memory (cukup untuk tahap konsep, 1 proses). Semua komponen
 berat di-impor LAZY + fail-soft. Reuse: voicebot.stt (faster-whisper),
@@ -12,6 +20,7 @@ voicebot.rag (RAG bersumber tunggal intent+training phrase), common.llm_client
 import time
 import uuid
 import base64
+import random
 import datetime as _dt
 
 from voicebot import config_db as cfg
@@ -19,6 +28,7 @@ from voicebot import nlu as vb_nlu
 from voicebot import stt as vb_stt
 from voicebot import tts as vb_tts
 from voicebot import rag as vb_rag
+from voicebot import dialog as vb_dialog
 
 _SESSIONS = {}
 
@@ -29,8 +39,22 @@ def _now_iso():
 
 def create_session():
     sid = uuid.uuid4().hex
-    _SESSIONS[sid] = {"created_at": _now_iso(), "history": [], "fallback_streak": 0}
-    return {"session_id": sid, "created_at": _SESSIONS[sid]["created_at"]}
+    _SESSIONS[sid] = {
+        "created_at": _now_iso(),
+        "history": [],
+        "fallback_streak": 0,
+        "last_answer": "",
+        "last_intent": None,
+        "pending_confirm": None,
+    }
+    out = {"session_id": sid, "created_at": _SESSIONS[sid]["created_at"]}
+    try:
+        settings = cfg.get_settings()
+        if vb_dialog.enabled(settings):
+            out["greeting"] = vb_dialog.greeting(settings)
+    except Exception:
+        pass
+    return out
 
 
 def end_session(sid):
@@ -72,6 +96,23 @@ def _llm_fallback(text, sess, settings):
         return settings.get("fallback_reply") or ""
 
 
+def _rag_answer(transkrip, sess, settings):
+    """Jalur RAG voicebot (sumber tunggal intent+training phrase) + cadangan LLM.
+    Kembalikan (jawaban, sumber)."""
+    if str(settings.get("rag_enabled", "1")) != "0":
+        jawaban = ""
+        try:
+            r = vb_rag.answer(transkrip, sess.get("history"), settings)
+            jawaban = (r or {}).get("jawaban") or ""
+        except Exception as e:  # noqa: BLE001
+            print("[voicebot.engine] RAG gagal: %s" % e, flush=True)
+            jawaban = ""
+        if jawaban:
+            return jawaban, "rag"
+        return _llm_fallback(transkrip, sess, settings), "llm"
+    return _llm_fallback(transkrip, sess, settings), "llm"
+
+
 def _check_handoff(text, sess, settings):
     tl = (text or "").lower()
     triggers = [t.strip().lower() for t in (settings.get("handoff_triggers") or "").split(",") if t.strip()]
@@ -94,12 +135,38 @@ def _check_handoff(text, sess, settings):
     return False, ""
 
 
+def get_filler(want_audio=True, index=None):
+    """Ambil satu klip filler (teks + audio base64) untuk diputar klien saat
+    jawaban asli sedang dihitung. Fail-soft."""
+    settings = cfg.get_settings()
+    if not vb_dialog.filler_enabled(settings):
+        return {"enabled": False, "text": "", "audio_b64": None, "tts_error": None}
+    arr = vb_dialog.fillers(settings)
+    if not arr:
+        return {"enabled": True, "text": "", "audio_b64": None, "tts_error": None}
+    if index is None:
+        text = random.choice(arr)
+    else:
+        try:
+            text = arr[int(index) % len(arr)]
+        except Exception:
+            text = arr[0]
+    audio_b64 = None
+    tts_err = None
+    if want_audio and text and str(settings.get("tts_enabled", "1")) != "0":
+        wav, tts_err = vb_tts.synth(text)
+        if wav:
+            audio_b64 = base64.b64encode(wav).decode("ascii")
+    return {"enabled": True, "text": text, "audio_b64": audio_b64, "tts_error": tts_err}
+
+
 def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav",
          want_audio=True):
     """Satu giliran percakapan. Kembalikan dict respons (JSON-able)."""
     t0 = time.time()
     settings = cfg.get_settings()
     sid, sess = _get_session(session_id)
+    dlg_on = vb_dialog.enabled(settings)
 
     transkrip = (text or "").strip()
     stt_err = None
@@ -118,51 +185,108 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
     except Exception:
         threshold = 0.6
 
+    # --- keadaan awal giliran ---
     cls = {"intent": None, "score": 0.0, "response": "", "engine": "none"}
-    if transkrip:
-        cls = vb_nlu.classify(transkrip)
-    intent = cls.get("intent")
-    confidence = float(cls.get("score") or 0.0)
-    engine = cls.get("engine")
+    intent = None
+    confidence = 0.0
+    engine = None
+    sumber = "nlu"
+    jawaban = ""
+    action = "reply"
+    tier = None
+    resume_suggestion = None
+    fb = settings.get("fallback_reply") or "Maaf, saya belum menangkap maksudnya."
 
-    if intent and confidence >= threshold:
-        # Confidence tinggi -> jawaban resmi intent (cepat, deterministik).
-        jawaban = (cls.get("response") or cfg.intent_response(intent)
-                   or settings.get("fallback_reply") or "")
+    if not transkrip:
+        jawaban = fb if not stt_err else (settings.get("fallback_reply")
+                  or "Maaf, suara tidak terdengar. Boleh diulang?")
         sumber = "nlu"
-        sess["fallback_streak"] = 0
-    elif not transkrip:
-        jawaban = settings.get("fallback_reply") or "Maaf, suara tidak terdengar."
-        sumber = "nlu"
-        intent = None
         sess["fallback_streak"] = sess.get("fallback_streak", 0) + 1
     else:
-        # Di bawah ambang / no-match -> RAG voicebot (sumber tunggal:
-        # intent + training phrase). LLM mentah hanya cadangan.
-        intent = None
-        if str(settings.get("rag_enabled", "1")) != "0":
-            try:
-                r = vb_rag.answer(transkrip, sess.get("history"), settings)
-                jawaban = (r or {}).get("jawaban") or ""
-            except Exception as e:  # noqa: BLE001
-                print("[voicebot.engine] RAG gagal: %s" % e, flush=True)
-                jawaban = ""
-            sumber = "rag"
-            if not jawaban:
-                jawaban = _llm_fallback(transkrip, sess, settings)
-                sumber = "llm"
-        else:
-            jawaban = _llm_fallback(transkrip, sess, settings)
-            sumber = "llm"
-        sess["fallback_streak"] = sess.get("fallback_streak", 0) + 1
+        cmd = vb_dialog.global_command(transkrip, settings) if dlg_on else None
+        pending = sess.get("pending_confirm") if dlg_on else None
 
-    do_handoff, reason = _check_handoff(transkrip, sess, settings)
-    action = "handoff" if do_handoff else "reply"
+        if cmd == "repeat":
+            jawaban = sess.get("last_answer") or "Maaf, belum ada jawaban yang bisa saya ulang."
+            intent = sess.get("last_intent")
+            sumber = "dialog"
+            action = "repeat"
+        elif cmd == "end":
+            jawaban = vb_dialog.closing_reply(settings)
+            sumber = "dialog"
+            action = "end"
+            sess["pending_confirm"] = None
+        elif cmd == "handoff":
+            jawaban = vb_dialog.handoff_reply(settings)
+            sumber = "dialog"
+            sess["pending_confirm"] = None
+        elif pending and vb_dialog.is_affirmative(transkrip, settings):
+            # penelepon membenarkan tebakan intent tier-menengah sebelumnya
+            ci = pending.get("intent")
+            jawaban = (pending.get("response") or cfg.intent_response(ci) or fb)
+            intent = ci
+            confidence = float(pending.get("score") or 0.0)
+            sumber = "nlu"
+            sess["pending_confirm"] = None
+            sess["fallback_streak"] = 0
+            sess["last_intent"] = ci
+        elif pending and vb_dialog.is_negative(transkrip, settings):
+            sess["pending_confirm"] = None
+            jawaban = "Baik, mohon sampaikan kembali maksud Anda dengan kalimat lain."
+            sumber = "dialog"
+            action = "clarify"
+        else:
+            if pending:
+                sess["pending_confirm"] = None  # penelepon lanjut ke topik baru
+            cls = vb_nlu.classify(transkrip)
+            intent = cls.get("intent")
+            confidence = float(cls.get("score") or 0.0)
+            engine = cls.get("engine")
+            tier = (vb_dialog.decide_tier(confidence, settings) if dlg_on
+                    else ("act" if (intent and confidence >= threshold) else "rag"))
+
+            if tier == "act" and intent:
+                jawaban = (cls.get("response") or cfg.intent_response(intent) or fb)
+                sumber = "nlu"
+                sess["fallback_streak"] = 0
+                # digression: tawaran resume intent sebelumnya bila berpindah
+                prev = sess.get("last_intent")
+                if (dlg_on and prev and prev != intent
+                        and vb_dialog.resume_enabled(settings)):
+                    resume_suggestion = vb_dialog.resume_prompt(prev, settings)
+                    jawaban = (jawaban + " " + resume_suggestion).strip()
+                elif dlg_on and prev and prev != intent:
+                    resume_suggestion = vb_dialog.resume_prompt(prev, settings)
+                sess["last_intent"] = intent
+            elif tier == "confirm" and intent:
+                jawaban = vb_dialog.confirm_prompt(intent, settings)
+                sess["pending_confirm"] = {
+                    "intent": intent,
+                    "response": (cls.get("response") or cfg.intent_response(intent)),
+                    "score": confidence,
+                }
+                sumber = "dialog"
+                action = "confirm"
+            else:
+                intent = None
+                jawaban, sumber = _rag_answer(transkrip, sess, settings)
+                sess["fallback_streak"] = sess.get("fallback_streak", 0) + 1
+
+    # --- hand-off (dilewati untuk aksi dialog terminal: end/confirm/clarify) ---
+    do_handoff = False
+    reason = ""
     handoff = None
-    if do_handoff:
-        parts = [("U: " + (h.get("user") or "")) for h in sess["history"][-3:]]
-        parts.append("U: " + transkrip)
-        handoff = {"reason": reason, "ringkasan": (" | ".join(parts))[:1000]}
+    if action in ("reply", "repeat"):
+        do_handoff, reason = _check_handoff(transkrip, sess, settings)
+        if do_handoff:
+            action = "handoff"
+            parts = [("U: " + (h.get("user") or "")) for h in sess["history"][-3:]]
+            parts.append("U: " + transkrip)
+            handoff = {"reason": reason, "ringkasan": (" | ".join(parts))[:1000]}
+
+    # simpan jawaban substantif utk perintah "ulangi"
+    if sumber in ("nlu", "rag", "llm") and jawaban:
+        sess["last_answer"] = jawaban
 
     audio_b64 = None
     tts_err = None
@@ -188,10 +312,12 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
         "intent": intent,
         "confidence": round(confidence, 3),
         "sumber": sumber,
+        "tier": tier,
         "engine": engine,
         "jawaban_teks": jawaban,
         "jawaban_audio_b64": audio_b64,
         "action": action,
+        "resume_suggestion": resume_suggestion,
         "handoff": handoff,
         "stt_error": stt_err,
         "tts_error": tts_err,
