@@ -43,7 +43,7 @@
 .vbl-inp{padding:9px 12px;border-radius:10px;border:1px solid var(--panel-border,#e5e7eb);background:var(--bg-base,#fff);color:var(--text-main,#111);font-size:14px;font-family:inherit;}
 .vbl-btnp{padding:9px 16px;border-radius:10px;border:none;background:var(--accent,#2563eb);color:#fff;font-weight:600;cursor:pointer;}
 .vbl-btns{padding:9px 14px;border-radius:10px;border:1px solid var(--panel-border,#e5e7eb);background:transparent;color:var(--text-main,#111);cursor:pointer;}
-.vbl-kv{display:flex;gap:8px;margin:3px 0;} .vbl-kv b{min-width:90px;color:var(--text-muted,#6b7280);font-weight:600;}
+.vbl-kv{display:flex;gap:8px;margin:3px 0;align-items:center;} .vbl-kv b{min-width:90px;color:var(--text-muted,#6b7280);font-weight:600;}
 .vbl-turn{border-bottom:1px solid var(--panel-border,#e5e7eb);padding:8px 0;font-size:13.5px;}
 .vbl-badge{display:inline-block;border-radius:6px;padding:1px 7px;font-size:12px;font-weight:600;}
 .b-nlu{background:rgba(34,197,94,0.15);color:#15803d;} .b-llm{background:rgba(234,179,8,0.18);color:#a16207;} .b-ho{background:rgba(239,68,68,0.15);color:#b91c1c;}
@@ -77,10 +77,12 @@
     h+='<div class="vbl-kv"><b>Jawaban</b><span>'+esc(d.jawaban_teks||'')+'</span></div>';
     if(d.handoff){h+='<div class="vbl-kv"><b>Alasan HO</b><span>'+esc(d.handoff.reason||'')+'</span></div>';}
     h+='<div class="vbl-kv"><b>Latency</b><span>'+(d.elapsed_ms||0)+' ms</span></div>';
+    if(d.jawaban_audio_b64){h+='<div class="vbl-kv"><b>🔊 Suara</b><audio id="vblAudio" controls src="data:audio/wav;base64,'+d.jawaban_audio_b64+'" style="height:34px;"></audio></div>';}
+    else if(!d.tts_error){h+='<div class="vbl-kv"><b>🔊 Suara</b><span style="color:var(--text-muted);">(TTS mati / tak menghasilkan audio)</span></div>';}
     if(d.stt_error){h+='<div class="vbl-kv"><b>STT error</b><span style="color:#dc2626;">'+esc(d.stt_error)+'</span></div>';}
     if(d.tts_error){h+='<div class="vbl-kv"><b>TTS error</b><span style="color:var(--text-muted);">'+esc(d.tts_error)+'</span></div>';}
     $('out').innerHTML=h;
-    if(d.jawaban_audio_b64){try{var a=new Audio('data:audio/wav;base64,'+d.jawaban_audio_b64);a.play().catch(function(){});}catch(e){}}
+    if(d.jawaban_audio_b64){try{var a=$('vblAudio');if(a){a.play().catch(function(){});}}catch(e){}}
     var t=document.createElement('div');t.className='vbl-turn';
     t.innerHTML='<b>🧑 '+esc(d.transkrip||'')+'</b><br>🤖 '+esc(d.jawaban_teks||'')+' '+srcBadge+ho;
     $('log').insertBefore(t,$('log').firstChild);
