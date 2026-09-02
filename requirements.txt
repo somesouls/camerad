@@ -8,7 +8,12 @@ APScheduler>=3.10.0
 
 # Web API + Frontend (FastAPI, pengganti PHP)
 fastapi>=0.115.0
-uvicorn>=0.30.0
+# PENTING: 'uvicorn' polos TIDAK bisa melayani WebSocket. Voicebot Mode B
+# (WS /api/voicebot/stream) butuh dukungan WS -> uvicorn[standard] menarik
+# 'websockets'. 'websockets' juga dicantumkan eksplisit agar aman lintas OS
+# (mis. Windows tanpa uvloop). Tanpa ini, handshake wss:// GAGAL.
+uvicorn[standard]>=0.30.0
+websockets>=12.0
 python-multipart>=0.0.9
 requests>=2.31.0
 
@@ -33,6 +38,7 @@ Sastrawi>=1.0.1            # stemming Bahasa Indonesia utk FTS ternormalisasi (F
 #         pip install piper-tts
 # Embedding NLU dapat dipilih via env VOICEBOT_EMB_MODEL
 # (default sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2).
+# Mode B (barge-in) opsional lebih akurat dgn VAD WebRTC: pip install webrtcvad
 # faster-whisper>=1.0
 # piper-tts>=1.2
 
