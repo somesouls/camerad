@@ -7,8 +7,8 @@
     <a href="/voicebot/lab" class="vb-btnp" style="text-decoration:none;">🧪 Buka Lab</a>
   </div>
   <p style="color:var(--text-muted);margin:8px 0 20px;font-size:14px;">
-    Mesin suara lokal (STT faster-whisper → NLU embedding → LLM fallback → TTS Piper).
-    Atur ambang, prompt, aturan hand-off, dan intent + training phrase di sini. Semua diproses on-prem.
+    Mesin suara lokal (STT faster-whisper → NLU embedding → RAG/LLM → TTS Piper).
+    Atur ambang, prompt, aturan hand-off, intent + training phrase, dan kamus pelafalan di sini. Semua diproses on-prem.
   </p>
 
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
@@ -26,6 +26,8 @@
       <label>TTS aktif<select id="cTts" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Maks fallback → hand-off<input id="cMaxFb" class="vb-inp" type="number" min="0"></label>
       <label>Frasa pemicu hand-off (koma)<input id="cHo" class="vb-inp"></label>
+      <label>Kamus pelafalan aktif<select id="cPron" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Eja angka bila ≥ N digit<input id="cSpellMin" class="vb-inp" type="number" min="0"></label>
     </div>
     <label style="display:block;margin-top:10px;">System prompt LLM<textarea id="cSys" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
     <label style="display:block;margin-top:10px;">Balasan fallback default<input id="cFb" class="vb-inp" style="width:100%;"></label>
@@ -68,8 +70,29 @@
   </section>
 
   <section class="vb-pnl" style="margin-top:22px;">
+    <h2 class="vb-ph">🗣️ Kamus pelafalan (TTS)</h2>
+    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
+      Petakan singkatan/istilah ke bentuk lisannya sebelum dibacakan: <b>dieja</b> (NPWP → "en pe we pe") atau <b>dibaca sebagai kata</b> (EFIN → "efin"). Angka panjang otomatis dibaca per digit sesuai ambang di Konfigurasi. Perubahan langsung dipakai TTS.
+    </p>
+    <div class="vb-grid2">
+      <label>Istilah / singkatan<input id="lPat" class="vb-inp" placeholder="NPWP"></label>
+      <label>Cara baca (lisan)<input id="lRep" class="vb-inp" placeholder="en pe we pe"></label>
+      <label>Jenis<select id="lMode" class="vb-inp"><option value="eja">Dieja</option><option value="baca">Dibaca sebagai kata</option></select></label>
+      <label>Aktif<select id="lAktif" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+    </div>
+    <input type="hidden" id="lId">
+    <div style="margin-top:12px;"><button id="btnSaveLex" class="vb-btnp">Simpan istilah</button> <button id="btnResetLex" class="vb-btns">Bersihkan</button> <span id="lexMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--panel-border,#e5e7eb);">
+      <label style="display:block;">Pratinjau normalisasi (hasil yang dibaca TTS)<input id="lPrevIn" class="vb-inp" style="width:100%;" placeholder="Contoh: NPWP Anda 015000123 sudah aktif"></label>
+      <div style="margin-top:8px;"><button id="btnPronPrev" class="vb-btns">🔎 Pratinjau</button> <span id="lPrevOut" style="font-size:13px;color:var(--text-main);"></span></div>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:16px;"><input id="lq" class="vb-inp" style="flex:1;" placeholder="Cari istilah…"><button id="btnCariLex" class="vb-btns">Cari</button></div>
+    <div id="tabelLex" style="margin-top:12px;overflow-x:auto;"></div>
+  </section>
+
+  <section class="vb-pnl" style="margin-top:22px;">
     <h2 class="vb-ph">📝 Log percakapan terbaru</h2>
-    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 10px;">Tiap giliran tersimpan (id_trace, transkrip, intent, skor, sumber, hand-off) untuk feed ke pipeline analisis MKTA/Fallback.</p>
+    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 10px;">Tiap giliran tersimpan (id_trace, transkrip, intent, skor, sumber, hand-off).</p>
     <div id="logs" style="overflow-x:auto;"></div>
   </section>
 </div>
@@ -101,6 +124,7 @@
       $('cThr').value=s.threshold||'0.6'; $('cLang').value=s.stt_lang||'id';
       $('cStt').value=String(s.stt_enabled||'1'); $('cTts').value=String(s.tts_enabled||'1');
       $('cMaxFb').value=s.handoff_max_fallback||'2'; $('cHo').value=s.handoff_triggers||'';
+      $('cPron').value=String(s.pron_enabled||'1'); $('cSpellMin').value=s.pron_spell_digits_min||'7';
       $('cSys').value=s.llm_system||''; $('cFb').value=s.fallback_reply||'';
       $('kpiStt').textContent='STT: '+(d.stt_ready?'siap ✅':'belum ⚠️');
       $('kpiTts').textContent='TTS: '+(d.tts_ready?'siap ✅':'belum ⚠️');
@@ -111,6 +135,7 @@
     post('/api/voicebot/config/save',{
       threshold:$('cThr').value,stt_lang:$('cLang').value,stt_enabled:$('cStt').value,
       tts_enabled:$('cTts').value,handoff_max_fallback:$('cMaxFb').value,handoff_triggers:$('cHo').value,
+      pron_enabled:$('cPron').value,pron_spell_digits_min:$('cSpellMin').value,
       llm_system:$('cSys').value,fallback_reply:$('cFb').value
     }).then(function(d){$('cfgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');});
   };
@@ -166,6 +191,36 @@
   }
   $('btnCari').onclick=loadInt; $('q').addEventListener('keydown',function(e){if(e.key==='Enter')loadInt();});
 
+  function resetLex(){$('lId').value='';$('lPat').value='';$('lRep').value='';$('lMode').value='eja';$('lAktif').value='1';$('lexMsg').textContent='';}
+  $('btnResetLex').onclick=resetLex;
+  $('btnSaveLex').onclick=function(){
+    var b={id:$('lId').value||null,pattern:$('lPat').value.trim(),replacement:$('lRep').value.trim(),mode:$('lMode').value,enabled:$('lAktif').value};
+    if(!b.pattern){$('lexMsg').textContent='Istilah wajib diisi.';return;}
+    $('lexMsg').textContent='Menyimpan…';
+    post('/api/voicebot/lexicon/save',b).then(function(d){if(d.ok){resetLex();loadLex();$('lexMsg').textContent='Tersimpan.';}else{$('lexMsg').textContent=d.error||'Gagal.';}});
+  };
+  function isiLex(r){$('lId').value=r.id||'';$('lPat').value=r.pattern||'';$('lRep').value=r.replacement||'';$('lMode').value=r.mode||'eja';$('lAktif').value=String(r.enabled==null?1:r.enabled);window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});}
+  function loadLex(){
+    post('/api/voicebot/lexicon/list',{q:($('lq').value||'').trim()}).then(function(d){
+      var box=$('tabelLex'); if(!d.ok){box.innerHTML='<p style="color:#dc2626;">'+esc(d.error||'Gagal')+'</p>';return;}
+      if(!d.rows.length){box.innerHTML='<p style="color:var(--text-muted);">Belum ada istilah.</p>';return;}
+      var h='<table class="vb-tab"><thead><tr><th>Istilah</th><th>Cara baca</th><th>Jenis</th><th>Aktif</th><th></th></tr></thead><tbody>';
+      d.rows.forEach(function(r){
+        h+='<tr><td><b>'+esc(r.pattern)+'</b></td><td>'+esc(r.replacement||'')+'</td><td>'+(r.mode==='baca'?'kata':'dieja')+'</td><td>'+(r.enabled?'✅':'—')+'</td><td style="white-space:nowrap;"><button class="vb-link" data-edl=\''+esc(JSON.stringify(r))+'\'>Ubah</button> <button class="vb-link del" data-dell="'+r.id+'">Hapus</button></td></tr>';
+      });
+      h+='</tbody></table>'; box.innerHTML=h;
+      box.querySelectorAll('[data-edl]').forEach(function(b){b.onclick=function(){try{isiLex(JSON.parse(b.getAttribute('data-edl')));}catch(e){}};});
+      box.querySelectorAll('[data-dell]').forEach(function(b){b.onclick=function(){if(!confirm('Hapus istilah ini?'))return;post('/api/voicebot/lexicon/delete',{id:b.getAttribute('data-dell')}).then(function(){loadLex();});};});
+    });
+  }
+  $('btnCariLex').onclick=loadLex; $('lq').addEventListener('keydown',function(e){if(e.key==='Enter')loadLex();});
+  $('btnPronPrev').onclick=function(){
+    $('lPrevOut').textContent='…';
+    post('/api/voicebot/pron/preview',{text:$('lPrevIn').value}).then(function(d){
+      $('lPrevOut').innerHTML=d.ok?('→ <b>'+esc(d.normalized)+'</b>'):esc(d.error||'Gagal');
+    });
+  };
+
   function loadKpi(){post('/api/voicebot/intents/list',{}).then(function(d){if(d.ok)$('kpiIntent').textContent='Intent: '+(d.total||0);});}
 
   function loadLogs(){
@@ -178,7 +233,7 @@
     });
   }
 
-  loadCfg();loadInt();loadKpi();loadLogs();
+  loadCfg();loadInt();loadKpi();loadLex();loadLogs();
 })();
 </script>
 {% endblock %}
