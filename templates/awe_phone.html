@@ -99,23 +99,29 @@
 <section class="c-card">
   <div class="stage-head">
     <span class="stage-num">2</span>
-    <h2 class="stage-title">Transkripsi &amp; Analisis (STT + LLM)</h2>
+    <h2 class="stage-title">Transkripsi &amp; Analisis (2 langkah terpisah)</h2>
   </div>
-  <p class="use-note">&#8505;&#65039; Menjalankan STT (Qwen, GPU) lalu analisis LLM untuk baris yang <b>sudah punya audio tapi belum ditranskrip</b>. Proses ini <b>lambat</b> (~1 menit/panggilan) dan berjalan di latar belakang &mdash; biarkan halaman terbuka. Isi <b>Maks panggilan = 0</b> untuk <b>transkrip SEMUA</b> yang tertunda (diproses bertahap per-batch sampai habis, bisa berjam-jam). Kosongkan tanggal untuk memproses semua tanggal.</p>
+  <p class="use-note">&#8505;&#65039; Dua tombol terpisah agar tahan-gagal &mdash; mirip pola AWE Chat (tarik dulu, olah belakangan). <b>(a) Transkrip saja (STT)</b> menjalankan STT (Qwen, GPU lokal) untuk baris yang <b>punya audio tapi belum ditranskrip</b>. <b>(b) Analisis LLM saja</b> menjalankan / <b>mengulang</b> analisis LLM (Azure) untuk baris yang <b>sudah ditranskrip</b> tapi analisisnya belum jadi atau gagal &mdash; <b>tanpa STT ulang</b>, jadi enak untuk memperbaiki baris yang LLM-nya sempat error. Keduanya <b>lambat</b> (~1 menit/panggilan) dan berjalan di latar belakang &mdash; biarkan halaman terbuka. Isi <b>Maks panggilan = 0</b> untuk memproses <b>SEMUA</b> yang tertunda (bertahap per-batch sampai habis, bisa berjam-jam). Kosongkan tanggal untuk semua tanggal. Durasi min hanya berlaku untuk transkrip.</p>
   <div class="form-row">
     <div class="field"><label>Tanggal (opsional)</label><input type="date" id="a_day"></div>
     <div class="field"><label>Maks panggilan (0 = semua)</label><input type="number" id="a_limit" value="25" min="0" max="200"></div>
     <div class="field"><label>Durasi min (detik)</label><input type="number" id="a_mindur" value="3" min="0" max="120"></div>
   </div>
-  <button class="btn-modern" id="aRunBtn">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-    Jalankan Analisis
-  </button>
+  <div class="form-row">
+    <div class="field" style="flex:0 0 auto;"><button class="btn-modern" id="aSttBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line></svg>
+      Transkrip saja (STT)
+    </button></div>
+    <div class="field" style="flex:0 0 auto;"><button class="btn-modern btn-outline" id="aLlmBtn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+      Analisis LLM saja
+    </button></div>
+  </div>
   <div class="status" id="aStat"></div>
 </section>
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/awe_phone.js?v=8"></script>
+<script src="/static/awe_phone.js?v=9"></script>
 <script src="/static/awe_phone_daily.js?v=2"></script>
 {% endblock %}
