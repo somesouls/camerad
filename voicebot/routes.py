@@ -6,10 +6,11 @@ Halaman:
   GET /voicebot/lab    -> lab uji suara/teks end-to-end
 
 API engine (Mode A):
-  POST /api/voicebot/session  -> buat sesi
+  POST /api/voicebot/session  -> buat sesi (+ salam pembuka bila dialog aktif)
   POST /api/voicebot/talk     -> multipart (audio) atau JSON (text) + session_id
   POST /api/voicebot/end      -> tutup sesi
   GET  /api/voicebot/health   -> status STT/TTS
+  GET  /api/voicebot/filler   -> klip filler (teks + audio) utk tutup latency
 
 API kelola:
   GET  /api/voicebot/config              -> ambil konfigurasi
@@ -115,6 +116,22 @@ async def api_health(request: Request):
     return JSONResponse({"ok": True, "service": "voicebot",
                         "stt_ready": vb_stt.available(),
                         "tts_ready": vb_tts.available()})
+
+
+async def api_filler(request: Request):
+    """Klip filler (teks + audio base64) utk diputar klien saat jawaban dihitung."""
+    want_audio = True
+    idx = None
+    qp = request.query_params
+    if qp.get("want_audio") is not None:
+        want_audio = str(qp.get("want_audio")) not in ("0", "false", "False")
+    if qp.get("index") is not None:
+        idx = qp.get("index")
+    try:
+        res = await run_in_threadpool(vb_engine.get_filler, want_audio, idx)
+        return JSONResponse({"ok": True, **res})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 # ---------------------------------------------------------------- config API
@@ -283,6 +300,7 @@ def register(app):
     app.add_api_route("/api/voicebot/talk", api_talk, methods=["POST"])
     app.add_api_route("/api/voicebot/end", api_end, methods=["POST"])
     app.add_api_route("/api/voicebot/health", api_health, methods=["GET"])
+    app.add_api_route("/api/voicebot/filler", api_filler, methods=["GET"])
     app.add_api_route("/api/voicebot/config", api_config_get, methods=["GET"])
     app.add_api_route("/api/voicebot/config/save", api_config_save, methods=["POST"])
     app.add_api_route("/api/voicebot/intents/list", api_intents_list, methods=["POST"])
