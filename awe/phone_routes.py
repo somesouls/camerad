@@ -8,7 +8,7 @@ TERPISAH total dari alur Chat. Handler didaftarkan oleh awe/routes.py
     - media   : locator + unduh 1 audio DASH (2a/2b) + opsional STT (stt=true).
   MENU Kelola Data Phone (Fase 3+):
     - pull_start    : TARIK harian ke DB (async, kredensial .env). -> {job}
-    - analyze_start : STT+LLM baris pending (async, tanpa login). -> {job}
+    - analyze_start : STT/LLM baris pending (async, tanpa login). phase=stt|llm|both -> {job}
     - job_progress  : status job berjalan (butuh job).
     - job_fetch     : status akhir job lalu buang dari memori (butuh job).
     - coverage      : ringkasan per hari (audio/transkrip/analisis) + stats.
@@ -150,9 +150,13 @@ async def awe_phone_probe(request: Request):
 
     if action == "analyze_start":
         day = str(body.get("day") or df or "").strip()
+        phase = str(body.get("phase") or "both").strip().lower()
+        if phase not in ("both", "stt", "llm"):
+            phase = "both"
         try:
             job = pjobs.start_analyze(day=day, limit=int(limit_rows or 25),
-                                      min_durasi=int(body.get("min_durasi") or 3))
+                                      min_durasi=int(body.get("min_durasi") or 3),
+                                      phase=phase)
             return JSONResponse({"ok": True, "job": job})
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
