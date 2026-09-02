@@ -16,6 +16,9 @@ Peringkas jawaban intent (2b): bila 'intent_shorten_enabled', jawaban match-inte
 (jalur 'act' & konfirmasi) dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara
 (cache + fail-soft; fakta/angka dijaga). Jalur RAG memang sudah ringkas by design.
 
+Latency: talk() mengembalikan 'elapsed_ms' (total) + 'timings' dengan rincian
+stt_ms / think_ms / tts_ms / total_ms untuk keperluan evaluasi (Lab & Mode B).
+
 Sesi disimpan in-memory (cukup untuk tahap konsep, 1 proses). Semua komponen
 berat di-impor LAZY + fail-soft. Reuse: voicebot.stt (faster-whisper),
 voicebot.rag (RAG bersumber tunggal intent+training phrase), common.llm_client
@@ -193,6 +196,9 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
         else:
             stt_err = "STT dimatikan di konfigurasi"
 
+    # penanda waktu: STT selesai (untuk rincian latency evaluasi)
+    t_stt = time.time()
+
     try:
         threshold = float(settings.get("threshold") or 0.6)
     except Exception:
@@ -303,12 +309,18 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
     if sumber in ("nlu", "rag", "llm") and jawaban:
         sess["last_answer"] = jawaban
 
+    # penanda waktu: proses (STT + think) selesai, mulai TTS
+    t_think = time.time()
+
     audio_b64 = None
     tts_err = None
     if want_audio and jawaban and str(settings.get("tts_enabled", "1")) != "0":
         wav, tts_err = vb_tts.synth(jawaban)
         if wav:
             audio_b64 = base64.b64encode(wav).decode("ascii")
+
+    # penanda waktu: TTS selesai
+    t_tts = time.time()
 
     sess["history"].append({"user": transkrip, "bot": jawaban})
     id_trace = sid + "-" + str(len(sess["history"]))
@@ -321,6 +333,7 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
     except Exception:
         pass
 
+    total_ms = int((time.time() - t0) * 1000)
     return {
         "session_id": sid,
         "transkrip": transkrip,
@@ -336,5 +349,11 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
         "handoff": handoff,
         "stt_error": stt_err,
         "tts_error": tts_err,
-        "elapsed_ms": int((time.time() - t0) * 1000),
+        "elapsed_ms": total_ms,
+        "timings": {
+            "stt_ms": int((t_stt - t0) * 1000),
+            "think_ms": int((t_think - t_stt) * 1000),
+            "tts_ms": int((t_tts - t_think) * 1000),
+            "total_ms": total_ms,
+        },
     }
