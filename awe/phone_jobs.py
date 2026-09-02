@@ -101,31 +101,43 @@ def start_pull(day_from, day_to, limit=25, pulled_by=""):
 
 
 # ---------- Tahap 2: ANALISIS (async, tanpa login) ----------
-def _analyze_worker(job_id, day, limit, min_durasi):
+# phase: 'both' (STT+LLM), 'stt' (Transkrip saja), 'llm' (Analisis LLM saja =
+# ulang LLM utk baris yg sudah ditranskrip, tanpa STT ulang).
+def _analyze_worker(job_id, day, limit, min_durasi, phase="both"):
     try:
-        _job_set(job_id, status="stt", message="STT (Qwen) + analisis LLM berjalan")
+        do_stt = phase in ("both", "stt")
+        do_llm = phase in ("both", "llm")
+        label = {"stt": "Transkripsi (STT)", "llm": "Analisis LLM"}.get(phase, "STT + analisis LLM")
+        _job_set(job_id, status="stt", message=label + " berjalan")
         all_mode = (int(limit or 0) <= 0)
         conn = _conn()
         try:
             if all_mode:
                 res = panalyze.analyze_all(
                     conn, day=day or None, min_durasi=min_durasi,
+                    do_stt=do_stt, do_llm=do_llm,
                     on_prog=lambda m: _job_set(job_id, status="stt", message=m))
             else:
                 res = panalyze.analyze_day(conn, day=day or None, limit=limit,
-                                           min_durasi=min_durasi)
+                                           min_durasi=min_durasi,
+                                           do_stt=do_stt, do_llm=do_llm)
         finally:
             conn.close()
         ok = bool(res.get("ok"))
         if ok:
-            if all_mode:
-                msg = "Transkrip semua selesai: %s STT ok, %s LLM ok (%s batch); sisa %s." % (
-                    res.get("stt_ok"), res.get("llm_ok"), res.get("rounds"), res.get("pending"))
+            if phase == "stt":
+                cnt = "%s transkrip ok" % res.get("stt_ok")
+            elif phase == "llm":
+                cnt = "%s analisis LLM ok" % res.get("llm_ok")
             else:
-                msg = "Analisis selesai: %s STT ok, %s LLM ok dari %s antre." % (
-                    res.get("stt_ok"), res.get("llm_ok"), res.get("pending"))
+                cnt = "%s STT ok, %s LLM ok" % (res.get("stt_ok"), res.get("llm_ok"))
+            if all_mode:
+                msg = "%s semua selesai: %s (%s batch); sisa %s." % (
+                    label, cnt, res.get("rounds"), res.get("pending"))
+            else:
+                msg = "%s selesai: %s dari %s antre." % (label, cnt, res.get("pending"))
             le = res.get("llm_error")
-            if le:
+            if le and phase != "stt":
                 msg += " Catatan LLM: " + str(le)[:300]
         else:
             msg = res.get("error") or "Analisis gagal."
@@ -138,11 +150,11 @@ def _analyze_worker(job_id, day, limit, min_durasi):
         _job_set(job_id, status="error", finished=True, ok=False, error=str(e))
 
 
-def start_analyze(day="", limit=25, min_durasi=3):
+def start_analyze(day="", limit=25, min_durasi=3, phase="both"):
     job_id = _uuid.uuid4().hex
     _job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan")
     _threading.Thread(target=_analyze_worker,
-                      args=(job_id, day, limit, min_durasi), daemon=True).start()
+                      args=(job_id, day, limit, min_durasi, phase), daemon=True).start()
     return job_id
 
 
