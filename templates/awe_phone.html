@@ -66,6 +66,20 @@
 
 <section class="c-card">
   <div class="stage-head">
+    <h2 class="stage-title">Otomatis &mdash; Tarik + Transkrip SEMUA (H-1)</h2>
+    <span class="pill" id="apPill">&mdash;</span>
+  </div>
+  <p class="use-note">&#8505;&#65039; Satu tombol untuk <b>menarik semua</b> interaksi telepon <b>kemarin (H-1)</b> lalu <b>transkrip + analisis semua</b> (durasi min 3 detik). Berjalan di <b>server</b> &mdash; aman walau halaman ini ditutup. Jadwal harian otomatis dapat diaktifkan lewat <span class="code-inline">AWE_PHONE_SCHEDULER=1</span> di <span class="code-inline">.env</span>. Karena STT+LLM sekitar 1 menit/panggilan, satu hari penuh bisa <b>berjam-jam</b>; pantau kemajuannya di tabel <b>Status Data</b> di atas.</p>
+  <p class="muted-text" id="apInfo">Memuat status penjadwal&hellip;</p>
+  <div class="form-row">
+    <div class="field" style="flex:0 0 auto;"><button class="btn-modern" id="apRunBtn">Tarik + Transkrip SEMUA (H-1)</button></div>
+    <div class="field" style="flex:0 0 auto;"><button class="btn-modern btn-outline" id="apStatusBtn">Muat Status</button></div>
+  </div>
+  <div class="status" id="apStat"></div>
+</section>
+
+<section class="c-card">
+  <div class="stage-head">
     <span class="stage-num">1</span>
     <h2 class="stage-title">Tarik Interaksi Telepon + Audio</h2>
   </div>
@@ -87,10 +101,10 @@
     <span class="stage-num">2</span>
     <h2 class="stage-title">Transkripsi &amp; Analisis (STT + LLM)</h2>
   </div>
-  <p class="use-note">&#8505;&#65039; Menjalankan STT (Qwen, GPU) lalu analisis LLM untuk baris yang <b>sudah punya audio tapi belum ditranskrip</b>. Proses ini <b>lambat</b> (~1 menit/panggilan) dan berjalan di latar belakang &mdash; biarkan halaman terbuka. Kosongkan tanggal untuk memproses semua yang tertunda.</p>
+  <p class="use-note">&#8505;&#65039; Menjalankan STT (Qwen, GPU) lalu analisis LLM untuk baris yang <b>sudah punya audio tapi belum ditranskrip</b>. Proses ini <b>lambat</b> (~1 menit/panggilan) dan berjalan di latar belakang &mdash; biarkan halaman terbuka. Isi <b>Maks panggilan = 0</b> untuk <b>transkrip SEMUA</b> yang tertunda (diproses bertahap per-batch sampai habis, bisa berjam-jam). Kosongkan tanggal untuk memproses semua tanggal.</p>
   <div class="form-row">
     <div class="field"><label>Tanggal (opsional)</label><input type="date" id="a_day"></div>
-    <div class="field"><label>Maks panggilan</label><input type="number" id="a_limit" value="25" min="1" max="200"></div>
+    <div class="field"><label>Maks panggilan (0 = semua)</label><input type="number" id="a_limit" value="25" min="0" max="200"></div>
     <div class="field"><label>Durasi min (detik)</label><input type="number" id="a_mindur" value="3" min="0" max="120"></div>
   </div>
   <button class="btn-modern" id="aRunBtn">
@@ -102,6 +116,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/awe_phone.js?v=7"></script>
+<script src="/static/awe_phone.js?v=8"></script>
 <script src="/static/awe_phone_daily.js?v=2"></script>
 {% endblock %}
