@@ -49,19 +49,31 @@ el('tPullBtn').addEventListener('click',function(){
   }).catch(function(e){setStat('tStat','Gagal: '+e,'err');el('tPullBtn').disabled=false;});
 });
 
-// ---- Tahap 2: Analisis (lambat, latar belakang). 0/kosong => -1 = SEMUA (loop) ----
-el('aRunBtn').addEventListener('click',function(){
+// ---- Tahap 2: Transkrip saja / Analisis LLM saja (dipisah). 0/kosong => -1 = SEMUA (loop) ----
+function setAbusy(v){var a=el('aSttBtn'),b=el('aLlmBtn');if(a)a.disabled=v;if(b)b.disabled=v;}
+function pollAnalyze(job){
+  api({action:'job_fetch',job:job}).then(function(d){
+    if(d.pending){var p=d.progress||{};setStat('aStat',esc(p.message||'Berjalan...'));setTimeout(function(){pollAnalyze(job);},3000);return;}
+    setAbusy(false);
+    if(!d.ok){setStat('aStat','Gagal: '+esc(d.error||''),'err');return;}
+    setStat('aStat',esc(d.message||'Selesai.'),'ok');loadCov();
+  }).catch(function(e){setStat('aStat','Gagal: '+e,'err');setAbusy(false);});
+}
+function runAnalyze(phase){
   var day=el('a_day').value;
   var lr=el('a_limit').value,lim=(lr===''||parseInt(lr,10)===0)?-1:parseInt(lr,10);
   if(isNaN(lim))lim=25;
   var md=parseInt(el('a_mindur').value,10);if(isNaN(md))md=3;
-  el('aRunBtn').disabled=true;
-  setStat('aStat','Menjalankan STT + analisis LLM'+(lim<0?' untuk SEMUA yang tertunda (bertahap, bisa berjam-jam)':'')+'... (~1 mnt/panggilan)');
-  api({action:'analyze_start',day:day,limit_rows:lim,min_durasi:md}).then(function(d){
-    if(!d.ok){setStat('aStat','Gagal: '+esc(d.error||''),'err');el('aRunBtn').disabled=false;return;}
-    pollJob(d.job,'aStat',el('aRunBtn'),function(r){setStat('aStat',esc(r.message||'Selesai.'),'ok');});
-  }).catch(function(e){setStat('aStat','Gagal: '+e,'err');el('aRunBtn').disabled=false;});
-});
+  var label=(phase==='stt')?'Transkripsi (STT)':'Analisis LLM';
+  setAbusy(true);
+  setStat('aStat','Menjalankan '+label+(lim<0?' untuk SEMUA yang tertunda (bertahap, bisa berjam-jam)':'')+'... (~1 mnt/panggilan)');
+  api({action:'analyze_start',day:day,limit_rows:lim,min_durasi:md,phase:phase}).then(function(d){
+    if(!d.ok){setStat('aStat','Gagal: '+esc(d.error||''),'err');setAbusy(false);return;}
+    pollAnalyze(d.job);
+  }).catch(function(e){setStat('aStat','Gagal: '+e,'err');setAbusy(false);});
+}
+if(el('aSttBtn'))el('aSttBtn').addEventListener('click',function(){runAnalyze('stt');});
+if(el('aLlmBtn'))el('aLlmBtn').addEventListener('click',function(){runAnalyze('llm');});
 
 // ---- Otomatis: tarik + transkrip SEMUA (H-1) di server (bertahan walau ditutup) ----
 function apRender(d){
