@@ -16,6 +16,7 @@ Server -> klien:
       {"type":"ready","session_id":..,"greeting":..,"sample_rate":16000,"bargein":true}
       {"type":"speech_start"}                -> VAD mendeteksi user bicara (atau barge-in dikonfirmasi)
       {"type":"thinking"}                    -> ucapan selesai, sedang diproses
+      {"type":"no_speech"}                   -> STT tak menangkap ucapan; tak ada balasan (noise)
       {"type":"transcript","text":..}
       {"type":"answer","intent":..,"confidence":..,"sumber":..,"action":..,
                        "jawaban_teks":..,"handoff":..,"elapsed_ms":..,
@@ -31,22 +32,22 @@ salam pembuka LALU langsung mengalirkan AUDIO salam itu (disintesis TTS voicebot
 sebagai audio_begin -> byte WAV -> audio_end dengan flag greeting=true. Jadi klien
 (APK/browser) memutar salam dengan SUARA VOICEBOT, bukan TTS bawaan perangkat.
 
-STT+NLU+RAG+TTS memakai vb_engine.talk() yang sama dengan Mode A, jadi seluruh
-konfigurasi (ambang, dialog manager, pelafalan, mesin TTS Piper/MMS, penyingkat
-jawaban) berlaku identik. Semua proses tetap lokal.
+STT+NLU+RAG+TTS memakai vb_engine.talk() yang sama dengan Mode A (dengan
+reply_on_empty=False: bila STT tak menangkap ucapan, server TIDAK membalas apa pun
+-> mengirim {"type":"no_speech"} saja, supaya noise/gema tidak memicu 'maaf'
+berulang atau handoff palsu). Seluruh konfigurasi (ambang, dialog manager,
+pelafalan, mesin TTS, penyingkat jawaban) berlaku identik. Semua proses tetap lokal.
 
-Barge-in tanpa headset (loudspeaker): kombinasi (a) AEC/NS/AGC di sisi klien
-(browser getUserMedia echoCancellation, atau AcousticEchoCanceler + AudioSource
-VOICE_COMMUNICATION di Android) untuk membuang gema suara bot dari mic, dan
-(b) 'barge-in tahan-gema' di server -- saat bot sedang bicara, interupsi HANYA
-dikonfirmasi bila terdeteksi bicara BERKELANJUTAN >= VOICEBOT_STREAM_BARGEIN_MIN_MS
-dan (untuk fallback RMS) energi >= VOICEBOT_STREAM_SPEAKING_RMS. Blip/gema sesaat
-diabaikan sehingga suara bot tidak memotong dirinya sendiri.
+Barge-in tanpa headset (loudspeaker): kombinasi (a) AEC/NS/AGC + gerbang noise di
+sisi klien untuk membuang gema suara bot & noise steady dari mic, dan (b) 'barge-in
+tahan-gema' di server -- saat bot sedang bicara, interupsi HANYA dikonfirmasi bila
+terdeteksi bicara BERKELANJUTAN >= VOICEBOT_STREAM_BARGEIN_MIN_MS dan (fallback RMS)
+energi >= VOICEBOT_STREAM_SPEAKING_RMS. Blip/gema sesaat diabaikan.
 
 Endpointing pakai webrtcvad bila terpasang, kalau tidak jatuh ke VAD energi (RMS).
 Tuning via env: VOICEBOT_STREAM_SILENCE_MS (700), VOICEBOT_STREAM_MIN_SPEECH_MS
-(250), VOICEBOT_STREAM_PREROLL_MS (300), VOICEBOT_STREAM_RMS (500),
-VOICEBOT_STREAM_VAD_AGGR (2), VOICEBOT_STREAM_BARGEIN (1),
+(350), VOICEBOT_STREAM_PREROLL_MS (300), VOICEBOT_STREAM_RMS (600),
+VOICEBOT_STREAM_VAD_AGGR (3), VOICEBOT_STREAM_BARGEIN (1),
 VOICEBOT_STREAM_BARGEIN_MIN_MS (500), VOICEBOT_STREAM_SPEAKING_RMS (900).
 """
 from __future__ import annotations
@@ -94,7 +95,7 @@ def _get_webrtc_vad():
     _VAD_TRIED = True
     try:
         import webrtcvad  # type: ignore
-        aggr = _env_int("VOICEBOT_STREAM_VAD_AGGR", 2)
+        aggr = _env_int("VOICEBOT_STREAM_VAD_AGGR", 3)
         aggr = 0 if aggr < 0 else (3 if aggr > 3 else aggr)
         _VAD = webrtcvad.Vad(aggr)
     except Exception:
@@ -130,7 +131,7 @@ def _is_speech(frame: bytes, rms_min=None) -> bool:
             return bool(vad.is_speech(frame, SAMPLE_RATE))
         except Exception:
             pass
-    thr = rms_min if rms_min is not None else _env_int("VOICEBOT_STREAM_RMS", 500)
+    thr = rms_min if rms_min is not None else _env_int("VOICEBOT_STREAM_RMS", 600)
     return _rms(frame) >= thr
 
 
@@ -149,7 +150,7 @@ class Endpointer:
 
     def __init__(self):
         self.silence_ms = _env_int("VOICEBOT_STREAM_SILENCE_MS", 700)
-        self.min_speech_ms = _env_int("VOICEBOT_STREAM_MIN_SPEECH_MS", 250)
+        self.min_speech_ms = _env_int("VOICEBOT_STREAM_MIN_SPEECH_MS", 350)
         self.preroll_ms = _env_int("VOICEBOT_STREAM_PREROLL_MS", 300)
         self._buf = bytearray()       # byte mentah belum jadi frame utuh
         self._preroll = bytearray()   # ring pra-bicara
@@ -373,13 +374,17 @@ async def handle(websocket: WebSocket):
             try:
                 res = await loop.run_in_executor(
                     None, vb_engine.talk, session_id, None, wav, "stream.wav",
-                    state["want_audio"],
+                    state["want_audio"], False,
                 )
             except Exception as e:  # noqa: BLE001
                 await _safe_send_text({"type": "error", "error": str(e)})
                 continue
             if state["closed"]:
                 break
+            # STT tak menangkap ucapan (noise/gema) -> jangan membalas apa pun.
+            if res.get("no_speech") or not (res.get("transkrip") or "").strip():
+                await _safe_send_text({"type": "no_speech"})
+                continue
             # Audio jawaban tetap diputar meski ada ucapan lain menyusul di antrean.
             # Hanya barge-in (interrupt) atau sesi tertutup yang membatalkan audio,
             # supaya suara jawaban benar-benar terdengar untuk evaluasi.

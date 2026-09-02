@@ -34,7 +34,7 @@
       <span class="vbl-pill" id="pillStream">Streaming: mati</span>
     </div>
     <p style="color:var(--text-muted);font-size:12.5px;margin:8px 0 12px;">
-      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. <b>Barge-in via mic</b> aktif secara default dan dirancang tahan-gema untuk <b>loudspeaker</b>: browser memakai <b>AEC/noise-suppression</b> untuk membuang gema suara bot, dan server hanya memotong bila terdeteksi bicara <b>berkelanjutan</b> (bukan blip/gema sesaat). Bila lingkungan sangat berisik, hilangkan centang untuk mode <b>half-duplex</b> (mic dibisukan saat bot bicara). Tombol <b>✋ Potong</b> selalu bisa dipakai.
+      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. <b>Barge-in via mic</b> aktif secara default dan dirancang tahan-gema untuk <b>loudspeaker</b>: browser memakai <b>AEC/noise-suppression</b> + <b>gerbang noise</b> untuk membuang gema suara bot & noise sekitar, dan server hanya memotong bila terdeteksi bicara <b>berkelanjutan</b> (bukan blip/gema sesaat). Noise yang tak jadi ucapan tidak lagi dibalas “maaf”. Bila lingkungan sangat berisik, hilangkan centang untuk mode <b>half-duplex</b> (mic dibisukan saat bot bicara). Tombol <b>✋ Potong</b> selalu bisa dipakai.
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <button id="btnStream" class="vbl-btnp">🔴 Mulai percakapan langsung</button>
@@ -201,7 +201,7 @@
   var ws=null, actx=null, srcNode=null, procNode=null, muteNode=null, micStream=null;
   var streaming=false, audioParts=[], curAudio=null;
   var tThink=0, curRow=null, pend=null;
-  var procBusy=false, busyTimer=null;
+  var procBusy=false, busyTimer=null, gateUntil=0;
 
   function autoBarge(){ var c=$('chkAutoBarge'); return !!(c&&c.checked); }
   function setBusy(v){ procBusy=v; }
@@ -229,6 +229,8 @@
     }
     return out;
   }
+  function silentPcm(len){ return new Int16Array(len>0?len:1); }
+  function frameRms(f32){ var s=0; for(var i=0;i<f32.length;i++){s+=f32[i]*f32[i];} return Math.sqrt(s/(f32.length||1)); }
 
   function stopAudio(){ if(curAudio){try{curAudio.pause();}catch(e){} curAudio=null;} }
   function playParts(){
@@ -251,11 +253,17 @@
         procNode=actx.createScriptProcessor(4096,1,1);
         muteNode=actx.createGain(); muteNode.gain.value=0;
         srcNode.connect(procNode); procNode.connect(muteNode); muteNode.connect(actx.destination);
+        gateUntil=0;
         procNode.onaudioprocess=function(e){
           if(!ws||ws.readyState!==1)return;
           // half-duplex: bila barge-in via mic tidak dicentang, bisukan mic saat bot memproses/berbicara
           if(!autoBarge() && procBusy) return;
-          var pcm=downsample(e.inputBuffer.getChannelData(0),actx.sampleRate,16000);
+          var buf=e.inputBuffer.getChannelData(0);
+          // gerbang noise sisi-browser: hanya kirim audio saat energi cukup + hangover 600ms.
+          // Blokir noise steady & gema sisa (setelah AEC) agar tak dianggap ucapan.
+          var now=(window.performance&&performance.now)?performance.now():Date.now();
+          if(frameRms(buf)>=0.012) gateUntil=now+600;
+          var pcm=(now<gateUntil)?downsample(buf,actx.sampleRate,16000):silentPcm(Math.round(buf.length*16000/actx.sampleRate));
           try{ws.send(pcm.buffer);}catch(err){}
         };
         streaming=true; setBusy(false); $('btnStream').textContent='⏹️ Stop percakapan'; $('pillStream').textContent='Streaming: aktif'; sStat('Tersambung — menyapa…');
@@ -266,6 +274,7 @@
         if(m.type==='ready'){ if(m.greeting){sAdd('🤖',m.greeting);} sStat('Siap — silakan bicara… (barge-in via mic '+(autoBarge()?'aktif':'mati')+')'); }
         else if(m.type==='speech_start'){ sStat('🎙️ Anda bicara…'); stopAudio(); }
         else if(m.type==='thinking'){ sStat('🤔 Memproses…'); tThink=performance.now(); pend={transkrip:''}; setBusy(true); }
+        else if(m.type==='no_speech'){ sStat('🎧 Menunggu suara jelas… (noise diabaikan)'); clearBusyTimer(); setBusy(false); pend=null; }
         else if(m.type==='transcript'){ if(m.text){ if(pend)pend.transkrip=m.text; sAdd('🧑',m.text); } }
         else if(m.type==='answer'){
           sAdd('🤖',m.jawaban_teks||'');

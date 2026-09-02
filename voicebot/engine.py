@@ -16,6 +16,11 @@ Peringkas jawaban intent (2b): bila 'intent_shorten_enabled', jawaban match-inte
 (jalur 'act' & konfirmasi) dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara
 (cache + fail-soft; fakta/angka dijaga). Jalur RAG memang sudah ringkas by design.
 
+Mode streaming (reply_on_empty=False): bila STT tidak menangkap ucapan apa pun,
+talk() mengembalikan no_speech=True TANPA membalas/menyintesis apa pun, tanpa
+menaikkan fallback_streak, dan tanpa dicatat -- supaya noise/gema tidak memicu
+'maaf' berulang atau handoff palsu di Mode B.
+
 Latency: talk() mengembalikan 'elapsed_ms' (total) + 'timings' dengan rincian
 stt_ms / think_ms / tts_ms / total_ms untuk keperluan evaluasi (Lab & Mode B).
 
@@ -177,8 +182,13 @@ def get_filler(want_audio=True, index=None):
 
 
 def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav",
-         want_audio=True):
-    """Satu giliran percakapan. Kembalikan dict respons (JSON-able)."""
+         want_audio=True, reply_on_empty=True):
+    """Satu giliran percakapan. Kembalikan dict respons (JSON-able).
+
+    reply_on_empty=False (Mode B streaming): bila STT tak menangkap ucapan apa pun,
+    kembalikan no_speech=True tanpa membalas/menyintesis apa pun (hindari 'maaf'
+    berulang dari noise) dan tanpa menaikkan fallback_streak / mencatat turn.
+    """
     t0 = time.time()
     settings = cfg.get_settings()
     sid, sess = _get_session(session_id)
@@ -198,6 +208,36 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
 
     # penanda waktu: STT selesai (untuk rincian latency evaluasi)
     t_stt = time.time()
+
+    # Mode streaming: STT tak menangkap ucapan -> jangan membalas apa pun. Tidak
+    # menaikkan fallback_streak & tidak dicatat, supaya noise/gema tak memicu
+    # 'maaf' berulang maupun handoff palsu di Mode B.
+    if not transkrip and not reply_on_empty:
+        total_ms = int((time.time() - t0) * 1000)
+        return {
+            "session_id": sid,
+            "transkrip": "",
+            "intent": None,
+            "confidence": 0.0,
+            "sumber": "none",
+            "tier": None,
+            "engine": None,
+            "jawaban_teks": "",
+            "jawaban_audio_b64": None,
+            "action": "noop",
+            "resume_suggestion": None,
+            "handoff": None,
+            "stt_error": stt_err,
+            "tts_error": None,
+            "no_speech": True,
+            "elapsed_ms": total_ms,
+            "timings": {
+                "stt_ms": int((t_stt - t0) * 1000),
+                "think_ms": 0,
+                "tts_ms": 0,
+                "total_ms": total_ms,
+            },
+        }
 
     try:
         threshold = float(settings.get("threshold") or 0.6)
