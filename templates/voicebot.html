@@ -33,6 +33,27 @@
   </section>
 
   <section class="vb-pnl" style="margin-top:22px;">
+    <h2 class="vb-ph">📥 Impor intent dari Dialogflow</h2>
+    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
+      Ambil intent <b>tersibuk</b> (paling sering dipanggil) beserta training phrase &amp; respons perwakilan dari data analitik Dialogflow (<code>analytics.db</code>), lalu masukkan ke daftar intent voicebot di bawah. <b>Pratinjau</b> dulu sebelum impor. Intent sistem/fallback (System_/Umum_) otomatis dikecualikan.
+    </p>
+    <div class="vb-grid2">
+      <label>Jumlah intent teratas<input id="dfLimit" class="vb-inp" type="number" min="1" value="20"></label>
+      <label>Maks training phrase / intent<input id="dfMaxPhr" class="vb-inp" type="number" min="1" value="40"></label>
+      <label>Tanggal mulai (opsional)<input id="dfStart" class="vb-inp" type="date"></label>
+      <label>Tanggal akhir (opsional)<input id="dfEnd" class="vb-inp" type="date"></label>
+      <label>Intent yang sudah ada<select id="dfSkip" class="vb-inp"><option value="0">Segarkan (timpa)</option><option value="1">Lewati</option></select></label>
+      <label>Aktifkan hasil impor<select id="dfAkt" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+    </div>
+    <div style="margin-top:12px;">
+      <button id="btnDfPrev" class="vb-btns">🔎 Pratinjau</button>
+      <button id="btnDfImp" class="vb-btnp">📥 Impor sekarang</button>
+      <span id="dfMsg" style="font-size:13px;color:var(--text-muted);"></span>
+    </div>
+    <div id="dfPrev" style="margin-top:12px;overflow-x:auto;"></div>
+  </section>
+
+  <section class="vb-pnl" style="margin-top:22px;">
     <h2 class="vb-ph">🗂️ Intent &amp; Training Phrase</h2>
     <div class="vb-grid2">
       <label>Nama intent<input id="iName" class="vb-inp"></label>
@@ -92,6 +113,32 @@
       tts_enabled:$('cTts').value,handoff_max_fallback:$('cMaxFb').value,handoff_triggers:$('cHo').value,
       llm_system:$('cSys').value,fallback_reply:$('cFb').value
     }).then(function(d){$('cfgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');});
+  };
+
+  function dfBody(){
+    return {limit:$('dfLimit').value||20,max_phrases:$('dfMaxPhr').value||40,
+      start:$('dfStart').value||null,end:$('dfEnd').value||null,
+      skip_existing:$('dfSkip').value==='1',activate:$('dfAkt').value};
+  }
+  $('btnDfPrev').onclick=function(){
+    $('dfMsg').textContent='Memuat pratinjau…';
+    post('/api/voicebot/intents/df-preview',dfBody()).then(function(d){
+      if(!d.ok){$('dfMsg').textContent=d.error||'Gagal.';$('dfPrev').innerHTML='';return;}
+      if(!d.rows.length){$('dfMsg').textContent='';$('dfPrev').innerHTML='<p style="color:var(--text-muted);">Tidak ada intent ditemukan di analytics.db. Tarik data Dialogflow dulu lewat menu <b>Kelola Data</b>.</p>';return;}
+      $('dfMsg').textContent=d.total+' intent teratas (belum diimpor):';
+      var h='<table class="vb-tab"><thead><tr><th>#</th><th>Intent</th><th>Jumlah panggilan</th></tr></thead><tbody>';
+      d.rows.forEach(function(r,i){h+='<tr><td>'+(i+1)+'</td><td><b>'+esc(r.intent)+'</b></td><td>'+r.count+'</td></tr>';});
+      h+='</tbody></table>';$('dfPrev').innerHTML=h;
+    });
+  };
+  $('btnDfImp').onclick=function(){
+    if(!confirm('Impor intent tersibuk Dialogflow ke voicebot sekarang?'))return;
+    $('dfMsg').textContent='Mengimpor… (bisa beberapa detik)';
+    post('/api/voicebot/intents/df-import',dfBody()).then(function(d){
+      if(!d.ok){$('dfMsg').textContent=d.error||'Gagal.';return;}
+      $('dfMsg').textContent='Selesai: '+d.imported+' baru, '+d.updated+' diperbarui, '+d.skipped+' dilewati ('+d.phrases+' training phrase).';
+      loadInt();loadKpi();
+    });
   };
 
   function resetInt(){$('iId').value='';$('iName').value='';$('iPhr').value='';$('iResp').value='';$('iAktif').value='1';$('intMsg').textContent='';}
