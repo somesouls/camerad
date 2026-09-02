@@ -77,6 +77,17 @@ DEFAULT_SETTINGS = {
         "Baik, mohon tunggu sebentar ya.|Baik, saya periksa dulu.|"
         "Mohon tunggu sebentar, ya."
     ),
+    # --- penyingkat jawaban intent (2b) ---
+    "intent_shorten_enabled": "0",
+    "intent_shorten_min_chars": "160",
+    "intent_shorten_system": (
+        "Anda meringkas jawaban call center untuk dibacakan sebagai suara dalam "
+        "Bahasa Indonesia. Persingkat menjadi 1-2 kalimat lisan yang sopan dan "
+        "langsung ke inti, TANPA mengubah, menambah, atau menghilangkan fakta, "
+        "angka, nominal, syarat, nama, atau langkah penting. Buang hanya kata "
+        "berlebih dan pengulangan. Tanpa markdown, tanpa emoji. Bila teks sudah "
+        "ringkas, kembalikan apa adanya."
+    ),
 }
 
 _INIT_DONE = set()
