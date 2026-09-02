@@ -104,15 +104,26 @@ def start_pull(day_from, day_to, limit=25, pulled_by=""):
 def _analyze_worker(job_id, day, limit, min_durasi):
     try:
         _job_set(job_id, status="stt", message="STT (Qwen) + analisis LLM berjalan")
+        all_mode = (int(limit or 0) <= 0)
         conn = _conn()
         try:
-            res = panalyze.analyze_day(conn, day=day or None, limit=limit, min_durasi=min_durasi)
+            if all_mode:
+                res = panalyze.analyze_all(
+                    conn, day=day or None, min_durasi=min_durasi,
+                    on_prog=lambda m: _job_set(job_id, status="stt", message=m))
+            else:
+                res = panalyze.analyze_day(conn, day=day or None, limit=limit,
+                                           min_durasi=min_durasi)
         finally:
             conn.close()
         ok = bool(res.get("ok"))
         if ok:
-            msg = "Analisis selesai: %s STT ok, %s LLM ok dari %s antre." % (
-                res.get("stt_ok"), res.get("llm_ok"), res.get("pending"))
+            if all_mode:
+                msg = "Transkrip semua selesai: %s STT ok, %s LLM ok (%s batch); sisa %s." % (
+                    res.get("stt_ok"), res.get("llm_ok"), res.get("rounds"), res.get("pending"))
+            else:
+                msg = "Analisis selesai: %s STT ok, %s LLM ok dari %s antre." % (
+                    res.get("stt_ok"), res.get("llm_ok"), res.get("pending"))
             le = res.get("llm_error")
             if le:
                 msg += " Catatan LLM: " + str(le)[:300]
@@ -161,6 +172,17 @@ def analyze_sync(day="", limit=25, min_durasi=3):
     with _LOCK:
         _JOBS.pop(job_id, None)
     return res
+
+
+def analyze_all_sync(day="", min_durasi=3):
+    """Transkrip SEMUA (loop per-batch sampai habis) SINKRON; utk auto-pull
+    penjadwal. SANGAT LAMBAT (bisa berjam-jam) - hanya dipanggil dari thread
+    latar penjadwal/pemicu manual, jangan dari request web."""
+    conn = _conn()
+    try:
+        return panalyze.analyze_all(conn, day=day or None, min_durasi=min_durasi)
+    finally:
+        conn.close()
 
 
 # ---------- Baca (sinkron) untuk UI menu ----------
