@@ -28,7 +28,10 @@
       <label>Frasa pemicu hand-off (koma)<input id="cHo" class="vb-inp"></label>
       <label>Kamus pelafalan aktif<select id="cPron" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Eja angka bila ≥ N digit<input id="cSpellMin" class="vb-inp" type="number" min="0"></label>
+      <label>Mesin TTS<select id="cTtsEng" class="vb-inp"><option value="piper">Piper (ringan / cepat)</option><option value="mms">MMS-TTS Indonesia (natural)</option></select></label>
+      <label>Model MMS-TTS<input id="cMms" class="vb-inp" placeholder="facebook/mms-tts-ind"></label>
     </div>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:8px 0 0;">Mesin TTS: <b>Piper</b> paling ringan (butuh <code>VOICEBOT_PIPER_VOICE</code>). <b>MMS-TTS Indonesia</b> (<code>facebook/mms-tts-ind</code>, Meta) lebih natural &amp; native Bahasa Indonesia — perlu <code>pip install transformers torch</code> + unduh model sekali (≈145 MB), lalu jalan penuh lokal (GPU/CPU). Bila MMS gagal saat runtime dan Piper siap, sistem otomatis memakai Piper.</p>
     <label style="display:block;margin-top:10px;">System prompt LLM<textarea id="cSys" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
     <label style="display:block;margin-top:10px;">Balasan fallback default<input id="cFb" class="vb-inp" style="width:100%;"></label>
     <div style="margin-top:12px;"><button id="btnSaveCfg" class="vb-btnp">Simpan konfigurasi</button> <span id="cfgMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
@@ -155,6 +158,7 @@
       $('cStt').value=String(s.stt_enabled||'1'); $('cTts').value=String(s.tts_enabled||'1');
       $('cMaxFb').value=s.handoff_max_fallback||'2'; $('cHo').value=s.handoff_triggers||'';
       $('cPron').value=String(s.pron_enabled||'1'); $('cSpellMin').value=s.pron_spell_digits_min||'7';
+      $('cTtsEng').value=String(s.tts_engine||'piper'); $('cMms').value=s.mms_model||'facebook/mms-tts-ind';
       $('cSys').value=s.llm_system||''; $('cFb').value=s.fallback_reply||'';
       $('dEn').value=String(s.dialog_enabled||'1'); $('dCmin').value=s.confirm_min||'0.45';
       $('dSal').value=s.salutation||'Bapak/Ibu'; $('dSalEn').value=String(s.salutation_enabled||'1');
@@ -165,7 +169,7 @@
       $('dRep').value=s.cmd_repeat||''; $('dEnd').value=s.cmd_end||''; $('dAff').value=s.affirmations||''; $('dNeg').value=s.negations||'';
       $('dFil').value=s.filler_texts||'';
       $('kpiStt').textContent='STT: '+(d.stt_ready?'siap ✅':'belum ⚠️');
-      $('kpiTts').textContent='TTS: '+(d.tts_ready?'siap ✅':'belum ⚠️');
+      $('kpiTts').textContent='TTS: '+(d.tts_ready?'siap ✅':'belum ⚠️')+(d.tts_engine?(' ('+d.tts_engine+')'):'');
     });
   }
   $('btnSaveCfg').onclick=function(){
@@ -174,8 +178,9 @@
       threshold:$('cThr').value,stt_lang:$('cLang').value,stt_enabled:$('cStt').value,
       tts_enabled:$('cTts').value,handoff_max_fallback:$('cMaxFb').value,handoff_triggers:$('cHo').value,
       pron_enabled:$('cPron').value,pron_spell_digits_min:$('cSpellMin').value,
+      tts_engine:$('cTtsEng').value,mms_model:$('cMms').value,
       llm_system:$('cSys').value,fallback_reply:$('cFb').value
-    }).then(function(d){$('cfgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');});
+    }).then(function(d){$('cfgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');loadCfg();});
   };
 
   $('btnSaveDlg').onclick=function(){
