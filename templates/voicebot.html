@@ -35,6 +35,32 @@
   </section>
 
   <section class="vb-pnl" style="margin-top:22px;">
+    <h2 class="vb-ph">🧭 Dialog manager (percakapan)</h2>
+    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
+      Lapisan percakapan bergaya agen di atas NLU/RAG: <b>tier confidence</b> (≥ ambang → jawaban intent; menengah → konfirmasi; rendah → RAG), <b>perintah global</b> (ulangi / selesai / bicara dengan agen), <b>konfirmasi selektif</b>, <b>sapaan netral</b>, dan <b>filler</b> penutup latency. Ambang atas memakai "Ambang confidence" di atas; di sini atur batas bawah konfirmasi &amp; teksnya.
+    </p>
+    <div class="vb-grid2">
+      <label>Dialog manager aktif<select id="dEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Ambang bawah konfirmasi (0–1)<input id="dCmin" class="vb-inp" type="number" step="0.05" min="0" max="1"></label>
+      <label>Sapaan netral<input id="dSal" class="vb-inp" placeholder="Bapak/Ibu"></label>
+      <label>Pakai sapaan<select id="dSalEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Filler aktif<select id="dFilEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Tawarkan lanjut (resume)<select id="dResEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+    </div>
+    <label style="display:block;margin-top:10px;">Salam pembuka (saat sesi dibuka)<input id="dGreet" class="vb-inp" style="width:100%;"></label>
+    <label style="display:block;margin-top:10px;">Kalimat penutup (perintah "selesai")<input id="dClose" class="vb-inp" style="width:100%;"></label>
+    <label style="display:block;margin-top:10px;">Template konfirmasi (pakai {intent})<input id="dConf" class="vb-inp" style="width:100%;"></label>
+    <div class="vb-grid2" style="margin-top:10px;">
+      <label>Perintah "ulangi" (koma)<input id="dRep" class="vb-inp"></label>
+      <label>Perintah "selesai" (koma)<input id="dEnd" class="vb-inp"></label>
+      <label>Kata afirmasi / ya (koma)<input id="dAff" class="vb-inp"></label>
+      <label>Kata negasi / tidak (koma)<input id="dNeg" class="vb-inp"></label>
+    </div>
+    <label style="display:block;margin-top:10px;">Teks filler (pisah dengan | )<input id="dFil" class="vb-inp" style="width:100%;"></label>
+    <div style="margin-top:12px;"><button id="btnSaveDlg" class="vb-btnp">Simpan dialog manager</button> <button id="btnFillerTest" class="vb-btns">▶️ Uji filler</button> <span id="dlgMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
+  </section>
+
+  <section class="vb-pnl" style="margin-top:22px;">
     <h2 class="vb-ph">📥 Impor intent dari Dialogflow</h2>
     <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
       Ambil intent <b>tersibuk</b> (paling sering dipanggil) beserta training phrase &amp; respons perwakilan dari data analitik Dialogflow (<code>analytics.db</code>), lalu masukkan ke daftar intent voicebot di bawah. <b>Pratinjau</b> dulu sebelum impor. Intent sistem/fallback (System_/Umum_) otomatis dikecualikan.
@@ -126,6 +152,12 @@
       $('cMaxFb').value=s.handoff_max_fallback||'2'; $('cHo').value=s.handoff_triggers||'';
       $('cPron').value=String(s.pron_enabled||'1'); $('cSpellMin').value=s.pron_spell_digits_min||'7';
       $('cSys').value=s.llm_system||''; $('cFb').value=s.fallback_reply||'';
+      $('dEn').value=String(s.dialog_enabled||'1'); $('dCmin').value=s.confirm_min||'0.45';
+      $('dSal').value=s.salutation||'Bapak/Ibu'; $('dSalEn').value=String(s.salutation_enabled||'1');
+      $('dFilEn').value=String(s.filler_enabled||'1'); $('dResEn').value=String(s.resume_enabled||'0');
+      $('dGreet').value=s.greeting||''; $('dClose').value=s.closing_reply||''; $('dConf').value=s.confirm_template||'';
+      $('dRep').value=s.cmd_repeat||''; $('dEnd').value=s.cmd_end||''; $('dAff').value=s.affirmations||''; $('dNeg').value=s.negations||'';
+      $('dFil').value=s.filler_texts||'';
       $('kpiStt').textContent='STT: '+(d.stt_ready?'siap ✅':'belum ⚠️');
       $('kpiTts').textContent='TTS: '+(d.tts_ready?'siap ✅':'belum ⚠️');
     });
@@ -138,6 +170,25 @@
       pron_enabled:$('cPron').value,pron_spell_digits_min:$('cSpellMin').value,
       llm_system:$('cSys').value,fallback_reply:$('cFb').value
     }).then(function(d){$('cfgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');});
+  };
+
+  $('btnSaveDlg').onclick=function(){
+    $('dlgMsg').textContent='Menyimpan…';
+    post('/api/voicebot/config/save',{
+      dialog_enabled:$('dEn').value,confirm_min:$('dCmin').value,salutation:$('dSal').value,
+      salutation_enabled:$('dSalEn').value,filler_enabled:$('dFilEn').value,resume_enabled:$('dResEn').value,
+      greeting:$('dGreet').value,closing_reply:$('dClose').value,confirm_template:$('dConf').value,
+      cmd_repeat:$('dRep').value,cmd_end:$('dEnd').value,affirmations:$('dAff').value,negations:$('dNeg').value,
+      filler_texts:$('dFil').value
+    }).then(function(d){$('dlgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');});
+  };
+  $('btnFillerTest').onclick=function(){
+    $('dlgMsg').textContent='Memuat filler…';
+    fetch('/api/voicebot/filler').then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){$('dlgMsg').textContent=d.error||'Gagal.';return;}
+      $('dlgMsg').textContent='Filler: "'+(d.text||'—')+'"'+(d.tts_error?(' · TTS: '+d.tts_error):'');
+      if(d.audio_b64){try{new Audio('data:audio/wav;base64,'+d.audio_b64).play();}catch(e){}}
+    });
   };
 
   function dfBody(){
