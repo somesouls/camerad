@@ -3,9 +3,10 @@
 
 Tarik interaksi Telepon H-1 otomatis (Tahap 1: tarik + unduh audio) memakai
 worker yang SAMA dengan alur manual Kelola Data Phone (awe.phone_jobs), lalu
-OPSIONAL menjalankan Tahap 2 (STT Qwen + analisis LLM) bila AWE_PHONE_INGEST_ANALYZE
-aktif. Kredensial dari .env (AVAYA_USERNAME/PASSWORD/BASE_URL) - login-then-forget,
-tidak pernah disimpan. Chat & Livechat tidak tersentuh.
+menjalankan Tahap 2 (STT Qwen + analisis LLM) untuk SEMUA panggilan (loop
+per-batch sampai habis) bila AWE_PHONE_INGEST_ANALYZE aktif. Kredensial dari
+.env (AVAYA_USERNAME/PASSWORD/BASE_URL) - login-then-forget, tidak pernah
+disimpan. Chat & Livechat tidak tersentuh.
 
 Anti-tumpang-tindih via lock non-blok; status terakhir ditulis ke berkas JSON
 kecil (phone_autopull_status.json) agar tampil di UI & bertahan setelah restart.
@@ -14,10 +15,10 @@ Env:
   AWE_PHONE_SCHEDULER=1        aktifkan penjadwal harian (default 0/mati)
   AWE_PHONE_INGEST_HOUR=6      jam cron (Asia/Jakarta)
   AWE_PHONE_INGEST_MINUTE=0    menit cron
-  AWE_PHONE_PULL_LIMIT=25      cap tarik per hari
-  AWE_PHONE_INGEST_ANALYZE=0   jalankan Tahap 2 STT+LLM setelah tarik (LAMBAT)
+  AWE_PHONE_PULL_LIMIT=0       cap tarik per hari (0 = SEMUA, auto-pecah waktu)
+  AWE_PHONE_INGEST_ANALYZE=1   jalankan Tahap 2 STT+LLM (transkrip SEMUA) stlh tarik (LAMBAT)
   AWE_PHONE_ANALYZE_MINDUR=3   durasi min (dtk) utk analisis
-  AWE_PHONE_ANALYZE_LIMIT      batas baris analisis (default = AWE_PHONE_PULL_LIMIT)
+  AWE_PHONE_STT_BATCH=8        jml panggilan per subproses STT saat transkrip semua
 Rute didaftarkan via register_app(): GET /api/awe/phone/autopull/status,
 POST /api/awe/phone/autopull/now. Penjadwal via maybe_start_scheduler().
 """
@@ -97,7 +98,7 @@ def _int_env(name, default):
 
 def phone_autopull_run(date_from=None, date_to=None, limit=None,
                        do_analyze=None, trigger="scheduler"):
-    """Tarik (+opsional analisis) Telepon utk rentang (default H-1). Kembalikan status."""
+    """Tarik SEMUA (+transkrip SEMUA) Telepon utk rentang (default H-1). Kembalikan status."""
     if not _LOCK.acquire(blocking=False):
         return {"ok": False, "skipped": True,
                 "error": "Auto-pull telepon lain sedang berjalan; dilewati."}
@@ -106,9 +107,9 @@ def phone_autopull_run(date_from=None, date_to=None, limit=None,
         date_from = date_from or y
         date_to = date_to or y
     if limit is None:
-        limit = _int_env("AWE_PHONE_PULL_LIMIT", 25)
+        limit = _int_env("AWE_PHONE_PULL_LIMIT", 0)  # 0 = SEMUA (auto-pecah waktu)
     if do_analyze is None:
-        do_analyze = _env_flag("AWE_PHONE_INGEST_ANALYZE", "0")
+        do_analyze = _env_flag("AWE_PHONE_INGEST_ANALYZE", "1")
     status = {"trigger": trigger, "kind": "phone",
               "started_at": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
               "range": "%s s/d %s" % (date_from, date_to), "limit": int(limit)}
@@ -133,12 +134,13 @@ def phone_autopull_run(date_from=None, date_to=None, limit=None,
             return status
         if do_analyze:
             mind = _int_env("AWE_PHONE_ANALYZE_MINDUR", 3)
-            alim = _int_env("AWE_PHONE_ANALYZE_LIMIT", int(limit))
-            ares = pj.analyze_sync(day=(date_from if date_from == date_to else ""),
-                                   limit=alim, min_durasi=mind)
+            ares = pj.analyze_all_sync(day=(date_from if date_from == date_to else ""),
+                                       min_durasi=mind)
             status["analyze_ok"] = bool(ares.get("ok"))
             status["stt_ok"] = ares.get("stt_ok")
             status["llm_ok"] = ares.get("llm_ok")
+            status["batches"] = ares.get("rounds")
+            status["pending"] = ares.get("pending")
             if not ares.get("ok"):
                 status["ok"] = False
                 status["error"] = ares.get("error") or "Analisis gagal."
@@ -146,8 +148,9 @@ def phone_autopull_run(date_from=None, date_to=None, limit=None,
         status["ok"] = True
         status["message"] = "Berhasil menarik %s interaksi (%s dengan audio)%s." % (
             pres.get("staged"), pres.get("with_audio"),
-            " lalu dianalisis (STT+LLM)" if do_analyze else
-            " (analisis STT+LLM belum dijalankan)")
+            (" lalu transkrip+analisis SEMUA (%s STT, %s LLM ok)" % (
+                status.get("stt_ok"), status.get("llm_ok"))) if do_analyze else
+            " (transkrip/analisis belum dijalankan)")
         return status
     except Exception as e:
         status["ok"] = False
@@ -173,8 +176,8 @@ async def autopull_status():
         "configured": bool((os.environ.get("AVAYA_PASSWORD") or "").strip()),
         "hour": os.environ.get("AWE_PHONE_INGEST_HOUR", "6"),
         "minute": os.environ.get("AWE_PHONE_INGEST_MINUTE", "0"),
-        "limit": _int_env("AWE_PHONE_PULL_LIMIT", 25),
-        "analyze": _env_flag("AWE_PHONE_INGEST_ANALYZE", "0"),
+        "limit": _int_env("AWE_PHONE_PULL_LIMIT", 0),
+        "analyze": _env_flag("AWE_PHONE_INGEST_ANALYZE", "1"),
         "last": d,
     })
 
@@ -196,7 +199,7 @@ async def autopull_now(request: Request):
         target=lambda: phone_autopull_run(date_from=df, date_to=dt, trigger="manual"),
         daemon=True).start()
     return JSONResponse({"ok": True, "started": True,
-                         "message": "Tarik otomatis telepon dimulai di latar belakang. Status diperbarui otomatis."})
+                         "message": "Tarik + transkrip SEMUA telepon dimulai di latar belakang (bisa berjam-jam). Status diperbarui otomatis."})
 
 
 def register_app():
