@@ -169,6 +169,12 @@ def _route_area(path):
         return "peraturan"
     if path == "/profil" or path.startswith("/api/profil"):
         return "account"
+    # Menu Voicebot (mesin suara lokal) memakai area akses Peraturan (admin).
+    # Endpoint /api/voicebot/* juga bisa dipanggil klien luar (APK Android /
+    # widget web / IVR) via header X-API-Key (lihat bypass di _auth_middleware).
+    if (path == "/voicebot" or path.startswith("/voicebot/")
+            or path.startswith("/api/voicebot")):
+        return "peraturan"
     # Menu Evaluasi RAG (kumpulkan sampel + uji keandalan) = khusus admin.
     # Path /rag-eval, /rag-eval-chatbot & /api/eval sengaja TIDAK memakai prefix
     # /api/rag agar tidak jatuh ke aturan 'common' di bawah. Ditaruh paling awal.
@@ -266,6 +272,15 @@ async def _auth_middleware(request: Request, call_next):
         if _svc_key and _svc_key == CONFIG.get("qwen_api_key"):
             return await call_next(request)
 
+    # Panggilan klien luar ke mesin Voicebot (APK Android / widget web / IVR)
+    # memakai header X-API-Key, sama pola dengan /api/avaya-*. Ini yang membuat
+    # engine "API-first" bisa dipanggil aplikasi lain tanpa cookie sesi. Akses
+    # via browser yang sudah login tetap jalan lewat gerbang sesi di bawah.
+    if path.startswith("/api/voicebot/"):
+        _vb_key = request.headers.get("x-api-key")
+        if _vb_key and _vb_key == CONFIG.get("qwen_api_key"):
+            return await call_next(request)
+
     user = _user_from_token(request.cookies.get("session"))
     if user is None:
         if path.startswith("/api/"):
@@ -286,3 +301,20 @@ async def _auth_middleware(request: Request, call_next):
 
     request.state.user = user
     return await call_next(request)
+
+
+# =============================================================
+# Menu Voicebot (mesin suara lokal / on-prem)
+# =============================================================
+# STT (faster-whisper via avaya.phone_stt) -> NLU hybrid (embedding lokal +
+# LLM fallback via common.llm_client) -> hand-off (handoff.routing_db) -> TTS
+# (Piper). Didaftarkan DI SINI (bukan di web_app.py) karena app_core memegang
+# objek `app`, dan render_page sudah terdefinisi di atas sehingga impor
+# voicebot.routes aman (tidak circular). Fail-soft: bila modul voicebot
+# bermasalah, route lain tetap boot.
+try:
+    import voicebot.routes as _voicebot_routes
+    _voicebot_routes.register(app)
+    print("[VOICEBOT] route terpasang (/voicebot, /voicebot/lab, /api/voicebot/*).", flush=True)
+except Exception as _voicebot_exc:
+    print("[VOICEBOT] registrasi route dilewati:", _voicebot_exc, flush=True)
