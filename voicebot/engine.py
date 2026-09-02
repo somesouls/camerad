@@ -12,6 +12,10 @@ Dialog manager (voicebot.dialog) menambah lapisan percakapan bergaya agen:
   - Digression: klasifikasi ulang tiap giliran + simpan intent terakhir (resume).
   - Sapaan netral + filler acknowledgment (pre-gen, diambil klien saat menunggu).
 
+Peringkas jawaban intent (2b): bila 'intent_shorten_enabled', jawaban match-intent
+(jalur 'act' & konfirmasi) dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara
+(cache + fail-soft; fakta/angka dijaga). Jalur RAG memang sudah ringkas by design.
+
 Sesi disimpan in-memory (cukup untuk tahap konsep, 1 proses). Semua komponen
 berat di-impor LAZY + fail-soft. Reuse: voicebot.stt (faster-whisper),
 voicebot.rag (RAG bersumber tunggal intent+training phrase), common.llm_client
@@ -67,6 +71,15 @@ def _get_session(sid):
         s = create_session()
         return s["session_id"], _SESSIONS[s["session_id"]]
     return sid, _SESSIONS[sid]
+
+
+def _shorten_intent(jawaban, settings):
+    """Peringkas jawaban intent statis (2b) via RAG.shorten; fail-soft."""
+    try:
+        return vb_rag.shorten(jawaban, settings)
+    except Exception as e:  # noqa: BLE001
+        print("[voicebot.engine] shorten gagal: %s" % e, flush=True)
+        return jawaban
 
 
 def _llm_fallback(text, sess, settings):
@@ -224,6 +237,7 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
             # penelepon membenarkan tebakan intent tier-menengah sebelumnya
             ci = pending.get("intent")
             jawaban = (pending.get("response") or cfg.intent_response(ci) or fb)
+            jawaban = _shorten_intent(jawaban, settings)
             intent = ci
             confidence = float(pending.get("score") or 0.0)
             sumber = "nlu"
@@ -247,6 +261,7 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
 
             if tier == "act" and intent:
                 jawaban = (cls.get("response") or cfg.intent_response(intent) or fb)
+                jawaban = _shorten_intent(jawaban, settings)
                 sumber = "nlu"
                 sess["fallback_streak"] = 0
                 # digression: tawaran resume intent sebelumnya bila berpindah
