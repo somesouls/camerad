@@ -7,7 +7,9 @@ yang tersedia (keduanya offline):
   2. Fuzzy (rapidfuzz)                 -- fallback ringan bila embedder tak ada.
 
 classify(text) -> {intent, score(0..1), response, engine}. Fail-soft: skor 0.
-Model + indeks di-cache proses; indeks dibangun ulang bila daftar phrase berubah.
+top_matches(text, k) -> daftar intent teratas (dipakai RAG voicebot; sumber
+tunggal = intent + training phrase). Model + indeks di-cache proses; indeks
+dibangun ulang bila daftar phrase berubah.
 """
 import os
 
@@ -114,6 +116,69 @@ def classify(text, conn=None):
         result.update({"intent": name, "score": float(score), "response": resp,
                        "engine": "fuzzy"})
     return result
+
+
+def top_matches(text, k=5, conn=None, per_intent_phrases=3):
+    """Ambil k intent paling relevan untuk sebuah ucapan.
+
+    Dipakai oleh "RAG voicebot" (voicebot/rag.py) yang HANYA memakai intent +
+    training phrase sebagai sumber. Kembalikan list terurut skor menurun:
+        [{"intent", "score"(0..1), "response", "phrases": [contoh, ...]}]
+    Skor per-intent = kemiripan tertinggi di antara training phrase-nya.
+    Fail-soft: kembalikan [] bila tak ada apa pun.
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    phrases = cfg.all_phrases(conn=conn)
+    if not phrases:
+        return []
+    scored = []  # (name, phrase, response, sim)
+    vecs = _ensure_index(phrases)
+    if vecs is not None:
+        try:
+            import numpy as np
+            q = _EMB.encode([text], normalize_embeddings=True, convert_to_numpy=True)[0]
+            sims = vecs @ q
+            for i, tup in enumerate(phrases):
+                name, ph, resp = tup
+                scored.append((name, ph, resp, float(sims[i])))
+        except Exception as e:  # noqa: BLE001
+            print("[voicebot.nlu] top_matches similarity gagal: %s" % e, flush=True)
+            scored = []
+    if not scored:
+        try:
+            from rapidfuzz import fuzz
+            for name, ph, resp in phrases:
+                scored.append((name, ph, resp,
+                               float(fuzz.token_set_ratio(text, ph or "")) / 100.0))
+        except Exception:
+            ql = set(text.lower().split())
+            for name, ph, resp in phrases:
+                pl = set((ph or "").lower().split())
+                j = len(ql & pl) / float(len(ql | pl) or 1) if pl else 0.0
+                scored.append((name, ph, resp, j))
+    agg = {}
+    for name, ph, resp, sc in scored:
+        d = agg.get(name)
+        if d is None:
+            d = {"intent": name, "score": sc, "response": resp, "_phrases": []}
+            agg[name] = d
+        if sc > d["score"]:
+            d["score"] = sc
+        if not d.get("response") and resp:
+            d["response"] = resp
+        if ph:
+            d["_phrases"].append((sc, ph))
+    out = []
+    for d in agg.values():
+        phs = [p for _, p in sorted(d["_phrases"], key=lambda x: x[0], reverse=True)[:per_intent_phrases]]
+        out.append({"intent": d["intent"],
+                    "score": max(0.0, min(1.0, float(d["score"]))),
+                    "response": d.get("response") or "",
+                    "phrases": phs})
+    out.sort(key=lambda x: x["score"], reverse=True)
+    return out[:k]
 
 
 def reset_cache():

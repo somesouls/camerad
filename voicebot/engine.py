@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
 """voicebot/engine.py -- orkestrasi voice loop (Mode A, turn-based).
 
-    audio/teks -> STT -> NLU hybrid -> (respons intent | LLM fallback)
+    audio/teks -> STT -> NLU hybrid -> (respons intent | RAG voicebot)
                -> keputusan hand-off -> TTS -> log turn.
 
 Sesi disimpan in-memory (cukup untuk tahap konsep, 1 proses). Semua komponen
 berat di-impor LAZY + fail-soft. Reuse: voicebot.stt (faster-whisper),
-common.llm_client (LLM lokal), handoff.routing_db (perutean layanan).
+voicebot.rag (RAG bersumber tunggal intent+training phrase), common.llm_client
+(cadangan), handoff.routing_db (perutean layanan).
 """
 import time
 import uuid
@@ -17,6 +18,7 @@ from voicebot import config_db as cfg
 from voicebot import nlu as vb_nlu
 from voicebot import stt as vb_stt
 from voicebot import tts as vb_tts
+from voicebot import rag as vb_rag
 
 _SESSIONS = {}
 
@@ -44,7 +46,8 @@ def _get_session(sid):
 
 
 def _llm_fallback(text, sess, settings):
-    """Jawaban terbuka via LLM lokal (common.llm_client). Fail-soft."""
+    """Cadangan: jawaban terbuka via LLM lokal mentah (dipakai bila rag_enabled=0
+    atau RAG voicebot mengembalikan kosong). Fail-soft."""
     try:
         import common.llm_client as llm
         try:
@@ -123,17 +126,34 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
     engine = cls.get("engine")
 
     if intent and confidence >= threshold:
+        # Confidence tinggi -> jawaban resmi intent (cepat, deterministik).
         jawaban = (cls.get("response") or cfg.intent_response(intent)
                    or settings.get("fallback_reply") or "")
         sumber = "nlu"
         sess["fallback_streak"] = 0
-    else:
-        sumber = "llm"
+    elif not transkrip:
+        jawaban = settings.get("fallback_reply") or "Maaf, suara tidak terdengar."
+        sumber = "nlu"
         intent = None
-        if transkrip:
-            jawaban = _llm_fallback(transkrip, sess, settings)
+        sess["fallback_streak"] = sess.get("fallback_streak", 0) + 1
+    else:
+        # Di bawah ambang / no-match -> RAG voicebot (sumber tunggal:
+        # intent + training phrase). LLM mentah hanya cadangan.
+        intent = None
+        if str(settings.get("rag_enabled", "1")) != "0":
+            try:
+                r = vb_rag.answer(transkrip, sess.get("history"), settings)
+                jawaban = (r or {}).get("jawaban") or ""
+            except Exception as e:  # noqa: BLE001
+                print("[voicebot.engine] RAG gagal: %s" % e, flush=True)
+                jawaban = ""
+            sumber = "rag"
+            if not jawaban:
+                jawaban = _llm_fallback(transkrip, sess, settings)
+                sumber = "llm"
         else:
-            jawaban = settings.get("fallback_reply") or "Maaf, suara tidak terdengar."
+            jawaban = _llm_fallback(transkrip, sess, settings)
+            sumber = "llm"
         sess["fallback_streak"] = sess.get("fallback_streak", 0) + 1
 
     do_handoff, reason = _check_handoff(transkrip, sess, settings)
