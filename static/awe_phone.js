@@ -49,16 +49,48 @@ el('tPullBtn').addEventListener('click',function(){
   }).catch(function(e){setStat('tStat','Gagal: '+e,'err');el('tPullBtn').disabled=false;});
 });
 
-// ---- Tahap 2: Analisis (lambat, latar belakang) ----
+// ---- Tahap 2: Analisis (lambat, latar belakang). 0/kosong => -1 = SEMUA (loop) ----
 el('aRunBtn').addEventListener('click',function(){
-  var day=el('a_day').value,lim=parseInt(el('a_limit').value,10)||25,md=parseInt(el('a_mindur').value,10);
-  if(isNaN(md))md=3;
-  el('aRunBtn').disabled=true;setStat('aStat','Menjalankan STT + analisis LLM... (bisa lama, ~1 mnt/panggilan)');
+  var day=el('a_day').value;
+  var lr=el('a_limit').value,lim=(lr===''||parseInt(lr,10)===0)?-1:parseInt(lr,10);
+  if(isNaN(lim))lim=25;
+  var md=parseInt(el('a_mindur').value,10);if(isNaN(md))md=3;
+  el('aRunBtn').disabled=true;
+  setStat('aStat','Menjalankan STT + analisis LLM'+(lim<0?' untuk SEMUA yang tertunda (bertahap, bisa berjam-jam)':'')+'... (~1 mnt/panggilan)');
   api({action:'analyze_start',day:day,limit_rows:lim,min_durasi:md}).then(function(d){
     if(!d.ok){setStat('aStat','Gagal: '+esc(d.error||''),'err');el('aRunBtn').disabled=false;return;}
     pollJob(d.job,'aStat',el('aRunBtn'),function(r){setStat('aStat',esc(r.message||'Selesai.'),'ok');});
   }).catch(function(e){setStat('aStat','Gagal: '+e,'err');el('aRunBtn').disabled=false;});
 });
+
+// ---- Otomatis: tarik + transkrip SEMUA (H-1) di server (bertahan walau ditutup) ----
+function apRender(d){
+  if(!d||!d.ok){if(el('apPill'))el('apPill').textContent='status?';return;}
+  var run=!!d.running,last=d.last||{};
+  if(el('apPill'))el('apPill').textContent=run?'sedang berjalan':(d.enabled?'jadwal aktif':'jadwal nonaktif');
+  var parts=[];
+  parts.push('Penjadwal harian: <b>'+(d.enabled?('aktif '+esc(d.hour)+':'+('0'+esc(d.minute)).slice(-2)):'nonaktif')+'</b>');
+  parts.push('kredensial: <b>'+(d.configured?'siap':'belum diisi')+'</b>');
+  parts.push('mode: <b>tarik semua'+(d.analyze?' + transkrip semua':'')+'</b>');
+  if(last&&(last.finished_at||last.started_at)){
+    parts.push('terakhir ('+esc(last.trigger||'')+'): <b>'+esc(last.finished_at||last.started_at)+'</b> &mdash; '+esc(last.message||last.error||''));
+  }
+  if(el('apInfo'))el('apInfo').innerHTML=parts.join(' &middot; ');
+  if(run){setTimeout(apFetchStatus,5000);loadCov();}
+}
+function apFetchStatus(){
+  fetch('/api/awe/phone/autopull/status').then(function(r){return r.json();}).then(apRender).catch(function(){});
+}
+if(el('apStatusBtn'))el('apStatusBtn').addEventListener('click',apFetchStatus);
+if(el('apRunBtn'))el('apRunBtn').addEventListener('click',function(){
+  el('apRunBtn').disabled=true;setStat('apStat','Memulai tarik + transkrip SEMUA (H-1) di server...');
+  fetch('/api/awe/phone/autopull/now',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'}).then(function(r){return r.json();}).then(function(d){
+    el('apRunBtn').disabled=false;
+    if(!d.ok){setStat('apStat','Gagal: '+esc(d.error||'')+(d.need_login?' (set AVAYA_USERNAME/AVAYA_PASSWORD di .env)':''),'err');return;}
+    setStat('apStat',esc(d.message||'Dimulai di latar belakang.'),'ok');apFetchStatus();
+  }).catch(function(e){el('apRunBtn').disabled=false;setStat('apStat','Gagal: '+e,'err');});
+});
+if(el('apInfo'))apFetchStatus();
 
 loadCov();
 })();
