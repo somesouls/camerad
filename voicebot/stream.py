@@ -14,26 +14,40 @@ Klien -> server:
 Server -> klien:
   * teks (JSON):
       {"type":"ready","session_id":..,"greeting":..,"sample_rate":16000,"bargein":true}
-      {"type":"speech_start"}                -> VAD mendeteksi user bicara
+      {"type":"speech_start"}                -> VAD mendeteksi user bicara (atau barge-in dikonfirmasi)
       {"type":"thinking"}                    -> ucapan selesai, sedang diproses
       {"type":"transcript","text":..}
       {"type":"answer","intent":..,"confidence":..,"sumber":..,"action":..,
                        "jawaban_teks":..,"handoff":..,"elapsed_ms":..,
                        "timings":{stt_ms,think_ms,tts_ms,total_ms},"server_ms":..}
-      {"type":"audio_begin","mime":"audio/wav"}
+      {"type":"audio_begin","mime":"audio/wav","greeting":true?}
       {"type":"audio_end"}
       {"type":"interrupted"}                 -> audio bot dipotong (barge-in)
       {"type":"error","error":..}
   * biner  : potongan byte WAV jawaban (antara audio_begin & audio_end).
 
+Saat sesi dibuka, bila dialog manager aktif, server mengirim 'ready' berisi teks
+salam pembuka LALU langsung mengalirkan AUDIO salam itu (disintesis TTS voicebot)
+sebagai audio_begin -> byte WAV -> audio_end dengan flag greeting=true. Jadi klien
+(APK/browser) memutar salam dengan SUARA VOICEBOT, bukan TTS bawaan perangkat.
+
 STT+NLU+RAG+TTS memakai vb_engine.talk() yang sama dengan Mode A, jadi seluruh
 konfigurasi (ambang, dialog manager, pelafalan, mesin TTS Piper/MMS, penyingkat
 jawaban) berlaku identik. Semua proses tetap lokal.
 
+Barge-in tanpa headset (loudspeaker): kombinasi (a) AEC/NS/AGC di sisi klien
+(browser getUserMedia echoCancellation, atau AcousticEchoCanceler + AudioSource
+VOICE_COMMUNICATION di Android) untuk membuang gema suara bot dari mic, dan
+(b) 'barge-in tahan-gema' di server -- saat bot sedang bicara, interupsi HANYA
+dikonfirmasi bila terdeteksi bicara BERKELANJUTAN >= VOICEBOT_STREAM_BARGEIN_MIN_MS
+dan (untuk fallback RMS) energi >= VOICEBOT_STREAM_SPEAKING_RMS. Blip/gema sesaat
+diabaikan sehingga suara bot tidak memotong dirinya sendiri.
+
 Endpointing pakai webrtcvad bila terpasang, kalau tidak jatuh ke VAD energi (RMS).
 Tuning via env: VOICEBOT_STREAM_SILENCE_MS (700), VOICEBOT_STREAM_MIN_SPEECH_MS
 (250), VOICEBOT_STREAM_PREROLL_MS (300), VOICEBOT_STREAM_RMS (500),
-VOICEBOT_STREAM_VAD_AGGR (2), VOICEBOT_STREAM_BARGEIN (1).
+VOICEBOT_STREAM_VAD_AGGR (2), VOICEBOT_STREAM_BARGEIN (1),
+VOICEBOT_STREAM_BARGEIN_MIN_MS (500), VOICEBOT_STREAM_SPEAKING_RMS (900).
 """
 from __future__ import annotations
 
@@ -49,6 +63,7 @@ import asyncio
 from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 
 from voicebot import engine as vb_engine
+from voicebot import tts as vb_tts
 
 
 SAMPLE_RATE = 16000
@@ -101,14 +116,22 @@ def _rms(frame: bytes) -> float:
     return (total / len(a)) ** 0.5
 
 
-def _is_speech(frame: bytes) -> bool:
+def _is_speech(frame: bytes, rms_min=None) -> bool:
+    """True bila frame dianggap bicara.
+
+    webrtcvad dipakai bila tersedia (robustnya dari agresivitas VAD + durasi
+    berkelanjutan di pemanggil). Bila tidak, fallback ke energi RMS; ambang bisa
+    dinaikkan lewat rms_min saat bot sedang bicara agar gema loudspeaker tak
+    memicu bicara palsu.
+    """
     vad = _get_webrtc_vad()
     if vad is not None and len(frame) == FRAME_BYTES:
         try:
             return bool(vad.is_speech(frame, SAMPLE_RATE))
         except Exception:
             pass
-    return _rms(frame) >= _env_int("VOICEBOT_STREAM_RMS", 500)
+    thr = rms_min if rms_min is not None else _env_int("VOICEBOT_STREAM_RMS", 500)
+    return _rms(frame) >= thr
 
 
 def _pcm16_to_wav(pcm: bytes) -> bytes:
@@ -145,10 +168,19 @@ class Endpointer:
     def triggered(self):
         return self._triggered
 
-    def add(self, data: bytes):
+    @property
+    def active_speech_ms(self):
+        """Durasi bicara berkelanjutan saat ini (ms), dikurangi hening di ujung."""
+        if not self._triggered:
+            return 0
+        v = self._speech_ms - self._silence_run
+        return v if v > 0 else 0
+
+    def add(self, data: bytes, rms_min=None):
         """Proses byte masuk; kembalikan list event.
 
         Event: ("speech_start",) atau ("utterance", wav_bytes).
+        rms_min menaikkan ambang energi (fallback non-webrtcvad) saat bot bicara.
         """
         events = []
         self._buf.extend(data)
@@ -156,7 +188,7 @@ class Endpointer:
         while len(self._buf) >= FRAME_BYTES:
             frame = bytes(self._buf[:FRAME_BYTES])
             del self._buf[:FRAME_BYTES]
-            speech = _is_speech(frame)
+            speech = _is_speech(frame, rms_min)
             if not self._triggered:
                 self._preroll.extend(frame)
                 if len(self._preroll) > preroll_max:
@@ -221,6 +253,10 @@ async def handle(websocket: WebSocket):
     ep = Endpointer()
     queue: asyncio.Queue = asyncio.Queue()
 
+    # tuning barge-in tahan-gema (loudspeaker)
+    speaking_rms = _env_int("VOICEBOT_STREAM_SPEAKING_RMS", 900)
+    bargein_min_ms = _env_int("VOICEBOT_STREAM_BARGEIN_MIN_MS", 500)
+
     async def _safe_send_text(payload):
         try:
             await websocket.send_text(json.dumps(payload))
@@ -237,13 +273,21 @@ async def handle(websocket: WebSocket):
                     break
                 data = msg.get("bytes")
                 if data:
-                    for ev in ep.add(data):
+                    # saat bot bicara, naikkan ambang energi agar gema tak dianggap bicara
+                    rms_min = speaking_rms if state["speaking"] else None
+                    for ev in ep.add(data, rms_min):
                         if ev[0] == "speech_start":
-                            if state["speaking"] and _bargein_enabled():
-                                state["interrupt"] = True
-                            await _safe_send_text({"type": "speech_start"})
+                            if not state["speaking"]:
+                                await _safe_send_text({"type": "speech_start"})
+                            # saat bot bicara: tahan; barge-in dikonfirmasi di bawah
                         elif ev[0] == "utterance":
                             await queue.put(ev[1])
+                    # konfirmasi barge-in: hanya bila bicara BERKELANJUTAN cukup lama
+                    if (state["speaking"] and _bargein_enabled()
+                            and not state["interrupt"] and ep.triggered
+                            and ep.active_speech_ms >= bargein_min_ms):
+                        state["interrupt"] = True
+                        await _safe_send_text({"type": "speech_start"})
                     continue
                 txt = msg.get("text")
                 if txt:
@@ -271,12 +315,15 @@ async def handle(websocket: WebSocket):
             state["closed"] = True
             await queue.put(None)
 
-    async def send_audio(b64):
+    async def send_audio(b64, greeting_flag=False):
         try:
             raw = base64.b64decode(b64)
         except Exception:
             return
-        if not await _safe_send_text({"type": "audio_begin", "mime": "audio/wav"}):
+        begin = {"type": "audio_begin", "mime": "audio/wav"}
+        if greeting_flag:
+            begin["greeting"] = True
+        if not await _safe_send_text(begin):
             return
         state["speaking"] = True
         state["interrupt"] = False
@@ -299,6 +346,21 @@ async def handle(websocket: WebSocket):
             await _safe_send_text({"type": "interrupted"})
         elif not state["closed"]:
             await _safe_send_text({"type": "audio_end"})
+
+    async def greet():
+        """Sintesis + kirim AUDIO salam pembuka (suara voicebot) saat sesi dibuka."""
+        if not greeting:
+            return
+        await asyncio.sleep(0.15)  # beri kesempatan 'hello' (want_audio) tiba
+        if state["closed"] or not state["want_audio"]:
+            return
+        try:
+            wav, _terr = await loop.run_in_executor(None, vb_tts.synth, greeting)
+        except Exception:
+            wav = None
+        if wav and not state["closed"]:
+            b64 = base64.b64encode(wav).decode("ascii")
+            await send_audio(b64, greeting_flag=True)
 
     async def processor():
         while not state["closed"]:
@@ -344,11 +406,12 @@ async def handle(websocket: WebSocket):
 
     recv_task = asyncio.ensure_future(receiver())
     proc_task = asyncio.ensure_future(processor())
+    greet_task = asyncio.ensure_future(greet())
     try:
         await asyncio.gather(recv_task, proc_task)
     finally:
         state["closed"] = True
-        for tsk in (recv_task, proc_task):
+        for tsk in (recv_task, proc_task, greet_task):
             if not tsk.done():
                 tsk.cancel()
         try:

@@ -34,12 +34,12 @@
       <span class="vbl-pill" id="pillStream">Streaming: mati</span>
     </div>
     <p style="color:var(--text-muted);font-size:12.5px;margin:8px 0 12px;">
-      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. Secara default memakai mode <b>half-duplex</b>: mic dibisukan sementara saat bot memproses/berbicara supaya suara bot tidak terpotong sendiri (aman tanpa headset). Tekan <b>✋ Potong</b> kapan saja untuk menyela. Centang <b>Barge-in via mic</b> hanya bila memakai <b>headset/earphone</b>.
+      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. <b>Barge-in via mic</b> aktif secara default dan dirancang tahan-gema untuk <b>loudspeaker</b>: browser memakai <b>AEC/noise-suppression</b> untuk membuang gema suara bot, dan server hanya memotong bila terdeteksi bicara <b>berkelanjutan</b> (bukan blip/gema sesaat). Bila lingkungan sangat berisik, hilangkan centang untuk mode <b>half-duplex</b> (mic dibisukan saat bot bicara). Tombol <b>✋ Potong</b> selalu bisa dipakai.
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <button id="btnStream" class="vbl-btnp">🔴 Mulai percakapan langsung</button>
       <button id="btnBarge" class="vbl-btns">✋ Potong (barge-in)</button>
-      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-muted);cursor:pointer;"><input type="checkbox" id="chkAutoBarge"> Barge-in via mic (butuh headset)</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-muted);cursor:pointer;"><input type="checkbox" id="chkAutoBarge" checked> Barge-in via mic (loudspeaker OK)</label>
       <span id="streamMsg" style="font-size:13px;color:var(--text-muted);">—</span>
     </div>
     <div id="slog" style="margin-top:12px;"></div>
@@ -258,7 +258,7 @@
           var pcm=downsample(e.inputBuffer.getChannelData(0),actx.sampleRate,16000);
           try{ws.send(pcm.buffer);}catch(err){}
         };
-        streaming=true; setBusy(false); $('btnStream').textContent='⏹️ Stop percakapan'; $('pillStream').textContent='Streaming: aktif'; sStat('Tersambung — silakan bicara…');
+        streaming=true; setBusy(false); $('btnStream').textContent='⏹️ Stop percakapan'; $('pillStream').textContent='Streaming: aktif'; sStat('Tersambung — menyapa…');
       };
       ws.onmessage=function(ev){
         if(typeof ev.data!=='string'){ audioParts.push(ev.data); return; }
@@ -273,12 +273,11 @@
           sStat('💬 '+src+' · '+(m.intent||'(fallback)')+' · '+(m.elapsed_ms||0)+' ms (STT '+(tm.stt_ms==null?'?':tm.stt_ms)+' / think '+(tm.think_ms==null?'?':tm.think_ms)+' / TTS '+(tm.tts_ms==null?'?':tm.tts_ms)+')'+(m.action==='handoff'?' · HANDOFF':''));
           curRow={ n:evalRows.length+1, mode:'B', transkrip:(pend&&pend.transkrip)||m.transkrip||'', intent:m.intent||'(fallback)', sumber:src, stt:tm.stt_ms, think:tm.think_ms, tts:tm.tts_ms, server:m.elapsed_ms, ttfa:null, suara:(m.tts_error?'gagal TTS':'menunggu…') };
           evalPush(curRow);
-          // bila tidak ada audio yang akan datang, buka lagi mic; jika ada, biarkan busy sampai audio_end
           clearBusyTimer();
           if(m.tts_error){ setBusy(false); }
           else { busyTimer=setTimeout(function(){ setBusy(false); },2500); }
         }
-        else if(m.type==='audio_begin'){ clearBusyTimer(); setBusy(true); audioParts=[]; if(curRow){ curRow.ttfa=Math.round(performance.now()-tThink); curRow.suara='▶️ memutar'; renderEval(); } }
+        else if(m.type==='audio_begin'){ clearBusyTimer(); setBusy(true); audioParts=[]; if(m.greeting){ sStat('🔊 Salam pembuka…'); } if(curRow){ curRow.ttfa=Math.round(performance.now()-tThink); curRow.suara='▶️ memutar'; renderEval(); } }
         else if(m.type==='audio_end'){ playParts(); clearBusyTimer(); setBusy(false); if(curRow){ curRow.suara='✅ diputar'; renderEval(); curRow=null; } }
         else if(m.type==='interrupted'){ sStat('✋ Dipotong (barge-in)'); audioParts=[]; stopAudio(); clearBusyTimer(); setBusy(false); if(curRow){ curRow.suara='✋ dipotong'; renderEval(); curRow=null; } }
         else if(m.type==='error'){ sStat('⚠️ '+(m.error||'error')); clearBusyTimer(); setBusy(false); }
