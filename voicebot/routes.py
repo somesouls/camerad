@@ -12,6 +12,10 @@ API engine (Mode A):
   GET  /api/voicebot/health   -> status STT/TTS
   GET  /api/voicebot/filler   -> klip filler (teks + audio) utk tutup latency
 
+API engine (Mode B):
+  WS   /api/voicebot/stream   -> percakapan suara real-time + barge-in
+                                 (lihat voicebot/stream.py utk protokol)
+
 API kelola:
   GET  /api/voicebot/config              -> ambil konfigurasi
   POST /api/voicebot/config/save         -> simpan konfigurasi
@@ -43,6 +47,7 @@ from voicebot import stt as vb_stt
 from voicebot import tts as vb_tts
 from voicebot import pron as vb_pron
 from voicebot import df_import as vb_dfimport
+from voicebot import stream as vb_stream
 
 
 async def _json_body(request):
@@ -313,3 +318,4 @@ def register(app):
     app.add_api_route("/api/voicebot/lexicon/delete", api_lexicon_delete, methods=["POST"])
     app.add_api_route("/api/voicebot/pron/preview", api_pron_preview, methods=["POST"])
     app.add_api_route("/api/voicebot/logs", api_logs, methods=["POST"])
+    app.add_api_websocket_route("/api/voicebot/stream", vb_stream.handle)
