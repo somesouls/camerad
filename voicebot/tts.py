@@ -10,6 +10,9 @@ Menyintesis WAV dari teks memakai Piper (binary lokal). Konfigurasi via env:
                           File <voice>.onnx.json harus ada di folder yang sama.
   VOICEBOT_PIPER_ESPEAK_DATA -- (opsional) path folder espeak-ng-data.
 
+Sebelum sintesis, teks dilewatkan lapisan pelafalan (voicebot.pron): kamus
+singkatan + eja angka panjang. Bisa dimatikan via setting pron_enabled.
+
 Fail-soft: bila Piper belum dikonfigurasi/terpasang, synth() -> (None, alasan)
 sehingga engine tetap menjawab dalam bentuk teks (Lab tetap jalan).
 """
@@ -54,11 +57,26 @@ def diagnostics():
     }
 
 
+def _pronounce(text):
+    """Terapkan lapisan pelafalan (kamus + angka) bila diaktifkan. Fail-soft."""
+    try:
+        from voicebot import config_db as _cfg
+        if str(_cfg.get_setting("pron_enabled", "1")) == "0":
+            return text
+        from voicebot import pron as _pron
+        return _pron.normalize(text)
+    except Exception:  # noqa: BLE001
+        return text
+
+
 def synth(text):
     """Kembalikan (wav_bytes, error). wav_bytes None bila gagal/tak tersedia."""
     text = (text or "").strip()
     if not text:
         return None, "teks kosong"
+
+    # lapisan pelafalan sebelum TTS (tidak mengubah teks yang ditampilkan ke klien)
+    text = _pronounce(text)
 
     voice = _voice()
     if not voice:

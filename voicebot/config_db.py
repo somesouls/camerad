@@ -1,10 +1,11 @@
 # -*- coding: utf-8 -*-
-"""voicebot/config_db.py -- penyimpanan konfigurasi, intent, & log turn voicebot.
+"""voicebot/config_db.py -- penyimpanan konfigurasi, intent, kamus, & log turn.
 
-SQLite tunggal (env VOICEBOT_DB_FILE, default 'voicebot.db'). Tiga tabel:
+SQLite tunggal (env VOICEBOT_DB_FILE, default 'voicebot.db'). Tabel:
   vb_settings(key, value)                 -- konfigurasi mesin (ambang, prompt, dst.)
   vb_intents(id, name, phrases, response) -- intent + training phrase (NLU lokal)
-  vb_turns(...)                           -- log tiap giliran (feed analisis MKTA/Fallback)
+  vb_lexicon(id, pattern, replacement...) -- kamus pelafalan (dipakai TTS)
+  vb_turns(...)                           -- log tiap giliran
 
 Gagal-anggun: fungsi baca mengembalikan default bila DB bermasalah.
 """
@@ -33,6 +34,10 @@ DEFAULT_SETTINGS = {
     "fallback_reply": (
         "Maaf, saya belum menangkap maksudnya. Boleh diulang dengan kalimat lain?"
     ),
+    "rag_enabled": "1",
+    "rag_top_k": "5",
+    "pron_enabled": "1",
+    "pron_spell_digits_min": "7",
 }
 
 _INIT_DONE = set()
@@ -73,6 +78,17 @@ def init_db(conn, force=False):
             updated_at TEXT DEFAULT (datetime('now'))
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_vb_intent_name ON vb_intents(name);
+        CREATE TABLE IF NOT EXISTS vb_lexicon (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern     TEXT NOT NULL,
+            replacement TEXT,
+            mode        TEXT DEFAULT 'eja',
+            enabled     INTEGER DEFAULT 1,
+            notes       TEXT,
+            created_at  TEXT DEFAULT (datetime('now')),
+            updated_at  TEXT DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_vb_lexicon_pat ON vb_lexicon(pattern);
         CREATE TABLE IF NOT EXISTS vb_turns (
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             session_id TEXT,
@@ -102,6 +118,10 @@ def init_db(conn, force=False):
         _INIT_DONE.add(key)
     try:
         seed_intents(conn)
+    except Exception:
+        pass
+    try:
+        seed_lexicon(conn)
     except Exception:
         pass
     return conn
@@ -266,6 +286,88 @@ def intent_response(name, conn=None):
             conn.close()
 
 
+# ------------------------------------------------------------------ lexicon
+def list_lexicon(q="", conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        q = (q or "").strip()
+        if q:
+            rows = conn.execute(
+                "SELECT * FROM vb_lexicon WHERE pattern LIKE ? OR COALESCE(replacement,'') LIKE ? "
+                "ORDER BY pattern",
+                ("%" + q + "%", "%" + q + "%"),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM vb_lexicon ORDER BY pattern").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        if own:
+            conn.close()
+
+
+def upsert_lexicon(data, conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        pattern = str(data.get("pattern") or "").strip()
+        if not pattern:
+            raise ValueError("field 'pattern' wajib diisi")
+        replacement = str(data.get("replacement") or "").strip()
+        mode = (str(data.get("mode") or "eja").strip() or "eja")
+        enabled = 0 if str(data.get("enabled")) in ("0", "false", "False", "no") else 1
+        notes = str(data.get("notes") or "").strip()
+        idv = data.get("id")
+        if idv:
+            conn.execute(
+                "UPDATE vb_lexicon SET pattern=?, replacement=?, mode=?, enabled=?, "
+                "notes=?, updated_at=datetime('now') WHERE id=?",
+                (pattern, replacement, mode, enabled, notes, int(idv)),
+            )
+            new_id = int(idv)
+        else:
+            cur = conn.execute(
+                "INSERT INTO vb_lexicon(pattern, replacement, mode, enabled, notes) "
+                "VALUES (?,?,?,?,?) ON CONFLICT(pattern) DO UPDATE SET "
+                "replacement=excluded.replacement, mode=excluded.mode, "
+                "enabled=excluded.enabled, notes=excluded.notes, updated_at=datetime('now')",
+                (pattern, replacement, mode, enabled, notes),
+            )
+            new_id = int(cur.lastrowid or 0)
+        conn.commit()
+        return {"id": new_id}
+    finally:
+        if own:
+            conn.close()
+
+
+def delete_lexicon(id_, conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        conn.execute("DELETE FROM vb_lexicon WHERE id=?", (int(id_),))
+        conn.commit()
+        return {"dihapus": 1}
+    finally:
+        if own:
+            conn.close()
+
+
+def lexicon_map(conn=None):
+    """[{pattern, replacement, mode}] utk entri aktif -> dipakai voicebot.pron."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        rows = conn.execute(
+            "SELECT pattern, replacement, mode FROM vb_lexicon WHERE COALESCE(enabled,1)=1"
+        ).fetchall()
+        return [{"pattern": r["pattern"], "replacement": r["replacement"] or "",
+                 "mode": r["mode"]} for r in rows]
+    finally:
+        if own:
+            conn.close()
+
+
 # ------------------------------------------------------------------ turns/log
 def log_turn(rec, conn=None):
     own = conn is None
@@ -322,6 +424,21 @@ _SEED_INTENTS = [
     },
 ]
 
+_SEED_LEXICON = [
+    ("NPWP", "en pe we pe", "eja"),
+    ("NIK", "en i ka", "eja"),
+    ("EFIN", "efin", "baca"),
+    ("SPT", "es pe te", "eja"),
+    ("PPh", "pe pe ha", "eja"),
+    ("PPN", "pe pe en", "eja"),
+    ("DJP", "de je pe", "eja"),
+    ("KPP", "ka pe pe", "eja"),
+    ("KTP", "ka te pe", "eja"),
+    ("e-Filing", "i failing", "baca"),
+    ("e-Billing", "i biling", "baca"),
+    ("e-Faktur", "i faktur", "baca"),
+]
+
 
 def seed_intents(conn):
     try:
@@ -335,3 +452,22 @@ def seed_intents(conn):
             upsert_intent(it, conn=conn)
         except Exception:
             pass
+
+
+def seed_lexicon(conn):
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM vb_lexicon").fetchone()[0] or 0
+    except Exception:
+        return
+    if n:
+        return
+    for pat, rep, mode in _SEED_LEXICON:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO vb_lexicon(pattern, replacement, mode, enabled) "
+                "VALUES (?,?,?,1)",
+                (pat, rep, mode),
+            )
+        except Exception:
+            pass
+    conn.commit()
