@@ -419,6 +419,17 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <b>RAG Harness</b>
         </a>
         {% endif %}
+        {% if can_peraturan %}
+        <div class="sec-label" style="margin-top:14px;">Voicebot</div>
+        <a class="tool-side{% if active_page == 'voicebot' %} active{% endif %}" href="/voicebot">
+          <div class="ic c-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg></div>
+          <b>Konfigurasi Voicebot</b>
+        </a>
+        <a class="tool-side{% if active_page == 'voicebot_lab' %} active{% endif %}" href="/voicebot/lab">
+          <div class="ic c-green"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6"/><path d="M10 3v6l-4.5 8A2 2 0 0 0 7.3 20h9.4a2 2 0 0 0 1.8-3L14 9V3"/><line x1="7" y1="14" x2="17" y2="14"/></svg></div>
+          <b>Lab Uji Voicebot</b>
+        </a>
+        {% endif %}
         <div class="sec-label" style="margin-top:14px;">Umum</div>
         <a class="tool-side{% if active_page == 'studio' %} active{% endif %}" href="/studio">
           <div class="ic c-purple"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 13h6M9 17h6"/></svg></div>
