@@ -2,7 +2,7 @@
 """voicebot/routes.py -- halaman & API Voicebot (config, lab, engine).
 
 Halaman:
-  GET /voicebot        -> konfigurasi mesin + kelola intent + log terbaru
+  GET /voicebot        -> konfigurasi mesin + kelola intent + kamus + log terbaru
   GET /voicebot/lab    -> lab uji suara/teks end-to-end
 
 API engine (Mode A):
@@ -19,6 +19,10 @@ API kelola:
   POST /api/voicebot/intents/delete      -> hapus intent
   POST /api/voicebot/intents/df-preview  -> pratinjau intent tersibuk Dialogflow
   POST /api/voicebot/intents/df-import   -> impor intent tersibuk -> vb_intents
+  POST /api/voicebot/lexicon/list        -> daftar kamus pelafalan (+cari)
+  POST /api/voicebot/lexicon/save        -> tambah/ubah istilah pelafalan
+  POST /api/voicebot/lexicon/delete      -> hapus istilah pelafalan
+  POST /api/voicebot/pron/preview        -> pratinjau hasil normalisasi teks
   POST /api/voicebot/logs                -> log turn terbaru
 
 Akses admin diatur di app_core._route_area (area 'peraturan'). Endpoint
@@ -36,6 +40,7 @@ from voicebot import config_db as cfg
 from voicebot import engine as vb_engine
 from voicebot import stt as vb_stt
 from voicebot import tts as vb_tts
+from voicebot import pron as vb_pron
 from voicebot import df_import as vb_dfimport
 
 
@@ -216,6 +221,47 @@ async def api_intents_df_import(request: Request):
         return JSONResponse({"ok": False, "error": str(e)})
 
 
+# ---------------------------------------------------------------- lexicon API
+async def api_lexicon_list(request: Request):
+    b = await _json_body(request)
+    try:
+        rows = await run_in_threadpool(cfg.list_lexicon, (b.get("q") or "").strip())
+        return JSONResponse({"ok": True, "rows": rows, "total": len(rows)})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_lexicon_save(request: Request):
+    b = await _json_body(request)
+    if not str(b.get("pattern") or "").strip():
+        return JSONResponse({"ok": False, "error": "Field 'pattern' wajib diisi."})
+    try:
+        res = await run_in_threadpool(cfg.upsert_lexicon, b)
+        return JSONResponse({"ok": True, **res})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_lexicon_delete(request: Request):
+    b = await _json_body(request)
+    if not b.get("id"):
+        return JSONResponse({"ok": False, "error": "Field 'id' wajib diisi."})
+    try:
+        res = await run_in_threadpool(cfg.delete_lexicon, b.get("id"))
+        return JSONResponse({"ok": True, **res})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_pron_preview(request: Request):
+    b = await _json_body(request)
+    try:
+        txt = await run_in_threadpool(vb_pron.normalize, (b.get("text") or ""))
+        return JSONResponse({"ok": True, "normalized": txt})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 def vb_nlu_reset():
     from voicebot import nlu as _n
     _n.reset_cache()
@@ -244,4 +290,8 @@ def register(app):
     app.add_api_route("/api/voicebot/intents/delete", api_intents_delete, methods=["POST"])
     app.add_api_route("/api/voicebot/intents/df-preview", api_intents_df_preview, methods=["POST"])
     app.add_api_route("/api/voicebot/intents/df-import", api_intents_df_import, methods=["POST"])
+    app.add_api_route("/api/voicebot/lexicon/list", api_lexicon_list, methods=["POST"])
+    app.add_api_route("/api/voicebot/lexicon/save", api_lexicon_save, methods=["POST"])
+    app.add_api_route("/api/voicebot/lexicon/delete", api_lexicon_delete, methods=["POST"])
+    app.add_api_route("/api/voicebot/pron/preview", api_pron_preview, methods=["POST"])
     app.add_api_route("/api/voicebot/logs", api_logs, methods=["POST"])
