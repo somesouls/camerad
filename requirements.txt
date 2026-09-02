@@ -23,6 +23,19 @@ sentencepiece
 rapidfuzz
 Sastrawi>=1.0.1            # stemming Bahasa Indonesia utk FTS ternormalisasi (Fase 1); opsional, fail-soft bila absen
 
+# --- Voicebot (mesin suara lokal / on-prem) ---
+# NLU hybrid Voicebot memakai sentence-transformers + rapidfuzz (SUDAH tercantum di atas).
+# STT & TTS bersifat opsional (fail-soft bila belum terpasang); instal manual saat dipakai:
+#   STT : faster-whisper (dipakai ulang lewat avaya.phone_stt; butuh torch CUDA di bawah)
+#         pip install faster-whisper
+#   TTS : Piper (offline). Pasang binary piper + unduh voice .onnx id-ID, lalu set env
+#         VOICEBOT_PIPER_BIN & VOICEBOT_PIPER_VOICE. Alternatif via pip:
+#         pip install piper-tts
+# Embedding NLU dapat dipilih via env VOICEBOT_EMB_MODEL
+# (default sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2).
+# faster-whisper>=1.0
+# piper-tts>=1.2
+
 # Data
 openpyxl>=3.1.5
 pandas
