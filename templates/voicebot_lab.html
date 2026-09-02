@@ -45,6 +45,36 @@
   </section>
 
   <section class="vbl-card" style="margin-top:16px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+      <h2 style="margin:0;font-size:15px;">📊 Evaluasi latency</h2>
+      <div style="display:flex;gap:8px;">
+        <button class="vbl-btns" id="btnEvalCsv">⬇️ Unduh CSV</button>
+        <button class="vbl-btns" id="btnEvalClear">🗑️ Bersihkan</button>
+      </div>
+    </div>
+    <div id="evalSummary" style="font-size:12.5px;color:var(--text-muted);margin:8px 0;">Belum ada giliran terekam.</div>
+    <div style="overflow:auto;">
+      <table id="evalTable" style="width:100%;border-collapse:collapse;font-size:12.5px;display:none;">
+        <thead><tr style="text-align:left;color:var(--text-muted);">
+          <th style="padding:4px 6px;">#</th>
+          <th style="padding:4px 6px;">Mode</th>
+          <th style="padding:4px 6px;">Transkrip</th>
+          <th style="padding:4px 6px;">Intent</th>
+          <th style="padding:4px 6px;">Sumber</th>
+          <th style="padding:4px 6px;">STT</th>
+          <th style="padding:4px 6px;">Think</th>
+          <th style="padding:4px 6px;">TTS</th>
+          <th style="padding:4px 6px;">Server</th>
+          <th style="padding:4px 6px;">TTFA*</th>
+          <th style="padding:4px 6px;">Suara</th>
+        </tr></thead>
+        <tbody id="evalBody"></tbody>
+      </table>
+    </div>
+    <p style="font-size:11.5px;color:var(--text-muted);margin:8px 0 0;">*TTFA = waktu dari “memproses” sampai potongan audio pertama tiba di browser (khusus Mode B). Semua nilai dalam milidetik (ms).</p>
+  </section>
+
+  <section class="vbl-card" style="margin-top:16px;">
     <h2 style="margin:0 0 10px;font-size:15px;">Hasil</h2>
     <div id="out" style="font-size:14px;color:var(--text-muted);">Belum ada.</div>
   </section>
@@ -73,6 +103,40 @@
   var esc=function(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
   var sid=null, rec=null, chunks=[], recording=false;
 
+  // ---------------------------------------------- Evaluasi latency (Mode A & B)
+  var evalRows=[];
+  function avg(arr){ if(!arr.length)return null; var s=0; for(var i=0;i<arr.length;i++)s+=arr[i]; return Math.round(s/arr.length); }
+  function ecell(v){ return '<td style="padding:4px 6px;white-space:nowrap;">'+(v==null?'—':esc(String(v)))+'</td>'; }
+  function renderEval(){
+    var tb=$('evalBody'); if(!tb)return;
+    if(!evalRows.length){ $('evalTable').style.display='none'; $('evalSummary').textContent='Belum ada giliran terekam.'; return; }
+    $('evalTable').style.display='';
+    var h='';
+    for(var i=0;i<evalRows.length;i++){ var r=evalRows[i];
+      h+='<tr style="border-top:1px solid var(--panel-border,#e5e7eb);">';
+      h+=ecell(r.n)+ecell(r.mode)+'<td style="padding:4px 6px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+esc((r.transkrip||'').slice(0,60))+'</td>'+ecell(r.intent)+ecell(r.sumber)+ecell(r.stt)+ecell(r.think)+ecell(r.tts)+ecell(r.server)+ecell(r.ttfa)+ecell(r.suara);
+      h+='</tr>';
+    }
+    tb.innerHTML=h;
+    var srv=[],ttfa=[];
+    for(var j=0;j<evalRows.length;j++){ if(evalRows[j].server!=null)srv.push(evalRows[j].server); if(evalRows[j].ttfa!=null)ttfa.push(evalRows[j].ttfa); }
+    $('evalSummary').innerHTML='Giliran terekam: <b>'+evalRows.length+'</b> · Rata-rata server: <b>'+(avg(srv)==null?'—':avg(srv)+' ms')+'</b> · Rata-rata TTFA (Mode B): <b>'+(avg(ttfa)==null?'—':avg(ttfa)+' ms')+'</b>';
+  }
+  function evalPush(row){ evalRows.push(row); renderEval(); }
+  $('btnEvalClear').onclick=function(){ evalRows=[]; renderEval(); };
+  $('btnEvalCsv').onclick=function(){
+    var head=['no','mode','transkrip','intent','sumber','stt_ms','think_ms','tts_ms','server_ms','ttfa_ms','suara'];
+    var lines=[head.join(',')];
+    for(var i=0;i<evalRows.length;i++){ var r=evalRows[i];
+      var vals=[r.n,r.mode,'"'+String(r.transkrip||'').replace(/"/g,'""')+'"',r.intent,r.sumber,r.stt,r.think,r.tts,r.server,r.ttfa,r.suara];
+      lines.push(vals.map(function(v){return v==null?'':v;}).join(','));
+    }
+    var blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});
+    var url=URL.createObjectURL(blob); var a=document.createElement('a');
+    a.href=url; a.download='voicebot_latency.csv'; document.body.appendChild(a); a.click();
+    setTimeout(function(){document.body.removeChild(a);URL.revokeObjectURL(url);},100);
+  };
+
   function health(){
     fetch('/api/voicebot/health').then(function(r){return r.json();}).then(function(d){
       $('pillStt').textContent='STT: '+(d.stt_ready?'siap':'belum');
@@ -88,12 +152,13 @@
     if(d.error){$('out').innerHTML='<span style="color:#dc2626;">'+esc(d.error)+'</span>';return;}
     var srcBadge='<span class="vbl-badge '+(d.sumber==='nlu'?'b-nlu':'b-llm')+'">'+esc((d.sumber||'').toUpperCase())+'</span>';
     var ho=d.action==='handoff'?' <span class="vbl-badge b-ho">HANDOFF</span>':'';
+    var tm=d.timings||{};
     var h='';
     h+='<div class="vbl-kv"><b>Transkrip</b><span>'+esc(d.transkrip||'—')+'</span></div>';
     h+='<div class="vbl-kv"><b>Intent</b><span>'+esc(d.intent||'(fallback)')+' · '+(d.confidence||0)+' '+srcBadge+ho+'</span></div>';
     h+='<div class="vbl-kv"><b>Jawaban</b><span>'+esc(d.jawaban_teks||'')+'</span></div>';
     if(d.handoff){h+='<div class="vbl-kv"><b>Alasan HO</b><span>'+esc(d.handoff.reason||'')+'</span></div>';}
-    h+='<div class="vbl-kv"><b>Latency</b><span>'+(d.elapsed_ms||0)+' ms</span></div>';
+    h+='<div class="vbl-kv"><b>Latency</b><span>'+(d.elapsed_ms||0)+' ms'+((tm.stt_ms!=null||tm.think_ms!=null||tm.tts_ms!=null)?(' <span style="color:var(--text-muted);">(STT '+(tm.stt_ms||0)+' / think '+(tm.think_ms||0)+' / TTS '+(tm.tts_ms||0)+')</span>'):'')+'</span></div>';
     if(d.jawaban_audio_b64){h+='<div class="vbl-kv"><b>🔊 Suara</b><audio id="vblAudio" controls src="data:audio/wav;base64,'+d.jawaban_audio_b64+'" style="height:34px;"></audio></div>';}
     else if(!d.tts_error){h+='<div class="vbl-kv"><b>🔊 Suara</b><span style="color:var(--text-muted);">(TTS mati / tak menghasilkan audio)</span></div>';}
     if(d.stt_error){h+='<div class="vbl-kv"><b>STT error</b><span style="color:#dc2626;">'+esc(d.stt_error)+'</span></div>';}
@@ -103,6 +168,7 @@
     var t=document.createElement('div');t.className='vbl-turn';
     t.innerHTML='<b>🧑 '+esc(d.transkrip||'')+'</b><br>🤖 '+esc(d.jawaban_teks||'')+' '+srcBadge+ho;
     $('log').insertBefore(t,$('log').firstChild);
+    try{ evalPush({ n:evalRows.length+1, mode:'A', transkrip:d.transkrip||'', intent:d.intent||'(fallback)', sumber:(d.sumber||'').toUpperCase(), stt:tm.stt_ms, think:tm.think_ms, tts:tm.tts_ms, server:d.elapsed_ms, ttfa:null, suara:(d.jawaban_audio_b64?'✅ diputar':(d.tts_error?'gagal TTS':'—')) }); }catch(e){}
   }
   function sendText(){
     var v=$('txt').value.trim(); if(!v)return; $('txt').value='';
@@ -133,6 +199,7 @@
   // ------------------------------------------------ Mode B: streaming + barge-in
   var ws=null, actx=null, srcNode=null, procNode=null, muteNode=null, micStream=null;
   var streaming=false, audioParts=[], curAudio=null;
+  var tThink=0, curRow=null, pend=null;
 
   function sStat(t){$('streamMsg').textContent=t;}
   function sAdd(who,txt){
@@ -190,12 +257,18 @@
         var m={}; try{m=JSON.parse(ev.data);}catch(e){return;}
         if(m.type==='ready'){ if(m.greeting){sAdd('🤖',m.greeting);} sStat('Siap — silakan bicara… (barge-in '+(m.bargein?'aktif':'mati')+')'); }
         else if(m.type==='speech_start'){ sStat('🎙️ Anda bicara…'); stopAudio(); }
-        else if(m.type==='thinking'){ sStat('🤔 Memproses…'); }
-        else if(m.type==='transcript'){ if(m.text)sAdd('🧑',m.text); }
-        else if(m.type==='answer'){ sAdd('🤖',m.jawaban_teks||''); var src=(m.sumber||'').toUpperCase(); sStat('💬 '+src+' · '+(m.intent||'(fallback)')+' · '+(m.elapsed_ms||0)+' ms'+(m.action==='handoff'?' · HANDOFF':'')); }
-        else if(m.type==='audio_begin'){ audioParts=[]; }
-        else if(m.type==='audio_end'){ playParts(); }
-        else if(m.type==='interrupted'){ sStat('✋ Dipotong (barge-in)'); audioParts=[]; stopAudio(); }
+        else if(m.type==='thinking'){ sStat('🤔 Memproses…'); tThink=performance.now(); pend={transkrip:''}; }
+        else if(m.type==='transcript'){ if(m.text){ if(pend)pend.transkrip=m.text; sAdd('🧑',m.text); } }
+        else if(m.type==='answer'){
+          sAdd('🤖',m.jawaban_teks||'');
+          var src=(m.sumber||'').toUpperCase(); var tm=m.timings||{};
+          sStat('💬 '+src+' · '+(m.intent||'(fallback)')+' · '+(m.elapsed_ms||0)+' ms (STT '+(tm.stt_ms==null?'?':tm.stt_ms)+' / think '+(tm.think_ms==null?'?':tm.think_ms)+' / TTS '+(tm.tts_ms==null?'?':tm.tts_ms)+')'+(m.action==='handoff'?' · HANDOFF':''));
+          curRow={ n:evalRows.length+1, mode:'B', transkrip:(pend&&pend.transkrip)||m.transkrip||'', intent:m.intent||'(fallback)', sumber:src, stt:tm.stt_ms, think:tm.think_ms, tts:tm.tts_ms, server:m.elapsed_ms, ttfa:null, suara:(m.tts_error?'gagal TTS':'menunggu…') };
+          evalPush(curRow);
+        }
+        else if(m.type==='audio_begin'){ audioParts=[]; if(curRow){ curRow.ttfa=Math.round(performance.now()-tThink); curRow.suara='▶️ memutar'; renderEval(); } }
+        else if(m.type==='audio_end'){ playParts(); if(curRow){ curRow.suara='✅ diputar'; renderEval(); curRow=null; } }
+        else if(m.type==='interrupted'){ sStat('✋ Dipotong (barge-in)'); audioParts=[]; stopAudio(); if(curRow){ curRow.suara='✋ dipotong'; renderEval(); curRow=null; } }
         else if(m.type==='error'){ sStat('⚠️ '+(m.error||'error')); }
       };
       ws.onerror=function(){ sStat('⚠️ WebSocket error'); };

@@ -18,7 +18,8 @@ Server -> klien:
       {"type":"thinking"}                    -> ucapan selesai, sedang diproses
       {"type":"transcript","text":..}
       {"type":"answer","intent":..,"confidence":..,"sumber":..,"action":..,
-                       "jawaban_teks":..,"handoff":..,"elapsed_ms":..}
+                       "jawaban_teks":..,"handoff":..,"elapsed_ms":..,
+                       "timings":{stt_ms,think_ms,tts_ms,total_ms},"server_ms":..}
       {"type":"audio_begin","mime":"audio/wav"}
       {"type":"audio_end"}
       {"type":"interrupted"}                 -> audio bot dipotong (barge-in)
@@ -39,6 +40,7 @@ from __future__ import annotations
 import os
 import io
 import json
+import time
 import wave
 import array
 import base64
@@ -304,7 +306,7 @@ async def handle(websocket: WebSocket):
             if wav is None:
                 break
             state["gen"] += 1
-            my_gen = state["gen"]
+            t_utt = time.time()
             await _safe_send_text({"type": "thinking"})
             try:
                 res = await loop.run_in_executor(
@@ -316,8 +318,9 @@ async def handle(websocket: WebSocket):
                 continue
             if state["closed"]:
                 break
-            # ucapan baru menyusul -> jawaban ini usang: kirim teks, lewati audio
-            stale = (my_gen != state["gen"]) or (not queue.empty())
+            # Audio jawaban tetap diputar meski ada ucapan lain menyusul di antrean.
+            # Hanya barge-in (interrupt) atau sesi tertutup yang membatalkan audio,
+            # supaya suara jawaban benar-benar terdengar untuk evaluasi.
             await _safe_send_text({"type": "transcript",
                                    "text": res.get("transkrip") or ""})
             await _safe_send_text({
@@ -332,9 +335,11 @@ async def handle(websocket: WebSocket):
                 "tts_error": res.get("tts_error"),
                 "engine": res.get("engine"),
                 "elapsed_ms": res.get("elapsed_ms"),
+                "timings": res.get("timings"),
+                "server_ms": int((time.time() - t_utt) * 1000),
             })
             b64 = res.get("jawaban_audio_b64")
-            if b64 and state["want_audio"] and not stale and not state["interrupt"]:
+            if b64 and state["want_audio"] and not state["interrupt"] and not state["closed"]:
                 await send_audio(b64)
 
     recv_task = asyncio.ensure_future(receiver())
