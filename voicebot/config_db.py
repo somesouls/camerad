@@ -38,6 +38,45 @@ DEFAULT_SETTINGS = {
     "rag_top_k": "5",
     "pron_enabled": "1",
     "pron_spell_digits_min": "7",
+    # --- dialog manager (#3) ---
+    "dialog_enabled": "1",
+    "confirm_min": "0.45",
+    "salutation": "Bapak/Ibu",
+    "salutation_enabled": "1",
+    "greeting": (
+        "Selamat datang di layanan kami. Ada yang bisa saya bantu, Bapak/Ibu?"
+    ),
+    "closing_reply": (
+        "Baik, terima kasih sudah menghubungi kami. Semoga harinya menyenangkan."
+    ),
+    "handoff_reply": (
+        "Baik, saya hubungkan Anda dengan agen kami. Mohon tunggu sebentar."
+    ),
+    "confirm_template": (
+        "Mohon konfirmasi, apakah Anda menanyakan tentang {intent}?"
+    ),
+    "readback_template": "Saya ulangi ya, {text}. Apakah sudah benar?",
+    "resume_template": (
+        "Sebelumnya kita membahas {intent}. Mau lanjutkan itu setelah ini?"
+    ),
+    "resume_enabled": "0",
+    "cmd_repeat": "ulangi, tolong ulangi, ulangi lagi, bisa diulang, ulang",
+    "cmd_end": (
+        "selesai, sudah cukup, cukup, tutup, sudah selesai, terima kasih sudah cukup"
+    ),
+    "affirmations": (
+        "ya, iya, betul, benar, ya benar, betul sekali, benar sekali, oke, ok, "
+        "iya betul, benar begitu"
+    ),
+    "negations": (
+        "tidak, bukan, salah, tidak benar, bukan itu, nggak, enggak, gak, "
+        "bukan begitu"
+    ),
+    "filler_enabled": "1",
+    "filler_texts": (
+        "Baik, mohon tunggu sebentar ya.|Baik, saya periksa dulu.|"
+        "Mohon tunggu sebentar, ya."
+    ),
 }
 
 _INIT_DONE = set()
