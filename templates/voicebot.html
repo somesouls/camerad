@@ -46,10 +46,14 @@
       <label>Pakai sapaan<select id="dSalEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Filler aktif<select id="dFilEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Tawarkan lanjut (resume)<select id="dResEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Ringkas jawaban intent (2b)<select id="dSh" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Ringkas bila ≥ N karakter<input id="dShMin" class="vb-inp" type="number" min="0"></label>
     </div>
     <label style="display:block;margin-top:10px;">Salam pembuka (saat sesi dibuka)<input id="dGreet" class="vb-inp" style="width:100%;"></label>
     <label style="display:block;margin-top:10px;">Kalimat penutup (perintah "selesai")<input id="dClose" class="vb-inp" style="width:100%;"></label>
     <label style="display:block;margin-top:10px;">Template konfirmasi (pakai {intent})<input id="dConf" class="vb-inp" style="width:100%;"></label>
+    <label style="display:block;margin-top:10px;">Instruksi peringkas jawaban intent (2b)<textarea id="dShSys" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;">Peringkas memakai LLM lokal untuk memadatkan jawaban intent yang panjang jadi 1–2 kalimat lisan (fakta &amp; angka dijaga). Jawaban di bawah ambang karakter dibiarkan apa adanya; hasil di-cache. Jalur RAG memang sudah ringkas.</p>
     <div class="vb-grid2" style="margin-top:10px;">
       <label>Perintah "ulangi" (koma)<input id="dRep" class="vb-inp"></label>
       <label>Perintah "selesai" (koma)<input id="dEnd" class="vb-inp"></label>
@@ -155,6 +159,8 @@
       $('dEn').value=String(s.dialog_enabled||'1'); $('dCmin').value=s.confirm_min||'0.45';
       $('dSal').value=s.salutation||'Bapak/Ibu'; $('dSalEn').value=String(s.salutation_enabled||'1');
       $('dFilEn').value=String(s.filler_enabled||'1'); $('dResEn').value=String(s.resume_enabled||'0');
+      $('dSh').value=String(s.intent_shorten_enabled||'0'); $('dShMin').value=s.intent_shorten_min_chars||'160';
+      $('dShSys').value=s.intent_shorten_system||'';
       $('dGreet').value=s.greeting||''; $('dClose').value=s.closing_reply||''; $('dConf').value=s.confirm_template||'';
       $('dRep').value=s.cmd_repeat||''; $('dEnd').value=s.cmd_end||''; $('dAff').value=s.affirmations||''; $('dNeg').value=s.negations||'';
       $('dFil').value=s.filler_texts||'';
@@ -177,6 +183,7 @@
     post('/api/voicebot/config/save',{
       dialog_enabled:$('dEn').value,confirm_min:$('dCmin').value,salutation:$('dSal').value,
       salutation_enabled:$('dSalEn').value,filler_enabled:$('dFilEn').value,resume_enabled:$('dResEn').value,
+      intent_shorten_enabled:$('dSh').value,intent_shorten_min_chars:$('dShMin').value,intent_shorten_system:$('dShSys').value,
       greeting:$('dGreet').value,closing_reply:$('dClose').value,confirm_template:$('dConf').value,
       cmd_repeat:$('dRep').value,cmd_end:$('dEnd').value,affirmations:$('dAff').value,negations:$('dNeg').value,
       filler_texts:$('dFil').value
