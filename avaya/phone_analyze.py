@@ -154,15 +154,17 @@ def _by_basename(results):
     return m
 
 
-def analyze_day(conn, day=None, limit=25, min_durasi=3, do_llm=True, timeout=1800):
-    """Tahap 2 penuh: STT + LLM utk baris pending, PLUS ulang HANYA LLM utk baris
-    yang transkripnya sudah ada tapi analisis belum jadi. Kembalikan ringkasan."""
+def analyze_day(conn, day=None, limit=25, min_durasi=3, do_llm=True, do_stt=True, timeout=1800):
+    """Tahap 2: STT + LLM utk baris pending. do_stt/do_llm memilih fase -
+    keduanya=transkrip+analisis; do_stt saja='Transkrip saja'; do_llm saja=
+    'Analisis LLM saja' (ulang HANYA LLM utk baris yg transkripnya sudah ada
+    tapi analisis belum jadi/gagal, tanpa STT ulang). Kembalikan ringkasan."""
     details = []
     stt_ok = 0
     llm_ok = 0
     llm_err = ""
     stt_error = None
-    rows = pending_phone(conn, day=day, limit=limit, min_durasi=min_durasi)
+    rows = pending_phone(conn, day=day, limit=limit, min_durasi=min_durasi) if do_stt else []
     llm_rows = pending_llm(conn, day=day, limit=limit) if do_llm else []
     if not rows and not llm_rows:
         return {"ok": True, "pending": 0, "stt_ok": 0, "llm_ok": 0,
@@ -266,13 +268,13 @@ def _count_pending(conn, day=None, min_durasi=3):
 
 
 def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
-                do_llm=True, timeout=None, on_prog=None, should_stop=None):
-    """Ulang analyze_day per-batch SAMPAI HABIS (resumable) = 'transkrip semua'.
-
-    STT selalu maju (tiap baris ditandai 'qwen3-asr'/'kosong' setelah diproses)
-    sehingga antrean STT pasti menyusut. Untuk LLM-only yang gagal berulang: bila
-    satu putaran TANPA sisa STT tak menghasilkan LLM sukses, berhenti (hindari loop
-    tak berujung). max_batches = pengaman keras. Kembalikan ringkasan agregat.
+                do_llm=True, do_stt=True, timeout=None, on_prog=None, should_stop=None):
+    """Ulang analyze_day per-batch SAMPAI HABIS (resumable). Fase dipilih lewat
+    do_stt/do_llm: keduanya = transkrip + analisis semua; do_stt saja =
+    'Transkrip semua'; do_llm saja = 'Analisis LLM semua' (ulang LLM utk baris
+    yang sudah ditranskrip). Berhenti bila antrean fase terkait habis, atau satu
+    putaran tanpa sisa STT tak menghasilkan LLM sukses (hindari loop pd baris yg
+    gagal terus), atau rounds >= max_batches (pengaman keras).
     """
     batch = int(batch or _int_env("AWE_PHONE_STT_BATCH", 8))
     if batch < 1:
@@ -290,14 +292,15 @@ def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
         if should_stop and should_stop():
             break
         n_stt, n_llm = _count_pending(conn, day=day, min_durasi=min_durasi)
-        if n_stt == 0 and n_llm == 0:
+        relevant = (n_stt if do_stt else 0) + (n_llm if do_llm else 0)
+        if relevant == 0:
             break
         if rounds >= max_batches:
             break
         if on_prog:
             on_prog("Batch %d - sisa %d STT, %d LLM..." % (rounds + 1, n_stt, n_llm))
         res = analyze_day(conn, day=day, limit=batch, min_durasi=min_durasi,
-                          do_llm=do_llm, timeout=timeout)
+                          do_llm=do_llm, do_stt=do_stt, timeout=timeout)
         rounds += 1
         if not res.get("ok"):
             last_err = res.get("error") or "STT/analisis gagal"
@@ -306,10 +309,12 @@ def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
         llm_ok += int(res.get("llm_ok") or 0)
         if res.get("llm_error") and not llm_err:
             llm_err = res.get("llm_error")
-        if n_stt == 0 and int(res.get("llm_ok") or 0) == 0:
+        stt_left = n_stt if do_stt else 0
+        if stt_left == 0 and int(res.get("llm_ok") or 0) == 0:
             break
     n_stt, n_llm = _count_pending(conn, day=day, min_durasi=min_durasi)
+    remaining = (n_stt if do_stt else 0) + (n_llm if do_llm else 0)
     return {"ok": last_err is None, "all": True, "rounds": rounds,
-            "stt_ok": stt_ok, "llm_ok": llm_ok, "pending": n_stt + n_llm,
+            "stt_ok": stt_ok, "llm_ok": llm_ok, "pending": remaining,
             "remaining_stt": n_stt, "remaining_llm": n_llm,
             "error": last_err, "llm_error": llm_err, "details": []}
