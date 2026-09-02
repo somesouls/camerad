@@ -88,6 +88,12 @@ DEFAULT_SETTINGS = {
         "berlebih dan pengulangan. Tanpa markdown, tanpa emoji. Bila teks sudah "
         "ringkas, kembalikan apa adanya."
     ),
+    # --- mode suara natural (#4a) ---
+    # tts_engine: 'piper' (default, ringan/cepat) | 'mms' (facebook/mms-tts-ind,
+    # native Bahasa Indonesia, lebih natural). MMS butuh transformers+torch dan
+    # unduhan model sekali dari HuggingFace; setelah itu jalan penuh lokal.
+    "tts_engine": "piper",
+    "mms_model": "facebook/mms-tts-ind",
 }
 
 _INIT_DONE = set()
