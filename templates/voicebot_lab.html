@@ -34,11 +34,12 @@
       <span class="vbl-pill" id="pillStream">Streaming: mati</span>
     </div>
     <p style="color:var(--text-muted);font-size:12.5px;margin:8px 0 12px;">
-      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. <b>Barge-in</b>: saat bot sedang bicara, mulai bicara lagi (atau tekan “Potong”) untuk memotongnya. <b>Pakai headset/earphone</b> agar suara bot tak terekam mic (hindari barge-in palsu).
+      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. Secara default memakai mode <b>half-duplex</b>: mic dibisukan sementara saat bot memproses/berbicara supaya suara bot tidak terpotong sendiri (aman tanpa headset). Tekan <b>✋ Potong</b> kapan saja untuk menyela. Centang <b>Barge-in via mic</b> hanya bila memakai <b>headset/earphone</b>.
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <button id="btnStream" class="vbl-btnp">🔴 Mulai percakapan langsung</button>
       <button id="btnBarge" class="vbl-btns">✋ Potong (barge-in)</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-muted);cursor:pointer;"><input type="checkbox" id="chkAutoBarge"> Barge-in via mic (butuh headset)</label>
       <span id="streamMsg" style="font-size:13px;color:var(--text-muted);">—</span>
     </div>
     <div id="slog" style="margin-top:12px;"></div>
@@ -200,6 +201,11 @@
   var ws=null, actx=null, srcNode=null, procNode=null, muteNode=null, micStream=null;
   var streaming=false, audioParts=[], curAudio=null;
   var tThink=0, curRow=null, pend=null;
+  var procBusy=false, busyTimer=null;
+
+  function autoBarge(){ var c=$('chkAutoBarge'); return !!(c&&c.checked); }
+  function setBusy(v){ procBusy=v; }
+  function clearBusyTimer(){ if(busyTimer){clearTimeout(busyTimer);busyTimer=null;} }
 
   function sStat(t){$('streamMsg').textContent=t;}
   function sAdd(who,txt){
@@ -230,7 +236,7 @@
     var blob=new Blob(audioParts,{type:'audio/wav'}); audioParts=[];
     var url=URL.createObjectURL(blob); stopAudio();
     curAudio=new Audio(url); curAudio.onended=function(){URL.revokeObjectURL(url);};
-    curAudio.play().catch(function(){});
+    curAudio.play().catch(function(err){ sStat('⚠️ Browser memblokir autoplay — klik area halaman lalu ulangi.'); });
   }
 
   function startStream(){
@@ -247,17 +253,19 @@
         srcNode.connect(procNode); procNode.connect(muteNode); muteNode.connect(actx.destination);
         procNode.onaudioprocess=function(e){
           if(!ws||ws.readyState!==1)return;
+          // half-duplex: bila barge-in via mic tidak dicentang, bisukan mic saat bot memproses/berbicara
+          if(!autoBarge() && procBusy) return;
           var pcm=downsample(e.inputBuffer.getChannelData(0),actx.sampleRate,16000);
           try{ws.send(pcm.buffer);}catch(err){}
         };
-        streaming=true; $('btnStream').textContent='⏹️ Stop percakapan'; $('pillStream').textContent='Streaming: aktif'; sStat('Tersambung — silakan bicara…');
+        streaming=true; setBusy(false); $('btnStream').textContent='⏹️ Stop percakapan'; $('pillStream').textContent='Streaming: aktif'; sStat('Tersambung — silakan bicara…');
       };
       ws.onmessage=function(ev){
         if(typeof ev.data!=='string'){ audioParts.push(ev.data); return; }
         var m={}; try{m=JSON.parse(ev.data);}catch(e){return;}
-        if(m.type==='ready'){ if(m.greeting){sAdd('🤖',m.greeting);} sStat('Siap — silakan bicara… (barge-in '+(m.bargein?'aktif':'mati')+')'); }
+        if(m.type==='ready'){ if(m.greeting){sAdd('🤖',m.greeting);} sStat('Siap — silakan bicara… (barge-in via mic '+(autoBarge()?'aktif':'mati')+')'); }
         else if(m.type==='speech_start'){ sStat('🎙️ Anda bicara…'); stopAudio(); }
-        else if(m.type==='thinking'){ sStat('🤔 Memproses…'); tThink=performance.now(); pend={transkrip:''}; }
+        else if(m.type==='thinking'){ sStat('🤔 Memproses…'); tThink=performance.now(); pend={transkrip:''}; setBusy(true); }
         else if(m.type==='transcript'){ if(m.text){ if(pend)pend.transkrip=m.text; sAdd('🧑',m.text); } }
         else if(m.type==='answer'){
           sAdd('🤖',m.jawaban_teks||'');
@@ -265,11 +273,15 @@
           sStat('💬 '+src+' · '+(m.intent||'(fallback)')+' · '+(m.elapsed_ms||0)+' ms (STT '+(tm.stt_ms==null?'?':tm.stt_ms)+' / think '+(tm.think_ms==null?'?':tm.think_ms)+' / TTS '+(tm.tts_ms==null?'?':tm.tts_ms)+')'+(m.action==='handoff'?' · HANDOFF':''));
           curRow={ n:evalRows.length+1, mode:'B', transkrip:(pend&&pend.transkrip)||m.transkrip||'', intent:m.intent||'(fallback)', sumber:src, stt:tm.stt_ms, think:tm.think_ms, tts:tm.tts_ms, server:m.elapsed_ms, ttfa:null, suara:(m.tts_error?'gagal TTS':'menunggu…') };
           evalPush(curRow);
+          // bila tidak ada audio yang akan datang, buka lagi mic; jika ada, biarkan busy sampai audio_end
+          clearBusyTimer();
+          if(m.tts_error){ setBusy(false); }
+          else { busyTimer=setTimeout(function(){ setBusy(false); },2500); }
         }
-        else if(m.type==='audio_begin'){ audioParts=[]; if(curRow){ curRow.ttfa=Math.round(performance.now()-tThink); curRow.suara='▶️ memutar'; renderEval(); } }
-        else if(m.type==='audio_end'){ playParts(); if(curRow){ curRow.suara='✅ diputar'; renderEval(); curRow=null; } }
-        else if(m.type==='interrupted'){ sStat('✋ Dipotong (barge-in)'); audioParts=[]; stopAudio(); if(curRow){ curRow.suara='✋ dipotong'; renderEval(); curRow=null; } }
-        else if(m.type==='error'){ sStat('⚠️ '+(m.error||'error')); }
+        else if(m.type==='audio_begin'){ clearBusyTimer(); setBusy(true); audioParts=[]; if(curRow){ curRow.ttfa=Math.round(performance.now()-tThink); curRow.suara='▶️ memutar'; renderEval(); } }
+        else if(m.type==='audio_end'){ playParts(); clearBusyTimer(); setBusy(false); if(curRow){ curRow.suara='✅ diputar'; renderEval(); curRow=null; } }
+        else if(m.type==='interrupted'){ sStat('✋ Dipotong (barge-in)'); audioParts=[]; stopAudio(); clearBusyTimer(); setBusy(false); if(curRow){ curRow.suara='✋ dipotong'; renderEval(); curRow=null; } }
+        else if(m.type==='error'){ sStat('⚠️ '+(m.error||'error')); clearBusyTimer(); setBusy(false); }
       };
       ws.onerror=function(){ sStat('⚠️ WebSocket error'); };
       ws.onclose=function(){ if(streaming)stopStream(true); };
@@ -277,7 +289,7 @@
   }
 
   function stopStream(fromClose){
-    streaming=false; $('btnStream').textContent='🔴 Mulai percakapan langsung'; $('pillStream').textContent='Streaming: mati';
+    streaming=false; clearBusyTimer(); setBusy(false); $('btnStream').textContent='🔴 Mulai percakapan langsung'; $('pillStream').textContent='Streaming: mati';
     try{if(procNode){procNode.onaudioprocess=null;procNode.disconnect();}}catch(e){}
     try{if(srcNode)srcNode.disconnect();}catch(e){}
     try{if(muteNode)muteNode.disconnect();}catch(e){}
@@ -291,7 +303,7 @@
   }
 
   $('btnStream').onclick=function(){ if(streaming){stopStream(false);}else{$('slog').innerHTML='';startStream();} };
-  $('btnBarge').onclick=function(){ if(ws&&ws.readyState===1){try{ws.send(JSON.stringify({type:'barge_in'}));}catch(e){}} stopAudio(); };
+  $('btnBarge').onclick=function(){ if(ws&&ws.readyState===1){try{ws.send(JSON.stringify({type:'barge_in'}));}catch(e){}} stopAudio(); clearBusyTimer(); setBusy(false); };
   window.addEventListener('beforeunload',function(){ if(streaming)stopStream(true); });
 
   health(); newSess();

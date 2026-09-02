@@ -78,7 +78,7 @@ DEFAULT_SETTINGS = {
         "Mohon tunggu sebentar, ya."
     ),
     # --- penyingkat jawaban intent (2b) ---
-    "intent_shorten_enabled": "0",
+    "intent_shorten_enabled": "1",
     "intent_shorten_min_chars": "160",
     "intent_shorten_system": (
         "Anda meringkas jawaban call center untuk dibacakan sebagai suara dalam "
