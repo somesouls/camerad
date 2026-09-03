@@ -48,6 +48,11 @@ Bila diam berlanjut >= stream_idle_end_ms lagi (default 10 dtk) tanpa respons,
 sesi diakhiri otomatis (bot membaca stream_idle_end_text lalu koneksi ditutup).
 Timer diam di-reset saat penelepon bicara atau tiap kali bot selesai bicara.
 
+SALAM PENUTUP / CLOSING (#4): bila giliran menghasilkan action='end' (penelepon
+mengucapkan 'selesai' ATAU pemicu penutup lunak seperti 'terima kasih' yang
+lolos guard di engine), bot membacakan salam penutup APA ADANYA lalu koneksi
+ditutup otomatis ('langsung tutup') setelah audio selesai dikirim.
+
 Saat sesi dibuka, bila dialog manager aktif, server mengirim 'ready' berisi teks
 salam pembuka LALU langsung mengalirkan AUDIO salam itu (disintesis TTS voicebot)
 sebagai audio_begin -> byte WAV -> audio_end dengan flag greeting=true.
@@ -608,6 +613,16 @@ async def handle(websocket: WebSocket):
                             "reason": reason,
                             "tts_error": res.get("tts_error"),
                         })
+                # SALAM PENUTUP (#4): action='end' (perintah 'selesai' ATAU pemicu
+                # penutup lunak 'terima kasih' yang lolos guard engine) -> setelah
+                # salam penutup dibacakan, tutup sesi otomatis ('langsung tutup').
+                if res.get("action") == "end" and not state["closed"]:
+                    _log("action=end (salam penutup #4) -> tutup sesi setelah audio.")
+                    state["closed"] = True
+                    try:
+                        await queue.put(None)
+                    except Exception:
+                        pass
             finally:
                 # selesai satu giliran -> reset penjaga diam (#3)
                 state["processing"] = False
