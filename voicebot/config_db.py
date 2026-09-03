@@ -151,6 +151,20 @@ DEFAULT_SETTINGS = {
     "stream_speaking_rms": "900",      # ambang energi saat bot bicara (anti-gema loudspeaker)
     "stream_ducking": "1",             # kecilkan volume bot saat memverifikasi kandidat suara user
     "stream_duck_gain": "0.2",         # level volume bot saat di-duck (0..1)
+    # --- penjaga diam / silence watchdog (#3) — DAPAT DIATUR DARI UI ---
+    # Khusus Mode B (streaming). Bila penelepon diam: setelah stream_idle_prompt_ms
+    # tanpa suara, bot menyapa (stream_idle_prompt_text, mis. "masih terhubung?").
+    # Bila diam berlanjut stream_idle_end_ms lagi tanpa respons, sesi diakhiri
+    # otomatis (bot membaca stream_idle_end_text lalu menutup koneksi). Timer diam
+    # hanya berjalan saat bot TIDAK bicara/memproses. {sal}=sapaan.
+    "stream_idle_enabled": "1",
+    "stream_idle_prompt_ms": "8000",
+    "stream_idle_prompt_text": "Halo, apakah masih terhubung, {sal}?",
+    "stream_idle_end_ms": "10000",
+    "stream_idle_end_text": (
+        "Baik, karena belum ada respons, panggilan saya akhiri dulu ya. "
+        "Terima kasih sudah menghubungi kami."
+    ),
 }
 
 _INIT_DONE = set()
