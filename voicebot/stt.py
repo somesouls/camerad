@@ -11,10 +11,28 @@ dari konfigurasi + kamus pelafalan (vb_lexicon) + nama intent aktif, lalu
 transcribe_bytes meneruskannya ke avaya.phone_stt.transcribe_file supaya dekode
 faster-whisper condong ke KOSAKATA DOMAIN (NPWP/EFIN/SPT/dll.). Semua fail-soft:
 bila biasing gagal disusun, STT tetap jalan tanpa bias.
+
+Pagar batas token (#8): dekoder Whisper hanya punya 448 posisi token. Bila
+initial_prompt + hotwords terlalu panjang (mis. kamus pelafalan / intent sangat
+banyak), CTranslate2 melempar RuntimeError('No position encodings are defined
+for positions >= 448, ...') dan SEMUA transkripsi gagal -- gejalanya voicebot
+'budeg' padahal audio bagus (transkrip selalu kosong + stt_error). Pagar #8:
+  (a) build_bias membatasi TOTAL KARAKTER prompt & hotwords (anggaran di bawah),
+  (b) stt_bias_max_terms <= 0 tidak lagi berarti 'tanpa batas',
+  (c) transcribe_bytes otomatis MENGULANG TANPA bias bila error 448 tetap muncul,
+      supaya transkripsi tidak pernah mati total hanya karena bias kepanjangan.
 """
 import os
 import re
 import tempfile
+
+# --- Pagar token (#8) --------------------------------------------------------
+# Perkiraan kasar ~4 karakter per token utk teks Indonesia. Prompt + hotwords +
+# token kontrol + hasil dekode HARUS < 448 posisi; anggaran di bawah menyisakan
+# ruang aman yang lega untuk hasil dekode.
+_PROMPT_BASE_MAX = 240       # ~60 token utk teks stt_bias_prompt
+_PROMPT_CHAR_BUDGET = 480    # ~120 token utk daftar istilah pada initial_prompt
+_HOTWORDS_CHAR_BUDGET = 240  # ~60 token utk hotwords
 
 
 def available():
@@ -25,6 +43,18 @@ def available():
         return False
 
 
+def _take_within_budget(items, budget):
+    """Ambil item dari depan selama total karakter (plus pemisah ', ') <= budget (#8)."""
+    out, tot = [], 0
+    for t in items:
+        add = len(t) + 2
+        if tot + add > budget:
+            break
+        out.append(t)
+        tot += add
+    return out
+
+
 def build_bias(settings=None, conn=None):
     """Susun (initial_prompt, hotwords) domain untuk STT prediktif (#5).
 
@@ -32,9 +62,12 @@ def build_bias(settings=None, conn=None):
       - stt_bias_terms   : istilah manual (dipisah koma/baris),
       - kamus pelafalan  : pola vb_lexicon (bila stt_bias_from_lexicon),
       - nama intent aktif: (bila stt_bias_from_intents).
-    initial_prompt = stt_bias_prompt (teks domain) + "Istilah penting: <daftar>".
+    initial_prompt = stt_bias_prompt (teks domain) + \"Istilah penting: <daftar>\".
     hotwords       = daftar istilah dipisah koma.
     Kembalikan (None, None) bila biasing dimatikan / gagal / kosong.
+
+    Pagar (#8): total karakter prompt & hotwords DIBATASI agar tidak menabrak
+    batas 448 posisi token dekoder Whisper (lihat header modul).
     """
     try:
         from voicebot import config_db as cfg
@@ -75,16 +108,28 @@ def build_bias(settings=None, conn=None):
             cap = int(s.get("stt_bias_max_terms") or 64)
         except Exception:
             cap = 64
-        if cap > 0:
-            uniq = uniq[:cap]
-        prompt = str(s.get("stt_bias_prompt") or "").strip()
-        if uniq:
-            joined = ", ".join(uniq)
-            prompt = ((prompt + " ") if prompt else "") + "Istilah penting: " + joined + "."
-        hotwords = ", ".join(uniq) if uniq else None
+        if cap <= 0:
+            # (#8) 0/negatif TIDAK lagi berarti 'tanpa batas' -- tanpa batas membuat
+            # prompt menabrak 448 posisi token dan mematikan STT total.
+            cap = 64
+        uniq = uniq[:cap]
+        base = str(s.get("stt_bias_prompt") or "").strip()
+        if len(base) > _PROMPT_BASE_MAX:
+            base = base[:_PROMPT_BASE_MAX].rstrip()
+        picked = _take_within_budget(uniq, _PROMPT_CHAR_BUDGET)
+        prompt = base
+        if picked:
+            joined = ", ".join(picked)
+            prompt = ((base + " ") if base else "") + "Istilah penting: " + joined + "."
+        hot_picked = _take_within_budget(uniq, _HOTWORDS_CHAR_BUDGET)
+        hotwords = ", ".join(hot_picked) if hot_picked else None
         prompt = prompt or None
         if not prompt and not hotwords:
             return None, None
+        if len(picked) < len(uniq) or len(hot_picked) < len(uniq):
+            print("[voicebot.stt] bias dipangkas (#8): %d istilah -> prompt %d istilah, "
+                  "hotwords %d istilah (jaga batas 448 token Whisper)."
+                  % (len(uniq), len(picked), len(hot_picked)), flush=True)
         return prompt, hotwords
     except Exception as e:  # noqa: BLE001
         print("[voicebot.stt] build_bias gagal: %s" % e, flush=True)
@@ -100,6 +145,9 @@ def transcribe_bytes(data, filename="audio.wav", lang=None,
         import avaya.phone_stt as avstt
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "text": "", "error": "STT lokal belum siap: %s" % e}
+    if initial_prompt or hotwords:
+        print("[voicebot.stt] bias STT aktif: prompt~%d kar, hotwords~%d kar."
+              % (len(initial_prompt or ""), len(hotwords or "")), flush=True)
     ext = os.path.splitext(filename or "")[1] or ".wav"
     tmp = tempfile.NamedTemporaryFile(prefix="vb_stt_", suffix=ext, delete=False)
     try:
@@ -112,9 +160,18 @@ def transcribe_bytes(data, filename="audio.wav", lang=None,
         except TypeError:
             # avaya.phone_stt versi lama tanpa dukungan biasing -> panggil tanpa bias.
             tr = avstt.transcribe_file(tmp.name, lang=lang)
-        if not tr or not tr.get("ok"):
-            return {"ok": False, "text": "",
-                    "error": (tr or {}).get("error") or "STT gagal"}
+        err = "" if (tr and tr.get("ok")) else str((tr or {}).get("error") or "STT gagal")
+        # Fail-soft (#8): bias membuat dekoder melewati 448 posisi token Whisper
+        # ('No position encodings are defined for positions >= 448') -> ULANGI
+        # TANPA bias supaya transkripsi tetap jalan (lebih baik tanpa bias daripada
+        # budeg total).
+        if err and (initial_prompt or hotwords) and "position encodings" in err.lower():
+            print("[voicebot.stt] bias memicu batas 448 token -> ulangi TANPA bias (#8).",
+                  flush=True)
+            tr = avstt.transcribe_file(tmp.name, lang=lang)
+            err = "" if (tr and tr.get("ok")) else str((tr or {}).get("error") or "STT gagal")
+        if err:
+            return {"ok": False, "text": "", "error": err}
         return {"ok": True, "text": (tr.get("text") or "").strip(),
                 "duration": tr.get("duration"), "device": tr.get("device")}
     except Exception as e:  # noqa: BLE001
