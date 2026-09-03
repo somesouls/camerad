@@ -37,6 +37,14 @@ tengah kalimat sopan tak salah menutup. Transkrip yang cocok pola HALUSINASI STT
 saat senyap ('terima kasih telah menonton') DIBUANG lebih dulu (diperlakukan seperti
 tak ada ucapan). Salam penutup (closing_reply) dibacakan APA ADANYA / verbatim.
 
+STT prediktif / biasing (#5): sebelum STT, engine menyusun (initial_prompt, hotwords)
+domain via vb_stt.build_bias(settings) -- dari istilah manual + kamus pelafalan
+(vb_lexicon) + nama intent aktif -- lalu meneruskannya ke vb_stt.transcribe_bytes
+supaya faster-whisper condong ke kosakata domain (NPWP/EFIN/SPT/dll.). Bias NLU
+dilengkapi dengan meneruskan 'settings' ke vb_nlu.classify (lihat nlu_bias_map di
+voicebot.nlu): bila kata kunci tertentu muncul, skor intent terkait dinaikkan. Semua
+fail-soft: bila biasing gagal disusun, STT/NLU tetap jalan tanpa bias.
+
 Peringkas jawaban intent (2b): bila 'intent_shorten_enabled', jawaban match-intent
 dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara (cache + fail-soft;
 fakta/angka dijaga). Jalur RAG memang sudah ringkas by design.
@@ -290,8 +298,15 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
     stt_err = None
     if not transkrip and audio_bytes:
         if str(settings.get("stt_enabled", "1")) != "0":
+            # STT prediktif (#5): biasakan dekode ke kosakata domain (fail-soft).
+            init_prompt = hotwords = None
+            try:
+                init_prompt, hotwords = vb_stt.build_bias(settings)
+            except Exception:
+                init_prompt = hotwords = None
             tr = vb_stt.transcribe_bytes(audio_bytes, audio_filename,
-                                         lang=settings.get("stt_lang") or "id")
+                                         lang=settings.get("stt_lang") or "id",
+                                         initial_prompt=init_prompt, hotwords=hotwords)
             transkrip = tr.get("text") or ""
             if not tr.get("ok"):
                 stt_err = tr.get("error")
@@ -438,7 +453,7 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
                 # penelepon menolak tebakan. Coba tangkap topik BARU dari ucapan yang
                 # sama (mis. \"bukan, saya mau aktivasi EFIN\") -> konfirmasi intent baru.
                 sess["pending_confirm"] = None
-                recls = vb_nlu.classify(transkrip)
+                recls = vb_nlu.classify(transkrip, settings=settings)
                 if cfirst and recls.get("intent") and float(recls.get("score") or 0.0) >= cmin:
                     r = _confirm_first_setup(recls, sess, settings, fb)
                     intent, confidence, engine = r["intent"], r["confidence"], r["engine"]
@@ -463,7 +478,7 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
                 sumber = "dialog"
                 action = "confirm"
             else:
-                recls = vb_nlu.classify(transkrip)
+                recls = vb_nlu.classify(transkrip, settings=settings)
                 r_intent = recls.get("intent")
                 r_conf = float(recls.get("score") or 0.0)
                 if r_intent and r_intent != intent and r_conf >= threshold:
@@ -509,7 +524,7 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
         else:
             if pending:
                 sess["pending_confirm"] = None  # penelepon lanjut ke topik baru
-            cls = vb_nlu.classify(transkrip)
+            cls = vb_nlu.classify(transkrip, settings=settings)
             intent = cls.get("intent")
             confidence = float(cls.get("score") or 0.0)
             engine = cls.get("engine")
