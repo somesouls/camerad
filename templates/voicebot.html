@@ -38,6 +38,29 @@
   </section>
 
   <section class="vb-pnl" style="margin-top:22px;">
+    <h2 class="vb-ph">🔴 Streaming (Mode B) &amp; barge-in</h2>
+    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
+      Atur sensitivitas deteksi suara &amp; barge-in untuk percakapan real-time (Mode B) langsung dari sini — tanpa mengubah kode/ENV. Bila masih ada 1–2 noise yang lolos, <b>naikkan</b> "Gerbang noise browser" (mis. 0.02–0.03) dan/atau "Ambang energi server", serta set "Agresivitas VAD" ke 3. Perubahan berlaku untuk sesi streaming <b>berikutnya</b> (buka ulang percakapan Mode B di Lab/APK).
+    </p>
+    <div class="vb-grid2">
+      <label>Gerbang noise browser (RMS 0–1)<input id="sGate" class="vb-inp" type="number" step="0.001" min="0" max="1"></label>
+      <label>Tahan gerbang browser (ms)<input id="sGateHang" class="vb-inp" type="number" min="0"></label>
+      <label>Ambang energi server / RMS<input id="sRms" class="vb-inp" type="number" min="0"></label>
+      <label>Agresivitas VAD (0–3)<input id="sAggr" class="vb-inp" type="number" min="0" max="3"></label>
+      <label>Hening akhir ucapan (ms)<input id="sSil" class="vb-inp" type="number" min="0"></label>
+      <label>Durasi minimum ucapan (ms)<input id="sMinSp" class="vb-inp" type="number" min="0"></label>
+      <label>Pra-roll onset (ms)<input id="sPre" class="vb-inp" type="number" min="0"></label>
+      <label>Barge-in via mic<select id="sBarge" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Durasi konfirmasi barge-in (ms)<input id="sBargeMs" class="vb-inp" type="number" min="0"></label>
+      <label>Ambang energi saat bot bicara (RMS)<input id="sSpkRms" class="vb-inp" type="number" min="0"></label>
+      <label>Ducking (kecilkan volume saat verifikasi)<select id="sDuck" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Level volume bot saat di-duck (0–1)<input id="sDuckGain" class="vb-inp" type="number" step="0.05" min="0" max="1"></label>
+    </div>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:8px 0 0;"><b>Gerbang noise browser</b>: makin tinggi makin ketat membuang noise (tapi suara pelan bisa ikut terpotong) — nilai awal 0.012. <b>Ambang energi server</b> &amp; <b>Agresivitas VAD</b> (3 = paling tegas) menyaring noise di sisi server. <b>Durasi konfirmasi barge-in</b>: makin besar makin tahan gema loudspeaker, tapi bot lebih lambat berhenti saat benar-benar disela. <b>Ducking</b>: saat ada kandidat suara, volume bot dikecilkan ke level ini sambil verifikasi — bila ternyata noise volume kembali normal, bila benar suara user bot berhenti.</p>
+    <div style="margin-top:12px;"><button id="btnSaveStream" class="vb-btnp">Simpan streaming</button> <span id="strMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
+  </section>
+
+  <section class="vb-pnl" style="margin-top:22px;">
     <h2 class="vb-ph">🧭 Dialog manager (percakapan)</h2>
     <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
       Lapisan percakapan bergaya agen di atas NLU/RAG: <b>tier confidence</b> (≥ ambang → jawaban intent; menengah → konfirmasi; rendah → RAG), <b>perintah global</b> (ulangi / selesai / bicara dengan agen), <b>konfirmasi selektif</b>, <b>sapaan netral</b>, dan <b>filler</b> penutup latency. Ambang atas memakai "Ambang confidence" di atas; di sini atur batas bawah konfirmasi &amp; teksnya.
@@ -168,6 +191,14 @@
       $('dGreet').value=s.greeting||''; $('dClose').value=s.closing_reply||''; $('dConf').value=s.confirm_template||'';
       $('dRep').value=s.cmd_repeat||''; $('dEnd').value=s.cmd_end||''; $('dAff').value=s.affirmations||''; $('dNeg').value=s.negations||'';
       $('dFil').value=s.filler_texts||'';
+      $('sGate').value=(s.stream_gate_rms!=null&&s.stream_gate_rms!=='')?s.stream_gate_rms:'0.012';
+      $('sGateHang').value=s.stream_gate_hangover_ms||'600';
+      $('sRms').value=s.stream_rms||'600'; $('sAggr').value=s.stream_vad_aggr||'3';
+      $('sSil').value=s.stream_silence_ms||'700'; $('sMinSp').value=s.stream_min_speech_ms||'350';
+      $('sPre').value=s.stream_preroll_ms||'300'; $('sBarge').value=String(s.stream_bargein||'1');
+      $('sBargeMs').value=s.stream_bargein_min_ms||'500'; $('sSpkRms').value=s.stream_speaking_rms||'900';
+      $('sDuck').value=String(s.stream_ducking||'1');
+      $('sDuckGain').value=(s.stream_duck_gain!=null&&s.stream_duck_gain!=='')?s.stream_duck_gain:'0.2';
       $('kpiStt').textContent='STT: '+(d.stt_ready?'siap ✅':'belum ⚠️');
       $('kpiTts').textContent='TTS: '+(d.tts_ready?'siap ✅':'belum ⚠️')+(d.tts_engine?(' ('+d.tts_engine+')'):'');
     });
@@ -181,6 +212,18 @@
       tts_engine:$('cTtsEng').value,mms_model:$('cMms').value,
       llm_system:$('cSys').value,fallback_reply:$('cFb').value
     }).then(function(d){$('cfgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');loadCfg();});
+  };
+
+  $('btnSaveStream').onclick=function(){
+    $('strMsg').textContent='Menyimpan…';
+    post('/api/voicebot/config/save',{
+      stream_gate_rms:$('sGate').value,stream_gate_hangover_ms:$('sGateHang').value,
+      stream_rms:$('sRms').value,stream_vad_aggr:$('sAggr').value,
+      stream_silence_ms:$('sSil').value,stream_min_speech_ms:$('sMinSp').value,
+      stream_preroll_ms:$('sPre').value,stream_bargein:$('sBarge').value,
+      stream_bargein_min_ms:$('sBargeMs').value,stream_speaking_rms:$('sSpkRms').value,
+      stream_ducking:$('sDuck').value,stream_duck_gain:$('sDuckGain').value
+    }).then(function(d){$('strMsg').textContent=d.ok?'Tersimpan. Berlaku untuk sesi streaming berikutnya.':(d.error||'Gagal.');loadCfg();});
   };
 
   $('btnSaveDlg').onclick=function(){
