@@ -29,6 +29,14 @@ menandakan buntu (guided_handoff_triggers) -> tawarkan agen (pending_confirm mod
 selain itu -> lanjut ke langkah berikutnya (rag.guided_step_reply memperhalus transisi,
 fail-soft ke teks langkah). Langkah terakhir ditutup dengan guided_closing.
 
+Salam penutup + pemicu 'terima kasih' (#4): selain perintah 'selesai' eksplisit
+(cmd_end), ucapan penutup LUNAK (mis. 'terima kasih' yang berdiri sendiri / pendek)
+memicu penutupan (action='end') lewat vb_dialog.wants_closing -- dengan GUARD
+ucapan-berdiri-sendiri (<= closing_trigger_max_words kata) supaya 'terima kasih' di
+tengah kalimat sopan tak salah menutup. Transkrip yang cocok pola HALUSINASI STT
+saat senyap ('terima kasih telah menonton') DIBUANG lebih dulu (diperlakukan seperti
+tak ada ucapan). Salam penutup (closing_reply) dibacakan APA ADANYA / verbatim.
+
 Peringkas jawaban intent (2b): bila 'intent_shorten_enabled', jawaban match-intent
 dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara (cache + fail-soft;
 fakta/angka dijaga). Jalur RAG memang sudah ringkas by design.
@@ -293,6 +301,15 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
     # penanda waktu: STT selesai (untuk rincian latency evaluasi)
     t_stt = time.time()
 
+    # #4 GUARD halusinasi STT: transkrip yang cocok pola halusinasi saat senyap
+    # (mis. 'terima kasih telah menonton') DIBUANG -> diperlakukan seperti tak ada
+    # ucapan, supaya tidak memicu balasan maupun penutupan palsu.
+    if (transkrip and dlg_on and vb_dialog.closing_enabled(settings)
+            and vb_dialog.is_stt_hallucination(transkrip, settings)):
+        print("[voicebot.engine] transkrip halusinasi STT diabaikan: %r" % transkrip,
+              flush=True)
+        transkrip = ""
+
     # Mode streaming: STT tak menangkap ucapan -> jangan membalas apa pun. Tidak
     # menaikkan fallback_streak & tidak dicatat, supaya noise/gema tak memicu
     # 'maaf' berulang maupun handoff palsu di Mode B.
@@ -353,6 +370,10 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
         sess["fallback_streak"] = sess.get("fallback_streak", 0) + 1
     else:
         cmd = vb_dialog.global_command(transkrip, settings) if dlg_on else None
+        # salam penutup (#4): pemicu LUNAK (mis. 'terima kasih' berdiri sendiri)
+        # -> perlakukan seperti perintah 'selesai' (bacakan salam penutup + tutup).
+        if dlg_on and cmd is None and vb_dialog.wants_closing(transkrip, settings):
+            cmd = "end"
         pending = sess.get("pending_confirm") if dlg_on else None
         flow = sess.get("active_flow") if dlg_on else None
 
@@ -415,7 +436,7 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
                 action = "reply"
             else:
                 # penelepon menolak tebakan. Coba tangkap topik BARU dari ucapan yang
-                # sama (mis. "bukan, saya mau aktivasi EFIN") -> konfirmasi intent baru.
+                # sama (mis. \"bukan, saya mau aktivasi EFIN\") -> konfirmasi intent baru.
                 sess["pending_confirm"] = None
                 recls = vb_nlu.classify(transkrip)
                 if cfirst and recls.get("intent") and float(recls.get("score") or 0.0) >= cmin:
@@ -544,7 +565,7 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
             parts.append("U: " + transkrip)
             handoff = {"reason": reason, "ringkasan": (" | ".join(parts))[:1000]}
 
-    # simpan jawaban substantif utk perintah "ulangi"
+    # simpan jawaban substantif utk perintah \"ulangi\"
     if sumber in ("nlu", "rag", "llm", "dialog") and jawaban and action not in ("confirm",):
         sess["last_answer"] = jawaban
 
