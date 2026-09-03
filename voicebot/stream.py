@@ -50,6 +50,24 @@ Server -> klien:
    - Frame onset berurutan (stream_onset_frames) + rasio frame bersuara
      (stream_voiced_ratio_min) tetap membuang klik/ketikan/pop & segmen dominan noise.
 
+5) ANTI-BUDEG LANJUTAN (perbaikan 3 Sep, malam):
+   a. RASIO BERSUARA DIHITUNG LONGGAR (vad OR energi). Dulu sebuah frame hanya
+      dihitung 'bersuara' bila webrtcvad bilang bicara DAN energinya >= ambang.
+      Frame lirih (akhir kata, konsonan tak bersuara, suara pelan) tidak lolos
+      syarat ganda itu, sehingga ucapan ASLI sering dibuang sebagai 'noise
+      dominan' (rasio 0.24-0.34 < 0.35) -> tidak pernah ada transkrip = budeg.
+      Kini rasio memakai OR (vad ATAU energi); gerbang trigger/endpointing
+      tetap ketat (AND) supaya deteksi awal bicara tidak jadi sensitif noise.
+   b. UCAPAN YANG DIBUANG TIDAK LAGI SENYAP: server kirim {"type":"no_speech"}
+      + alasan, supaya UI tidak menggantung 'memproses' tanpa kabar.
+   c. UCAPAN PENYELA (BARGE-IN) IKUT DIPROSES. Dulu ucapan user yang memotong
+      bot DIBUANG begitu saja (user harus mengulang bicara -> terasa budeg).
+      Kini saat barge-in terkonfirmasi, ucapan terus direkam dan begitu selesai
+      langsung dikirim ke STT/NLU seperti ucapan biasa.
+   d. FLAG interrupt DIBERSIHKAN setelah audio bot benar-benar dipotong. Dulu
+      flag basi membuat audio JAWABAN BERIKUTNYA ikut di-skip (jawaban ada
+      teksnya tapi tak pernah dibacakan).
+
 PENJAGA DIAM #3 & SALAM PENUTUP #4: tak berubah perilakunya.
 
 SEMUA TUNING DAPAT DIATUR DARI UI (/voicebot, panel \"Streaming (Mode B) & barge-in\";
@@ -246,6 +264,11 @@ class Endpointer:
     belajar dari frame yang webrtcvad pastikan bukan-bicara -> ucapan asli tak
     pernah menaikkan lantai (anti 'budeg'). + frame onset berurutan + rasio frame
     bersuara utk membuang noise/bunyi sesaat/dengungan sebelum STT.
+
+    Anti-budeg #5a: gerbang trigger/endpointing tetap KETAT (vad AND energi),
+    tapi rasio-bersuara dihitung LONGGAR (vad OR energi) supaya frame lirih di
+    ujung kata / konsonan tak bersuara tetap terhitung sebagai bicara dan
+    ucapan asli tidak dibuang sebagai 'noise dominan'.
     """
 
     def __init__(self, tuning):
@@ -300,15 +323,23 @@ class Endpointer:
         return thr
 
     def _frame_is_speech(self, frame, rms_min):
-        """(is_speech, rms). base_thr = rms_min (penjaga gema saat bot bicara) atau rms_default."""
+        """(is_speech, rms, voiced_like).
+
+        is_speech   : gerbang KETAT (vad AND energi) utk trigger/endpointing.
+        voiced_like : hitungan LONGGAR (vad OR energi) khusus rasio-bersuara #5a
+                      -- frame lirih tetap dihitung bicara (anti-budeg).
+        base_thr = rms_min (penjaga gema saat bot bicara) atau rms_default.
+        """
         rms = _rms(frame)
         vad_pos = _vad_verdict(frame, self.vad_aggr)
         base_thr = rms_min if rms_min is not None else self.rms_default
         thr = self._eff_threshold(base_thr)
         if vad_pos is not None:
             is_sp = vad_pos and rms >= thr
+            voiced_like = vad_pos or rms >= thr
         else:
             is_sp = rms >= thr
+            voiced_like = is_sp
         # Perbarui lantai noise HANYA dari non-bicara terpastikan (webrtcvad False),
         # dan hanya saat bot TIDAK bicara. Dibatasi supaya tak pernah 'runaway'.
         if self.noise_adapt and rms_min is None:
@@ -321,29 +352,33 @@ class Endpointer:
                     self.noise_floor = cap
                 if self.noise_floor < lo:
                     self.noise_floor = lo
-        return is_sp, rms
+        return is_sp, rms, voiced_like
 
     def _voiced_ok(self, voiced_ms, spoke_ms):
+        """(ok, ratio). ratio memakai hitungan longgar voiced_like (#5a)."""
         if not self.voiced_ratio_min or self.voiced_ratio_min <= 0:
-            return True
+            return True, 1.0
         if spoke_ms <= 0:
-            return False
+            return False, 0.0
         ratio = voiced_ms / float(spoke_ms)
+        if ratio > 1.0:
+            ratio = 1.0
         ok = ratio >= self.voiced_ratio_min
         if not ok:
             _log("utterance dibuang (#6): rasio bersuara %.2f < %.2f (noise dominan)."
                  % (ratio, self.voiced_ratio_min))
-        return ok
+        return ok, ratio
 
     def add(self, data: bytes, rms_min=None):
-        """Proses byte masuk; kembalikan list event: ("speech_start",) / ("utterance", wav)."""
+        """Proses byte masuk; kembalikan list event:
+        ("speech_start",) / ("utterance", wav) / ("discard", ratio)."""
         events = []
         self._buf.extend(data)
         preroll_max = max(FRAME_BYTES, int(self.preroll_ms / FRAME_MS) * FRAME_BYTES)
         while len(self._buf) >= FRAME_BYTES:
             frame = bytes(self._buf[:FRAME_BYTES])
             del self._buf[:FRAME_BYTES]
-            speech, _r = self._frame_is_speech(frame, rms_min)
+            speech, _r, voiced_like = self._frame_is_speech(frame, rms_min)
             if not self._triggered:
                 self._preroll.extend(frame)
                 if len(self._preroll) > preroll_max:
@@ -364,9 +399,10 @@ class Endpointer:
             else:
                 self._speech.extend(frame)
                 self._speech_ms += FRAME_MS
+                if voiced_like:
+                    self._voiced_ms += FRAME_MS
                 if speech:
                     self._silence_run = 0
-                    self._voiced_ms += FRAME_MS
                 else:
                     self._silence_run += FRAME_MS
                     if self._silence_run >= self.silence_ms:
@@ -374,15 +410,23 @@ class Endpointer:
                         spoke = self._speech_ms - self._silence_run
                         voiced = self._voiced_ms
                         self.reset()
-                        if spoke >= self.min_speech_ms and self._voiced_ok(voiced, spoke):
-                            events.append(("utterance", _pcm16_to_wav(pcm)))
+                        if spoke >= self.min_speech_ms:
+                            ok, ratio = self._voiced_ok(voiced, spoke)
+                            if ok:
+                                events.append(("utterance", _pcm16_to_wav(pcm)))
+                            else:
+                                events.append(("discard", ratio))
+                        else:
+                            # terlalu pendek: beri tahu (jangan senyap, #5b)
+                            events.append(("discard", 0.0))
         return events
 
     def flush(self):
         wav = None
         if self._triggered:
             spoke = self._speech_ms - self._silence_run
-            if spoke >= self.min_speech_ms and self._voiced_ok(self._voiced_ms, spoke):
+            ok, _ratio = self._voiced_ok(self._voiced_ms, spoke)
+            if spoke >= self.min_speech_ms and ok:
                 wav = _pcm16_to_wav(bytes(self._speech))
         self.reset()
         return wav
@@ -452,7 +496,7 @@ async def handle(websocket: WebSocket):
              "processing": False, "last_activity": time.time(),
              "idle_prompted": False, "idle_prompt_at": 0.0,
              "bargein_on": bargein_on, "client_playing": False,
-             "speak_guard_until": 0.0,
+             "speak_guard_until": 0.0, "capture": False,
              "calib_started": False, "calib_done": (not tuning["autocalibrate"]),
              "calib_until": 0.0, "calib_sum": 0.0, "calib_n": 0}
     ep = Endpointer(tuning)
@@ -488,6 +532,7 @@ async def handle(websocket: WebSocket):
                         if ep.triggered:
                             ep.reset()
                         state["candidate"] = False
+                        state["capture"] = False
                         continue
                     # --- auto-kalibrasi lantai noise (server) di awal sesi saat bot diam
                     if (not talking) and tuning["autocalibrate"] and not state["calib_done"]:
@@ -506,17 +551,29 @@ async def handle(websocket: WebSocket):
                         state["calib_done"] = True
                     rms_min = speaking_rms if talking else None
                     for ev in ep.add(data, rms_min):
-                        if not talking:
-                            if ev[0] == "speech_start":
+                        kind = ev[0]
+                        if kind == "speech_start":
+                            if not talking:
                                 state["last_activity"] = now
                                 state["idle_prompted"] = False
                                 await _safe_send_text({"type": "speech_start"})
-                            elif ev[0] == "utterance":
+                            # saat talking: interupsi ditangani kandidat/konfirmasi di bawah.
+                        elif kind == "utterance":
+                            # #5c: ucapan biasa ATAU ucapan penyela barge-in -> proses.
+                            if not talking or state["capture"]:
+                                state["capture"] = False
                                 state["last_activity"] = now
                                 state["idle_prompted"] = False
                                 await queue.put(ev[1])
-                        # talking + bargein_on: utterance/speech_start diabaikan;
-                        # interupsi ditangani lewat kandidat/konfirmasi di bawah.
+                        elif kind == "discard":
+                            # #5b: jangan senyap -- beri tahu klien supaya UI tak menggantung.
+                            if not talking or state["capture"]:
+                                state["capture"] = False
+                                state["last_activity"] = now
+                                await _safe_send_text({
+                                    "type": "no_speech",
+                                    "reason": "segmen dibuang server (rasio bersuara %.2f)" % ev[1],
+                                })
                     if talking and state["bargein_on"] and not state["interrupt"]:
                         if ep.triggered and not state["candidate"]:
                             state["candidate"] = True
@@ -535,8 +592,9 @@ async def handle(websocket: WebSocket):
                         if ep.triggered and ep.active_speech_ms >= bargein_min_ms:
                             state["interrupt"] = True
                             state["candidate"] = False
-                            _log("BARGE-IN dikonfirmasi: rms~%.0f (>=%d) & bicara %dms (>=%dms) -> POTONG audio bot."
-                                 % (cur_rms, speaking_rms, ep.active_speech_ms, bargein_min_ms))
+                            state["capture"] = True  # #5c: rekam terus ucapan penyela
+                            _log("BARGE-IN dikonfirmasi: bicara %dms (>=%dms) berkelanjutan di atas ambang (frame terakhir rms~%.0f) -> POTONG audio bot; ucapan penyela direkam & akan diproses."
+                                 % (ep.active_speech_ms, bargein_min_ms, cur_rms))
                             await _safe_send_text({"type": "speech_start",
                                                    "rms": round(cur_rms),
                                                    "speaking_rms": speaking_rms})
@@ -567,12 +625,15 @@ async def handle(websocket: WebSocket):
                         if not on:
                             state["speak_guard_until"] = 0.0
                             state["candidate"] = False
-                            ep.reset()
+                            # #5c: jangan buang buffer bila sedang merekam ucapan penyela.
+                            if not state["capture"]:
+                                ep.reset()
                     elif ct == "barge_in":
                         _log("barge-in MANUAL (tombol Potong) diterima.")
                         state["interrupt"] = True
                     elif ct == "flush":
                         wav = ep.flush()
+                        state["capture"] = False
                         if wav:
                             state["last_activity"] = time.time()
                             state["idle_prompted"] = False
@@ -600,6 +661,7 @@ async def handle(websocket: WebSocket):
         state["speaking"] = True
         state["interrupt"] = False
         state["candidate"] = False
+        state["capture"] = False
         chunk = 8192
         i = 0
         try:
@@ -620,9 +682,13 @@ async def handle(websocket: WebSocket):
             state["speak_guard_until"] = time.time() + SPEAK_GUARD_SEC
             state["last_activity"] = time.time()
         if state["interrupt"]:
+            # #5c/#5d: user sedang bicara -> buka mic segera (tanpa jeda-aman)
+            # dan BERSIHKAN flag supaya jawaban berikutnya tetap dibacakan.
+            state["speak_guard_until"] = 0.0
             await _safe_send_text({"type": "interrupted",
                                    "rms": round(state.get("last_rms", 0.0)),
                                    "speaking_rms": speaking_rms})
+            state["interrupt"] = False
         elif not state["closed"]:
             await _safe_send_text({"type": "audio_end"})
 
@@ -693,13 +759,13 @@ async def handle(websocket: WebSocket):
                 })
                 b64 = res.get("jawaban_audio_b64")
                 if state["want_audio"] and not state["closed"]:
-                    if b64 and not state["interrupt"]:
+                    if b64:
+                        # #5d: jawaban BARU selalu dibacakan. Flag interrupt lama
+                        # sudah selesai tugasnya (memotong audio sebelumnya) --
+                        # jangan sampai flag basi membuat bot bisu.
+                        state["interrupt"] = False
                         await send_audio(b64)
-                    elif b64 and state["interrupt"]:
-                        await _safe_send_text({"type": "interrupted",
-                                               "rms": round(state.get("last_rms", 0.0)),
-                                               "speaking_rms": speaking_rms})
-                    elif not b64:
+                    else:
                         reason = res.get("tts_error") or "TTS tidak menghasilkan audio"
                         _log("no_audio: %s" % reason)
                         await _safe_send_text({
