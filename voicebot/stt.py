@@ -20,7 +20,10 @@ for positions >= 448, ...') dan SEMUA transkripsi gagal -- gejalanya voicebot
   (a) build_bias membatasi TOTAL KARAKTER prompt & hotwords (anggaran di bawah),
   (b) stt_bias_max_terms <= 0 tidak lagi berarti 'tanpa batas',
   (c) transcribe_bytes otomatis MENGULANG TANPA bias bila error 448 tetap muncul,
-      supaya transkripsi tidak pernah mati total hanya karena bias kepanjangan.
+      supaya transkripsi tidak pernah mati total hanya karena bias kepanjangan,
+  (d) nama intent gaya Dialogflow ('Layanan Administrasi_EFIN_Lupa EFIN_...')
+      DIPECAH per segmen '_' / '/' menjadi frasa pendek alami (EFIN, Lupa EFIN,
+      Belum Aktivasi, ...) lalu didedup -- bias lebih efektif & hemat anggaran.
 """
 import os
 import re
@@ -59,9 +62,9 @@ def build_bias(settings=None, conn=None):
     """Susun (initial_prompt, hotwords) domain untuk STT prediktif (#5).
 
     Sumber istilah (digabung, dedup, dibatasi stt_bias_max_terms):
-      - stt_bias_terms   : istilah manual (dipisah koma/baris),
+      - stt_bias_terms   : istilah manual (dipisah koma/baris) -- PRIORITAS TERTINGGI,
       - kamus pelafalan  : pola vb_lexicon (bila stt_bias_from_lexicon),
-      - nama intent aktif: (bila stt_bias_from_intents).
+      - nama intent aktif: dipecah per segmen '_'/'/' (bila stt_bias_from_intents).
     initial_prompt = stt_bias_prompt (teks domain) + \"Istilah penting: <daftar>\".
     hotwords       = daftar istilah dipisah koma.
     Kembalikan (None, None) bila biasing dimatikan / gagal / kosong.
@@ -94,8 +97,15 @@ def build_bias(settings=None, conn=None):
             try:
                 for it in cfg.list_intents(conn=conn):
                     nm = (it.get("name") or "").strip()
-                    if nm:
-                        terms.append(nm)
+                    if not nm:
+                        continue
+                    # (#8d) Nama intent gaya Dialogflow dipecah per segmen '_'/'/'
+                    # supaya bias berisi frasa alami yang pendek (EFIN, Lupa EFIN,
+                    # Belum Aktivasi, ...) dan tidak menghabiskan anggaran karakter.
+                    for seg in re.split(r"[_/]+", nm):
+                        seg = seg.strip()
+                        if 2 <= len(seg) <= 40:
+                            terms.append(seg)
             except Exception:
                 pass
         seen, uniq = set(), []
