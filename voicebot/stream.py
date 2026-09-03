@@ -21,6 +21,8 @@ Server -> klien:
       {"type":"no_speech"}
       {"type":"transcript","text":..}
       {"type":"answer",...}
+      {"type":"idle_prompt","text":..}      -> penjaga diam (#3): bot menyapa 'masih terhubung?'
+      {"type":"idle_end","text":..}         -> penjaga diam (#3): sesi diakhiri karena tak ada respons
       {"type":"audio_begin","mime":"audio/wav","greeting":true?}
       {"type":"audio_end"}
       {"type":"no_audio","reason":..,"tts_error":..}
@@ -38,6 +40,13 @@ PENJAGA GEMA (perbaikan): saat bot sedang bicara, sebuah frame dianggap 'bicara'
 HANYA bila webrtcvad bilang bicara DAN energi (rms) >= speaking_rms. Sebelumnya,
 bila webrtcvad terpasang, ambang energi diabaikan sehingga gema suara bot sendiri
 dari speaker terdeteksi sebagai bicara -> barge-in palsu -> audio 'dipotong'.
+
+PENJAGA DIAM / SILENCE WATCHDOG (#3): sebuah task terpisah memantau berapa lama
+penelepon diam. Bila diam >= stream_idle_prompt_ms (default 8 dtk) DAN bot tidak
+sedang bicara/memproses, bot menyapa 'masih terhubung?' (stream_idle_prompt_text).
+Bila diam berlanjut >= stream_idle_end_ms lagi (default 10 dtk) tanpa respons,
+sesi diakhiri otomatis (bot membaca stream_idle_end_text lalu koneksi ditutup).
+Timer diam di-reset saat penelepon bicara atau tiap kali bot selesai bicara.
 
 Saat sesi dibuka, bila dialog manager aktif, server mengirim 'ready' berisi teks
 salam pembuka LALU langsung mengalirkan AUDIO salam itu (disintesis TTS voicebot)
@@ -63,6 +72,10 @@ SEMUA TUNING DI BAWAH DAPAT DIATUR DARI UI (halaman /voicebot, panel \"Streaming
   stream_gate_hangover_ms(VOICEBOT_STREAM_GATE_HANGOVER_MS, 600)
   stream_ducking         (VOICEBOT_STREAM_DUCKING, 1)
   stream_duck_gain       (VOICEBOT_STREAM_DUCK_GAIN, 0.2)
+  stream_idle_enabled    (VOICEBOT_STREAM_IDLE_ENABLED, 1)     [penjaga diam #3]
+  stream_idle_prompt_ms  (VOICEBOT_STREAM_IDLE_PROMPT_MS, 8000)
+  stream_idle_end_ms     (VOICEBOT_STREAM_IDLE_END_MS, 10000)
+  stream_idle_prompt_text / stream_idle_end_text (teks; via voicebot.dialog)
 Perubahan berlaku untuk sesi streaming BERIKUTNYA (buka ulang percakapan Mode B).
 """
 from __future__ import annotations
@@ -80,6 +93,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 
 from voicebot import engine as vb_engine
 from voicebot import tts as vb_tts
+from voicebot import dialog as vb_dialog
 from voicebot import config_db as cfg
 
 
@@ -152,6 +166,10 @@ def _stream_tuning(settings):
         "gate_hangover_ms": _cfg_num(s, "stream_gate_hangover_ms", "VOICEBOT_STREAM_GATE_HANGOVER_MS", 600, _to_int),
         "ducking": _cfg_bool(s, "stream_ducking", "VOICEBOT_STREAM_DUCKING", True),
         "duck_gain": duck_gain,
+        # penjaga diam / silence watchdog (#3)
+        "idle_enabled": _cfg_bool(s, "stream_idle_enabled", "VOICEBOT_STREAM_IDLE_ENABLED", True),
+        "idle_prompt_ms": _cfg_num(s, "stream_idle_prompt_ms", "VOICEBOT_STREAM_IDLE_PROMPT_MS", 8000, _to_int),
+        "idle_end_ms": _cfg_num(s, "stream_idle_end_ms", "VOICEBOT_STREAM_IDLE_END_MS", 10000, _to_int),
     }
 
 
@@ -343,9 +361,17 @@ async def handle(websocket: WebSocket):
     ducking = tuning["ducking"]
     speaking_rms = tuning["speaking_rms"]
     bargein_min_ms = tuning["bargein_min_ms"]
-    _log("sesi %s dibuka | bargein=%s ducking=%s speaking_rms=%d bargein_min_ms=%d vad_aggr=%d rms=%d"
+
+    # penjaga diam / silence watchdog (#3)
+    idle_enabled = tuning["idle_enabled"]
+    idle_prompt_ms = tuning["idle_prompt_ms"]
+    idle_end_ms = tuning["idle_end_ms"]
+    idle_prompt_text = vb_dialog.idle_prompt_text(settings) if idle_enabled else ""
+    idle_end_text = vb_dialog.idle_end_text(settings) if idle_enabled else ""
+
+    _log("sesi %s dibuka | bargein=%s ducking=%s speaking_rms=%d bargein_min_ms=%d vad_aggr=%d rms=%d | idle=%s prompt=%dms end=%dms"
          % (session_id, bargein_on, ducking, speaking_rms, bargein_min_ms,
-            tuning["vad_aggr"], tuning["rms"]))
+            tuning["vad_aggr"], tuning["rms"], idle_enabled, idle_prompt_ms, idle_end_ms))
 
     try:
         await websocket.send_text(json.dumps({
@@ -356,12 +382,15 @@ async def handle(websocket: WebSocket):
             "ducking": ducking,
             "duck_gain": tuning["duck_gain"],
             "speaking_rms": speaking_rms,
+            "idle_watchdog": idle_enabled,
         }))
     except Exception:
         return
 
     state = {"speaking": False, "interrupt": False, "closed": False,
-             "gen": 0, "want_audio": True, "candidate": False, "last_rms": 0.0}
+             "gen": 0, "want_audio": True, "candidate": False, "last_rms": 0.0,
+             "processing": False, "last_activity": time.time(),
+             "idle_prompted": False, "idle_prompt_at": 0.0}
     ep = Endpointer(tuning)
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -388,10 +417,15 @@ async def handle(websocket: WebSocket):
                         state["last_rms"] = cur_rms
                     for ev in ep.add(data, rms_min):
                         if ev[0] == "speech_start":
+                            # penelepon bersuara -> reset penjaga diam (#3)
+                            state["last_activity"] = time.time()
+                            state["idle_prompted"] = False
                             if not state["speaking"]:
                                 await _safe_send_text({"type": "speech_start"})
                             # saat bot bicara: kandidat/konfirmasi ditangani di bawah
                         elif ev[0] == "utterance":
+                            state["last_activity"] = time.time()
+                            state["idle_prompted"] = False
                             await queue.put(ev[1])
                     # barge-in tahan-gema + ducking, hanya saat bot bicara
                     if state["speaking"] and bargein_on and not state["interrupt"]:
@@ -437,6 +471,8 @@ async def handle(websocket: WebSocket):
                     elif ct == "flush":
                         wav = ep.flush()
                         if wav:
+                            state["last_activity"] = time.time()
+                            state["idle_prompted"] = False
                             await queue.put(wav)
                     elif ct == "bye":
                         break
@@ -477,12 +513,26 @@ async def handle(websocket: WebSocket):
         finally:
             state["speaking"] = False
             state["candidate"] = False
+            # bot selesai bicara -> mulai hitung ulang diam penelepon (#3)
+            state["last_activity"] = time.time()
         if state["interrupt"]:
             await _safe_send_text({"type": "interrupted",
                                    "rms": round(state.get("last_rms", 0.0)),
                                    "speaking_rms": speaking_rms})
         elif not state["closed"]:
             await _safe_send_text({"type": "audio_end"})
+
+    async def speak_text(text):
+        """Sintesis + kirim AUDIO teks arbitrer (dipakai penjaga diam #3)."""
+        if not text or state["closed"] or not state["want_audio"]:
+            return
+        try:
+            wav, _terr = await loop.run_in_executor(None, vb_tts.synth, text)
+        except Exception:
+            wav = None
+        if wav and not state["closed"]:
+            b64 = base64.b64encode(wav).decode("ascii")
+            await send_audio(b64)
 
     async def greet():
         """Sintesis + kirim AUDIO salam pembuka (suara voicebot) saat sesi dibuka."""
@@ -504,67 +554,120 @@ async def handle(websocket: WebSocket):
             wav = await queue.get()
             if wav is None:
                 break
-            state["gen"] += 1
-            t_utt = time.time()
-            await _safe_send_text({"type": "thinking"})
+            state["processing"] = True
             try:
-                res = await loop.run_in_executor(
-                    None, vb_engine.talk, session_id, None, wav, "stream.wav",
-                    state["want_audio"], False,
-                )
-            except Exception as e:  # noqa: BLE001
-                await _safe_send_text({"type": "error", "error": str(e)})
-                continue
+                state["gen"] += 1
+                t_utt = time.time()
+                await _safe_send_text({"type": "thinking"})
+                try:
+                    res = await loop.run_in_executor(
+                        None, vb_engine.talk, session_id, None, wav, "stream.wav",
+                        state["want_audio"], False,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    await _safe_send_text({"type": "error", "error": str(e)})
+                    continue
+                if state["closed"]:
+                    break
+                # STT tak menangkap ucapan (noise/gema) -> jangan membalas apa pun.
+                if res.get("no_speech") or not (res.get("transkrip") or "").strip():
+                    await _safe_send_text({"type": "no_speech"})
+                    continue
+                await _safe_send_text({"type": "transcript",
+                                       "text": res.get("transkrip") or ""})
+                await _safe_send_text({
+                    "type": "answer",
+                    "intent": res.get("intent"),
+                    "confidence": res.get("confidence"),
+                    "sumber": res.get("sumber"),
+                    "action": res.get("action"),
+                    "jawaban_teks": res.get("jawaban_teks"),
+                    "handoff": res.get("handoff"),
+                    "stt_error": res.get("stt_error"),
+                    "tts_error": res.get("tts_error"),
+                    "engine": res.get("engine"),
+                    "elapsed_ms": res.get("elapsed_ms"),
+                    "timings": res.get("timings"),
+                    "server_ms": int((time.time() - t_utt) * 1000),
+                })
+                # KEANDALAN SUARA: setiap jawaban ber-teks harus menghasilkan audio,
+                # 'interrupted', atau 'no_audio' (beserta alasannya). JANGAN diam.
+                b64 = res.get("jawaban_audio_b64")
+                if state["want_audio"] and not state["closed"]:
+                    if b64 and not state["interrupt"]:
+                        await send_audio(b64)
+                    elif b64 and state["interrupt"]:
+                        await _safe_send_text({"type": "interrupted",
+                                               "rms": round(state.get("last_rms", 0.0)),
+                                               "speaking_rms": speaking_rms})
+                    elif not b64:
+                        reason = res.get("tts_error") or "TTS tidak menghasilkan audio"
+                        _log("no_audio: %s" % reason)
+                        await _safe_send_text({
+                            "type": "no_audio",
+                            "reason": reason,
+                            "tts_error": res.get("tts_error"),
+                        })
+            finally:
+                # selesai satu giliran -> reset penjaga diam (#3)
+                state["processing"] = False
+                state["last_activity"] = time.time()
+                state["idle_prompted"] = False
+
+    async def watchdog():
+        """Penjaga diam (#3): diam >= idle_prompt_ms -> sapa 'masih terhubung?';
+        diam berlanjut >= idle_end_ms lagi tanpa respons -> akhiri sesi.
+        Timer hanya berjalan saat bot TIDAK bicara/memproses.
+        """
+        if not idle_enabled:
+            return
+        while not state["closed"]:
+            await asyncio.sleep(0.5)
             if state["closed"]:
                 break
-            # STT tak menangkap ucapan (noise/gema) -> jangan membalas apa pun.
-            if res.get("no_speech") or not (res.get("transkrip") or "").strip():
-                await _safe_send_text({"type": "no_speech"})
+            if state["speaking"] or state["processing"]:
+                # bot sibuk -> jangan hitung diam (kecuali sedang menyapa & menunggu respons)
+                if not state["idle_prompted"]:
+                    state["last_activity"] = time.time()
                 continue
-            await _safe_send_text({"type": "transcript",
-                                   "text": res.get("transkrip") or ""})
-            await _safe_send_text({
-                "type": "answer",
-                "intent": res.get("intent"),
-                "confidence": res.get("confidence"),
-                "sumber": res.get("sumber"),
-                "action": res.get("action"),
-                "jawaban_teks": res.get("jawaban_teks"),
-                "handoff": res.get("handoff"),
-                "stt_error": res.get("stt_error"),
-                "tts_error": res.get("tts_error"),
-                "engine": res.get("engine"),
-                "elapsed_ms": res.get("elapsed_ms"),
-                "timings": res.get("timings"),
-                "server_ms": int((time.time() - t_utt) * 1000),
-            })
-            # KEANDALAN SUARA: setiap jawaban ber-teks harus menghasilkan audio,
-            # 'interrupted', atau 'no_audio' (beserta alasannya). JANGAN diam.
-            b64 = res.get("jawaban_audio_b64")
-            if state["want_audio"] and not state["closed"]:
-                if b64 and not state["interrupt"]:
-                    await send_audio(b64)
-                elif b64 and state["interrupt"]:
-                    await _safe_send_text({"type": "interrupted",
-                                           "rms": round(state.get("last_rms", 0.0)),
-                                           "speaking_rms": speaking_rms})
-                elif not b64:
-                    reason = res.get("tts_error") or "TTS tidak menghasilkan audio"
-                    _log("no_audio: %s" % reason)
-                    await _safe_send_text({
-                        "type": "no_audio",
-                        "reason": reason,
-                        "tts_error": res.get("tts_error"),
-                    })
+            now = time.time()
+            if not state["idle_prompted"]:
+                idle_ms = (now - state["last_activity"]) * 1000.0
+                if idle_ms >= idle_prompt_ms:
+                    state["idle_prompted"] = True
+                    _log("watchdog: diam %.0fms >= %dms -> sapa 'masih terhubung?'."
+                         % (idle_ms, idle_prompt_ms))
+                    await _safe_send_text({"type": "idle_prompt", "text": idle_prompt_text})
+                    await speak_text(idle_prompt_text)
+                    # mulai hitung jendela akhir SETELAH sapaan selesai dibacakan
+                    state["idle_prompt_at"] = time.time()
+            else:
+                # sudah menyapa; tunggu respons sampai idle_end_ms lagi
+                since = (now - state["idle_prompt_at"]) * 1000.0
+                if since >= idle_end_ms:
+                    if not state["idle_prompted"]:
+                        # penelepon keburu merespons -> batalkan penutupan
+                        continue
+                    _log("watchdog: masih diam %.0fms >= %dms tanpa respons -> akhiri sesi."
+                         % (since, idle_end_ms))
+                    await _safe_send_text({"type": "idle_end", "text": idle_end_text})
+                    await speak_text(idle_end_text)
+                    state["closed"] = True
+                    try:
+                        await queue.put(None)
+                    except Exception:
+                        pass
+                    break
 
     recv_task = asyncio.ensure_future(receiver())
     proc_task = asyncio.ensure_future(processor())
     greet_task = asyncio.ensure_future(greet())
+    wd_task = asyncio.ensure_future(watchdog())
     try:
         await asyncio.gather(recv_task, proc_task)
     finally:
         state["closed"] = True
-        for tsk in (recv_task, proc_task, greet_task):
+        for tsk in (recv_task, proc_task, greet_task, wd_task):
             if not tsk.done():
                 tsk.cancel()
         try:
