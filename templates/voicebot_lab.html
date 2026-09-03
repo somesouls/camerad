@@ -34,7 +34,7 @@
       <span class="vbl-pill" id="pillStream">Streaming: mati</span>
     </div>
     <p style="color:var(--text-muted);font-size:12.5px;margin:8px 0 12px;">
-      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. <b>Barge-in via mic</b> aktif secara default dan dirancang tahan-gema untuk <b>loudspeaker</b>: browser memakai <b>AEC/noise-suppression</b> + <b>gerbang noise</b> untuk membuang gema suara bot &amp; noise sekitar, dan server hanya memotong bila terdeteksi bicara <b>berkelanjutan</b> (bukan blip/gema sesaat). Saat memverifikasi kandidat suara, volume bot <b>dikecilkan sementara (ducking)</b> lalu dipulihkan bila ternyata noise, atau dihentikan bila benar suara Anda. Noise yang tak jadi ucapan tidak lagi dibalas “maaf”. Semua ambang deteksi (gerbang noise, RMS server, agresivitas VAD, konfirmasi barge-in, ducking) kini bisa diatur di halaman <b>Konfigurasi → Streaming (Mode B)</b>. Bila lingkungan sangat berisik, hilangkan centang untuk mode <b>half-duplex</b> (mic dibisukan saat bot bicara). Tombol <b>✋ Potong</b> selalu bisa dipakai.
+      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. <b>Barge-in via mic</b> aktif secara default dan dirancang tahan-gema untuk <b>loudspeaker</b>: browser memakai <b>AEC/noise-suppression</b> + <b>gerbang noise</b> untuk membuang gema suara bot &amp; noise sekitar, dan server hanya memotong bila terdeteksi bicara <b>berkelanjutan</b> DAN energinya melewati ambang <b>speaking_rms</b> (bukan blip/gema sesaat). Saat memverifikasi kandidat suara, volume bot <b>dikecilkan sementara (ducking)</b> lalu dipulihkan bila ternyata noise, atau dihentikan bila benar suara Anda. Level deteksi (rms vs ambang) kini <b>dicatat di log di bawah</b>. Noise yang tak jadi ucapan tidak lagi dibalas “maaf”. Semua ambang deteksi (gerbang noise, RMS server, agresivitas VAD, konfirmasi barge-in, ducking) kini bisa diatur di halaman <b>Konfigurasi → Streaming (Mode B)</b>. Bila lingkungan sangat berisik, hilangkan centang untuk mode <b>half-duplex</b> (mic dibisukan saat bot bicara). Tombol <b>✋ Potong</b> selalu bisa dipakai.
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <button id="btnStream" class="vbl-btnp">🔴 Mulai percakapan langsung</button>
@@ -323,8 +323,8 @@
           if(m.greeting){sAdd('🤖',m.greeting);}
           sStat('Siap — silakan bicara… (barge-in via mic '+(autoBarge()?'aktif':'mati')+')');
         }
-        else if(m.type==='speech_start'){ sStat('🎙️ Anda bicara…'); stopAudio(); }
-        else if(m.type==='speech_candidate'){ if(duckEnabled&&curAudio){try{curAudio.volume=duckGain;}catch(e){}} sStat('🔎 Memeriksa suara… (volume bot dikecilkan sementara)'); }
+        else if(m.type==='speech_start'){ var _rs=(m.rms!=null?(' (rms '+m.rms+' ≥ '+m.speaking_rms+')'):''); sStat('🎙️ Anda bicara…'+_rs); if(m.rms!=null){ sAdd('🎙️','Barge-in dikonfirmasi — level suara rms '+m.rms+' ≥ ambang speaking_rms '+m.speaking_rms+'.'); } stopAudio(); }
+        else if(m.type==='speech_candidate'){ if(duckEnabled&&curAudio){try{curAudio.volume=duckGain;}catch(e){}} var _rc=(m.rms!=null?(' · rms '+m.rms+' / ambang '+m.speaking_rms):''); sStat('🔎 Memeriksa suara…'+_rc+' (volume bot dikecilkan sementara)'); if(m.rms!=null){ sAdd('🔎','Kandidat suara saat bot bicara — rms '+m.rms+' vs ambang speaking_rms '+m.speaking_rms+' → ducking.'); } }
         else if(m.type==='speech_cancel'){ if(curAudio){try{curAudio.volume=1.0;}catch(e){}} sStat('🔊 Melanjutkan jawaban… (noise diabaikan)'); }
         else if(m.type==='thinking'){ sStat('🤔 Memproses…'); tThink=performance.now(); pend={transkrip:''}; setBusy(true); }
         else if(m.type==='no_speech'){ sStat('🎧 Menunggu suara jelas… (noise diabaikan)'); clearBusyTimer(); setBusy(false); pend=null; }
@@ -349,7 +349,7 @@
         }
         else if(m.type==='audio_begin'){ clearBusyTimer(); setBusy(true); audioParts=[]; if(m.greeting){ sStat('🔊 Salam pembuka…'); } if(curRow){ curRow.ttfa=Math.round(performance.now()-tThink); curRow.suara='▶️ memutar'; renderEval(); } }
         else if(m.type==='audio_end'){ var _r=curRow; curRow=null; clearBusyTimer(); setBusy(false); playParts(_r); }
-        else if(m.type==='interrupted'){ sStat('✋ Dipotong (barge-in)'); audioParts=[]; stopAudio(); clearBusyTimer(); setBusy(false); if(curRow){ curRow.suara='✋ dipotong'; renderEval(); curRow=null; } }
+        else if(m.type==='interrupted'){ var _ri=(m.rms!=null?(' · rms '+m.rms+' / ambang '+m.speaking_rms):''); sStat('✋ Dipotong (barge-in)'+_ri); if(m.rms!=null){ sAdd('✋','Audio bot DIPOTONG — level terdeteksi rms '+m.rms+' vs ambang speaking_rms '+m.speaking_rms+'. Bila ini gema (bukan Anda), naikkan speaking_rms / gerbang RMS di Konfigurasi, atau hilangkan centang barge-in via mic.'); } audioParts=[]; stopAudio(); clearBusyTimer(); setBusy(false); if(curRow){ curRow.suara='✋ dipotong'; renderEval(); curRow=null; } }
         else if(m.type==='error'){ sStat('⚠️ '+(m.error||'error')); sAdd('⚠️','Error server: '+esc(m.error||'')); clearBusyTimer(); setBusy(false); }
       };
       ws.onerror=function(){ sStat('⚠️ WebSocket error'); };
