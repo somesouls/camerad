@@ -84,9 +84,14 @@
       <label>Jawaban menuntun / guided (#2)<select id="dGuided" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Min. langkah agar bertahap<input id="dGuidedMin" class="vb-inp" type="number" min="2"></label>
       <label>Perhalus transisi langkah via LLM<select id="dGuidedBlend" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Salam penutup + deteksi 'terima kasih' (#4)<select id="dCloseEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Maks kata agar dianggap menutup (#4)<input id="dCloseMaxW" class="vb-inp" type="number" min="1"></label>
     </div>
     <label style="display:block;margin-top:10px;">Salam pembuka (saat sesi dibuka)<input id="dGreet" class="vb-inp" style="width:100%;"></label>
-    <label style="display:block;margin-top:10px;">Kalimat penutup (perintah "selesai")<input id="dClose" class="vb-inp" style="width:100%;"></label>
+    <label style="display:block;margin-top:10px;">Salam penutup #4 (dibaca apa adanya saat "selesai" / "terima kasih")<input id="dClose" class="vb-inp" style="width:100%;"></label>
+    <label style="display:block;margin-top:10px;">Pemicu penutup lunak #4 (koma; mis. "terima kasih")<input id="dCloseTrig" class="vb-inp" style="width:100%;" placeholder="terima kasih, makasih, sudah cukup, itu saja, sekian"></label>
+    <label style="display:block;margin-top:10px;">Pola halusinasi STT diabaikan #4 (koma)<input id="dCloseHalu" class="vb-inp" style="width:100%;" placeholder="terima kasih telah menonton, jangan lupa subscribe"></label>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;"><b>Salam penutup (#4):</b> selain perintah <b>"selesai"</b>, ucapan penutup lunak seperti <b>"terima kasih"</b> ikut menutup percakapan — tapi HANYA bila ucapan berdiri sendiri / pendek (≤ <b>Maks kata</b>), supaya "terima kasih" di tengah kalimat sopan tak salah menutup. <b>Pola halusinasi STT</b> (mis. "terima kasih telah menonton" saat senyap) diabaikan total — tak dibalas &amp; tak menutup. Saat menutup, <b>Salam penutup</b> dibacakan apa adanya (verbatim) lalu (Mode B) koneksi ditutup otomatis.</p>
     <label style="display:block;margin-top:10px;">Template konfirmasi (pakai {intent})<input id="dConf" class="vb-inp" style="width:100%;"></label>
     <label style="display:block;margin-top:10px;">Template konfirmasi-dulu #1 (pakai {sal} &amp; {label})<input id="dCFirstTmpl" class="vb-inp" style="width:100%;" placeholder="Baik {sal}, saya konfirmasi, {label}"></label>
     <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;"><b>Konfirmasi-dulu (#1):</b> saat NLU menemukan intent, mesin langsung membacakan kalimat konfirmasi ini (tanpa LLM) memakai <b>Kalimat konfirmasi</b> per intent di bawah (atau otomatis dari nama intent bila kosong), sambil menyiapkan jawaban di latar. Jawaban lengkap baru dibacakan setelah penelepon menjawab "ya". <code>{sal}</code>=sapaan, <code>{label}</code>=kalimat konfirmasi intent.</p>
@@ -216,6 +221,8 @@
       $('dGuidedClose').value=s.guided_closing_template||''; $('dGuidedHo').value=s.guided_handoff_offer||'';
       $('dGuidedHoTrig').value=s.guided_handoff_triggers||''; $('dGuidedSys').value=s.guided_step_system||'';
       $('dGreet').value=s.greeting||''; $('dClose').value=s.closing_reply||''; $('dConf').value=s.confirm_template||'';
+      $('dCloseEn').value=String(s.closing_enabled||'1'); $('dCloseMaxW').value=s.closing_trigger_max_words||'5';
+      $('dCloseTrig').value=s.closing_triggers||''; $('dCloseHalu').value=s.closing_hallucination_patterns||'';
       $('dRep').value=s.cmd_repeat||''; $('dEnd').value=s.cmd_end||''; $('dAff').value=s.affirmations||''; $('dNeg').value=s.negations||'';
       $('dFil').value=s.filler_texts||'';
       $('sGate').value=(s.stream_gate_rms!=null&&s.stream_gate_rms!=='')?s.stream_gate_rms:'0.012';
@@ -274,6 +281,8 @@
       salutation_enabled:$('dSalEn').value,filler_enabled:$('dFilEn').value,resume_enabled:$('dResEn').value,
       intent_shorten_enabled:$('dSh').value,intent_shorten_min_chars:$('dShMin').value,intent_shorten_system:$('dShSys').value,
       greeting:$('dGreet').value,closing_reply:$('dClose').value,confirm_template:$('dConf').value,
+      closing_enabled:$('dCloseEn').value,closing_trigger_max_words:$('dCloseMaxW').value,
+      closing_triggers:$('dCloseTrig').value,closing_hallucination_patterns:$('dCloseHalu').value,
       cmd_repeat:$('dRep').value,cmd_end:$('dEnd').value,affirmations:$('dAff').value,negations:$('dNeg').value,
       filler_texts:$('dFil').value
     }).then(function(d){$('dlgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');});
