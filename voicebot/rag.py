@@ -10,10 +10,14 @@ Bahasa Indonesia. Fail-soft di tiap tahap: bila LLM tak ada, pakai jawaban resmi
 intent teratas; bila tak ada match sama sekali, pakai balasan fallback.
 
 Selain answer() (jalur RAG untuk pertanyaan ekor-panjang), modul ini juga
-menyediakan shorten() (poin 2b): meringkas jawaban intent STATIS (jalur 'act'/
-konfirmasi di engine) menjadi versi lisan ringkas, TANPA mengubah fakta/angka.
-Hasil di-cache karena jawaban intent bersifat tetap.
+menyediakan:
+  - shorten() (poin 2b): meringkas jawaban intent STATIS menjadi versi lisan
+    ringkas, TANPA mengubah fakta/angka. Hasil di-cache.
+  - segment_steps() + guided_step_reply() (poin #2): memecah jawaban intent jadi
+    langkah berurutan untuk 'jawaban menuntun' (guided walkthrough) dan menyusun
+    balasan tiap langkah (akui selaan penelepon + sampaikan langkah berikutnya).
 """
+import re
 
 from voicebot import nlu as vb_nlu
 
@@ -164,3 +168,96 @@ def shorten(text, settings=None):
 
 def reset_shorten_cache():
     _SHORTEN_CACHE.clear()
+
+
+# ------------------------------------------------- jawaban menuntun / guided (#2)
+_STEP_SPLIT_NUM = re.compile(r"(?:(?<=\s)|^)\d+[\.\)]\s+")
+_SENT_SPLIT = re.compile(r"(?<=[\.\?\!])\s+")
+
+_DEFAULT_GUIDED_SYSTEM = (
+    "Anda asisten suara call center berbahasa Indonesia yang sedang MENUNTUN "
+    "penelepon langkah demi langkah. Anda diberi: ucapan/selaan penelepon, LANGKAH "
+    "BERIKUTNYA yang wajib disampaikan, dan langkah sebelumnya sebagai konteks. "
+    "Tugas Anda: akui singkat selaan penelepon lalu sampaikan LANGKAH BERIKUTNYA itu "
+    "secara utuh dengan bahasa lisan yang sopan dan jelas. DILARANG mengubah, "
+    "menambah, atau menghapus fakta, angka, alamat email, nominal, atau syarat pada "
+    "langkah tersebut. Jangan melompati atau mengarang langkah. Ringkas 1-3 kalimat, "
+    "tanpa markdown, tanpa poin bertanda, tanpa emoji. Keluarkan HANYA kalimat untuk "
+    "dibacakan."
+)
+
+
+def _merge_short_steps(parts, min_len=24):
+    """Rapikan daftar langkah: buang penanda bullet & gabungkan fragmen pendek."""
+    out = []
+    for p in parts:
+        p = (p or "").strip().strip("-*\u2022\t ").strip()
+        if not p:
+            continue
+        if out and len(p) < min_len:
+            out[-1] = (out[-1] + " " + p).strip()
+        else:
+            out.append(p)
+    if len(out) >= 2 and len(out[0]) < min_len:
+        out[1] = (out[0] + " " + out[1]).strip()
+        out = out[1:]
+    return out
+
+
+def segment_steps(text, settings=None):
+    """Pecah jawaban intent jadi daftar langkah berurutan (deterministik).
+
+    Prioritas pemisah: baris baru -> penanda bernomor ('1.'/'2)') -> kalimat.
+    Fragmen pendek digabung ke tetangganya agar tiap langkah bermakna. Bila teks
+    tak bisa dipecah, kembalikan [text] (1 langkah).
+    """
+    t = (text or "").strip()
+    if not t:
+        return []
+    lines = [l for l in re.split(r"[\r\n]+", t) if l.strip()]
+    if len(lines) >= 2:
+        steps = _merge_short_steps(lines)
+        if len(steps) >= 2:
+            return steps
+    parts = [p for p in _STEP_SPLIT_NUM.split(t) if p and p.strip()]
+    if len(parts) >= 2:
+        steps = _merge_short_steps(parts)
+        if len(steps) >= 2:
+            return steps
+    sents = [s for s in _SENT_SPLIT.split(t) if s and s.strip()]
+    if len(sents) >= 2:
+        steps = _merge_short_steps(sents)
+        if len(steps) >= 2:
+            return steps
+    return [t]
+
+
+def guided_step_reply(user_text, next_step, prev_step=None, settings=None):
+    """Susun kalimat menuntun: akui selaan penelepon + sampaikan langkah berikut.
+
+    Hybrid: langkah sudah dipotong deterministik (segment_steps); LLM hanya
+    memperhalus transisi agar terasa nyambung dengan selaan penelepon. Fail-soft:
+    kembalikan teks langkah apa adanya bila guided_llm_blend mati atau LLM gagal.
+    """
+    settings = settings or {}
+    nxt = (next_step or "").strip()
+    if not nxt:
+        return ""
+    if str(settings.get("guided_llm_blend", "1")) == "0":
+        return nxt
+    sysmsg = settings.get("guided_step_system") or _DEFAULT_GUIDED_SYSTEM
+    prompt = ""
+    if prev_step:
+        prompt += "LANGKAH SEBELUMNYA (konteks, jangan diulang): " + prev_step.strip() + "\n"
+    prompt += "SELAAN PENELEPON: " + (user_text or "").strip() + "\n"
+    prompt += "LANGKAH BERIKUTNYA (wajib sampaikan utuh): " + nxt
+    try:
+        import common.llm_client as llm
+        ans = llm.chat([{"role": "user", "content": prompt}], system=sysmsg,
+                       max_new_tokens=200, temperature=0.3)
+        ans = (ans or "").strip()
+        if ans:
+            return ans
+    except Exception as e:  # noqa: BLE001
+        print("[voicebot.rag] guided_step gagal: %s" % e, flush=True)
+    return nxt
