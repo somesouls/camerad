@@ -136,6 +136,34 @@ DEFAULT_SETTINGS = {
         "sampai jumpa di video berikutnya, jangan lupa like dan subscribe, "
         "like dan subscribe, jangan lupa subscribe"
     ),
+    # --- STT prediktif / biasing + bias NLU (#5) ---
+    # STT prediktif: membiasakan faster-whisper ke KOSAKATA DOMAIN supaya istilah
+    # penting (NPWP, EFIN, SPT, dll.) & nama intent lebih akurat ditranskrip lewat
+    # initial_prompt (teks domain) + hotwords (daftar istilah). Sumber istilah
+    # digabung dari: stt_bias_terms (manual, koma) + kamus pelafalan vb_lexicon
+    # (stt_bias_from_lexicon) + nama intent aktif (stt_bias_from_intents), lalu
+    # di-dedup & dibatasi stt_bias_max_terms (jaga jendela prompt Whisper).
+    # Bias NLU: bila KATA KUNCI tertentu muncul di transkrip, skor intent terkait
+    # dinaikkan nlu_bias_boost. Pemetaan di nlu_bias_map, satu aturan per baris
+    # (atau dipisah '|') dengan format 'kata kunci => Nama Intent'.
+    "stt_bias_enabled": "1",
+    "stt_bias_prompt": (
+        "Percakapan layanan pelanggan perpajakan dalam Bahasa Indonesia. "
+        "Istilah umum: NPWP, NIK, EFIN, SPT, PPh, PPN, DJP, KPP, KTP, "
+        "e-Filing, e-Billing, e-Faktur."
+    ),
+    "stt_bias_terms": "",
+    "stt_bias_from_lexicon": "1",
+    "stt_bias_from_intents": "1",
+    "stt_bias_max_terms": "64",
+    "nlu_bias_enabled": "1",
+    "nlu_bias_boost": "0.08",
+    "nlu_bias_map": (
+        "npwp => Cek Status NPWP\n"
+        "status npwp => Cek Status NPWP\n"
+        "jam buka => Jam Operasional\n"
+        "jam operasional => Jam Operasional"
+    ),
     "filler_enabled": "1",
     "filler_texts": (
         "Baik, mohon tunggu sebentar ya.|Baik, saya periksa dulu.|"
@@ -158,7 +186,7 @@ DEFAULT_SETTINGS = {
     # unduhan model sekali dari HuggingFace; setelah itu jalan penuh lokal.
     "tts_engine": "piper",
     "mms_model": "facebook/mms-tts-ind",
-    # --- streaming Mode B & barge-in (#4b) — DAPAT DIATUR DARI UI KONFIGURASI ---
+    # --- streaming Mode B & barge-in (#4b) \u2014 DAPAT DIATUR DARI UI KONFIGURASI ---
     # Semua ambang di bawah bisa diubah dari panel "Streaming (Mode B) & barge-in"
     # di halaman /voicebot tanpa menyentuh kode/ENV. Bila sebuah nilai dikosongkan,
     # stream.py akan fallback ke ENV lama lalu default kode. Berlaku untuk sesi
@@ -175,7 +203,7 @@ DEFAULT_SETTINGS = {
     "stream_speaking_rms": "900",      # ambang energi saat bot bicara (anti-gema loudspeaker)
     "stream_ducking": "1",             # kecilkan volume bot saat memverifikasi kandidat suara user
     "stream_duck_gain": "0.2",         # level volume bot saat di-duck (0..1)
-    # --- penjaga diam / silence watchdog (#3) — DAPAT DIATUR DARI UI ---
+    # --- penjaga diam / silence watchdog (#3) \u2014 DAPAT DIATUR DARI UI ---
     # Khusus Mode B (streaming). Bila penelepon diam: setelah stream_idle_prompt_ms
     # tanpa suara, bot menyapa (stream_idle_prompt_text, mis. "masih terhubung?").
     # Bila diam berlanjut stream_idle_end_ms lagi tanpa respons, sesi diakhiri
