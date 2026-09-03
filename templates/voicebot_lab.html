@@ -34,7 +34,7 @@
       <span class="vbl-pill" id="pillStream">Streaming: mati</span>
     </div>
     <p style="color:var(--text-muted);font-size:12.5px;margin:8px 0 12px;">
-      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. <b>Barge-in via mic</b> aktif secara default dan dirancang tahan-gema untuk <b>loudspeaker</b>: browser memakai <b>AEC/noise-suppression</b> + <b>gerbang noise</b> untuk membuang gema suara bot &amp; noise sekitar, dan server hanya memotong bila terdeteksi bicara <b>berkelanjutan</b> DAN energinya melewati ambang <b>speaking_rms</b> (bukan blip/gema sesaat). Saat memverifikasi kandidat suara, volume bot <b>dikecilkan sementara (ducking)</b> lalu dipulihkan bila ternyata noise, atau dihentikan bila benar suara Anda. Level deteksi (rms vs ambang) kini <b>dicatat di log di bawah</b>. Noise yang tak jadi ucapan tidak lagi dibalas “maaf”. Semua ambang deteksi (gerbang noise, RMS server, agresivitas VAD, konfirmasi barge-in, ducking) kini bisa diatur di halaman <b>Konfigurasi → Streaming (Mode B)</b>. Bila lingkungan sangat berisik, hilangkan centang untuk mode <b>half-duplex</b> (mic dibisukan saat bot bicara). Tombol <b>✋ Potong</b> selalu bisa dipakai.
+      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. Di awal sesi ada <b>auto-kalibrasi noise</b> ~1 detik (diamkan sebentar) agar ambang menyesuaikan lingkungan otomatis. <b>Barge-in via mic</b> (centang) dirancang tahan-gema untuk <b>loudspeaker</b>: browser memakai AEC/noise-suppression + gerbang noise, dan server hanya memotong bila terdeteksi bicara <b>berkelanjutan</b> DAN energinya melewati ambang <b>speaking_rms</b> (bukan blip/gema/ketikan). Saat memverifikasi kandidat suara, volume bot <b>dikecilkan sementara (ducking)</b> lalu dipulihkan bila ternyata noise. Bila centang <b>dimatikan</b>, mode <b>half-duplex sejati</b>: mic benar-benar dibisukan selama bot bicara (mustahil dipotong noise); tombol <b>✋ Potong</b> tetap bisa. Semua ambang bisa diatur di <b>Konfigurasi → Streaming (Mode B)</b>, dan ada tombol <b>↺ Reset ke rekomendasi</b> bila setelan sudah terlanjur kacau. Level deteksi (rms vs ambang) dicatat di log di bawah.
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <button id="btnStream" class="vbl-btnp">🔴 Mulai percakapan langsung</button>
@@ -234,8 +234,16 @@
   var procBusy=false, busyTimer=null, gateUntil=0;
   // Tuning dari server (ready) — dapat diatur di halaman Konfigurasi → Streaming (Mode B).
   var gateRms=0.012, gateHangover=600, duckEnabled=true, duckGain=0.2;
+  // #B: jendela pemutaran & half-duplex sejati + auto-kalibrasi noise browser.
+  var micHangover=250, autoCalib=true, calibMs=1200, calibMax=0, calibEnd=0;
+  var botPlaying=false, playOffAt=0;
 
+  function perfnow(){ return (window.performance&&performance.now)?performance.now():Date.now(); }
   function autoBarge(){ var c=$('chkAutoBarge'); return !!(c&&c.checked); }
+  // Beritahu server bahwa klien SEDANG / berhenti memutar audio bot (jendela 'bot bicara').
+  function sendPlaying(on){ if(ws&&ws.readyState===1){try{ws.send(JSON.stringify({type:'playing',on:!!on}));}catch(e){}} }
+  // Kirim status centang 'barge-in via mic' ke server (server jadi otoritas).
+  function sendBargein(){ if(ws&&ws.readyState===1){try{ws.send(JSON.stringify({type:'bargein',on:autoBarge()}));}catch(e){}} }
   function setBusy(v){ procBusy=v; }
   function clearBusyTimer(){ if(busyTimer){clearTimeout(busyTimer);busyTimer=null;} }
 
@@ -264,25 +272,29 @@
   function silentPcm(len){ return new Int16Array(len>0?len:1); }
   function frameRms(f32){ var s=0; for(var i=0;i<f32.length;i++){s+=f32[i]*f32[i];} return Math.sqrt(s/(f32.length||1)); }
 
-  function stopAudio(){ if(curAudio){try{curAudio.pause();}catch(e){} curAudio=null;} }
+  // Hentikan pemutaran audio bot. Pastikan server diberi tahu bot berhenti bicara.
+  function stopAudio(){ if(curAudio){try{curAudio.pause();}catch(e){} curAudio=null;} if(botPlaying){ botPlaying=false; playOffAt=perfnow()+micHangover; sendPlaying(false); } }
   // Putar audio yang terkumpul. `row` = baris evaluasi terkait; status kolom Suara
   // diperbarui dari HASIL play(): '✅ diputar' bila sukses, 'diblokir browser' bila
   // autoplay ditolak (audio SUDAH jadi -> ini masalah browser, bukan server).
+  // Saat mulai/berhenti memutar, kirim playing on/off supaya server tahu bot bicara.
   function playParts(row){
     if(!audioParts.length){ if(row){row.suara='kosong'; renderEval();} return; }
     var blob=new Blob(audioParts,{type:'audio/wav'}); audioParts=[];
     var url=URL.createObjectURL(blob); stopAudio();
-    curAudio=new Audio(url); curAudio.volume=1.0; curAudio.onended=function(){URL.revokeObjectURL(url);};
+    curAudio=new Audio(url); curAudio.volume=1.0;
+    curAudio.onended=function(){ URL.revokeObjectURL(url); botPlaying=false; playOffAt=perfnow()+micHangover; sendPlaying(false); };
     var pr=curAudio.play();
     if(pr&&pr.then){
-      pr.then(function(){ if(row){row.suara='✅ diputar'; renderEval();} })
+      pr.then(function(){ botPlaying=true; sendPlaying(true); if(row){row.suara='✅ diputar'; renderEval();} })
         .catch(function(err){
           var nm=(err&&(err.name||err.message))||err;
+          botPlaying=false; sendPlaying(false);
           sStat('⚠️ Browser memblokir autoplay — klik area halaman lalu ulangi.');
           sAdd('⚠️','🔇 Audio SUDAH diterima dari server tapi DIBLOKIR browser ('+esc(String(nm))+'). Klik halaman/izinkan autoplay lalu ulangi.');
           if(row){row.suara='diblokir browser'; renderEval();}
         });
-    } else { if(row){row.suara='✅ diputar'; renderEval();} }
+    } else { botPlaying=true; sendPlaying(true); if(row){row.suara='✅ diputar'; renderEval();} }
   }
 
   function startStream(){
@@ -291,21 +303,34 @@
       micStream=stream;
       ws=new WebSocket(wsUrl()); ws.binaryType='blob';
       ws.onopen=function(){
-        try{ws.send(JSON.stringify({type:'hello',want_audio:true}));}catch(e){}
+        try{ws.send(JSON.stringify({type:'hello',want_audio:true,bargein:autoBarge()}));}catch(e){}
         actx=new (window.AudioContext||window.webkitAudioContext)();
         srcNode=actx.createMediaStreamSource(stream);
         procNode=actx.createScriptProcessor(4096,1,1);
         muteNode=actx.createGain(); muteNode.gain.value=0;
         srcNode.connect(procNode); procNode.connect(muteNode); muteNode.connect(actx.destination);
-        gateUntil=0;
+        gateUntil=0; botPlaying=false; playOffAt=0;
         procNode.onaudioprocess=function(e){
           if(!ws||ws.readyState!==1)return;
-          // half-duplex: bila barge-in via mic tidak dicentang, bisukan mic saat bot memproses/berbicara
-          if(!autoBarge() && procBusy) return;
           var buf=e.inputBuffer.getChannelData(0);
-          // gerbang noise sisi-browser (ambang & hangover dari Konfigurasi): hanya kirim audio
-          // saat energi cukup. Blokir noise steady & gema sisa (setelah AEC) agar tak dianggap ucapan.
-          var now=(window.performance&&performance.now)?performance.now():Date.now();
+          var now=perfnow();
+          // HALF-DUPLEX SEJATI: bila barge-in via mic TIDAK dicentang, benar-benar bisukan
+          // mic selama bot MEMUTAR audio (+ hangover). Noise tak mungkin memotong jawaban.
+          if(!autoBarge() && (botPlaying || now<playOffAt)) return;
+          // AUTO-KALIBRASI: di ~calibMs pertama, ukur noise ambient utk set gerbang browser.
+          if(autoCalib && now<calibEnd){
+            var rc=frameRms(buf); if(rc>calibMax) calibMax=rc;
+            gateUntil=now+gateHangover; // kirim penuh saat kalibrasi agar server ikut mengukur
+            var pcmc=downsample(buf,actx.sampleRate,16000);
+            try{ws.send(pcmc.buffer);}catch(e2){}
+            return;
+          }
+          if(autoCalib && calibEnd && now>=calibEnd){
+            gateRms=Math.max(0.004,Math.min(0.03,calibMax*1.8)); calibEnd=0;
+            sStat('Kalibrasi selesai — silakan bicara. (gerbang noise auto: '+gateRms.toFixed(3)+')');
+          }
+          // gerbang noise sisi-browser (ambang & hangover dari Konfigurasi/kalibrasi): hanya kirim
+          // audio saat energi cukup. Blokir noise steady & gema sisa (setelah AEC).
           if(frameRms(buf)>=gateRms) gateUntil=now+gateHangover;
           var pcm=(now<gateUntil)?downsample(buf,actx.sampleRate,16000):silentPcm(Math.round(buf.length*16000/actx.sampleRate));
           try{ws.send(pcm.buffer);}catch(err){}
@@ -320,8 +345,13 @@
           if(typeof m.gate_hangover_ms==='number') gateHangover=m.gate_hangover_ms;
           if(typeof m.ducking!=='undefined') duckEnabled=!!m.ducking;
           if(typeof m.duck_gain==='number') duckGain=m.duck_gain;
+          if(typeof m.mic_hangover_ms==='number') micHangover=m.mic_hangover_ms;
+          if(typeof m.autocalibrate!=='undefined') autoCalib=!!m.autocalibrate;
+          if(typeof m.calib_ms==='number') calibMs=m.calib_ms;
+          calibEnd=autoCalib?(perfnow()+calibMs):0; calibMax=0;
+          sendBargein();
           if(m.greeting){sAdd('🤖',m.greeting);}
-          sStat('Siap — silakan bicara… (barge-in via mic '+(autoBarge()?'aktif':'mati')+')');
+          sStat('Siap'+(autoCalib?' — mengalibrasi noise ~'+Math.round(calibMs/100)/10+'s (diamkan sebentar)…':' — silakan bicara…')+' (barge-in via mic '+(autoBarge()?'aktif':'mati')+')');
         }
         else if(m.type==='speech_start'){ var _rs=(m.rms!=null?(' (rms '+m.rms+' ≥ '+m.speaking_rms+')'):''); sStat('🎙️ Anda bicara…'+_rs); if(m.rms!=null){ sAdd('🎙️','Barge-in dikonfirmasi — level suara rms '+m.rms+' ≥ ambang speaking_rms '+m.speaking_rms+'.'); } stopAudio(); }
         else if(m.type==='speech_candidate'){ if(duckEnabled&&curAudio){try{curAudio.volume=duckGain;}catch(e){}} var _rc=(m.rms!=null?(' · rms '+m.rms+' / ambang '+m.speaking_rms):''); sStat('🔎 Memeriksa suara…'+_rc+' (volume bot dikecilkan sementara)'); if(m.rms!=null){ sAdd('🔎','Kandidat suara saat bot bicara — rms '+m.rms+' vs ambang speaking_rms '+m.speaking_rms+' → ducking.'); } }
@@ -350,6 +380,8 @@
         else if(m.type==='audio_begin'){ clearBusyTimer(); setBusy(true); audioParts=[]; if(m.greeting){ sStat('🔊 Salam pembuka…'); } if(curRow){ curRow.ttfa=Math.round(performance.now()-tThink); curRow.suara='▶️ memutar'; renderEval(); } }
         else if(m.type==='audio_end'){ var _r=curRow; curRow=null; clearBusyTimer(); setBusy(false); playParts(_r); }
         else if(m.type==='interrupted'){ var _ri=(m.rms!=null?(' · rms '+m.rms+' / ambang '+m.speaking_rms):''); sStat('✋ Dipotong (barge-in)'+_ri); if(m.rms!=null){ sAdd('✋','Audio bot DIPOTONG — level terdeteksi rms '+m.rms+' vs ambang speaking_rms '+m.speaking_rms+'. Bila ini gema (bukan Anda), naikkan speaking_rms / gerbang RMS di Konfigurasi, atau hilangkan centang barge-in via mic.'); } audioParts=[]; stopAudio(); clearBusyTimer(); setBusy(false); if(curRow){ curRow.suara='✋ dipotong'; renderEval(); curRow=null; } }
+        else if(m.type==='idle_prompt'){ sStat('🔔 '+(m.text||'Masih terhubung?')); if(m.text){ sAdd('🔔',m.text); } }
+        else if(m.type==='idle_end'){ sStat('👋 '+(m.text||'Sesi diakhiri karena tak ada respons.')); if(m.text){ sAdd('👋',m.text); } }
         else if(m.type==='error'){ sStat('⚠️ '+(m.error||'error')); sAdd('⚠️','Error server: '+esc(m.error||'')); clearBusyTimer(); setBusy(false); }
       };
       ws.onerror=function(){ sStat('⚠️ WebSocket error'); };
@@ -358,7 +390,7 @@
   }
 
   function stopStream(fromClose){
-    streaming=false; clearBusyTimer(); setBusy(false); $('btnStream').textContent='🔴 Mulai percakapan langsung'; $('pillStream').textContent='Streaming: mati';
+    streaming=false; clearBusyTimer(); setBusy(false); botPlaying=false; playOffAt=0; $('btnStream').textContent='🔴 Mulai percakapan langsung'; $('pillStream').textContent='Streaming: mati';
     try{if(procNode){procNode.onaudioprocess=null;procNode.disconnect();}}catch(e){}
     try{if(srcNode)srcNode.disconnect();}catch(e){}
     try{if(muteNode)muteNode.disconnect();}catch(e){}
@@ -367,12 +399,13 @@
     procNode=srcNode=muteNode=actx=micStream=null;
     if(!fromClose&&ws&&ws.readyState===1){try{ws.send(JSON.stringify({type:'bye'}));}catch(e){}}
     try{if(ws)ws.close();}catch(e){} ws=null;
-    stopAudio(); audioParts=[];
+    if(curAudio){try{curAudio.pause();}catch(e){} curAudio=null;} audioParts=[];
     if(!fromClose)sStat('Berhenti.');
   }
 
   $('btnStream').onclick=function(){ if(streaming){stopStream(false);}else{$('slog').innerHTML='';startStream();} };
   $('btnBarge').onclick=function(){ if(ws&&ws.readyState===1){try{ws.send(JSON.stringify({type:'barge_in'}));}catch(e){}} stopAudio(); clearBusyTimer(); setBusy(false); };
+  (function(){ var c=$('chkAutoBarge'); if(c){ c.addEventListener('change',function(){ sendBargein(); sStat('Barge-in via mic '+(autoBarge()?'AKTIF':'MATI — half-duplex sejati: mic dibisukan saat bot bicara')+'.'); }); } })();
   window.addEventListener('beforeunload',function(){ if(streaming)stopStream(true); });
 
   health(); warmup(); newSess(false);
