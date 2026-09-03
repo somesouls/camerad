@@ -13,57 +13,44 @@ Klien -> server:
 
 Server -> klien:
   * teks (JSON):
-      {"type":"ready","session_id":..,"greeting":..,"sample_rate":16000,"bargein":true,
-              "gate_rms":..,"gate_hangover_ms":..,"ducking":..,"duck_gain":..}
-      {"type":"speech_start"}                -> VAD mendeteksi user bicara (atau barge-in dikonfirmasi)
-      {"type":"speech_candidate"}            -> (saat bot bicara) kandidat suara terdeteksi; klien MEN-DUCK (kecilkan) volume bot sambil verifikasi
-      {"type":"speech_cancel"}               -> kandidat ternyata noise/sesaat; klien kembalikan volume bot ke normal
-      {"type":"thinking"}                    -> ucapan selesai, sedang diproses
-      {"type":"no_speech"}                   -> STT tak menangkap ucapan; tak ada balasan (noise)
+      {"type":"ready",...}
+      {"type":"speech_start","rms":..,"speaking_rms":..}
+      {"type":"speech_candidate","rms":..,"speaking_rms":..} -> (saat bot bicara) kandidat suara; klien MEN-DUCK volume bot
+      {"type":"speech_cancel"}               -> kandidat ternyata noise/sesaat; klien kembalikan volume bot
+      {"type":"thinking"}
+      {"type":"no_speech"}
       {"type":"transcript","text":..}
-      {"type":"answer","intent":..,"confidence":..,"sumber":..,"action":..,
-                       "jawaban_teks":..,"handoff":..,"elapsed_ms":..,
-                       "timings":{stt_ms,think_ms,tts_ms,total_ms},"server_ms":..}
+      {"type":"answer",...}
       {"type":"audio_begin","mime":"audio/wav","greeting":true?}
       {"type":"audio_end"}
-      {"type":"no_audio","reason":..,"tts_error":..} -> jawaban ADA tapi TAK ada audio; alasan disertakan untuk log klien
-      {"type":"interrupted"}                 -> audio bot dipotong (barge-in)
+      {"type":"no_audio","reason":..,"tts_error":..}
+      {"type":"interrupted","rms":..,"speaking_rms":..} -> audio bot dipotong (barge-in)
       {"type":"error","error":..}
   * biner  : potongan byte WAV jawaban (antara audio_begin & audio_end).
 
+DIAGNOSTIK BARGE-IN (penting): setiap keputusan deteksi saat bot bicara dicatat
+ke log server ([voicebot.stream] ...) lengkap dengan level energi terukur (rms)
+vs ambang speaking_rms, supaya bisa ketahuan apakah 'suara diam' disebabkan gema
+loudspeaker yang salah dianggap bicara. Nilai rms juga dikirim ke klien pada
+pesan speech_candidate / speech_start / interrupted agar bisa ditampilkan di UI.
+
+PENJAGA GEMA (perbaikan): saat bot sedang bicara, sebuah frame dianggap 'bicara'
+HANYA bila webrtcvad bilang bicara DAN energi (rms) >= speaking_rms. Sebelumnya,
+bila webrtcvad terpasang, ambang energi diabaikan sehingga gema suara bot sendiri
+dari speaker terdeteksi sebagai bicara -> barge-in palsu -> audio 'dipotong'.
+
 Saat sesi dibuka, bila dialog manager aktif, server mengirim 'ready' berisi teks
 salam pembuka LALU langsung mengalirkan AUDIO salam itu (disintesis TTS voicebot)
-sebagai audio_begin -> byte WAV -> audio_end dengan flag greeting=true. Jadi klien
-(APK/browser) memutar salam dengan SUARA VOICEBOT, bukan TTS bawaan perangkat.
+sebagai audio_begin -> byte WAV -> audio_end dengan flag greeting=true.
 
 KEANDALAN SUARA: setiap jawaban yang PUNYA teks harus punya keluaran audio ATAU
 pesan 'no_audio' berisi alasannya -- klien tidak boleh menggantung di 'menunggu'.
-Bila audio sudah jadi tetapi user MEMOTONG (interrupt) sebelum diputar, server
-mengirim 'interrupted' (bukan diam). Bila TTS gagal / tak ada audio, server
-mengirim 'no_audio' + reason (mis. isi tts_error) supaya bisa didiagnosis di UI.
 
 STT+NLU+RAG+TTS memakai vb_engine.talk() yang sama dengan Mode A (dengan
-reply_on_empty=False: bila STT tak menangkap ucapan, server TIDAK membalas apa pun
--> mengirim {"type":"no_speech"} saja, supaya noise/gema tidak memicu 'maaf'
-berulang atau handoff palsu). Seluruh konfigurasi (ambang, dialog manager,
-pelafalan, mesin TTS, penyingkat jawaban) berlaku identik. Semua proses tetap lokal.
-
-Barge-in tanpa headset (loudspeaker): kombinasi (a) AEC/NS/AGC + gerbang noise di
-sisi klien untuk membuang gema suara bot & noise steady dari mic, dan (b) 'barge-in
-tahan-gema' di server -- saat bot sedang bicara, interupsi HANYA dikonfirmasi bila
-terdeteksi bicara BERKELANJUTAN >= bargein_min_ms dan (fallback RMS) energi >=
-speaking_rms. Blip/gema sesaat diabaikan. Praktik terbaik ditambahkan: saat ada
-KANDIDAT suara (belum dikonfirmasi) selama bot bicara, server mengirim
-'speech_candidate' agar klien MEN-DUCK (mengecilkan) volume bot; bila kandidat
-berubah jadi noise -> 'speech_cancel' (volume kembali); bila berkelanjutan ->
-dikonfirmasi jadi barge-in penuh (audio dihentikan). Onset ucapan tetap direkam
-via pre-roll sehingga kata pertama tak hilang.
-
-Endpointing pakai webrtcvad bila terpasang, kalau tidak jatuh ke VAD energi (RMS).
+reply_on_empty=False). Seluruh konfigurasi berlaku identik. Semua proses lokal.
 
 SEMUA TUNING DI BAWAH DAPAT DIATUR DARI UI (halaman /voicebot, panel \"Streaming
-(Mode B) & barge-in\") -> disimpan di vb_settings. Bila sebuah nilai dikosongkan,
-sistem fallback ke ENV lama lalu default kode. Kunci config -> (ENV lama, default):
+(Mode B) & barge-in\") -> disimpan di vb_settings. Kunci config -> (ENV lama, default):
   stream_silence_ms      (VOICEBOT_STREAM_SILENCE_MS, 700)
   stream_min_speech_ms   (VOICEBOT_STREAM_MIN_SPEECH_MS, 350)
   stream_preroll_ms      (VOICEBOT_STREAM_PREROLL_MS, 300)
@@ -99,6 +86,14 @@ from voicebot import config_db as cfg
 SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_BYTES = int(SAMPLE_RATE * FRAME_MS / 1000) * 2  # 960 byte / frame 30ms
+
+
+def _log(msg):
+    """Log ringkas ke stdout server (fail-soft)."""
+    try:
+        print("[voicebot.stream] " + msg, flush=True)
+    except Exception:
+        pass
 
 
 def _to_int(x):
@@ -187,6 +182,9 @@ def _get_webrtc_vad(aggr):
 def _rms(frame: bytes) -> float:
     a = array.array("h")
     try:
+        # array.frombytes butuh panjang kelipatan 2; potong byte ganjil di ujung
+        if len(frame) % 2:
+            frame = frame[:-1]
         a.frombytes(frame)
     except Exception:
         return 0.0
@@ -201,19 +199,25 @@ def _rms(frame: bytes) -> float:
 def _is_speech(frame: bytes, aggr: int, rms_default: int, rms_min=None) -> bool:
     """True bila frame dianggap bicara.
 
-    webrtcvad dipakai bila tersedia (robustnya dari agresivitas VAD + durasi
-    berkelanjutan di pemanggil). Bila tidak, fallback ke energi RMS; ambang bisa
-    dinaikkan lewat rms_min saat bot sedang bicara agar gema loudspeaker tak
-    memicu bicara palsu.
+    PENJAGA GEMA: saat bot bicara (rms_min di-set), frame dianggap bicara HANYA
+    bila webrtcvad bilang bicara DAN energi (rms) >= rms_min. Ini mencegah gema
+    suara bot dari speaker (yang lolos webrtcvad tapi energinya rendah setelah
+    AEC + ducking) memicu barge-in palsu. Saat bot TIDAK bicara (rms_min None),
+    cukup webrtcvad (atau RMS default bila webrtcvad tak ada).
     """
     vad = _get_webrtc_vad(aggr)
+    rms = _rms(frame)
     if vad is not None and len(frame) == FRAME_BYTES:
         try:
-            return bool(vad.is_speech(frame, SAMPLE_RATE))
+            sp = bool(vad.is_speech(frame, SAMPLE_RATE))
         except Exception:
-            pass
+            sp = None
+        if sp is not None:
+            if rms_min is not None:
+                return sp and rms >= rms_min
+            return sp
     thr = rms_min if rms_min is not None else rms_default
-    return _rms(frame) >= thr
+    return rms >= thr
 
 
 def _pcm16_to_wav(pcm: bytes) -> bytes:
@@ -339,6 +343,9 @@ async def handle(websocket: WebSocket):
     ducking = tuning["ducking"]
     speaking_rms = tuning["speaking_rms"]
     bargein_min_ms = tuning["bargein_min_ms"]
+    _log("sesi %s dibuka | bargein=%s ducking=%s speaking_rms=%d bargein_min_ms=%d vad_aggr=%d rms=%d"
+         % (session_id, bargein_on, ducking, speaking_rms, bargein_min_ms,
+            tuning["vad_aggr"], tuning["rms"]))
 
     try:
         await websocket.send_text(json.dumps({
@@ -348,12 +355,13 @@ async def handle(websocket: WebSocket):
             "gate_hangover_ms": tuning["gate_hangover_ms"],
             "ducking": ducking,
             "duck_gain": tuning["duck_gain"],
+            "speaking_rms": speaking_rms,
         }))
     except Exception:
         return
 
     state = {"speaking": False, "interrupt": False, "closed": False,
-             "gen": 0, "want_audio": True, "candidate": False}
+             "gen": 0, "want_audio": True, "candidate": False, "last_rms": 0.0}
     ep = Endpointer(tuning)
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -375,6 +383,9 @@ async def handle(websocket: WebSocket):
                 if data:
                     # saat bot bicara, naikkan ambang energi agar gema tak dianggap bicara
                     rms_min = speaking_rms if state["speaking"] else None
+                    cur_rms = _rms(data) if state["speaking"] else 0.0
+                    if state["speaking"]:
+                        state["last_rms"] = cur_rms
                     for ev in ep.add(data, rms_min):
                         if ev[0] == "speech_start":
                             if not state["speaking"]:
@@ -387,18 +398,28 @@ async def handle(websocket: WebSocket):
                         if ep.triggered and not state["candidate"]:
                             # kandidat suara muncul -> minta klien duck volume bot
                             state["candidate"] = True
+                            _log("kandidat suara saat bot bicara: rms~%.0f (ambang speaking_rms=%d) -> DUCK volume bot."
+                                 % (cur_rms, speaking_rms))
                             if ducking:
-                                await _safe_send_text({"type": "speech_candidate"})
+                                await _safe_send_text({"type": "speech_candidate",
+                                                       "rms": round(cur_rms),
+                                                       "speaking_rms": speaking_rms})
                         elif state["candidate"] and not ep.triggered:
                             # kandidat hilang tanpa dikonfirmasi (noise) -> unduck
                             state["candidate"] = False
+                            _log("kandidat batal (noise/gema sesaat): rms~%.0f -> pulihkan volume bot."
+                                 % cur_rms)
                             if ducking:
                                 await _safe_send_text({"type": "speech_cancel"})
                         # konfirmasi barge-in: hanya bila bicara BERKELANJUTAN cukup lama
                         if ep.triggered and ep.active_speech_ms >= bargein_min_ms:
                             state["interrupt"] = True
                             state["candidate"] = False
-                            await _safe_send_text({"type": "speech_start"})
+                            _log("BARGE-IN dikonfirmasi: rms~%.0f (>=speaking_rms %d) & bicara %dms (>=%dms) -> POTONG audio bot."
+                                 % (cur_rms, speaking_rms, ep.active_speech_ms, bargein_min_ms))
+                            await _safe_send_text({"type": "speech_start",
+                                                   "rms": round(cur_rms),
+                                                   "speaking_rms": speaking_rms})
                     continue
                 txt = msg.get("text")
                 if txt:
@@ -411,6 +432,7 @@ async def handle(websocket: WebSocket):
                         if ctrl.get("want_audio") is not None:
                             state["want_audio"] = bool(ctrl.get("want_audio"))
                     elif ct == "barge_in":
+                        _log("barge-in MANUAL (tombol Potong) diterima.")
                         state["interrupt"] = True
                     elif ct == "flush":
                         wav = ep.flush()
@@ -456,7 +478,9 @@ async def handle(websocket: WebSocket):
             state["speaking"] = False
             state["candidate"] = False
         if state["interrupt"]:
-            await _safe_send_text({"type": "interrupted"})
+            await _safe_send_text({"type": "interrupted",
+                                   "rms": round(state.get("last_rms", 0.0)),
+                                   "speaking_rms": speaking_rms})
         elif not state["closed"]:
             await _safe_send_text({"type": "audio_end"})
 
@@ -497,9 +521,6 @@ async def handle(websocket: WebSocket):
             if res.get("no_speech") or not (res.get("transkrip") or "").strip():
                 await _safe_send_text({"type": "no_speech"})
                 continue
-            # Audio jawaban tetap diputar meski ada ucapan lain menyusul di antrean.
-            # Hanya barge-in (interrupt) atau sesi tertutup yang membatalkan audio,
-            # supaya suara jawaban benar-benar terdengar untuk evaluasi.
             await _safe_send_text({"type": "transcript",
                                    "text": res.get("transkrip") or ""})
             await _safe_send_text({
@@ -518,21 +539,18 @@ async def handle(websocket: WebSocket):
                 "server_ms": int((time.time() - t_utt) * 1000),
             })
             # KEANDALAN SUARA: setiap jawaban ber-teks harus menghasilkan audio,
-            # 'interrupted', atau 'no_audio' (beserta alasannya). JANGAN diam --
-            # kalau diam, klien menggantung di 'menunggu' seperti bug sebelumnya.
+            # 'interrupted', atau 'no_audio' (beserta alasannya). JANGAN diam.
             b64 = res.get("jawaban_audio_b64")
             if state["want_audio"] and not state["closed"]:
                 if b64 and not state["interrupt"]:
                     await send_audio(b64)
                 elif b64 and state["interrupt"]:
-                    # audio sudah jadi tetapi user memotong sebelum diputar
-                    await _safe_send_text({"type": "interrupted"})
+                    await _safe_send_text({"type": "interrupted",
+                                           "rms": round(state.get("last_rms", 0.0)),
+                                           "speaking_rms": speaking_rms})
                 elif not b64:
                     reason = res.get("tts_error") or "TTS tidak menghasilkan audio"
-                    try:
-                        print("[voicebot.stream] no_audio: %s" % reason, flush=True)
-                    except Exception:
-                        pass
+                    _log("no_audio: %s" % reason)
                     await _safe_send_text({
                         "type": "no_audio",
                         "reason": reason,
