@@ -17,6 +17,13 @@ fallback, repetition_penalty, no_repeat_ngram) - penting utk audio telepon
   AWE_STT_VAD     ('1' aktif / '0' nonaktif VAD; default '1')
   AWE_STT_PROMPT  (initial_prompt domain, opsional; default kosong)
 
+STT prediktif / biasing (voicebot #5): transcribe_file menerima argumen opsional
+initial_prompt (teks domain) & hotwords (daftar istilah) untuk membiasakan dekode
+ke kosakata domain (mis. NPWP/EFIN/SPT). Keduanya BACKWARD-COMPATIBLE: bila tidak
+diberikan, perilaku lama dipakai (initial_prompt jatuh ke env AWE_STT_PROMPT).
+Argumen 'hotwords' hanya diteruskan bila versi faster-whisper mendukungnya; bila
+tidak, otomatis diabaikan tanpa menggagalkan transkripsi.
+
 Instal (venv): pip install faster-whisper
 Model large-v3 (~3 GB) diunduh otomatis saat pertama dipakai.
 Khusus uji: TIDAK menyimpan transkrip ke DB, TIDAK menyentuh kredensial.
@@ -45,14 +52,23 @@ def _backend_order():
     return [("cuda", ct or "float16"), ("cpu", ct or "int8")]
 
 
-def _decode_opts(beam_size):
-    """Opsi dekode anti-ulang/anti-halusinasi utk audio telepon 8 kHz."""
+def _decode_opts(beam_size, initial_prompt=None, hotwords=None):
+    """Opsi dekode anti-ulang/anti-halusinasi utk audio telepon 8 kHz.
+
+    initial_prompt eksplisit (voicebot #5) menang atas env AWE_STT_PROMPT. hotwords
+    (bila diberikan) disisipkan ke opts dan HANYA diteruskan ke model bila didukung
+    (lihat transcribe_file yang menangani TypeError untuk versi lama).
+    """
     try:
         beam = int(os.environ.get("AWE_STT_BEAM") or beam_size)
     except Exception:
         beam = beam_size
     vad = (os.environ.get("AWE_STT_VAD") or "1").strip().lower() not in ("0", "false", "no")
-    prompt = (os.environ.get("AWE_STT_PROMPT") or "").strip() or None
+    prompt = None
+    if initial_prompt and str(initial_prompt).strip():
+        prompt = str(initial_prompt).strip()
+    else:
+        prompt = (os.environ.get("AWE_STT_PROMPT") or "").strip() or None
     opts = {
         "beam_size": beam,
         "temperature": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0],
@@ -67,11 +83,19 @@ def _decode_opts(beam_size):
     }
     if prompt:
         opts["initial_prompt"] = prompt
+    hw = (str(hotwords).strip() if hotwords else "")
+    if hw:
+        opts["hotwords"] = hw
     return opts
 
 
-def transcribe_file(path, lang="id", model_size=None, beam_size=5, max_seg=120):
-    """Transkrip satu berkas audio; kembalikan dict ringkas & aman untuk JSON."""
+def transcribe_file(path, lang="id", model_size=None, beam_size=5, max_seg=120,
+                    initial_prompt=None, hotwords=None):
+    """Transkrip satu berkas audio; kembalikan dict ringkas & aman untuk JSON.
+
+    initial_prompt / hotwords (opsional, voicebot #5) membiasakan dekode ke kosakata
+    domain. Backward-compatible: tanpa keduanya, perilaku lama tetap.
+    """
     out = {"ok": False, "path": path or "", "model": "", "device": "",
            "compute_type": "", "language": "", "duration": 0.0, "n_segments": 0,
            "text": "", "segments": [], "elapsed_sec": 0.0}
@@ -96,16 +120,26 @@ def transcribe_file(path, lang="id", model_size=None, beam_size=5, max_seg=120):
         out["elapsed_sec"] = round(time.time() - t0, 2)
         out["error"] = "Gagal memuat model STT: %r (pip install faster-whisper)" % last_err
         return out
-    opts = _decode_opts(beam_size)
+    opts = _decode_opts(beam_size, initial_prompt=initial_prompt, hotwords=hotwords)
+    hw_val = opts.pop("hotwords", None)
     try:
         try:
-            segments, info = model.transcribe(path, language=(lang or None), **opts)
+            if hw_val:
+                segments, info = model.transcribe(
+                    path, language=(lang or None), hotwords=hw_val, **opts)
+            else:
+                segments, info = model.transcribe(path, language=(lang or None), **opts)
         except TypeError:
-            segments, info = model.transcribe(
-                path, language=(lang or None),
-                beam_size=opts.get("beam_size", 5),
-                condition_on_previous_text=False,
-                vad_filter=opts.get("vad_filter", True))
+            # versi faster-whisper lama: 'hotwords' (atau opsi lain) tak didukung ->
+            # coba lagi tanpa hotwords, lalu fallback super-minimal.
+            try:
+                segments, info = model.transcribe(path, language=(lang or None), **opts)
+            except TypeError:
+                segments, info = model.transcribe(
+                    path, language=(lang or None),
+                    beam_size=opts.get("beam_size", 5),
+                    condition_on_previous_text=False,
+                    vad_filter=opts.get("vad_filter", True))
         out["language"] = getattr(info, "language", "") or (lang or "")
         out["duration"] = round(float(getattr(info, "duration", 0.0) or 0.0), 3)
         texts = []
@@ -132,7 +166,7 @@ def stt_summary_rows(tr):
     """Baris ringkasan utk kartu uji (bentuk sama dgn media_summary)."""
     tr = tr or {}
     if tr.get("ok"):
-        det = "%s/%s • %s seg • %.1f dtk audio • %ss wall" % (
+        det = "%s/%s \u2022 %s seg \u2022 %.1f dtk audio \u2022 %ss wall" % (
             tr.get("device") or "?", tr.get("compute_type") or "?",
             tr.get("n_segments") or 0, float(tr.get("duration") or 0.0),
             tr.get("elapsed_sec") or 0)
