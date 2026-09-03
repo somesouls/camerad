@@ -203,6 +203,25 @@ DEFAULT_SETTINGS = {
     "stream_speaking_rms": "900",      # ambang energi saat bot bicara (anti-gema loudspeaker)
     "stream_ducking": "1",             # kecilkan volume bot saat memverifikasi kandidat suara user
     "stream_duck_gain": "0.2",         # level volume bot saat di-duck (0..1)
+    # --- noise vs speech / anti-noise adaptif (#6) \u2014 DAPAT DIATUR DARI UI ---
+    # Membedakan SUARA ASLI dari NOISE lingkungan supaya bot tidak menjawab noise,
+    # bunyi sesaat (klik/ketikan/pintu), atau dengungan steady. Tiga lapis:
+    #   1) Lantai noise adaptif (stream_noise_adapt): server memantau energi ambient
+    #      saat senyap (EMA) lalu menaikkan ambang deteksi jadi noise_floor * snr_ratio,
+    #      sehingga menyesuaikan lingkungan tiap penelepon (sepi vs berisik). Ambang
+    #      efektif = max(ambang energi biasa, noise_floor * snr_ratio) -> hanya
+    #      MENGETATKAN, tak pernah lebih longgar dari stream_rms/stream_speaking_rms.
+    #   2) Frame onset (stream_onset_frames): butuh N frame bersuara BERURUTAN
+    #      (30ms/frame) sebelum memicu awal bicara -> buang klik/pop/ketikan sesaat.
+    #   3) Rasio frame bersuara (stream_voiced_ratio_min): ucapan hanya diterima bila
+    #      minimal sekian bagian frame-nya benar-benar bersuara -> buang segmen yang
+    #      didominasi noise. Set 0 untuk menonaktifkan cek rasio. Semua nilai bisa
+    #      dikosongkan (fallback ENV lalu default kode).
+    "stream_noise_adapt": "1",
+    "stream_snr_ratio": "1.8",
+    "stream_noise_floor_init": "150",
+    "stream_onset_frames": "3",
+    "stream_voiced_ratio_min": "0.35",
     # --- penjaga diam / silence watchdog (#3) \u2014 DAPAT DIATUR DARI UI ---
     # Khusus Mode B (streaming). Bila penelepon diam: setelah stream_idle_prompt_ms
     # tanpa suara, bot menyapa (stream_idle_prompt_text, mis. "masih terhubung?").
