@@ -19,7 +19,7 @@ Piper env:
 MMS env (opsional):
   VOICEBOT_MMS_MODEL   -- override id model (default dari setting `mms_model`
                           atau 'facebook/mms-tts-ind').
-  VOICEBOT_MMS_DEVICE  -- 'cuda' | 'cpu' (default: auto — cuda bila tersedia).
+  VOICEBOT_MMS_DEVICE  -- 'cuda' | 'cpu' (default: auto -- cuda bila tersedia).
 
 Sebelum sintesis, teks dilewatkan lapisan pelafalan (voicebot.pron): kamus
 singkatan + eja angka panjang. Bisa dimatikan via setting pron_enabled.
@@ -291,3 +291,20 @@ def synth(text):
         return None, err
 
     return _synth_piper(text)
+
+
+def warmup(text="Halo, selamat datang."):
+    """Pra-muat mesin TTS aktif agar sintesis PERTAMA tidak 'dingin'.
+
+    Untuk MMS ini memuat + men-cache model (VitsModel) sehingga giliran pertama
+    tidak menanggung waktu load/unduh model (sumber utama kesan 'aplikasi macet').
+    Untuk Piper ini memicu resolve binary + satu sintesis singkat. Aman dipanggil
+    berulang (MMS memakai cache _MMS). Fail-soft.
+
+    Kembalikan (ok, error): ok=True bila menghasilkan audio.
+    """
+    try:
+        data, err = synth(text)
+        return (bool(data), err)
+    except Exception as e:  # noqa: BLE001
+        return (False, str(e))
