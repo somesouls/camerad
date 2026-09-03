@@ -159,10 +159,12 @@
     try{ var a=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA='); a.volume=0; a.play().catch(function(){}); }catch(e){} }
   document.addEventListener('pointerdown', unlockAudio, true);
   document.addEventListener('keydown', unlockAudio, true);
-  function newSess(){
+  // Buat sesi baru. Salam HANYA diputar bila withGreeting=true (mis. saat tekan tombol
+  // "Sesi baru"), TIDAK saat halaman/menu Lab pertama dibuka.
+  function newSess(withGreeting){
     fetch('/api/voicebot/session',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
       sid=d.session_id; $('pillSess').textContent='Sesi: '+((sid||'—').slice(0,8)); $('log').innerHTML='';
-      playGreeting();
+      if(withGreeting){ playGreeting(); }
     });
   }
   // Salam pembuka Mode A: tampilkan teks + putar SUARA voicebot (bila autoplay diizinkan).
@@ -205,7 +207,7 @@
   }
   $('btnSend').onclick=sendText;
   $('txt').addEventListener('keydown',function(e){if(e.key==='Enter')sendText();});
-  $('btnNew').onclick=newSess;
+  $('btnNew').onclick=function(){ newSess(true); };
 
   $('btnRec').onclick=function(){
     if(recording){ if(rec)rec.stop(); return; }
@@ -342,7 +344,7 @@
   $('btnBarge').onclick=function(){ if(ws&&ws.readyState===1){try{ws.send(JSON.stringify({type:'barge_in'}));}catch(e){}} stopAudio(); clearBusyTimer(); setBusy(false); };
   window.addEventListener('beforeunload',function(){ if(streaming)stopStream(true); });
 
-  health(); warmup(); newSess();
+  health(); warmup(); newSess(false);
 })();
 </script>
 {% endblock %}
