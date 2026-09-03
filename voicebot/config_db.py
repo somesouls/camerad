@@ -3,7 +3,7 @@
 
 SQLite tunggal (env VOICEBOT_DB_FILE, default 'voicebot.db'). Tabel:
   vb_settings(key, value)                 -- konfigurasi mesin (ambang, prompt, dst.)
-  vb_intents(id, name, phrases, response) -- intent + training phrase (NLU lokal)
+  vb_intents(id, name, phrases, response, confirm_label) -- intent + training phrase (NLU lokal)
   vb_lexicon(id, pattern, replacement...) -- kamus pelafalan (dipakai TTS)
   vb_turns(...)                           -- log tiap giliran
 
@@ -41,10 +41,10 @@ DEFAULT_SETTINGS = {
     # --- dialog manager (#3) ---
     "dialog_enabled": "1",
     "confirm_min": "0.45",
-    "salutation": "Bapak/Ibu",
+    "salutation": "Kak",
     "salutation_enabled": "1",
     "greeting": (
-        "Selamat datang di layanan kami. Ada yang bisa saya bantu, Bapak/Ibu?"
+        "Selamat datang di layanan kami. Ada yang bisa saya bantu, Kak?"
     ),
     "closing_reply": (
         "Baik, terima kasih sudah menghubungi kami. Semoga harinya menyenangkan."
@@ -60,6 +60,13 @@ DEFAULT_SETTINGS = {
         "Sebelumnya kita membahas {intent}. Mau lanjutkan itu setelah ini?"
     ),
     "resume_enabled": "0",
+    # --- konfirmasi-dulu tanpa LLM (#1) ---
+    # Saat NLU menemukan intent (>= confirm_min), mesin langsung membaca ulang
+    # kalimat konfirmasi deterministik (tanpa LLM) memakai confirm_label intent,
+    # sambil menyiapkan jawaban di background. Baru setelah penelepon menjawab
+    # 'ya' jawaban lengkap dibacakan. {sal}=sapaan, {label}=confirm_label intent.
+    "confirm_first": "1",
+    "confirm_first_template": "Baik {sal}, saya konfirmasi, {label}",
     "cmd_repeat": "ulangi, tolong ulangi, ulangi lagi, bisa diulang, ulang",
     "cmd_end": (
         "selesai, sudah cukup, cukup, tutup, sudah selesai, terima kasih sudah cukup"
@@ -126,6 +133,17 @@ def connect():
     return conn
 
 
+def _migrate(conn):
+    """Migrasi ringan idempoten untuk DB lama (tambah kolom baru bila belum ada)."""
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(vb_intents)").fetchall()]
+        if "confirm_label" not in cols:
+            conn.execute("ALTER TABLE vb_intents ADD COLUMN confirm_label TEXT")
+            conn.commit()
+    except Exception:
+        pass
+
+
 def init_db(conn, force=False):
     key = None
     try:
@@ -142,13 +160,14 @@ def init_db(conn, force=False):
             value TEXT
         );
         CREATE TABLE IF NOT EXISTS vb_intents (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            name       TEXT NOT NULL,
-            phrases    TEXT,
-            response   TEXT,
-            aktif      INTEGER DEFAULT 1,
-            created_at TEXT DEFAULT (datetime('now')),
-            updated_at TEXT DEFAULT (datetime('now'))
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            name          TEXT NOT NULL,
+            phrases       TEXT,
+            response      TEXT,
+            confirm_label TEXT,
+            aktif         INTEGER DEFAULT 1,
+            created_at    TEXT DEFAULT (datetime('now')),
+            updated_at    TEXT DEFAULT (datetime('now'))
         );
         CREATE UNIQUE INDEX IF NOT EXISTS idx_vb_intent_name ON vb_intents(name);
         CREATE TABLE IF NOT EXISTS vb_lexicon (
@@ -178,6 +197,7 @@ def init_db(conn, force=False):
         """
     )
     conn.commit()
+    _migrate(conn)
     for k, v in DEFAULT_SETTINGS.items():
         try:
             conn.execute(
@@ -293,21 +313,24 @@ def upsert_intent(data, conn=None):
             raise ValueError("field 'name' wajib diisi")
         phrases = json.dumps(_norm_phrases(data.get("phrases")), ensure_ascii=False)
         response = str(data.get("response") or "").strip()
+        confirm_label = str(data.get("confirm_label") or "").strip()
         aktif = 0 if str(data.get("aktif")) in ("0", "false", "False", "no") else 1
         idv = data.get("id")
         if idv:
             conn.execute(
-                "UPDATE vb_intents SET name=?, phrases=?, response=?, aktif=?, "
-                "updated_at=datetime('now') WHERE id=?",
-                (name, phrases, response, aktif, int(idv)),
+                "UPDATE vb_intents SET name=?, phrases=?, response=?, confirm_label=?, "
+                "aktif=?, updated_at=datetime('now') WHERE id=?",
+                (name, phrases, response, confirm_label, aktif, int(idv)),
             )
             new_id = int(idv)
         else:
             cur = conn.execute(
-                "INSERT INTO vb_intents(name, phrases, response, aktif) VALUES (?,?,?,?) "
-                "ON CONFLICT(name) DO UPDATE SET phrases=excluded.phrases, "
-                "response=excluded.response, aktif=excluded.aktif, updated_at=datetime('now')",
-                (name, phrases, response, aktif),
+                "INSERT INTO vb_intents(name, phrases, response, confirm_label, aktif) "
+                "VALUES (?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "phrases=excluded.phrases, response=excluded.response, "
+                "confirm_label=excluded.confirm_label, aktif=excluded.aktif, "
+                "updated_at=datetime('now')",
+                (name, phrases, response, confirm_label, aktif),
             )
             new_id = int(cur.lastrowid or 0)
         conn.commit()
@@ -354,6 +377,27 @@ def intent_response(name, conn=None):
     try:
         r = conn.execute("SELECT response FROM vb_intents WHERE name=?", (name,)).fetchone()
         return (r["response"] if r else "") or ""
+    finally:
+        if own:
+            conn.close()
+
+
+def intent_confirm_label(name, conn=None):
+    """Kalimat konfirmasi manual per intent (confirm-first #1); '' bila kosong."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        r = conn.execute(
+            "SELECT confirm_label FROM vb_intents WHERE name=?", (name,)
+        ).fetchone()
+        if not r:
+            return ""
+        try:
+            return (r["confirm_label"] or "")
+        except Exception:
+            return ""
+    except Exception:
+        return ""
     finally:
         if own:
             conn.close()
@@ -487,6 +531,7 @@ _SEED_INTENTS = [
                     "mau tanya npwp", "cek npwp"],
         "response": ("Untuk pengecekan status NPWP, mohon sebutkan nomor NPWP Anda, "
                      "nanti saya bantu arahkan verifikasinya."),
+        "confirm_label": "apakah Kakak ingin cek status NPWP?",
     },
     {
         "name": "Jam Operasional",
@@ -494,6 +539,7 @@ _SEED_INTENTS = [
                     "jam layanan"],
         "response": ("Layanan kami buka Senin sampai Jumat, pukul 08.00 sampai 16.00 "
                      "waktu setempat."),
+        "confirm_label": "apakah Kakak menanyakan jam operasional?",
     },
 ]
 
