@@ -94,6 +94,23 @@ DEFAULT_SETTINGS = {
     # unduhan model sekali dari HuggingFace; setelah itu jalan penuh lokal.
     "tts_engine": "piper",
     "mms_model": "facebook/mms-tts-ind",
+    # --- streaming Mode B & barge-in (#4b) — DAPAT DIATUR DARI UI KONFIGURASI ---
+    # Semua ambang di bawah bisa diubah dari panel "Streaming (Mode B) & barge-in"
+    # di halaman /voicebot tanpa menyentuh kode/ENV. Bila sebuah nilai dikosongkan,
+    # stream.py akan fallback ke ENV lama lalu default kode. Berlaku untuk sesi
+    # streaming BERIKUTNYA (buka ulang percakapan Mode B setelah menyimpan).
+    "stream_gate_rms": "0.012",        # gerbang noise sisi-browser (RMS 0..1); naikkan utk lebih ketat
+    "stream_gate_hangover_ms": "600",  # tahan gerbang browser setelah ada suara (ms)
+    "stream_rms": "600",               # ambang energi VAD server (fallback non-webrtcvad)
+    "stream_vad_aggr": "3",            # agresivitas webrtcvad 0..3 (3 = paling tegas)
+    "stream_silence_ms": "700",        # hening penanda akhir ucapan (ms)
+    "stream_min_speech_ms": "350",     # durasi minimum agar dianggap ucapan (ms)
+    "stream_preroll_ms": "300",        # pra-roll audio sebelum trigger (ms)
+    "stream_bargein": "1",             # izinkan barge-in via mic saat bot bicara
+    "stream_bargein_min_ms": "500",    # durasi bicara berkelanjutan utk konfirmasi barge-in (ms)
+    "stream_speaking_rms": "900",      # ambang energi saat bot bicara (anti-gema loudspeaker)
+    "stream_ducking": "1",             # kecilkan volume bot saat memverifikasi kandidat suara user
+    "stream_duck_gain": "0.2",         # level volume bot saat di-duck (0..1)
 }
 
 _INIT_DONE = set()
