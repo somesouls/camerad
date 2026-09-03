@@ -15,6 +15,12 @@ KEANDALAN SUARA (penting): synth() dirancang supaya suara SELALU diusahakan kelu
   - Setiap kegagalan DICATAT ke log server ([voicebot.tts] ...) lengkap dengan
     alasan + panjang teks, supaya turn yang "gagal TTS" bisa didiagnosis.
 
+CATATAN PIPER (penting): paket pip 'piper-tts' menulis WAV lewat modul wave
+Python dan pada sebagian versi gagal dengan 'wave.Error: # channels not
+specified' saat memakai output file (-f). Karena itu Piper dipanggil dengan
+--output-raw (PCM16 mono ke stdout) lalu WAV dibungkus sendiri di sini; mode
+file (-f) hanya dipakai sebagai cadangan bila varian raw tak didukung.
+
 Piper env:
   VOICEBOT_PIPER_BIN   -- path/nama binary piper (default 'piper'). Di WINDOWS
                           pakai piper.exe STANDALONE (rilis resmi), BUKAN paket
@@ -36,6 +42,7 @@ engine tetap menjawab dalam bentuk teks.
 """
 import os
 import io
+import json
 import wave
 import shutil
 import struct
@@ -130,6 +137,7 @@ def diagnostics():
         "voice_exists": bool(voice and os.path.exists(voice)),
         "config_exists": bool(voice and os.path.exists(voice + ".json")),
         "piper_ready": piper_available(),
+        "piper_sample_rate": _piper_sample_rate(voice) if voice else None,
         # MMS
         "mms_model": _mms_model_id(),
         "mms_deps": _mms_deps_present(),
@@ -150,14 +158,43 @@ def _pronounce(text):
 
 
 # ------------------------------------------------------------------ Piper
-def _run_piper_once(binpath, voice, text):
-    """Satu kali eksekusi Piper. Kembalikan (wav_bytes, error)."""
+def _piper_sample_rate(voice):
+    """Baca sample_rate dari <voice>.json (config Piper). Default 22050."""
+    try:
+        with open(voice + ".json", "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        sr = (cfg.get("audio", {}) or {}).get("sample_rate")
+        if sr:
+            return int(sr)
+    except Exception:
+        pass
+    return 22050
+
+
+def _wrap_pcm16_wav(pcm_bytes, sample_rate):
+    """Bungkus raw PCM16 mono (bytes) jadi WAV lengkap (bytes)."""
+    buf = io.BytesIO()
+    w = wave.open(buf, "wb")
+    w.setnchannels(1)
+    w.setsampwidth(2)
+    w.setframerate(int(sample_rate))
+    w.writeframes(pcm_bytes)
+    w.close()
+    return buf.getvalue()
+
+
+def _run_piper_file(binpath, voice, text, espeak):
+    """Cadangan: Piper menulis ke file WAV (-f). Kembalikan (wav_bytes, error).
+
+    Mode ini memakai penulis WAV internal Piper yang pada sebagian versi paket
+    pip 'piper-tts' bisa gagal ('wave.Error: # channels not specified'); dipakai
+    hanya bila mode --output-raw tak didukung binary.
+    """
     out = tempfile.NamedTemporaryFile(prefix="vb_tts_", suffix=".wav",
                                       delete=False)
     out.close()
     try:
         cmd = [binpath, "-m", voice, "-f", out.name]
-        espeak = os.environ.get("VOICEBOT_PIPER_ESPEAK_DATA")
         if espeak:
             cmd += ["--espeak_data", espeak]
         p = subprocess.run(cmd, input=text.encode("utf-8"),
@@ -183,6 +220,52 @@ def _run_piper_once(binpath, voice, text):
             os.unlink(out.name)
         except Exception:
             pass
+
+
+def _run_piper_once(binpath, voice, text):
+    """Satu kali eksekusi Piper. Kembalikan (wav_bytes, error).
+
+    Utama: --output-raw -> Piper menulis PCM16 mono mentah ke stdout, lalu kita
+    bungkus jadi WAV di Python. Ini MENGHINDARI penulis WAV internal Piper yang
+    bisa gagal dengan 'wave.Error: # channels not specified'. Bila binary tak
+    mengenali flag raw, jatuh ke mode file (-f).
+    """
+    espeak = os.environ.get("VOICEBOT_PIPER_ESPEAK_DATA")
+    sr = _piper_sample_rate(voice)
+    raw_unsupported = False
+    for raw_flag in ("--output-raw", "--output_raw"):
+        try:
+            cmd = [binpath, "-m", voice, raw_flag]
+            if espeak:
+                cmd += ["--espeak_data", espeak]
+            p = subprocess.run(cmd, input=text.encode("utf-8"),
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               timeout=120)
+            if p.returncode == 0 and p.stdout:
+                return _wrap_pcm16_wav(p.stdout, sr), None
+            err = p.stderr.decode("utf-8", "ignore").strip()
+            low = err.lower()
+            if ("unrecognized" in low or "unknown option" in low
+                    or "no such option" in low or "invalid choice" in low
+                    or "invalid option" in low):
+                raw_unsupported = True
+                continue  # coba varian flag berikutnya
+            if p.returncode == 0 and not p.stdout:
+                # raw jalan tapi kosong -> anggap tak didukung, ke fallback file
+                raw_unsupported = True
+                break
+            tail = err.splitlines()[-1] if err else "(tanpa pesan)"
+            return None, "piper gagal (exit %s): %s" % (p.returncode, tail[:400])
+        except subprocess.TimeoutExpired:
+            return None, "piper timeout (>120 dtk)."
+        except FileNotFoundError:
+            return None, "Binary piper tidak bisa dijalankan: %s" % binpath
+        except Exception as e:  # noqa: BLE001
+            return None, str(e)
+    # Fallback: mode file (-f)
+    if raw_unsupported:
+        _log("Piper --output-raw tak didukung binary; memakai mode file (-f).")
+    return _run_piper_file(binpath, voice, text, espeak)
 
 
 def _synth_piper(text):
@@ -335,6 +418,7 @@ def synth(text):
         _log("Piper gagal (%s); mencoba MMS sebagai cadangan." % err)
         data2, err2 = _synth_mms(text)
         if data2:
+            _log("MMS (cadangan) sukses menghasilkan audio.")
             return data2, None
         return None, "Piper gagal: %s | MMS gagal: %s" % (err, err2)
     _log("Piper gagal & MMS tak tersedia: %s" % err)
