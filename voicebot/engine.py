@@ -2,7 +2,7 @@
 """voicebot/engine.py -- orkestrasi voice loop (Mode A, turn-based).
 
     audio/teks -> STT -> [dialog manager] -> NLU hybrid
-               -> (respons intent | konfirmasi | RAG voicebot)
+               -> (konfirmasi-dulu | respons intent | konfirmasi | RAG voicebot)
                -> keputusan hand-off -> TTS -> log turn.
 
 Dialog manager (voicebot.dialog) menambah lapisan percakapan bergaya agen:
@@ -10,11 +10,19 @@ Dialog manager (voicebot.dialog) menambah lapisan percakapan bergaya agen:
   - Tier confidence: act (>= ambang) / confirm (menengah) / rag (rendah).
   - Konfirmasi selektif + resolusi ya/tidak (state pending_confirm per sesi).
   - Digression: klasifikasi ulang tiap giliran + simpan intent terakhir (resume).
-  - Sapaan netral + filler acknowledgment (pre-gen, diambil klien saat menunggu).
+  - Sapaan + filler acknowledgment (pre-gen, diambil klien saat menunggu).
+
+Konfirmasi-dulu tanpa LLM (#1): bila 'confirm_first' aktif dan NLU menemukan intent
+(>= confirm_min), mesin LANGSUNG membaca ulang kalimat konfirmasi deterministik
+(confirm_label intent / fallback dari nama intent) TANPA memanggil LLM, sambil
+MENYIAPKAN jawaban lengkap (peringkas 2b) di background dan menyimpannya di
+pending_confirm['prepared']. Setelah penelepon menjawab 'ya', jawaban yang sudah
+siap langsung dibacakan (terasa instan). Bila penelepon menolak ('bukan, saya mau ...'),
+ucapan yang sama diklasifikasi ulang: bila cocok intent lain -> konfirmasi intent baru.
 
 Peringkas jawaban intent (2b): bila 'intent_shorten_enabled', jawaban match-intent
-(jalur 'act' & konfirmasi) dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara
-(cache + fail-soft; fakta/angka dijaga). Jalur RAG memang sudah ringkas by design.
+dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara (cache + fail-soft;
+fakta/angka dijaga). Jalur RAG memang sudah ringkas by design.
 
 Mode streaming (reply_on_empty=False): bila STT tidak menangkap ucapan apa pun,
 talk() mengembalikan no_speech=True TANPA membalas/menyintesis apa pun, tanpa
@@ -88,6 +96,38 @@ def _shorten_intent(jawaban, settings):
     except Exception as e:  # noqa: BLE001
         print("[voicebot.engine] shorten gagal: %s" % e, flush=True)
         return jawaban
+
+
+def _confirm_first_setup(cls, sess, settings, fb):
+    """Susun giliran KONFIRMASI-DULU dari hasil klasifikasi 'cls'.
+
+    Membaca ulang kalimat konfirmasi deterministik (tanpa LLM) + menyiapkan
+    jawaban lengkap (peringkas 2b) untuk disimpan di pending_confirm['prepared'].
+    Kembalikan dict field giliran: {intent, confidence, engine, jawaban, sumber, action}.
+    """
+    intent = cls.get("intent")
+    confidence = float(cls.get("score") or 0.0)
+    raw = (cls.get("response") or cfg.intent_response(intent) or fb)
+    prepared = _shorten_intent(raw, settings)
+    label = (cfg.intent_confirm_label(intent) or "").strip() \
+        or vb_dialog.auto_confirm_label(intent)
+    jawaban = vb_dialog.confirm_first_prompt(label, settings)
+    sess["pending_confirm"] = {
+        "intent": intent,
+        "response": raw,
+        "prepared": prepared,
+        "score": confidence,
+        "mode": "confirm_first",
+    }
+    sess["fallback_streak"] = 0
+    return {
+        "intent": intent,
+        "confidence": confidence,
+        "engine": cls.get("engine"),
+        "jawaban": jawaban,
+        "sumber": "dialog",
+        "action": "confirm",
+    }
 
 
 def _llm_fallback(text, sess, settings):
@@ -255,6 +295,8 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
     tier = None
     resume_suggestion = None
     fb = settings.get("fallback_reply") or "Maaf, saya belum menangkap maksudnya."
+    cfirst = dlg_on and vb_dialog.confirm_first_enabled(settings)
+    cmin = vb_dialog.confirm_min(settings)
 
     if not transkrip:
         jawaban = fb if not stt_err else (settings.get("fallback_reply")
@@ -280,10 +322,12 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
             sumber = "dialog"
             sess["pending_confirm"] = None
         elif pending and vb_dialog.is_affirmative(transkrip, settings):
-            # penelepon membenarkan tebakan intent tier-menengah sebelumnya
+            # penelepon membenarkan tebakan intent -> bacakan jawaban yang SUDAH
+            # disiapkan (konfirmasi-dulu) agar terasa instan; fallback: ringkas kini.
             ci = pending.get("intent")
-            jawaban = (pending.get("response") or cfg.intent_response(ci) or fb)
-            jawaban = _shorten_intent(jawaban, settings)
+            jawaban = (pending.get("prepared")
+                       or _shorten_intent(pending.get("response")
+                                          or cfg.intent_response(ci) or fb, settings))
             intent = ci
             confidence = float(pending.get("score") or 0.0)
             sumber = "nlu"
@@ -291,10 +335,18 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
             sess["fallback_streak"] = 0
             sess["last_intent"] = ci
         elif pending and vb_dialog.is_negative(transkrip, settings):
+            # penelepon menolak tebakan. Coba tangkap topik BARU dari ucapan yang
+            # sama (mis. "bukan, saya mau aktivasi EFIN") -> konfirmasi intent baru.
             sess["pending_confirm"] = None
-            jawaban = "Baik, mohon sampaikan kembali maksud Anda dengan kalimat lain."
-            sumber = "dialog"
-            action = "clarify"
+            recls = vb_nlu.classify(transkrip)
+            if cfirst and recls.get("intent") and float(recls.get("score") or 0.0) >= cmin:
+                r = _confirm_first_setup(recls, sess, settings, fb)
+                intent, confidence, engine = r["intent"], r["confidence"], r["engine"]
+                jawaban, sumber, action = r["jawaban"], r["sumber"], r["action"]
+            else:
+                jawaban = "Baik, mohon sampaikan kembali maksud Anda dengan kalimat lain."
+                sumber = "dialog"
+                action = "clarify"
         else:
             if pending:
                 sess["pending_confirm"] = None  # penelepon lanjut ke topik baru
@@ -305,7 +357,12 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
             tier = (vb_dialog.decide_tier(confidence, settings) if dlg_on
                     else ("act" if (intent and confidence >= threshold) else "rag"))
 
-            if tier == "act" and intent:
+            if cfirst and intent and confidence >= cmin:
+                # KONFIRMASI-DULU tanpa LLM: baca ulang intent + siapkan jawaban.
+                r = _confirm_first_setup(cls, sess, settings, fb)
+                intent, confidence, engine = r["intent"], r["confidence"], r["engine"]
+                jawaban, sumber, action = r["jawaban"], r["sumber"], r["action"]
+            elif tier == "act" and intent:
                 jawaban = (cls.get("response") or cfg.intent_response(intent) or fb)
                 jawaban = _shorten_intent(jawaban, settings)
                 sumber = "nlu"
