@@ -24,6 +24,11 @@ for positions >= 448, ...') dan SEMUA transkripsi gagal -- gejalanya voicebot
   (d) nama intent gaya Dialogflow ('Layanan Administrasi_EFIN_Lupa EFIN_...')
       DIPECAH per segmen '_' / '/' menjadi frasa pendek alami (EFIN, Lupa EFIN,
       Belum Aktivasi, ...) lalu didedup -- bias lebih efektif & hemat anggaran.
+
+Model STT (#latency): ukuran model dapat diatur dari setting 'stt_model' (UI/DB).
+Kosong -> pakai ENV AWE_STT_MODEL lalu default kode (large-v3). Untuk domain
+sempit seperti ini, 'medium' atau 'small' biasanya cukup akurat dan jauh lebih
+cepat -- menurunkan bagian STT dari latency tiap giliran. Fail-soft.
 """
 import os
 import re
@@ -56,6 +61,18 @@ def _take_within_budget(items, budget):
         out.append(t)
         tot += add
     return out
+
+
+def _model_size():
+    """Ukuran model STT dari setting 'stt_model' (UI/DB). Kosong -> None supaya
+    avaya.phone_stt memakai ENV AWE_STT_MODEL lalu default kode (large-v3).
+    Fail-soft: apa pun yang gagal -> None (perilaku lama)."""
+    try:
+        from voicebot import config_db as _cfg
+        v = (_cfg.get_setting("stt_model", "") or "").strip()
+        return v or None
+    except Exception:
+        return None
 
 
 def build_bias(settings=None, conn=None):
@@ -155,6 +172,8 @@ def transcribe_bytes(data, filename="audio.wav", lang=None,
         import avaya.phone_stt as avstt
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "text": "", "error": "STT lokal belum siap: %s" % e}
+    # Ukuran model dari setting (kosong -> None -> ENV/large-v3). Fail-soft.
+    model_size = _model_size()
     if initial_prompt or hotwords:
         print("[voicebot.stt] bias STT aktif: prompt~%d kar, hotwords~%d kar."
               % (len(initial_prompt or ""), len(hotwords or "")), flush=True)
@@ -165,11 +184,11 @@ def transcribe_bytes(data, filename="audio.wav", lang=None,
         tmp.flush()
         tmp.close()
         try:
-            tr = avstt.transcribe_file(tmp.name, lang=lang,
+            tr = avstt.transcribe_file(tmp.name, lang=lang, model_size=model_size,
                                        initial_prompt=initial_prompt, hotwords=hotwords)
         except TypeError:
             # avaya.phone_stt versi lama tanpa dukungan biasing -> panggil tanpa bias.
-            tr = avstt.transcribe_file(tmp.name, lang=lang)
+            tr = avstt.transcribe_file(tmp.name, lang=lang, model_size=model_size)
         err = "" if (tr and tr.get("ok")) else str((tr or {}).get("error") or "STT gagal")
         # Fail-soft (#8): bias membuat dekoder melewati 448 posisi token Whisper
         # ('No position encodings are defined for positions >= 448') -> ULANGI
@@ -178,7 +197,7 @@ def transcribe_bytes(data, filename="audio.wav", lang=None,
         if err and (initial_prompt or hotwords) and "position encodings" in err.lower():
             print("[voicebot.stt] bias memicu batas 448 token -> ulangi TANPA bias (#8).",
                   flush=True)
-            tr = avstt.transcribe_file(tmp.name, lang=lang)
+            tr = avstt.transcribe_file(tmp.name, lang=lang, model_size=model_size)
             err = "" if (tr and tr.get("ok")) else str((tr or {}).get("error") or "STT gagal")
         if err:
             return {"ok": False, "text": "", "error": err}
