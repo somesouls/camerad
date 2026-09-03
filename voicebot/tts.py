@@ -18,10 +18,18 @@ KEANDALAN SUARA (penting): synth() dirancang supaya suara SELALU diusahakan kelu
   - Setiap kegagalan DICATAT ke log server ([voicebot.tts] ...) lengkap dengan
     alasan + panjang teks, supaya turn yang "gagal TTS" bisa didiagnosis.
 
-SANITASI TEKS (penting untuk Piper): sebelum sintesis, teks dibersihkan dari
-karakter surrogate liar (mis. '\udc9d') dan tanda baca tipografis (kutip lengkung,
-dash panjang, elipsis) dinormalkan ke ASCII. Ini mencegah Piper/espeak-ng gagal
-dengan 'UnicodeEncodeError: surrogates not allowed'.
+SANITASI TEKS (penting untuk Piper): sebelum sintesis, teks dibersihkan lewat
+_sanitize_for_tts() supaya AMAN dan JELAS diucapkan:
+  - BUANG surrogate liar (mis. '\udc9d'). Ini akar 'UnicodeEncodeError:
+    surrogates not allowed' -- Python gagal encode input SEBELUM Piper sempat
+    memproses, lalu Piper exit 1. Lokasi surrogate dicatat (index/repr/code)
+    untuk diagnosa.
+  - BUANG emoji & simbol piktografik (mis. thumbs/panah/keycap 0-9), variation
+    selector, zero-width, dsb -> supaya suara tak membaca 'emoji' dan hanya
+    berupa teks yang jelas.
+  - Normalkan tanda baca tipografis (kutip lengkung, dash panjang, elipsis) ke
+    ASCII, dan ubah underscore nama intent ('Administrasi_EFIN_...') jadi spasi.
+  Tanda baca kalimat biasa (.,!?;:-()\"') DIPERTAHANKAN karena membantu intonasi.
 
 CATATAN PIPER (penting): paket pip 'piper-tts' menulis WAV lewat modul wave
 Python dan pada sebagian versi gagal dengan 'wave.Error: # channels not
@@ -50,6 +58,7 @@ synth() -> (None, alasan) sehingga engine tetap menjawab dalam bentuk teks.
 """
 import os
 import io
+import re
 import json
 import wave
 import shutil
@@ -180,31 +189,89 @@ def _pronounce(text):
         return text
 
 
-def _sanitize_for_tts(text):
-    """Bersihkan teks agar aman untuk TTS (khususnya Piper/espeak-ng).
+# Blok karakter simbol/emoji yang DIBUANG sebelum TTS (biar suara bersih, tak
+# membaca 'emoji' aneh, dan tak bikin espeak-ng/Piper tersandung).
+_SYMBOL_RE = re.compile(
+    "["
+    "\U0001F000-\U0001FAFF"   # emoji & pictographs (semua blok modern)
+    "\U00002600-\U000027BF"   # misc symbols + dingbats (mis. thumbs, cek)
+    "\U00002190-\U000021FF"   # panah
+    "\U00002300-\U000023FF"   # technical (jam/alarm/tombol dsb)
+    "\U00002B00-\U00002BFF"   # misc symbols & arrows
+    "\U00002122"              # (TM)
+    "\U00002139"              # (info)
+    "\U000024C2"              # (M dalam lingkaran)
+    "\U0000FE00-\U0000FE0F"   # variation selectors (VS15/VS16)
+    "\U0000200D"              # zero width joiner (perekat emoji)
+    "\U000020E3"              # combining enclosing keycap (0..9 keycap)
+    "\U0000FEFF"              # BOM / zero width no-break space
+    "\U0000200B-\U0000200F"   # zero width space & tanda arah
+    "]+",
+    flags=re.UNICODE,
+)
 
-    - Buang surrogate liar (mis. '\udc9d') penyebab 'UnicodeEncodeError:
-      surrogates not allowed'.
-    - Normalkan tanda baca tipografis (kutip lengkung, dash, elipsis, nbsp).
-    - Buang karakter kontrol non-cetak (kecuali tab/newline/spasi).
-    Fail-soft: selalu kembalikan string yang bisa di-encode UTF-8.
+
+def _debug_surrogates(text):
+    """Catat lokasi surrogate liar (diagnostik) sebelum dibersihkan. Fail-soft.
+
+    Mencatat index, repr, dan code point tiap surrogate (dibatasi beberapa entri
+    pertama agar log tak membanjir), meniru diagnosa 'INVALID SURROGATE ...'.
+    """
+    try:
+        n = 0
+        for i, ch in enumerate(text):
+            code = ord(ch)
+            if 0xD800 <= code <= 0xDFFF:
+                _log("SURROGATE TAK VALID index=%d repr=%r code=U+%04X"
+                     % (i, ch, code))
+                n += 1
+                if n >= 5:
+                    _log("... surrogate tambahan disembunyikan dari log.")
+                    break
+    except Exception:
+        pass
+
+
+def _sanitize_for_tts(text):
+    """Bersihkan teks agar AMAN & JELAS untuk TTS (khususnya Piper/espeak-ng).
+
+    Urutan:
+      1) Diagnostik + BUANG surrogate liar (mis. '\udc9d') penyebab crash
+         'UnicodeEncodeError: surrogates not allowed' saat Python menyiapkan
+         input subprocess Piper.
+      2) BUANG emoji & simbol piktografik + variation selector + ZWJ + zero-width
+         -> suara jadi teks bersih, tak membaca 'emoji'.
+      3) Normalkan tanda baca tipografis (kutip lengkung, dash, elipsis, nbsp).
+      4) Ubah underscore '_' jadi spasi (nama intent seperti
+         'Administrasi_EFIN_Lupa' terbaca wajar), rapikan spasi ganda.
+      5) Buang karakter kontrol non-cetak.
+      6) Jaring pengaman: pastikan hasil valid UTF-8.
+    Tanda baca kalimat biasa (.,!?;:-()\"') SENGAJA dipertahankan karena membantu
+    intonasi TTS. Fail-soft: selalu kembalikan string yang bisa di-encode UTF-8.
     """
     if not text:
         return text
-    # 1) buang surrogate liar
+    # 1) surrogate: diagnosa lalu buang
+    if any(0xD800 <= ord(ch) <= 0xDFFF for ch in text):
+        _debug_surrogates(text)
     text = "".join(ch for ch in text if not (0xD800 <= ord(ch) <= 0xDFFF))
-    # 2) normalisasi tipografi umum -> ASCII
+    # 2) buang emoji & simbol piktografik + zero-width
+    text = _SYMBOL_RE.sub("", text)
+    # 3) normalisasi tipografi umum -> ASCII
     repl = {
         "\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'",
-        "\u2013": "-", "\u2014": "-", "\u2026": "...",
-        "\u00a0": " ", "\u200b": "", "\ufeff": "",
+        "\u2013": "-", "\u2014": "-", "\u2026": "...", "\u00a0": " ",
     }
     for a, b in repl.items():
         text = text.replace(a, b)
-    # 3) buang kontrol non-cetak (pertahankan tab/newline/CR + >= spasi)
+    # 4) underscore -> spasi (nama intent terbaca wajar)
+    text = text.replace("_", " ")
+    # 5) buang kontrol non-cetak (pertahankan tab/newline/CR + >= spasi)
     text = "".join(ch for ch in text
                    if ord(ch) in (9, 10, 13) or ord(ch) >= 32)
-    # 4) jaring pengaman terakhir: pastikan valid UTF-8
+    # rapikan spasi ganda akibat penghapusan simbol
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    # 6) jaring pengaman terakhir: pastikan valid UTF-8
     try:
         text = text.encode("utf-8", "ignore").decode("utf-8", "ignore")
     except Exception:
