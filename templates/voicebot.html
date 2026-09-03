@@ -75,12 +75,22 @@
       <label>Tawarkan lanjut (resume)<select id="dResEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Ringkas jawaban intent (2b)<select id="dSh" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Ringkas bila ≥ N karakter<input id="dShMin" class="vb-inp" type="number" min="0"></label>
+      <label>Jawaban menuntun / guided (#2)<select id="dGuided" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Min. langkah agar bertahap<input id="dGuidedMin" class="vb-inp" type="number" min="2"></label>
+      <label>Perhalus transisi langkah via LLM<select id="dGuidedBlend" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
     </div>
     <label style="display:block;margin-top:10px;">Salam pembuka (saat sesi dibuka)<input id="dGreet" class="vb-inp" style="width:100%;"></label>
     <label style="display:block;margin-top:10px;">Kalimat penutup (perintah "selesai")<input id="dClose" class="vb-inp" style="width:100%;"></label>
     <label style="display:block;margin-top:10px;">Template konfirmasi (pakai {intent})<input id="dConf" class="vb-inp" style="width:100%;"></label>
     <label style="display:block;margin-top:10px;">Template konfirmasi-dulu #1 (pakai {sal} &amp; {label})<input id="dCFirstTmpl" class="vb-inp" style="width:100%;" placeholder="Baik {sal}, saya konfirmasi, {label}"></label>
     <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;"><b>Konfirmasi-dulu (#1):</b> saat NLU menemukan intent, mesin langsung membacakan kalimat konfirmasi ini (tanpa LLM) memakai <b>Kalimat konfirmasi</b> per intent di bawah (atau otomatis dari nama intent bila kosong), sambil menyiapkan jawaban di latar. Jawaban lengkap baru dibacakan setelah penelepon menjawab "ya". <code>{sal}</code>=sapaan, <code>{label}</code>=kalimat konfirmasi intent.</p>
+    <label style="display:block;margin-top:10px;">Pembuka menuntun #2 (pakai {sal})<input id="dGuidedIntro" class="vb-inp" style="width:100%;" placeholder="Baik {sal}, saya bantu ya."></label>
+    <label style="display:block;margin-top:10px;">Dorongan antar-langkah #2 (pakai {sal})<input id="dGuidedNudge" class="vb-inp" style="width:100%;" placeholder="Kalau sudah atau ada kendala, sampaikan saja ya, {sal}."></label>
+    <label style="display:block;margin-top:10px;">Penutup menuntun #2 (pakai {sal})<input id="dGuidedClose" class="vb-inp" style="width:100%;" placeholder="Itu tadi langkah-langkahnya, {sal}. Ada lagi yang bisa saya bantu?"></label>
+    <label style="display:block;margin-top:10px;">Tawaran agen saat penelepon buntu #2 (pakai {sal})<input id="dGuidedHo" class="vb-inp" style="width:100%;" placeholder="Mohon maaf {sal}, sepertinya perlu bantuan petugas. Mau saya hubungkan dengan agen?"></label>
+    <label style="display:block;margin-top:10px;">Pemicu "buntu → tawar agen" #2 (koma)<input id="dGuidedHoTrig" class="vb-inp" style="width:100%;" placeholder="tidak bisa dibantu, masih gagal, tetap gagal, mentok"></label>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;"><b>Jawaban menuntun (#2):</b> bila jawaban intent bisa dipecah ≥ minimal langkah, jawaban disampaikan <b>bertahap</b> — satu langkah tiap giliran, mengikuti selaan penelepon. Bila penelepon menyebut salah satu <b>pemicu buntu</b> di atas, bot menawarkan dialihkan ke agen. Langkah dipotong otomatis dari <b>Respons</b> intent (baris baru / poin bernomor / kalimat). <code>{sal}</code>=sapaan.</p>
+    <label style="display:block;margin-top:10px;">Instruksi perhalus langkah #2 (LLM)<textarea id="dGuidedSys" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
     <label style="display:block;margin-top:10px;">Instruksi peringkas jawaban intent (2b)<textarea id="dShSys" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
     <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;">Peringkas memakai LLM lokal untuk memadatkan jawaban intent yang panjang jadi 1–2 kalimat lisan (fakta &amp; angka dijaga). Jawaban di bawah ambang karakter dibiarkan apa adanya; hasil di-cache. Jalur RAG memang sudah ringkas.</p>
     <div class="vb-grid2" style="margin-top:10px;">
@@ -122,6 +132,7 @@
     </div>
     <label style="display:block;margin-top:10px;">Training phrase (pisahkan koma / baris)<textarea id="iPhr" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
     <label style="display:block;margin-top:10px;">Respons (dibacakan bila intent cocok)<textarea id="iResp" rows="2" class="vb-inp" style="width:100%;"></textarea></label>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;">Untuk <b>jawaban menuntun (#2)</b>, tulis langkah-langkah di Respons ini memakai <b>baris baru</b> atau <b>penomoran</b> (1. 2. 3.) — nanti otomatis disampaikan bertahap.</p>
     <label style="display:block;margin-top:10px;">Kalimat konfirmasi cepat #1 (opsional; kosong = otomatis dari nama intent)<input id="iConf" class="vb-inp" style="width:100%;" placeholder="apakah Kakak Lupa EFIN?"></label>
     <input type="hidden" id="iId">
     <div style="margin-top:12px;"><button id="btnSaveInt" class="vb-btnp">Simpan intent</button> <button id="btnResetInt" class="vb-btns">Bersihkan</button> <span id="intMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
@@ -193,6 +204,11 @@
       $('dFilEn').value=String(s.filler_enabled||'1'); $('dResEn').value=String(s.resume_enabled||'0');
       $('dSh').value=String(s.intent_shorten_enabled||'0'); $('dShMin').value=s.intent_shorten_min_chars||'160';
       $('dShSys').value=s.intent_shorten_system||'';
+      $('dGuided').value=String(s.guided_enabled||'1'); $('dGuidedMin').value=s.guided_min_steps||'2';
+      $('dGuidedBlend').value=String(s.guided_llm_blend||'1');
+      $('dGuidedIntro').value=s.guided_intro_template||''; $('dGuidedNudge').value=s.guided_nudge_template||'';
+      $('dGuidedClose').value=s.guided_closing_template||''; $('dGuidedHo').value=s.guided_handoff_offer||'';
+      $('dGuidedHoTrig').value=s.guided_handoff_triggers||''; $('dGuidedSys').value=s.guided_step_system||'';
       $('dGreet').value=s.greeting||''; $('dClose').value=s.closing_reply||''; $('dConf').value=s.confirm_template||'';
       $('dRep').value=s.cmd_repeat||''; $('dEnd').value=s.cmd_end||''; $('dAff').value=s.affirmations||''; $('dNeg').value=s.negations||'';
       $('dFil').value=s.filler_texts||'';
@@ -236,6 +252,10 @@
     post('/api/voicebot/config/save',{
       dialog_enabled:$('dEn').value,confirm_min:$('dCmin').value,
       confirm_first:$('dCFirst').value,confirm_first_template:$('dCFirstTmpl').value,
+      guided_enabled:$('dGuided').value,guided_min_steps:$('dGuidedMin').value,guided_llm_blend:$('dGuidedBlend').value,
+      guided_intro_template:$('dGuidedIntro').value,guided_nudge_template:$('dGuidedNudge').value,
+      guided_closing_template:$('dGuidedClose').value,guided_handoff_offer:$('dGuidedHo').value,
+      guided_handoff_triggers:$('dGuidedHoTrig').value,guided_step_system:$('dGuidedSys').value,
       salutation:$('dSal').value,
       salutation_enabled:$('dSalEn').value,filler_enabled:$('dFilEn').value,resume_enabled:$('dResEn').value,
       intent_shorten_enabled:$('dSh').value,intent_shorten_min_chars:$('dShMin').value,intent_shorten_system:$('dShSys').value,
