@@ -68,7 +68,8 @@
     <div class="vb-grid2">
       <label>Dialog manager aktif<select id="dEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Ambang bawah konfirmasi (0–1)<input id="dCmin" class="vb-inp" type="number" step="0.05" min="0" max="1"></label>
-      <label>Sapaan netral<input id="dSal" class="vb-inp" placeholder="Bapak/Ibu"></label>
+      <label>Konfirmasi-dulu tanpa LLM (#1)<select id="dCFirst" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Sapaan netral<input id="dSal" class="vb-inp" placeholder="Kak"></label>
       <label>Pakai sapaan<select id="dSalEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Filler aktif<select id="dFilEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Tawarkan lanjut (resume)<select id="dResEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
@@ -78,6 +79,8 @@
     <label style="display:block;margin-top:10px;">Salam pembuka (saat sesi dibuka)<input id="dGreet" class="vb-inp" style="width:100%;"></label>
     <label style="display:block;margin-top:10px;">Kalimat penutup (perintah "selesai")<input id="dClose" class="vb-inp" style="width:100%;"></label>
     <label style="display:block;margin-top:10px;">Template konfirmasi (pakai {intent})<input id="dConf" class="vb-inp" style="width:100%;"></label>
+    <label style="display:block;margin-top:10px;">Template konfirmasi-dulu #1 (pakai {sal} &amp; {label})<input id="dCFirstTmpl" class="vb-inp" style="width:100%;" placeholder="Baik {sal}, saya konfirmasi, {label}"></label>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;"><b>Konfirmasi-dulu (#1):</b> saat NLU menemukan intent, mesin langsung membacakan kalimat konfirmasi ini (tanpa LLM) memakai <b>Kalimat konfirmasi</b> per intent di bawah (atau otomatis dari nama intent bila kosong), sambil menyiapkan jawaban di latar. Jawaban lengkap baru dibacakan setelah penelepon menjawab "ya". <code>{sal}</code>=sapaan, <code>{label}</code>=kalimat konfirmasi intent.</p>
     <label style="display:block;margin-top:10px;">Instruksi peringkas jawaban intent (2b)<textarea id="dShSys" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
     <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;">Peringkas memakai LLM lokal untuk memadatkan jawaban intent yang panjang jadi 1–2 kalimat lisan (fakta &amp; angka dijaga). Jawaban di bawah ambang karakter dibiarkan apa adanya; hasil di-cache. Jalur RAG memang sudah ringkas.</p>
     <div class="vb-grid2" style="margin-top:10px;">
@@ -119,6 +122,7 @@
     </div>
     <label style="display:block;margin-top:10px;">Training phrase (pisahkan koma / baris)<textarea id="iPhr" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
     <label style="display:block;margin-top:10px;">Respons (dibacakan bila intent cocok)<textarea id="iResp" rows="2" class="vb-inp" style="width:100%;"></textarea></label>
+    <label style="display:block;margin-top:10px;">Kalimat konfirmasi cepat #1 (opsional; kosong = otomatis dari nama intent)<input id="iConf" class="vb-inp" style="width:100%;" placeholder="apakah Kakak Lupa EFIN?"></label>
     <input type="hidden" id="iId">
     <div style="margin-top:12px;"><button id="btnSaveInt" class="vb-btnp">Simpan intent</button> <button id="btnResetInt" class="vb-btns">Bersihkan</button> <span id="intMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
     <div style="display:flex;gap:10px;margin-top:16px;"><input id="q" class="vb-inp" style="flex:1;" placeholder="Cari intent / frasa…"><button id="btnCari" class="vb-btns">Cari</button></div>
@@ -184,7 +188,8 @@
       $('cTtsEng').value=String(s.tts_engine||'piper'); $('cMms').value=s.mms_model||'facebook/mms-tts-ind';
       $('cSys').value=s.llm_system||''; $('cFb').value=s.fallback_reply||'';
       $('dEn').value=String(s.dialog_enabled||'1'); $('dCmin').value=s.confirm_min||'0.45';
-      $('dSal').value=s.salutation||'Bapak/Ibu'; $('dSalEn').value=String(s.salutation_enabled||'1');
+      $('dCFirst').value=String(s.confirm_first||'1'); $('dCFirstTmpl').value=s.confirm_first_template||'';
+      $('dSal').value=s.salutation||'Kak'; $('dSalEn').value=String(s.salutation_enabled||'1');
       $('dFilEn').value=String(s.filler_enabled||'1'); $('dResEn').value=String(s.resume_enabled||'0');
       $('dSh').value=String(s.intent_shorten_enabled||'0'); $('dShMin').value=s.intent_shorten_min_chars||'160';
       $('dShSys').value=s.intent_shorten_system||'';
@@ -229,7 +234,9 @@
   $('btnSaveDlg').onclick=function(){
     $('dlgMsg').textContent='Menyimpan…';
     post('/api/voicebot/config/save',{
-      dialog_enabled:$('dEn').value,confirm_min:$('dCmin').value,salutation:$('dSal').value,
+      dialog_enabled:$('dEn').value,confirm_min:$('dCmin').value,
+      confirm_first:$('dCFirst').value,confirm_first_template:$('dCFirstTmpl').value,
+      salutation:$('dSal').value,
       salutation_enabled:$('dSalEn').value,filler_enabled:$('dFilEn').value,resume_enabled:$('dResEn').value,
       intent_shorten_enabled:$('dSh').value,intent_shorten_min_chars:$('dShMin').value,intent_shorten_system:$('dShSys').value,
       greeting:$('dGreet').value,closing_reply:$('dClose').value,confirm_template:$('dConf').value,
@@ -272,23 +279,23 @@
     });
   };
 
-  function resetInt(){$('iId').value='';$('iName').value='';$('iPhr').value='';$('iResp').value='';$('iAktif').value='1';$('intMsg').textContent='';}
+  function resetInt(){$('iId').value='';$('iName').value='';$('iPhr').value='';$('iResp').value='';$('iConf').value='';$('iAktif').value='1';$('intMsg').textContent='';}
   $('btnResetInt').onclick=resetInt;
   $('btnSaveInt').onclick=function(){
-    var b={id:$('iId').value||null,name:$('iName').value.trim(),phrases:$('iPhr').value,response:$('iResp').value.trim(),aktif:$('iAktif').value};
+    var b={id:$('iId').value||null,name:$('iName').value.trim(),phrases:$('iPhr').value,response:$('iResp').value.trim(),confirm_label:$('iConf').value.trim(),aktif:$('iAktif').value};
     if(!b.name){$('intMsg').textContent='Nama intent wajib.';return;}
     $('intMsg').textContent='Menyimpan…';
     post('/api/voicebot/intents/save',b).then(function(d){if(d.ok){resetInt();loadInt();loadKpi();$('intMsg').textContent='Tersimpan.';}else{$('intMsg').textContent=d.error||'Gagal.';}});
   };
-  function isi(r){$('iId').value=r.id||'';$('iName').value=r.name||'';$('iPhr').value=(r.phrases_list||[]).join(', ');$('iResp').value=r.response||'';$('iAktif').value=String(r.aktif==null?1:r.aktif);window.scrollTo({top:0,behavior:'smooth'});}
+  function isi(r){$('iId').value=r.id||'';$('iName').value=r.name||'';$('iPhr').value=(r.phrases_list||[]).join(', ');$('iResp').value=r.response||'';$('iConf').value=r.confirm_label||'';$('iAktif').value=String(r.aktif==null?1:r.aktif);window.scrollTo({top:0,behavior:'smooth'});}
   function loadInt(){
     post('/api/voicebot/intents/list',{q:($('q').value||'').trim()}).then(function(d){
       var box=$('tabel'); if(!d.ok){box.innerHTML='<p style="color:#dc2626;">'+esc(d.error||'Gagal')+'</p>';return;}
       if(!d.rows.length){box.innerHTML='<p style="color:var(--text-muted);">Belum ada intent.</p>';return;}
-      var h='<table class="vb-tab"><thead><tr><th>Intent</th><th>Training phrase</th><th>Respons</th><th>Aktif</th><th></th></tr></thead><tbody>';
+      var h='<table class="vb-tab"><thead><tr><th>Intent</th><th>Training phrase</th><th>Respons</th><th>Konfirmasi #1</th><th>Aktif</th><th></th></tr></thead><tbody>';
       d.rows.forEach(function(r){
         var chips=(r.phrases_list||[]).map(function(s){return '<span class="vb-chip">'+esc(s)+'</span>';}).join('')||'—';
-        h+='<tr><td><b>'+esc(r.name)+'</b></td><td>'+chips+'</td><td>'+esc(r.response||'')+'</td><td>'+(r.aktif?'✅':'—')+'</td><td style="white-space:nowrap;"><button class="vb-link" data-ed=\''+esc(JSON.stringify(r))+'\'>Ubah</button> <button class="vb-link del" data-del="'+r.id+'">Hapus</button></td></tr>';
+        h+='<tr><td><b>'+esc(r.name)+'</b></td><td>'+chips+'</td><td>'+esc(r.response||'')+'</td><td>'+esc(r.confirm_label||'')+'</td><td>'+(r.aktif?'✅':'—')+'</td><td style="white-space:nowrap;"><button class="vb-link" data-ed=\''+esc(JSON.stringify(r))+'\'>Ubah</button> <button class="vb-link del" data-del="'+r.id+'">Hapus</button></td></tr>';
       });
       h+='</tbody></table>'; box.innerHTML=h;
       box.querySelectorAll('[data-ed]').forEach(function(b){b.onclick=function(){try{isi(JSON.parse(b.getAttribute('data-ed')));}catch(e){}};});
