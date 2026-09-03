@@ -71,7 +71,8 @@ Server -> klien:
 6) DIAGNOSA PRESISI + AMBANG ADAPTIF MIC PELAN (perbaikan 3 Sep, larut malam):
    a. VERSI KODE dicatat di log saat sesi dibuka -> memastikan kode yang jalan
       adalah kode terbaru (bukan sisa deploy lama).
-   b. TELEMETRI MIC ~1x/detik (stream_debug, default AKTIF): jumlah frame,
+   b. TELEMETRI MIC ~1x/detik (stream_debug, default MATI sejak kondisi stabil;
+      nyalakan saat diagnosa): jumlah frame,
       rms rata2/maks, jumlah frame sunyi total (indikasi gerbang browser
       menahan audio -> klien mengirim frame nol), jumlah frame lolos webrtcvad,
       jumlah frame lolos ambang energi, ambang efektif & lantai noise, status
@@ -104,7 +105,7 @@ tersedia tombol \"Reset ke rekomendasi\"). Kunci config -> (ENV lama, default):
   stream_noise_floor_init(150) stream_onset_frames(3) stream_voiced_ratio_min(0.35)
   stream_autocalibrate(1) stream_calib_ms(1200) stream_mic_hangover_ms(250)
   stream_idle_enabled(1) stream_idle_prompt_ms(8000) stream_idle_end_ms(10000)
-  stream_debug(1)
+  stream_debug(0; set 1 utk telemetri diagnosa ~1x/detik)
 Perubahan berlaku untuk sesi streaming BERIKUTNYA (buka ulang percakapan Mode B).
 """
 from __future__ import annotations
@@ -127,7 +128,7 @@ from voicebot import config_db as cfg
 
 
 # Versi kode; dicatat di log tiap sesi dibuka supaya PASTI kode terbaru yang jalan.
-STREAM_VERSION = "2026-09-03d (diagnosa + anti-budeg #7 mic pelan)"
+STREAM_VERSION = "2026-09-03e (stabil; telemetri default OFF)"
 
 SAMPLE_RATE = 16000
 FRAME_MS = 30
@@ -230,7 +231,7 @@ def _stream_tuning(settings):
         "idle_enabled": _cfg_bool(s, "stream_idle_enabled", "VOICEBOT_STREAM_IDLE_ENABLED", True),
         "idle_prompt_ms": _cfg_num(s, "stream_idle_prompt_ms", "VOICEBOT_STREAM_IDLE_PROMPT_MS", 8000, _to_int),
         "idle_end_ms": _cfg_num(s, "stream_idle_end_ms", "VOICEBOT_STREAM_IDLE_END_MS", 10000, _to_int),
-        "debug": _cfg_bool(s, "stream_debug", "VOICEBOT_STREAM_DEBUG", True),
+        "debug": _cfg_bool(s, "stream_debug", "VOICEBOT_STREAM_DEBUG", False),
     }
 
 
@@ -327,7 +328,7 @@ class Endpointer:
         self._floor_init = float(tuning["noise_floor_init"])
         self.onset_frames = tuning["onset_frames"]
         self.voiced_ratio_min = tuning["voiced_ratio_min"]
-        self.debug = bool(tuning.get("debug", True))
+        self.debug = bool(tuning.get("debug", False))
         self.stats = self._new_stats()
         self._buf = bytearray()
         self._preroll = bytearray()
