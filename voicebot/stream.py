@@ -13,8 +13,11 @@ Klien -> server:
 
 Server -> klien:
   * teks (JSON):
-      {"type":"ready","session_id":..,"greeting":..,"sample_rate":16000,"bargein":true}
+      {"type":"ready","session_id":..,"greeting":..,"sample_rate":16000,"bargein":true,
+              "gate_rms":..,"gate_hangover_ms":..,"ducking":..,"duck_gain":..}
       {"type":"speech_start"}                -> VAD mendeteksi user bicara (atau barge-in dikonfirmasi)
+      {"type":"speech_candidate"}            -> (saat bot bicara) kandidat suara terdeteksi; klien MEN-DUCK (kecilkan) volume bot sambil verifikasi
+      {"type":"speech_cancel"}               -> kandidat ternyata noise/sesaat; klien kembalikan volume bot ke normal
       {"type":"thinking"}                    -> ucapan selesai, sedang diproses
       {"type":"no_speech"}                   -> STT tak menangkap ucapan; tak ada balasan (noise)
       {"type":"transcript","text":..}
@@ -41,14 +44,32 @@ pelafalan, mesin TTS, penyingkat jawaban) berlaku identik. Semua proses tetap lo
 Barge-in tanpa headset (loudspeaker): kombinasi (a) AEC/NS/AGC + gerbang noise di
 sisi klien untuk membuang gema suara bot & noise steady dari mic, dan (b) 'barge-in
 tahan-gema' di server -- saat bot sedang bicara, interupsi HANYA dikonfirmasi bila
-terdeteksi bicara BERKELANJUTAN >= VOICEBOT_STREAM_BARGEIN_MIN_MS dan (fallback RMS)
-energi >= VOICEBOT_STREAM_SPEAKING_RMS. Blip/gema sesaat diabaikan.
+terdeteksi bicara BERKELANJUTAN >= bargein_min_ms dan (fallback RMS) energi >=
+speaking_rms. Blip/gema sesaat diabaikan. Praktik terbaik ditambahkan: saat ada
+KANDIDAT suara (belum dikonfirmasi) selama bot bicara, server mengirim
+'speech_candidate' agar klien MEN-DUCK (mengecilkan) volume bot; bila kandidat
+berubah jadi noise -> 'speech_cancel' (volume kembali); bila berkelanjutan ->
+dikonfirmasi jadi barge-in penuh (audio dihentikan). Onset ucapan tetap direkam
+via pre-roll sehingga kata pertama tak hilang.
 
 Endpointing pakai webrtcvad bila terpasang, kalau tidak jatuh ke VAD energi (RMS).
-Tuning via env: VOICEBOT_STREAM_SILENCE_MS (700), VOICEBOT_STREAM_MIN_SPEECH_MS
-(350), VOICEBOT_STREAM_PREROLL_MS (300), VOICEBOT_STREAM_RMS (600),
-VOICEBOT_STREAM_VAD_AGGR (3), VOICEBOT_STREAM_BARGEIN (1),
-VOICEBOT_STREAM_BARGEIN_MIN_MS (500), VOICEBOT_STREAM_SPEAKING_RMS (900).
+
+SEMUA TUNING DI BAWAH DAPAT DIATUR DARI UI (halaman /voicebot, panel \"Streaming
+(Mode B) & barge-in\") -> disimpan di vb_settings. Bila sebuah nilai dikosongkan,
+sistem fallback ke ENV lama lalu default kode. Kunci config -> (ENV lama, default):
+  stream_silence_ms      (VOICEBOT_STREAM_SILENCE_MS, 700)
+  stream_min_speech_ms   (VOICEBOT_STREAM_MIN_SPEECH_MS, 350)
+  stream_preroll_ms      (VOICEBOT_STREAM_PREROLL_MS, 300)
+  stream_rms             (VOICEBOT_STREAM_RMS, 600)
+  stream_vad_aggr        (VOICEBOT_STREAM_VAD_AGGR, 3)
+  stream_bargein         (VOICEBOT_STREAM_BARGEIN, 1)
+  stream_bargein_min_ms  (VOICEBOT_STREAM_BARGEIN_MIN_MS, 500)
+  stream_speaking_rms    (VOICEBOT_STREAM_SPEAKING_RMS, 900)
+  stream_gate_rms        (VOICEBOT_STREAM_GATE_RMS, 0.012)     [gerbang noise browser]
+  stream_gate_hangover_ms(VOICEBOT_STREAM_GATE_HANGOVER_MS, 600)
+  stream_ducking         (VOICEBOT_STREAM_DUCKING, 1)
+  stream_duck_gain       (VOICEBOT_STREAM_DUCK_GAIN, 0.2)
+Perubahan berlaku untuk sesi streaming BERIKUTNYA (buka ulang percakapan Mode B).
 """
 from __future__ import annotations
 
@@ -65,6 +86,7 @@ from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 
 from voicebot import engine as vb_engine
 from voicebot import tts as vb_tts
+from voicebot import config_db as cfg
 
 
 SAMPLE_RATE = 16000
@@ -72,34 +94,86 @@ FRAME_MS = 30
 FRAME_BYTES = int(SAMPLE_RATE * FRAME_MS / 1000) * 2  # 960 byte / frame 30ms
 
 
-def _env_int(name, default):
-    try:
-        return int(float(os.environ.get(name, "") or default))
-    except Exception:
-        return default
+def _to_int(x):
+    return int(float(x))
 
 
-def _bargein_enabled():
-    return str(os.environ.get("VOICEBOT_STREAM_BARGEIN", "1")) not in ("0", "false", "False")
+def _to_float(x):
+    return float(x)
+
+
+def _cfg_num(settings, key, env, default, cast):
+    """Ambil angka: config DB dulu (bila terisi), lalu ENV lama, lalu default kode."""
+    v = settings.get(key) if settings else None
+    if v is not None and str(v).strip() != "":
+        try:
+            return cast(v)
+        except Exception:
+            pass
+    ev = os.environ.get(env)
+    if ev is not None and str(ev).strip() != "":
+        try:
+            return cast(ev)
+        except Exception:
+            pass
+    return default
+
+
+def _cfg_bool(settings, key, env, default):
+    off = ("0", "false", "False", "no", "NO")
+    v = settings.get(key) if settings else None
+    if v is not None and str(v).strip() != "":
+        return str(v) not in off
+    ev = os.environ.get(env)
+    if ev is not None and str(ev).strip() != "":
+        return str(ev) not in off
+    return default
+
+
+def _stream_tuning(settings):
+    """Rangkum seluruh tuning streaming dari config DB (+fallback ENV/default)."""
+    s = settings or {}
+    aggr = _cfg_num(s, "stream_vad_aggr", "VOICEBOT_STREAM_VAD_AGGR", 3, _to_int)
+    aggr = 0 if aggr < 0 else (3 if aggr > 3 else aggr)
+    duck_gain = _cfg_num(s, "stream_duck_gain", "VOICEBOT_STREAM_DUCK_GAIN", 0.2, _to_float)
+    duck_gain = 0.0 if duck_gain < 0 else (1.0 if duck_gain > 1 else duck_gain)
+    return {
+        "silence_ms": _cfg_num(s, "stream_silence_ms", "VOICEBOT_STREAM_SILENCE_MS", 700, _to_int),
+        "min_speech_ms": _cfg_num(s, "stream_min_speech_ms", "VOICEBOT_STREAM_MIN_SPEECH_MS", 350, _to_int),
+        "preroll_ms": _cfg_num(s, "stream_preroll_ms", "VOICEBOT_STREAM_PREROLL_MS", 300, _to_int),
+        "rms": _cfg_num(s, "stream_rms", "VOICEBOT_STREAM_RMS", 600, _to_int),
+        "vad_aggr": aggr,
+        "bargein": _cfg_bool(s, "stream_bargein", "VOICEBOT_STREAM_BARGEIN", True),
+        "bargein_min_ms": _cfg_num(s, "stream_bargein_min_ms", "VOICEBOT_STREAM_BARGEIN_MIN_MS", 500, _to_int),
+        "speaking_rms": _cfg_num(s, "stream_speaking_rms", "VOICEBOT_STREAM_SPEAKING_RMS", 900, _to_int),
+        "gate_rms": _cfg_num(s, "stream_gate_rms", "VOICEBOT_STREAM_GATE_RMS", 0.012, _to_float),
+        "gate_hangover_ms": _cfg_num(s, "stream_gate_hangover_ms", "VOICEBOT_STREAM_GATE_HANGOVER_MS", 600, _to_int),
+        "ducking": _cfg_bool(s, "stream_ducking", "VOICEBOT_STREAM_DUCKING", True),
+        "duck_gain": duck_gain,
+    }
 
 
 # --------------------------------------------------------------------- VAD
 _VAD = None
-_VAD_TRIED = False
+_VAD_AGGR = None
+_VAD_FAILED = False
 
 
-def _get_webrtc_vad():
-    global _VAD, _VAD_TRIED
-    if _VAD_TRIED:
+def _get_webrtc_vad(aggr):
+    """webrtcvad ter-cache; dibuat ulang bila agresivitas berubah dari config."""
+    global _VAD, _VAD_AGGR, _VAD_FAILED
+    if _VAD_FAILED:
+        return None
+    aggr = 0 if aggr < 0 else (3 if aggr > 3 else aggr)
+    if _VAD is not None and _VAD_AGGR == aggr:
         return _VAD
-    _VAD_TRIED = True
     try:
         import webrtcvad  # type: ignore
-        aggr = _env_int("VOICEBOT_STREAM_VAD_AGGR", 3)
-        aggr = 0 if aggr < 0 else (3 if aggr > 3 else aggr)
         _VAD = webrtcvad.Vad(aggr)
+        _VAD_AGGR = aggr
     except Exception:
         _VAD = None
+        _VAD_FAILED = True
     return _VAD
 
 
@@ -117,7 +191,7 @@ def _rms(frame: bytes) -> float:
     return (total / len(a)) ** 0.5
 
 
-def _is_speech(frame: bytes, rms_min=None) -> bool:
+def _is_speech(frame: bytes, aggr: int, rms_default: int, rms_min=None) -> bool:
     """True bila frame dianggap bicara.
 
     webrtcvad dipakai bila tersedia (robustnya dari agresivitas VAD + durasi
@@ -125,13 +199,13 @@ def _is_speech(frame: bytes, rms_min=None) -> bool:
     dinaikkan lewat rms_min saat bot sedang bicara agar gema loudspeaker tak
     memicu bicara palsu.
     """
-    vad = _get_webrtc_vad()
+    vad = _get_webrtc_vad(aggr)
     if vad is not None and len(frame) == FRAME_BYTES:
         try:
             return bool(vad.is_speech(frame, SAMPLE_RATE))
         except Exception:
             pass
-    thr = rms_min if rms_min is not None else _env_int("VOICEBOT_STREAM_RMS", 600)
+    thr = rms_min if rms_min is not None else rms_default
     return _rms(frame) >= thr
 
 
@@ -146,12 +220,17 @@ def _pcm16_to_wav(pcm: bytes) -> bytes:
 
 
 class Endpointer:
-    """VAD sederhana: deteksi awal bicara + akhiri ucapan setelah hening."""
+    """VAD sederhana: deteksi awal bicara + akhiri ucapan setelah hening.
 
-    def __init__(self):
-        self.silence_ms = _env_int("VOICEBOT_STREAM_SILENCE_MS", 700)
-        self.min_speech_ms = _env_int("VOICEBOT_STREAM_MIN_SPEECH_MS", 350)
-        self.preroll_ms = _env_int("VOICEBOT_STREAM_PREROLL_MS", 300)
+    Tuning diambil dari dict hasil _stream_tuning (config DB / ENV / default).
+    """
+
+    def __init__(self, tuning):
+        self.silence_ms = tuning["silence_ms"]
+        self.min_speech_ms = tuning["min_speech_ms"]
+        self.preroll_ms = tuning["preroll_ms"]
+        self.vad_aggr = tuning["vad_aggr"]
+        self.rms_default = tuning["rms"]
         self._buf = bytearray()       # byte mentah belum jadi frame utuh
         self._preroll = bytearray()   # ring pra-bicara
         self._speech = bytearray()    # ucapan berjalan
@@ -189,7 +268,7 @@ class Endpointer:
         while len(self._buf) >= FRAME_BYTES:
             frame = bytes(self._buf[:FRAME_BYTES])
             del self._buf[:FRAME_BYTES]
-            speech = _is_speech(frame, rms_min)
+            speech = _is_speech(frame, self.vad_aggr, self.rms_default, rms_min)
             if not self._triggered:
                 self._preroll.extend(frame)
                 if len(self._preroll) > preroll_max:
@@ -229,6 +308,13 @@ async def handle(websocket: WebSocket):
     await websocket.accept()
     loop = asyncio.get_event_loop()
 
+    # Muat tuning streaming dari config DB (dapat diatur di UI). Sekali per sesi.
+    try:
+        settings = await loop.run_in_executor(None, cfg.get_settings)
+    except Exception:
+        settings = {}
+    tuning = _stream_tuning(settings)
+
     try:
         sess = await loop.run_in_executor(None, vb_engine.create_session)
     except Exception as e:  # noqa: BLE001
@@ -241,22 +327,28 @@ async def handle(websocket: WebSocket):
 
     session_id = sess.get("session_id")
     greeting = sess.get("greeting") or sess.get("salam_pembuka") or ""
+
+    bargein_on = tuning["bargein"]
+    ducking = tuning["ducking"]
+    speaking_rms = tuning["speaking_rms"]
+    bargein_min_ms = tuning["bargein_min_ms"]
+
     try:
         await websocket.send_text(json.dumps({
             "type": "ready", "session_id": session_id, "greeting": greeting,
-            "sample_rate": SAMPLE_RATE, "bargein": _bargein_enabled(),
+            "sample_rate": SAMPLE_RATE, "bargein": bargein_on,
+            "gate_rms": tuning["gate_rms"],
+            "gate_hangover_ms": tuning["gate_hangover_ms"],
+            "ducking": ducking,
+            "duck_gain": tuning["duck_gain"],
         }))
     except Exception:
         return
 
     state = {"speaking": False, "interrupt": False, "closed": False,
-             "gen": 0, "want_audio": True}
-    ep = Endpointer()
+             "gen": 0, "want_audio": True, "candidate": False}
+    ep = Endpointer(tuning)
     queue: asyncio.Queue = asyncio.Queue()
-
-    # tuning barge-in tahan-gema (loudspeaker)
-    speaking_rms = _env_int("VOICEBOT_STREAM_SPEAKING_RMS", 900)
-    bargein_min_ms = _env_int("VOICEBOT_STREAM_BARGEIN_MIN_MS", 500)
 
     async def _safe_send_text(payload):
         try:
@@ -280,15 +372,26 @@ async def handle(websocket: WebSocket):
                         if ev[0] == "speech_start":
                             if not state["speaking"]:
                                 await _safe_send_text({"type": "speech_start"})
-                            # saat bot bicara: tahan; barge-in dikonfirmasi di bawah
+                            # saat bot bicara: kandidat/konfirmasi ditangani di bawah
                         elif ev[0] == "utterance":
                             await queue.put(ev[1])
-                    # konfirmasi barge-in: hanya bila bicara BERKELANJUTAN cukup lama
-                    if (state["speaking"] and _bargein_enabled()
-                            and not state["interrupt"] and ep.triggered
-                            and ep.active_speech_ms >= bargein_min_ms):
-                        state["interrupt"] = True
-                        await _safe_send_text({"type": "speech_start"})
+                    # barge-in tahan-gema + ducking, hanya saat bot bicara
+                    if state["speaking"] and bargein_on and not state["interrupt"]:
+                        if ep.triggered and not state["candidate"]:
+                            # kandidat suara muncul -> minta klien duck volume bot
+                            state["candidate"] = True
+                            if ducking:
+                                await _safe_send_text({"type": "speech_candidate"})
+                        elif state["candidate"] and not ep.triggered:
+                            # kandidat hilang tanpa dikonfirmasi (noise) -> unduck
+                            state["candidate"] = False
+                            if ducking:
+                                await _safe_send_text({"type": "speech_cancel"})
+                        # konfirmasi barge-in: hanya bila bicara BERKELANJUTAN cukup lama
+                        if ep.triggered and ep.active_speech_ms >= bargein_min_ms:
+                            state["interrupt"] = True
+                            state["candidate"] = False
+                            await _safe_send_text({"type": "speech_start"})
                     continue
                 txt = msg.get("text")
                 if txt:
@@ -328,6 +431,7 @@ async def handle(websocket: WebSocket):
             return
         state["speaking"] = True
         state["interrupt"] = False
+        state["candidate"] = False
         chunk = 8192
         i = 0
         try:
@@ -343,6 +447,7 @@ async def handle(websocket: WebSocket):
                 await asyncio.sleep(0)  # beri kesempatan receiver menangkap barge-in
         finally:
             state["speaking"] = False
+            state["candidate"] = False
         if state["interrupt"]:
             await _safe_send_text({"type": "interrupted"})
         elif not state["closed"]:
