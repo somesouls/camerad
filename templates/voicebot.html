@@ -55,8 +55,14 @@
       <label>Ambang energi saat bot bicara (RMS)<input id="sSpkRms" class="vb-inp" type="number" min="0"></label>
       <label>Ducking (kecilkan volume saat verifikasi)<select id="sDuck" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
       <label>Level volume bot saat di-duck (0–1)<input id="sDuckGain" class="vb-inp" type="number" step="0.05" min="0" max="1"></label>
+      <label>Penjaga diam aktif (#3)<select id="sIdle" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Diam sebelum sapa (ms)<input id="sIdlePromptMs" class="vb-inp" type="number" min="0"></label>
+      <label>Diam lanjut sebelum akhiri (ms)<input id="sIdleEndMs" class="vb-inp" type="number" min="0"></label>
     </div>
+    <label style="display:block;margin-top:10px;">Sapaan penjaga diam #3 (pakai {sal})<input id="sIdlePrompt" class="vb-inp" style="width:100%;" placeholder="Halo, apakah masih terhubung, {sal}?"></label>
+    <label style="display:block;margin-top:10px;">Kalimat penutup saat tetap tak ada respons #3<input id="sIdleEnd" class="vb-inp" style="width:100%;" placeholder="Baik, karena belum ada respons, panggilan saya akhiri dulu ya. Terima kasih."></label>
     <p style="color:var(--text-muted);font-size:11.5px;margin:8px 0 0;"><b>Gerbang noise browser</b>: makin tinggi makin ketat membuang noise (tapi suara pelan bisa ikut terpotong) — nilai awal 0.012. <b>Ambang energi server</b> &amp; <b>Agresivitas VAD</b> (3 = paling tegas) menyaring noise di sisi server. <b>Durasi konfirmasi barge-in</b>: makin besar makin tahan gema loudspeaker, tapi bot lebih lambat berhenti saat benar-benar disela. <b>Ducking</b>: saat ada kandidat suara, volume bot dikecilkan ke level ini sambil verifikasi — bila ternyata noise volume kembali normal, bila benar suara user bot berhenti.</p>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;"><b>Penjaga diam (#3):</b> khusus Mode B. Bila penelepon diam selama <b>Diam sebelum sapa</b> (default 8 dtk) dan bot tidak sedang bicara/memproses, bot menyapa memakai <b>Sapaan penjaga diam</b> (mis. "masih terhubung?"). Bila diam berlanjut <b>Diam lanjut sebelum akhiri</b> (default 10 dtk) tanpa respons, bot membacakan <b>Kalimat penutup</b> lalu sesi ditutup otomatis. Timer di-reset tiap penelepon bicara atau tiap bot selesai bicara. <code>{sal}</code>=sapaan.</p>
     <div style="margin-top:12px;"><button id="btnSaveStream" class="vb-btnp">Simpan streaming</button> <span id="strMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
   </section>
 
@@ -220,6 +226,11 @@
       $('sBargeMs').value=s.stream_bargein_min_ms||'500'; $('sSpkRms').value=s.stream_speaking_rms||'900';
       $('sDuck').value=String(s.stream_ducking||'1');
       $('sDuckGain').value=(s.stream_duck_gain!=null&&s.stream_duck_gain!=='')?s.stream_duck_gain:'0.2';
+      $('sIdle').value=String(s.stream_idle_enabled||'1');
+      $('sIdlePromptMs').value=s.stream_idle_prompt_ms||'8000';
+      $('sIdleEndMs').value=s.stream_idle_end_ms||'10000';
+      $('sIdlePrompt').value=s.stream_idle_prompt_text||'';
+      $('sIdleEnd').value=s.stream_idle_end_text||'';
       $('kpiStt').textContent='STT: '+(d.stt_ready?'siap ✅':'belum ⚠️');
       $('kpiTts').textContent='TTS: '+(d.tts_ready?'siap ✅':'belum ⚠️')+(d.tts_engine?(' ('+d.tts_engine+')'):'');
     });
@@ -243,7 +254,10 @@
       stream_silence_ms:$('sSil').value,stream_min_speech_ms:$('sMinSp').value,
       stream_preroll_ms:$('sPre').value,stream_bargein:$('sBarge').value,
       stream_bargein_min_ms:$('sBargeMs').value,stream_speaking_rms:$('sSpkRms').value,
-      stream_ducking:$('sDuck').value,stream_duck_gain:$('sDuckGain').value
+      stream_ducking:$('sDuck').value,stream_duck_gain:$('sDuckGain').value,
+      stream_idle_enabled:$('sIdle').value,stream_idle_prompt_ms:$('sIdlePromptMs').value,
+      stream_idle_end_ms:$('sIdleEndMs').value,stream_idle_prompt_text:$('sIdlePrompt').value,
+      stream_idle_end_text:$('sIdleEnd').value
     }).then(function(d){$('strMsg').textContent=d.ok?'Tersimpan. Berlaku untuk sesi streaming berikutnya.':(d.error||'Gagal.');loadCfg();});
   };
 
