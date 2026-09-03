@@ -38,6 +38,26 @@
   </section>
 
   <section class="vb-pnl" style="margin-top:22px;">
+    <h2 class="vb-ph">🔤 STT prediktif &amp; bias NLU (#5)</h2>
+    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
+      Biasakan STT (faster-whisper) ke <b>kosakata domain</b> (NPWP/EFIN/SPT/DJP/dll.) lewat <code>initial_prompt</code> + <code>hotwords</code>, dan condongkan <b>routing NLU</b> ke intent tertentu saat kata kunci muncul. Tujuannya: istilah domain lebih akurat ditranskrip, lalu intent-nya lebih tepat dikenali. Semua fail-soft — bila gagal disusun, STT/NLU tetap jalan tanpa bias.
+    </p>
+    <div class="vb-grid2">
+      <label>STT prediktif aktif<select id="p5SttEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Maks istilah biasing<input id="p5MaxT" class="vb-inp" type="number" min="0"></label>
+      <label>Ambil istilah dari kamus pelafalan<select id="p5FromLex" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Ambil istilah dari nama intent<select id="p5FromInt" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Bias NLU aktif<select id="p5NluEn" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+      <label>Besar boost skor NLU (0–1)<input id="p5Boost" class="vb-inp" type="number" step="0.01" min="0" max="1"></label>
+    </div>
+    <label style="display:block;margin-top:10px;">Prompt konteks STT (initial_prompt)<textarea id="p5Prompt" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
+    <label style="display:block;margin-top:10px;">Istilah biasing manual (koma)<input id="p5Terms" class="vb-inp" style="width:100%;" placeholder="NPWP, EFIN, SPT, DJP, KPP"></label>
+    <label style="display:block;margin-top:10px;">Peta bias NLU (satu aturan per baris: kata kunci =&gt; Nama Intent)<textarea id="p5Map" rows="3" class="vb-inp" style="width:100%;" placeholder="npwp =&gt; Cek Status NPWP&#10;jam buka =&gt; Jam Operasional"></textarea></label>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;"><b>STT prediktif (#5):</b> istilah dari <b>manual</b> + (opsional) kamus pelafalan + nama intent digabung jadi <code>initial_prompt</code> &amp; <code>hotwords</code> faster-whisper (dedup, dibatasi <b>Maks istilah</b>). <b>Bias NLU:</b> bila kata kunci di <b>Peta bias</b> muncul di transkrip, skor intent terkait dinaikkan <b>Besar boost</b> sebelum dipilih. Pemisah aturan: baris baru atau <code>|</code>; format <code>kata kunci =&gt; Nama Intent</code> (juga menerima <code>:</code> atau <code>=</code>).</p>
+    <div style="margin-top:12px;"><button id="btnSaveP5" class="vb-btnp">Simpan STT prediktif &amp; bias</button> <span id="p5Msg" style="font-size:13px;color:var(--text-muted);"></span></div>
+  </section>
+
+  <section class="vb-pnl" style="margin-top:22px;">
     <h2 class="vb-ph">🔴 Streaming (Mode B) &amp; barge-in</h2>
     <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
       Atur sensitivitas deteksi suara &amp; barge-in untuk percakapan real-time (Mode B) langsung dari sini — tanpa mengubah kode/ENV. Bila masih ada 1–2 noise yang lolos, <b>naikkan</b> "Gerbang noise browser" (mis. 0.02–0.03) dan/atau "Ambang energi server", serta set "Agresivitas VAD" ke 3. Perubahan berlaku untuk sesi streaming <b>berikutnya</b> (buka ulang percakapan Mode B di Lab/APK).
@@ -209,6 +229,10 @@
       $('cPron').value=String(s.pron_enabled||'1'); $('cSpellMin').value=s.pron_spell_digits_min||'7';
       $('cTtsEng').value=String(s.tts_engine||'piper'); $('cMms').value=s.mms_model||'facebook/mms-tts-ind';
       $('cSys').value=s.llm_system||''; $('cFb').value=s.fallback_reply||'';
+      $('p5SttEn').value=String(s.stt_bias_enabled||'1'); $('p5MaxT').value=s.stt_bias_max_terms||'64';
+      $('p5FromLex').value=String(s.stt_bias_from_lexicon||'1'); $('p5FromInt').value=String(s.stt_bias_from_intents||'1');
+      $('p5NluEn').value=String(s.nlu_bias_enabled||'1'); $('p5Boost').value=(s.nlu_bias_boost!=null&&s.nlu_bias_boost!=='')?s.nlu_bias_boost:'0.08';
+      $('p5Prompt').value=s.stt_bias_prompt||''; $('p5Terms').value=s.stt_bias_terms||''; $('p5Map').value=s.nlu_bias_map||'';
       $('dEn').value=String(s.dialog_enabled||'1'); $('dCmin').value=s.confirm_min||'0.45';
       $('dCFirst').value=String(s.confirm_first||'1'); $('dCFirstTmpl').value=s.confirm_first_template||'';
       $('dSal').value=s.salutation||'Kak'; $('dSalEn').value=String(s.salutation_enabled||'1');
@@ -251,6 +275,16 @@
       tts_engine:$('cTtsEng').value,mms_model:$('cMms').value,
       llm_system:$('cSys').value,fallback_reply:$('cFb').value
     }).then(function(d){$('cfgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');loadCfg();});
+  };
+
+  $('btnSaveP5').onclick=function(){
+    $('p5Msg').textContent='Menyimpan…';
+    post('/api/voicebot/config/save',{
+      stt_bias_enabled:$('p5SttEn').value,stt_bias_max_terms:$('p5MaxT').value,
+      stt_bias_from_lexicon:$('p5FromLex').value,stt_bias_from_intents:$('p5FromInt').value,
+      stt_bias_prompt:$('p5Prompt').value,stt_bias_terms:$('p5Terms').value,
+      nlu_bias_enabled:$('p5NluEn').value,nlu_bias_boost:$('p5Boost').value,nlu_bias_map:$('p5Map').value
+    }).then(function(d){$('p5Msg').textContent=d.ok?'Tersimpan. Berlaku untuk giliran berikutnya.':(d.error||'Gagal.');loadCfg();});
   };
 
   $('btnSaveStream').onclick=function(){
