@@ -8,6 +8,13 @@ Dua mesin, dipilih lewat setting `tts_engine`:
              sekali dari HuggingFace (~145 MB), setelah itu jalan penuh lokal;
              bisa GPU (RTX 5060 Ti) atau CPU.
 
+KEANDALAN SUARA (penting): synth() dirancang supaya suara SELALU diusahakan keluar.
+  - Piper gagal transien (subprocess/output kosong) -> otomatis DICOBA ULANG 1x.
+  - Bila mesin terpilih tetap gagal namun mesin lain tersedia -> jatuh ke mesin
+    lain (piper<->mms) sebagai cadangan.
+  - Setiap kegagalan DICATAT ke log server ([voicebot.tts] ...) lengkap dengan
+    alasan + panjang teks, supaya turn yang "gagal TTS" bisa didiagnosis.
+
 Piper env:
   VOICEBOT_PIPER_BIN   -- path/nama binary piper (default 'piper'). Di WINDOWS
                           pakai piper.exe STANDALONE (rilis resmi), BUKAN paket
@@ -24,9 +31,8 @@ MMS env (opsional):
 Sebelum sintesis, teks dilewatkan lapisan pelafalan (voicebot.pron): kamus
 singkatan + eja angka panjang. Bisa dimatikan via setting pron_enabled.
 
-Fail-soft berlapis: bila mesin terpilih belum siap, synth() -> (None, alasan)
-sehingga engine tetap menjawab dalam bentuk teks. Bila MMS gagal saat runtime
-namun Piper siap, otomatis jatuh ke Piper agar tetap ada suara.
+Fail-soft berlapis: bila semua mesin gagal, synth() -> (None, alasan) sehingga
+engine tetap menjawab dalam bentuk teks.
 """
 import os
 import io
@@ -35,6 +41,14 @@ import shutil
 import struct
 import subprocess
 import tempfile
+
+
+def _log(msg):
+    """Log ringkas ke stdout server (fail-soft)."""
+    try:
+        print("[voicebot.tts] " + msg, flush=True)
+    except Exception:
+        pass
 
 
 # ------------------------------------------------------------------ util config
@@ -136,22 +150,8 @@ def _pronounce(text):
 
 
 # ------------------------------------------------------------------ Piper
-def _synth_piper(text):
-    """Sintesis via Piper. Kembalikan (wav_bytes, error)."""
-    voice = _voice()
-    if not voice:
-        return None, ("Piper belum dikonfigurasi "
-                      "(set VOICEBOT_PIPER_VOICE ke file .onnx).")
-    binpath = _resolve_bin()
-    if not binpath:
-        return None, ("Binary piper tidak ditemukan "
-                      "(set VOICEBOT_PIPER_BIN ke path piper.exe / piper).")
-    if not os.path.exists(voice):
-        return None, "Model suara tidak ditemukan: %s" % voice
-    if not os.path.exists(voice + ".json"):
-        return None, ("Config model tidak ditemukan: %s.json "
-                      "(letakkan file .onnx.json di folder yang sama)." % voice)
-
+def _run_piper_once(binpath, voice, text):
+    """Satu kali eksekusi Piper. Kembalikan (wav_bytes, error)."""
     out = tempfile.NamedTemporaryFile(prefix="vb_tts_", suffix=".wav",
                                       delete=False)
     out.close()
@@ -183,6 +183,40 @@ def _synth_piper(text):
             os.unlink(out.name)
         except Exception:
             pass
+
+
+def _synth_piper(text):
+    """Sintesis via Piper dengan retry 1x. Kembalikan (wav_bytes, error).
+
+    Kegagalan Piper sering bersifat TRANSIEN (subprocess/temp file/output kosong
+    saat CPU sibuk). Karena itu dicoba ulang sekali sebelum menyerah, dan setiap
+    kegagalan dicatat ke log server agar turn 'gagal TTS' bisa didiagnosis.
+    """
+    voice = _voice()
+    if not voice:
+        return None, ("Piper belum dikonfigurasi "
+                      "(set VOICEBOT_PIPER_VOICE ke file .onnx).")
+    binpath = _resolve_bin()
+    if not binpath:
+        return None, ("Binary piper tidak ditemukan "
+                      "(set VOICEBOT_PIPER_BIN ke path piper.exe / piper).")
+    if not os.path.exists(voice):
+        return None, "Model suara tidak ditemukan: %s" % voice
+    if not os.path.exists(voice + ".json"):
+        return None, ("Config model tidak ditemukan: %s.json "
+                      "(letakkan file .onnx.json di folder yang sama)." % voice)
+
+    last_err = None
+    for attempt in range(2):  # 1 percobaan + 1 retry
+        data, err = _run_piper_once(binpath, voice, text)
+        if data:
+            if attempt > 0:
+                _log("Piper sukses setelah retry.")
+            return data, None
+        last_err = err
+        _log("Piper gagal (percobaan %d/2, teks %d char): %s"
+             % (attempt + 1, len(text or ""), err))
+    return None, last_err
 
 
 # ------------------------------------------------------------------ MMS-TTS
@@ -265,10 +299,11 @@ def _synth_mms(text):
 
 # ------------------------------------------------------------------ API utama
 def synth(text):
-    """Kembalikan (wav_bytes, error). wav_bytes None bila gagal/tak tersedia.
+    """Kembalikan (wav_bytes, error). wav_bytes None bila semua mesin gagal.
 
-    Mesin ditentukan setting `tts_engine`. Bila 'mms' gagal saat runtime tetapi
-    Piper siap, otomatis jatuh ke Piper (fail-soft) agar tetap ada suara.
+    Mesin ditentukan setting `tts_engine`. Untuk KEANDALAN suara, bila mesin
+    terpilih gagal namun mesin lain tersedia, otomatis dicoba mesin lain
+    (piper<->mms). Semua kegagalan dicatat ke log server.
     """
     text = (text or "").strip()
     if not text:
@@ -283,14 +318,27 @@ def synth(text):
             return data, None
         # cadangan: coba Piper bila terkonfigurasi
         if piper_available():
-            print("[voicebot.tts] MMS gagal (%s); memakai Piper." % err, flush=True)
+            _log("MMS gagal (%s); memakai Piper sebagai cadangan." % err)
             data2, err2 = _synth_piper(text)
             if data2:
                 return data2, None
             return None, "MMS gagal: %s | Piper gagal: %s" % (err, err2)
+        _log("MMS gagal & Piper tak tersedia: %s" % err)
         return None, err
 
-    return _synth_piper(text)
+    # engine 'piper' (default)
+    data, err = _synth_piper(text)
+    if data:
+        return data, None
+    # cadangan: coba MMS bila dependensinya tersedia (biar suara tetap keluar)
+    if mms_available():
+        _log("Piper gagal (%s); mencoba MMS sebagai cadangan." % err)
+        data2, err2 = _synth_mms(text)
+        if data2:
+            return data2, None
+        return None, "Piper gagal: %s | MMS gagal: %s" % (err, err2)
+    _log("Piper gagal & MMS tak tersedia: %s" % err)
+    return None, err
 
 
 def warmup(text="Halo, selamat datang."):
