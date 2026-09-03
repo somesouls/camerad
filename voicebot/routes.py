@@ -9,8 +9,10 @@ API engine (Mode A):
   POST /api/voicebot/session  -> buat sesi (+ salam pembuka bila dialog aktif)
   POST /api/voicebot/talk     -> multipart (audio) atau JSON (text) + session_id
   POST /api/voicebot/end      -> tutup sesi
-  GET  /api/voicebot/health   -> status STT/TTS
+  GET  /api/voicebot/health   -> status STT/TTS (+ diagnostik mesin TTS)
   GET  /api/voicebot/filler   -> klip filler (teks + audio) utk tutup latency
+  GET  /api/voicebot/greeting -> teks + audio salam pembuka (dipakai klien Mode A)
+  POST /api/voicebot/warmup   -> pra-muat mesin TTS agar giliran pertama tak dingin
 
 API engine (Mode B):
   WS   /api/voicebot/stream   -> percakapan suara real-time + barge-in
@@ -35,6 +37,8 @@ Akses admin diatur di app_core._route_area (area 'peraturan'). Endpoint
 (lihat bypass di app_core._auth_middleware). Daftarkan:
     import voicebot.routes as voicebot_routes; voicebot_routes.register(app)
 """
+import base64
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
@@ -46,6 +50,7 @@ from voicebot import engine as vb_engine
 from voicebot import stt as vb_stt
 from voicebot import tts as vb_tts
 from voicebot import pron as vb_pron
+from voicebot import dialog as vb_dialog
 from voicebot import df_import as vb_dfimport
 from voicebot import stream as vb_stream
 
@@ -118,9 +123,33 @@ async def api_talk(request: Request):
 
 
 async def api_health(request: Request):
+    """Status STT/TTS + diagnostik mesin TTS (agar 'tidak ada suara' cepat terdeteksi)."""
+    try:
+        diag = vb_tts.diagnostics()
+    except Exception:
+        diag = {}
     return JSONResponse({"ok": True, "service": "voicebot",
                         "stt_ready": vb_stt.available(),
-                        "tts_ready": vb_tts.available()})
+                        "tts_ready": vb_tts.available(),
+                        "tts_engine": diag.get("engine"),
+                        "tts": diag})
+
+
+async def api_warmup(request: Request):
+    """Pra-muat mesin TTS aktif supaya sintesis PERTAMA tidak 'dingin'
+    (MMS memuat model; Piper resolve binary). Aman dipanggil berulang."""
+    try:
+        ok, err = await run_in_threadpool(vb_tts.warmup)
+        diag = {}
+        try:
+            diag = vb_tts.diagnostics()
+        except Exception:
+            diag = {}
+        return JSONResponse({"ok": True, "tts_warm": bool(ok),
+                            "tts_error": err, "tts_engine": diag.get("engine"),
+                            "tts": diag})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 async def api_filler(request: Request):
@@ -134,6 +163,39 @@ async def api_filler(request: Request):
         idx = qp.get("index")
     try:
         res = await run_in_threadpool(vb_engine.get_filler, want_audio, idx)
+        return JSONResponse({"ok": True, **res})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_greeting(request: Request):
+    """Teks + audio salam pembuka utk diputar klien (Mode A) saat sesi baru.
+
+    Mengembalikan {enabled, text, audio_b64, tts_error}. Bila dialog manager mati,
+    enabled=False. Audio memakai mesin TTS voicebot (bukan TTS bawaan perangkat).
+    """
+    want_audio = True
+    qp = request.query_params
+    if qp.get("want_audio") is not None:
+        want_audio = str(qp.get("want_audio")) not in ("0", "false", "False")
+
+    def _run():
+        settings = cfg.get_settings()
+        if not vb_dialog.enabled(settings):
+            return {"enabled": False, "text": "", "audio_b64": None,
+                    "tts_error": None}
+        text = vb_dialog.greeting(settings)
+        audio_b64 = None
+        tts_err = None
+        if want_audio and text and str(settings.get("tts_enabled", "1")) != "0":
+            wav, tts_err = vb_tts.synth(text)
+            if wav:
+                audio_b64 = base64.b64encode(wav).decode("ascii")
+        return {"enabled": True, "text": text, "audio_b64": audio_b64,
+                "tts_error": tts_err}
+
+    try:
+        res = await run_in_threadpool(_run)
         return JSONResponse({"ok": True, **res})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)})
@@ -305,7 +367,9 @@ def register(app):
     app.add_api_route("/api/voicebot/talk", api_talk, methods=["POST"])
     app.add_api_route("/api/voicebot/end", api_end, methods=["POST"])
     app.add_api_route("/api/voicebot/health", api_health, methods=["GET"])
+    app.add_api_route("/api/voicebot/warmup", api_warmup, methods=["POST"])
     app.add_api_route("/api/voicebot/filler", api_filler, methods=["GET"])
+    app.add_api_route("/api/voicebot/greeting", api_greeting, methods=["GET"])
     app.add_api_route("/api/voicebot/config", api_config_get, methods=["GET"])
     app.add_api_route("/api/voicebot/config/save", api_config_save, methods=["POST"])
     app.add_api_route("/api/voicebot/intents/list", api_intents_list, methods=["POST"])
