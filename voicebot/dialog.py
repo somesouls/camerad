@@ -9,6 +9,8 @@ Lapisan keputusan percakapan bergaya agen:
     deterministik (tanpa LLM) lalu siapkan jawaban di background.
   - Jawaban menuntun / guided walkthrough (#2): sampaikan jawaban panjang
     BERTAHAP (satu langkah tiap giliran) + tawar agen bila penelepon buntu.
+  - Penjaga diam / silence watchdog (#3): saat penelepon diam di Mode B, sapa
+    dulu ('masih terhubung?') lalu akhiri sesi bila tetap tak ada respons.
   - Digression: deteksi pindah intent + tawaran resume intent sebelumnya.
   - Readback selektif, sapaan 'Kak', dan teks filler.
 
@@ -219,6 +221,46 @@ def guided_handoff_offer(settings):
 def wants_handoff_in_flow(text, settings):
     """True bila selaan penelepon menandakan buntu/tak terbantu (tawar agen)."""
     return _contains_any(text, _csv(settings, "guided_handoff_triggers")) is not None
+
+
+# ------------------------------------ penjaga diam / silence watchdog (#3)
+# Khusus Mode B (streaming). Timer diam dijalankan di voicebot/stream.py; helper
+# di sini hanya membaca konfigurasi + menyiapkan teksnya (isi {sal}).
+def idle_watchdog_enabled(settings):
+    """Penjaga diam Mode B aktif? (default ON)."""
+    return str((settings or {}).get("stream_idle_enabled", "1")) != "0"
+
+
+def idle_prompt_ms(settings):
+    """Diam berapa ms sebelum bot menyapa 'masih terhubung?' (default 8000)."""
+    try:
+        n = int(float((settings or {}).get("stream_idle_prompt_ms") or 8000))
+    except Exception:
+        n = 8000
+    return n if n > 0 else 8000
+
+
+def idle_end_ms(settings):
+    """Diam berapa ms LAGI setelah sapaan sebelum sesi diakhiri (default 10000)."""
+    try:
+        n = int(float((settings or {}).get("stream_idle_end_ms") or 10000))
+    except Exception:
+        n = 10000
+    return n if n > 0 else 10000
+
+
+def idle_prompt_text(settings):
+    """Sapaan saat penelepon mulai diam, mis. 'Halo, apakah masih terhubung, Kak?'"""
+    return _fill_sal((settings or {}).get("stream_idle_prompt_text"),
+                     settings, "Halo, apakah masih terhubung, {sal}?")
+
+
+def idle_end_text(settings):
+    """Kalimat sebelum sesi ditutup karena tetap tidak ada respons."""
+    return _fill_sal((settings or {}).get("stream_idle_end_text"),
+                     settings,
+                     "Baik, karena belum ada respons, panggilan saya akhiri dulu ya. "
+                     "Terima kasih sudah menghubungi kami.")
 
 
 def readback_prompt(text, settings):
