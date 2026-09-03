@@ -9,11 +9,19 @@ Dua mesin, dipilih lewat setting `tts_engine`:
              bisa GPU (RTX 5060 Ti) atau CPU.
 
 KEANDALAN SUARA (penting): synth() dirancang supaya suara SELALU diusahakan keluar.
-  - Piper gagal transien (subprocess/output kosong) -> otomatis DICOBA ULANG 1x.
-  - Bila mesin terpilih tetap gagal namun mesin lain tersedia -> jatuh ke mesin
-    lain (piper<->mms) sebagai cadangan.
+  - Piper gagal transien (subprocess/output kosong) -> otomatis DICOBA ULANG 1x
+    dengan MESIN YANG SAMA (tidak mengganti suara).
+  - Cadangan LINTAS-MESIN (piper<->mms) kini OPSIONAL dan MATI secara default
+    (setting `tts_cross_fallback`, default '0'). Sesuai permintaan: bila memilih
+    Piper, suara yang keluar HANYA Piper -- tidak dicampur MMS supaya suara tidak
+    berganti-ganti / tumpang tindih. Aktifkan hanya bila memang ingin fail-over.
   - Setiap kegagalan DICATAT ke log server ([voicebot.tts] ...) lengkap dengan
     alasan + panjang teks, supaya turn yang "gagal TTS" bisa didiagnosis.
+
+SANITASI TEKS (penting untuk Piper): sebelum sintesis, teks dibersihkan dari
+karakter surrogate liar (mis. '\udc9d') dan tanda baca tipografis (kutip lengkung,
+dash panjang, elipsis) dinormalkan ke ASCII. Ini mencegah Piper/espeak-ng gagal
+dengan 'UnicodeEncodeError: surrogates not allowed'.
 
 CATATAN PIPER (penting): paket pip 'piper-tts' menulis WAV lewat modul wave
 Python dan pada sebagian versi gagal dengan 'wave.Error: # channels not
@@ -37,8 +45,8 @@ MMS env (opsional):
 Sebelum sintesis, teks dilewatkan lapisan pelafalan (voicebot.pron): kamus
 singkatan + eja angka panjang. Bisa dimatikan via setting pron_enabled.
 
-Fail-soft berlapis: bila semua mesin gagal, synth() -> (None, alasan) sehingga
-engine tetap menjawab dalam bentuk teks.
+Fail-soft berlapis: bila mesin terpilih gagal (dan cadangan mati/juga gagal),
+synth() -> (None, alasan) sehingga engine tetap menjawab dalam bentuk teks.
 """
 import os
 import io
@@ -66,6 +74,20 @@ def _engine():
         return (_cfg.get_setting("tts_engine", "piper") or "piper").strip().lower()
     except Exception:
         return "piper"
+
+
+def _cross_fallback_on():
+    """Boleh jatuh ke mesin TTS lain bila mesin terpilih gagal? Default: TIDAK.
+
+    Dikontrol setting `tts_cross_fallback` (default '0' = mati). Saat mati, mesin
+    yang dipilih di Konfigurasi dipakai apa adanya -- suara tidak berganti mesin.
+    """
+    off = ("0", "false", "False", "no", "NO", "")
+    try:
+        from voicebot import config_db as _cfg
+        return str(_cfg.get_setting("tts_cross_fallback", "0")) not in off
+    except Exception:
+        return False
 
 
 def _bin():
@@ -130,6 +152,7 @@ def diagnostics():
     return {
         "engine": eng,
         "ready": available(),
+        "cross_fallback": _cross_fallback_on(),
         # Piper
         "bin": _bin(),
         "bin_resolved": _resolve_bin(),
@@ -155,6 +178,38 @@ def _pronounce(text):
         return _pron.normalize(text)
     except Exception:  # noqa: BLE001
         return text
+
+
+def _sanitize_for_tts(text):
+    """Bersihkan teks agar aman untuk TTS (khususnya Piper/espeak-ng).
+
+    - Buang surrogate liar (mis. '\udc9d') penyebab 'UnicodeEncodeError:
+      surrogates not allowed'.
+    - Normalkan tanda baca tipografis (kutip lengkung, dash, elipsis, nbsp).
+    - Buang karakter kontrol non-cetak (kecuali tab/newline/spasi).
+    Fail-soft: selalu kembalikan string yang bisa di-encode UTF-8.
+    """
+    if not text:
+        return text
+    # 1) buang surrogate liar
+    text = "".join(ch for ch in text if not (0xD800 <= ord(ch) <= 0xDFFF))
+    # 2) normalisasi tipografi umum -> ASCII
+    repl = {
+        "\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'",
+        "\u2013": "-", "\u2014": "-", "\u2026": "...",
+        "\u00a0": " ", "\u200b": "", "\ufeff": "",
+    }
+    for a, b in repl.items():
+        text = text.replace(a, b)
+    # 3) buang kontrol non-cetak (pertahankan tab/newline/CR + >= spasi)
+    text = "".join(ch for ch in text
+                   if ord(ch) in (9, 10, 13) or ord(ch) >= 32)
+    # 4) jaring pengaman terakhir: pastikan valid UTF-8
+    try:
+        text = text.encode("utf-8", "ignore").decode("utf-8", "ignore")
+    except Exception:
+        pass
+    return text.strip()
 
 
 # ------------------------------------------------------------------ Piper
@@ -251,7 +306,6 @@ def _run_piper_once(binpath, voice, text):
                 raw_unsupported = True
                 continue  # coba varian flag berikutnya
             if p.returncode == 0 and not p.stdout:
-                # raw jalan tapi kosong -> anggap tak didukung, ke fallback file
                 raw_unsupported = True
                 break
             tail = err.splitlines()[-1] if err else "(tanpa pesan)"
@@ -262,7 +316,6 @@ def _run_piper_once(binpath, voice, text):
             return None, "Binary piper tidak bisa dijalankan: %s" % binpath
         except Exception as e:  # noqa: BLE001
             return None, str(e)
-    # Fallback: mode file (-f)
     if raw_unsupported:
         _log("Piper --output-raw tak didukung binary; memakai mode file (-f).")
     return _run_piper_file(binpath, voice, text, espeak)
@@ -272,8 +325,9 @@ def _synth_piper(text):
     """Sintesis via Piper dengan retry 1x. Kembalikan (wav_bytes, error).
 
     Kegagalan Piper sering bersifat TRANSIEN (subprocess/temp file/output kosong
-    saat CPU sibuk). Karena itu dicoba ulang sekali sebelum menyerah, dan setiap
-    kegagalan dicatat ke log server agar turn 'gagal TTS' bisa didiagnosis.
+    saat CPU sibuk). Karena itu dicoba ulang sekali (mesin SAMA) sebelum menyerah,
+    dan setiap kegagalan dicatat ke log server agar turn 'gagal TTS' bisa
+    didiagnosis.
     """
     voice = _voice()
     if not voice:
@@ -290,7 +344,7 @@ def _synth_piper(text):
                       "(letakkan file .onnx.json di folder yang sama)." % voice)
 
     last_err = None
-    for attempt in range(2):  # 1 percobaan + 1 retry
+    for attempt in range(2):  # 1 percobaan + 1 retry (mesin sama)
         data, err = _run_piper_once(binpath, voice, text)
         if data:
             if attempt > 0:
@@ -382,46 +436,51 @@ def _synth_mms(text):
 
 # ------------------------------------------------------------------ API utama
 def synth(text):
-    """Kembalikan (wav_bytes, error). wav_bytes None bila semua mesin gagal.
+    """Kembalikan (wav_bytes, error). wav_bytes None bila sintesis gagal.
 
-    Mesin ditentukan setting `tts_engine`. Untuk KEANDALAN suara, bila mesin
-    terpilih gagal namun mesin lain tersedia, otomatis dicoba mesin lain
-    (piper<->mms). Semua kegagalan dicatat ke log server.
+    Mesin ditentukan setting `tts_engine`. Cadangan lintas-mesin (piper<->mms)
+    HANYA dipakai bila setting `tts_cross_fallback` aktif (default mati) -- jadi
+    secara default suara memakai mesin terpilih saja (tak berganti-ganti).
+    Semua kegagalan dicatat ke log server.
     """
     text = (text or "").strip()
     if not text:
         return None, "teks kosong"
 
-    # lapisan pelafalan sebelum TTS (tidak mengubah teks yang ditampilkan ke klien)
+    # lapisan pelafalan + sanitasi sebelum TTS (tak mengubah teks ke klien)
     text = _pronounce(text)
+    text = _sanitize_for_tts(text)
+    if not text:
+        return None, "teks kosong setelah sanitasi"
+
+    cross = _cross_fallback_on()
 
     if _engine() == "mms":
         data, err = _synth_mms(text)
         if data:
             return data, None
-        # cadangan: coba Piper bila terkonfigurasi
-        if piper_available():
-            _log("MMS gagal (%s); memakai Piper sebagai cadangan." % err)
+        if cross and piper_available():
+            _log("MMS gagal (%s); cadangan lintas-mesin AKTIF -> memakai Piper." % err)
             data2, err2 = _synth_piper(text)
             if data2:
+                _log("Piper (cadangan) sukses menghasilkan audio.")
                 return data2, None
             return None, "MMS gagal: %s | Piper gagal: %s" % (err, err2)
-        _log("MMS gagal & Piper tak tersedia: %s" % err)
+        _log("MMS gagal (cadangan lintas-mesin mati): %s" % err)
         return None, err
 
     # engine 'piper' (default)
     data, err = _synth_piper(text)
     if data:
         return data, None
-    # cadangan: coba MMS bila dependensinya tersedia (biar suara tetap keluar)
-    if mms_available():
-        _log("Piper gagal (%s); mencoba MMS sebagai cadangan." % err)
+    if cross and mms_available():
+        _log("Piper gagal (%s); cadangan lintas-mesin AKTIF -> mencoba MMS." % err)
         data2, err2 = _synth_mms(text)
         if data2:
             _log("MMS (cadangan) sukses menghasilkan audio.")
             return data2, None
         return None, "Piper gagal: %s | MMS gagal: %s" % (err, err2)
-    _log("Piper gagal & MMS tak tersedia: %s" % err)
+    _log("Piper gagal (cadangan lintas-mesin mati): %s" % err)
     return None, err
 
 
