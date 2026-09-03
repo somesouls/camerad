@@ -26,6 +26,7 @@ Server -> klien:
                        "timings":{stt_ms,think_ms,tts_ms,total_ms},"server_ms":..}
       {"type":"audio_begin","mime":"audio/wav","greeting":true?}
       {"type":"audio_end"}
+      {"type":"no_audio","reason":..,"tts_error":..} -> jawaban ADA tapi TAK ada audio; alasan disertakan untuk log klien
       {"type":"interrupted"}                 -> audio bot dipotong (barge-in)
       {"type":"error","error":..}
   * biner  : potongan byte WAV jawaban (antara audio_begin & audio_end).
@@ -34,6 +35,12 @@ Saat sesi dibuka, bila dialog manager aktif, server mengirim 'ready' berisi teks
 salam pembuka LALU langsung mengalirkan AUDIO salam itu (disintesis TTS voicebot)
 sebagai audio_begin -> byte WAV -> audio_end dengan flag greeting=true. Jadi klien
 (APK/browser) memutar salam dengan SUARA VOICEBOT, bukan TTS bawaan perangkat.
+
+KEANDALAN SUARA: setiap jawaban yang PUNYA teks harus punya keluaran audio ATAU
+pesan 'no_audio' berisi alasannya -- klien tidak boleh menggantung di 'menunggu'.
+Bila audio sudah jadi tetapi user MEMOTONG (interrupt) sebelum diputar, server
+mengirim 'interrupted' (bukan diam). Bila TTS gagal / tak ada audio, server
+mengirim 'no_audio' + reason (mis. isi tts_error) supaya bisa didiagnosis di UI.
 
 STT+NLU+RAG+TTS memakai vb_engine.talk() yang sama dengan Mode A (dengan
 reply_on_empty=False: bila STT tak menangkap ucapan, server TIDAK membalas apa pun
@@ -510,9 +517,27 @@ async def handle(websocket: WebSocket):
                 "timings": res.get("timings"),
                 "server_ms": int((time.time() - t_utt) * 1000),
             })
+            # KEANDALAN SUARA: setiap jawaban ber-teks harus menghasilkan audio,
+            # 'interrupted', atau 'no_audio' (beserta alasannya). JANGAN diam --
+            # kalau diam, klien menggantung di 'menunggu' seperti bug sebelumnya.
             b64 = res.get("jawaban_audio_b64")
-            if b64 and state["want_audio"] and not state["interrupt"] and not state["closed"]:
-                await send_audio(b64)
+            if state["want_audio"] and not state["closed"]:
+                if b64 and not state["interrupt"]:
+                    await send_audio(b64)
+                elif b64 and state["interrupt"]:
+                    # audio sudah jadi tetapi user memotong sebelum diputar
+                    await _safe_send_text({"type": "interrupted"})
+                elif not b64:
+                    reason = res.get("tts_error") or "TTS tidak menghasilkan audio"
+                    try:
+                        print("[voicebot.stream] no_audio: %s" % reason, flush=True)
+                    except Exception:
+                        pass
+                    await _safe_send_text({
+                        "type": "no_audio",
+                        "reason": reason,
+                        "tts_error": res.get("tts_error"),
+                    })
 
     recv_task = asyncio.ensure_future(receiver())
     proc_task = asyncio.ensure_future(processor())
