@@ -5,8 +5,10 @@ Lapisan keputusan percakapan bergaya agen:
   - Perintah global (selalu aktif): ulangi / selesai / bicara dengan agen.
   - Tier confidence: 'act' (>= ambang) / 'confirm' (menengah) / 'rag' (rendah).
   - Konfirmasi selektif + resolusi jawaban ya/tidak (state pending_confirm).
+  - Konfirmasi-dulu (#1): saat intent ditemukan, baca ulang kalimat konfirmasi
+    deterministik (tanpa LLM) lalu siapkan jawaban di background.
   - Digression: deteksi pindah intent + tawaran resume intent sebelumnya.
-  - Readback selektif, sapaan netral 'Bapak/Ibu', dan teks filler.
+  - Readback selektif, sapaan 'Kak', dan teks filler.
 
 Semua fungsi murni & fail-soft; STATE percakapan dipegang engine (per sesi).
 Engine memanggil helper di sini; modul ini tidak menyimpan state sendiri.
@@ -100,7 +102,7 @@ def is_negative(text, settings):
 
 # ------------------------------------------------------------ sapaan & prompt
 def salutation(settings):
-    return (str((settings or {}).get("salutation") or "Bapak/Ibu")).strip()
+    return (str((settings or {}).get("salutation") or "Kak")).strip()
 
 
 def _sal_prefix(settings):
@@ -118,6 +120,44 @@ def confirm_prompt(intent, settings):
     return (_sal_prefix(settings) + body).strip()
 
 
+# ------------------------------------------------------- konfirmasi-dulu (#1)
+def confirm_first_enabled(settings):
+    """Konfirmasi-dulu tanpa LLM aktif? (default ON)."""
+    return str((settings or {}).get("confirm_first", "1")) != "0"
+
+
+def auto_confirm_label(intent_name):
+    """Fallback kalimat konfirmasi bila confirm_label intent kosong.
+
+    Contoh: 'Layanan Administrasi_EFIN_Lupa EFIN' -> segmen paling spesifik
+    'Lupa EFIN' -> 'apakah benar mengenai Lupa EFIN?'.
+    """
+    s = (intent_name or "").strip()
+    if not s:
+        return "apakah benar seperti itu?"
+    parts = [p.strip() for p in s.split("_") if p.strip()]
+    core = parts[-1] if len(parts) > 1 else s
+    core = re.sub(r"\s+", " ", core.replace("_", " ")).strip()
+    return "apakah benar mengenai %s?" % core
+
+
+def confirm_first_prompt(label, settings):
+    """Kalimat konfirmasi deterministik di giliran pertama (tanpa LLM).
+
+    Template default: 'Baik {sal}, saya konfirmasi, {label}'.
+    {sal}=sapaan (mis. 'Kak'), {label}=confirm_label intent / fallback.
+    """
+    tmpl = (settings or {}).get("confirm_first_template") or (
+        "Baik {sal}, saya konfirmasi, {label}")
+    if str((settings or {}).get("salutation_enabled", "1")) == "0":
+        sal = ""
+    else:
+        sal = salutation(settings)
+    body = tmpl.replace("{sal}", sal).replace("{label}", (label or "").strip())
+    body = re.sub(r"\s+", " ", body).replace(" ,", ",").strip()
+    return body
+
+
 def readback_prompt(text, settings):
     """Readback selektif atas ucapan penelepon (aksi sensitif)."""
     tmpl = (settings or {}).get("readback_template") or (
@@ -133,7 +173,7 @@ def closing_reply(settings):
 
 def greeting(settings):
     return (settings or {}).get("greeting") or (
-        "Selamat datang di layanan kami. Ada yang bisa saya bantu, Bapak/Ibu?")
+        "Selamat datang di layanan kami. Ada yang bisa saya bantu, Kak?")
 
 
 def handoff_reply(settings):
