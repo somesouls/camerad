@@ -141,13 +141,41 @@
   function health(){
     fetch('/api/voicebot/health').then(function(r){return r.json();}).then(function(d){
       $('pillStt').textContent='STT: '+(d.stt_ready?'siap':'belum');
-      $('pillTts').textContent='TTS: '+(d.tts_ready?'siap':'belum');
+      var eng=d.tts_engine?(' · '+String(d.tts_engine).toUpperCase()):'';
+      $('pillTts').textContent='TTS: '+(d.tts_ready?('siap'+eng):('belum'+eng));
+      if(!d.tts_ready){ sStat('⚠️ TTS belum siap'+eng+' — suara tak akan keluar. Cek /voicebot (mesin TTS & "TTS aktif") atau log server.'); }
     }).catch(function(){});
   }
+  // Pra-muat mesin TTS supaya jawaban PERTAMA tidak "dingin" (kurangi latency & kesan macet).
+  function warmup(){
+    fetch('/api/voicebot/warmup',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+      if(d&&d.ok&&!d.tts_warm&&d.tts_error){ sStat('⚠️ TTS belum siap: '+esc(d.tts_error)); }
+    }).catch(function(){});
+  }
+  // Buka kunci autoplay: banyak browser memblokir pemutaran audio sebelum ada
+  // interaksi. Panggil pada gestur pertama agar salam & jawaban bisa langsung berbunyi.
+  var _audioUnlocked=false;
+  function unlockAudio(){ if(_audioUnlocked)return; _audioUnlocked=true;
+    try{ var a=new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQAAAAA='); a.volume=0; a.play().catch(function(){}); }catch(e){} }
+  document.addEventListener('pointerdown', unlockAudio, true);
+  document.addEventListener('keydown', unlockAudio, true);
   function newSess(){
     fetch('/api/voicebot/session',{method:'POST'}).then(function(r){return r.json();}).then(function(d){
       sid=d.session_id; $('pillSess').textContent='Sesi: '+((sid||'—').slice(0,8)); $('log').innerHTML='';
+      playGreeting();
     });
+  }
+  // Salam pembuka Mode A: tampilkan teks + putar SUARA voicebot (bila autoplay diizinkan).
+  function playGreeting(){
+    fetch('/api/voicebot/greeting?want_audio=1').then(function(r){return r.json();}).then(function(g){
+      if(!g||!g.enabled||!g.text)return;
+      var t=document.createElement('div'); t.className='vbl-turn';
+      t.innerHTML='🤖 '+esc(g.text)+' <span class="vbl-badge b-nlu">SALAM</span>';
+      $('log').insertBefore(t,$('log').firstChild);
+      if(g.audio_b64){ try{ var a=new Audio('data:audio/wav;base64,'+g.audio_b64);
+        a.play().catch(function(){ $('recMsg').textContent='🔊 Klik halaman lalu tekan "Sesi baru" untuk memutar salam.'; }); }catch(e){} }
+      else if(g.tts_error){ $('recMsg').textContent='TTS: '+esc(g.tts_error); }
+    }).catch(function(){});
   }
   function render(d){
     if(d.error){$('out').innerHTML='<span style="color:#dc2626;">'+esc(d.error)+'</span>';return;}
@@ -314,7 +342,7 @@
   $('btnBarge').onclick=function(){ if(ws&&ws.readyState===1){try{ws.send(JSON.stringify({type:'barge_in'}));}catch(e){}} stopAudio(); clearBusyTimer(); setBusy(false); };
   window.addEventListener('beforeunload',function(){ if(streaming)stopStream(true); });
 
-  health(); newSess();
+  health(); warmup(); newSess();
 })();
 </script>
 {% endblock %}
