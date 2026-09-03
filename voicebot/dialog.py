@@ -11,6 +11,9 @@ Lapisan keputusan percakapan bergaya agen:
     BERTAHAP (satu langkah tiap giliran) + tawar agen bila penelepon buntu.
   - Penjaga diam / silence watchdog (#3): saat penelepon diam di Mode B, sapa
     dulu ('masih terhubung?') lalu akhiri sesi bila tetap tak ada respons.
+  - Salam penutup + pemicu (#4): deteksi niat menutup (mis. 'terima kasih')
+    dengan GUARD ucapan-berdiri-sendiri + abaikan halusinasi STT, lalu bacakan
+    salam penutup APA ADANYA (verbatim) dan tutup.
   - Digression: deteksi pindah intent + tawaran resume intent sebelumnya.
   - Readback selektif, sapaan 'Kak', dan teks filler.
 
@@ -263,6 +266,60 @@ def idle_end_text(settings):
                      "Terima kasih sudah menghubungi kami.")
 
 
+# ------------------------------------------- salam penutup / closing (#4)
+# Selain perintah 'selesai' eksplisit (cmd_end via global_command), penelepon
+# kerap menutup dengan ucapan LUNAK seperti 'terima kasih'. Helper di sini
+# mendeteksinya DENGAN GUARD + menyaring halusinasi STT. Saat menutup, engine
+# membaca closing_reply APA ADANYA (verbatim). State/aksi ditangani engine.
+def closing_enabled(settings):
+    """Deteksi niat menutup lewat pemicu LUNAK (mis. 'terima kasih') aktif?
+    (default ON). Perintah 'selesai' eksplisit tetap jalan lewat global_command
+    meski ini dimatikan.
+    """
+    return str((settings or {}).get("closing_enabled", "1")) != "0"
+
+
+def closing_max_words(settings):
+    """Batas jumlah kata agar ucapan dianggap 'niat menutup' berdiri sendiri."""
+    try:
+        n = int(float((settings or {}).get("closing_trigger_max_words") or 5))
+    except Exception:
+        n = 5
+    return max(1, n)
+
+
+def is_stt_hallucination(text, settings):
+    """True bila transkrip cocok pola HALUSINASI STT saat senyap (mis.
+    'terima kasih telah menonton'). Ucapan seperti ini WAJIB diabaikan:
+    jangan dibalas maupun dijadikan pemicu penutup.
+    """
+    return _contains_any(text, _csv(settings, "closing_hallucination_patterns")) is not None
+
+
+def wants_closing(text, settings):
+    """True bila ucapan menandakan penelepon ingin MENGAKHIRI percakapan.
+
+    GUARD 'terima kasih': pemicu lunak (mis. 'terima kasih', 'makasih',
+    'sekian') HANYA dihitung bila ucapan BERDIRI SENDIRI / pendek
+    (<= closing_max_words kata). Ini mencegah 'terima kasih' di tengah kalimat
+    sopan ("oh terima kasih, tapi saya masih mau tanya ...") memicu penutupan.
+    Pola halusinasi STT ('terima kasih telah menonton') disaring lebih dulu.
+    Di Mode B, transkrip hanya lahir dari suara yang lolos VAD (energi nyata),
+    jadi guard 'energi audio nyata' otomatis terpenuhi.
+    """
+    if not closing_enabled(settings):
+        return False
+    tl = _norm(text)
+    if not tl:
+        return False
+    if is_stt_hallucination(tl, settings):
+        return False
+    if _contains_any(tl, _csv(settings, "closing_triggers")) is None:
+        return False
+    words = re.findall(r"[0-9a-zA-Z\u00c0-\u024f']+", tl)
+    return len(words) <= closing_max_words(settings)
+
+
 def readback_prompt(text, settings):
     """Readback selektif atas ucapan penelepon (aksi sensitif)."""
     tmpl = (settings or {}).get("readback_template") or (
@@ -272,8 +329,9 @@ def readback_prompt(text, settings):
 
 
 def closing_reply(settings):
+    """Salam penutup (#4), dibacakan APA ADANYA / verbatim (tanpa peringkas)."""
     return (settings or {}).get("closing_reply") or (
-        "Baik, terima kasih sudah menghubungi kami. Semoga harinya menyenangkan.")
+        "Baik, terima kasih sudah menghubungi kami. Selamat beraktivitas kembali.")
 
 
 def greeting(settings):
