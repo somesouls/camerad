@@ -41,6 +41,18 @@ HANYA bila webrtcvad bilang bicara DAN energi (rms) >= speaking_rms. Sebelumnya,
 bila webrtcvad terpasang, ambang energi diabaikan sehingga gema suara bot sendiri
 dari speaker terdeteksi sebagai bicara -> barge-in palsu -> audio 'dipotong'.
 
+NOISE vs SPEECH / ANTI-NOISE ADAPTIF (#6): tiga lapis membedakan SUARA ASLI dari
+NOISE lingkungan supaya bot tidak menjawab noise/bunyi sesaat/dengungan:
+  1) Lantai noise adaptif (stream_noise_adapt): Endpointer memantau energi ambient
+     saat senyap (EMA) lalu ambang deteksi efektif = max(ambang energi biasa,
+     noise_floor * snr_ratio) -> naik sendiri di tempat berisik, hanya mengetatkan.
+  2) Frame onset (stream_onset_frames): butuh N frame bersuara BERURUTAN (30ms/frame)
+     sebelum memicu awal bicara -> buang klik/pop/ketikan sesaat.
+  3) Rasio frame bersuara (stream_voiced_ratio_min): ucapan hanya diterima bila
+     minimal sekian bagian frame-nya benar-benar bersuara -> buang segmen yang
+     didominasi noise. Kombinasi ini melengkapi penjaga gema di atas (STT juga
+     tetap punya guard reply_on_empty=False + halusinasi #4 sebagai lapis akhir).
+
 PENJAGA DIAM / SILENCE WATCHDOG (#3): sebuah task terpisah memantau berapa lama
 penelepon diam. Bila diam >= stream_idle_prompt_ms (default 8 dtk) DAN bot tidak
 sedang bicara/memproses, bot menyapa 'masih terhubung?' (stream_idle_prompt_text).
@@ -77,6 +89,11 @@ SEMUA TUNING DI BAWAH DAPAT DIATUR DARI UI (halaman /voicebot, panel \"Streaming
   stream_gate_hangover_ms(VOICEBOT_STREAM_GATE_HANGOVER_MS, 600)
   stream_ducking         (VOICEBOT_STREAM_DUCKING, 1)
   stream_duck_gain       (VOICEBOT_STREAM_DUCK_GAIN, 0.2)
+  stream_noise_adapt     (VOICEBOT_STREAM_NOISE_ADAPT, 1)      [anti-noise adaptif #6]
+  stream_snr_ratio       (VOICEBOT_STREAM_SNR_RATIO, 1.8)
+  stream_noise_floor_init(VOICEBOT_STREAM_NOISE_FLOOR_INIT, 150)
+  stream_onset_frames    (VOICEBOT_STREAM_ONSET_FRAMES, 3)
+  stream_voiced_ratio_min(VOICEBOT_STREAM_VOICED_RATIO_MIN, 0.35)
   stream_idle_enabled    (VOICEBOT_STREAM_IDLE_ENABLED, 1)     [penjaga diam #3]
   stream_idle_prompt_ms  (VOICEBOT_STREAM_IDLE_PROMPT_MS, 8000)
   stream_idle_end_ms     (VOICEBOT_STREAM_IDLE_END_MS, 10000)
@@ -158,6 +175,13 @@ def _stream_tuning(settings):
     aggr = 0 if aggr < 0 else (3 if aggr > 3 else aggr)
     duck_gain = _cfg_num(s, "stream_duck_gain", "VOICEBOT_STREAM_DUCK_GAIN", 0.2, _to_float)
     duck_gain = 0.0 if duck_gain < 0 else (1.0 if duck_gain > 1 else duck_gain)
+    # noise-vs-speech / anti-noise adaptif (#6) \u2014 dengan clamp aman
+    onset_frames = _cfg_num(s, "stream_onset_frames", "VOICEBOT_STREAM_ONSET_FRAMES", 3, _to_int)
+    onset_frames = 1 if onset_frames < 1 else onset_frames
+    vratio = _cfg_num(s, "stream_voiced_ratio_min", "VOICEBOT_STREAM_VOICED_RATIO_MIN", 0.35, _to_float)
+    vratio = 0.0 if vratio < 0 else (1.0 if vratio > 1 else vratio)
+    snr = _cfg_num(s, "stream_snr_ratio", "VOICEBOT_STREAM_SNR_RATIO", 1.8, _to_float)
+    snr = 0.0 if snr < 0 else snr
     return {
         "silence_ms": _cfg_num(s, "stream_silence_ms", "VOICEBOT_STREAM_SILENCE_MS", 700, _to_int),
         "min_speech_ms": _cfg_num(s, "stream_min_speech_ms", "VOICEBOT_STREAM_MIN_SPEECH_MS", 350, _to_int),
@@ -171,6 +195,12 @@ def _stream_tuning(settings):
         "gate_hangover_ms": _cfg_num(s, "stream_gate_hangover_ms", "VOICEBOT_STREAM_GATE_HANGOVER_MS", 600, _to_int),
         "ducking": _cfg_bool(s, "stream_ducking", "VOICEBOT_STREAM_DUCKING", True),
         "duck_gain": duck_gain,
+        # noise-vs-speech / anti-noise adaptif (#6)
+        "noise_adapt": _cfg_bool(s, "stream_noise_adapt", "VOICEBOT_STREAM_NOISE_ADAPT", True),
+        "snr_ratio": snr,
+        "noise_floor_init": _cfg_num(s, "stream_noise_floor_init", "VOICEBOT_STREAM_NOISE_FLOOR_INIT", 150, _to_int),
+        "onset_frames": onset_frames,
+        "voiced_ratio_min": vratio,
         # penjaga diam / silence watchdog (#3)
         "idle_enabled": _cfg_bool(s, "stream_idle_enabled", "VOICEBOT_STREAM_IDLE_ENABLED", True),
         "idle_prompt_ms": _cfg_num(s, "stream_idle_prompt_ms", "VOICEBOT_STREAM_IDLE_PROMPT_MS", 8000, _to_int),
@@ -220,13 +250,12 @@ def _rms(frame: bytes) -> float:
 
 
 def _is_speech(frame: bytes, aggr: int, rms_default: int, rms_min=None) -> bool:
-    """True bila frame dianggap bicara.
+    """True bila frame dianggap bicara (deteksi dasar tanpa lantai adaptif).
 
-    PENJAGA GEMA: saat bot bicara (rms_min di-set), frame dianggap bicara HANYA
-    bila webrtcvad bilang bicara DAN energi (rms) >= rms_min. Ini mencegah gema
-    suara bot dari speaker (yang lolos webrtcvad tapi energinya rendah setelah
-    AEC + ducking) memicu barge-in palsu. Saat bot TIDAK bicara (rms_min None),
-    cukup webrtcvad (atau RMS default bila webrtcvad tak ada).
+    Dipertahankan untuk kompatibilitas / pemakaian sederhana. Endpointer memakai
+    _frame_is_speech() yang menambah lantai noise adaptif (#6). PENJAGA GEMA: saat
+    bot bicara (rms_min di-set), frame dianggap bicara HANYA bila webrtcvad bilang
+    bicara DAN energi (rms) >= rms_min.
     """
     vad = _get_webrtc_vad(aggr)
     rms = _rms(frame)
@@ -257,6 +286,8 @@ class Endpointer:
     """VAD sederhana: deteksi awal bicara + akhiri ucapan setelah hening.
 
     Tuning diambil dari dict hasil _stream_tuning (config DB / ENV / default).
+    Anti-noise adaptif (#6): lantai noise adaptif + frame onset berurutan + cek
+    rasio frame bersuara -> membuang noise/bunyi sesaat/dengungan sebelum STT.
     """
 
     def __init__(self, tuning):
@@ -265,18 +296,29 @@ class Endpointer:
         self.preroll_ms = tuning["preroll_ms"]
         self.vad_aggr = tuning["vad_aggr"]
         self.rms_default = tuning["rms"]
+        # noise-vs-speech / anti-noise adaptif (#6)
+        self.noise_adapt = tuning["noise_adapt"]
+        self.snr_ratio = tuning["snr_ratio"]
+        self.noise_floor = float(tuning["noise_floor_init"])
+        self.onset_frames = tuning["onset_frames"]
+        self.voiced_ratio_min = tuning["voiced_ratio_min"]
         self._buf = bytearray()       # byte mentah belum jadi frame utuh
         self._preroll = bytearray()   # ring pra-bicara
         self._speech = bytearray()    # ucapan berjalan
         self._triggered = False
         self._silence_run = 0
         self._speech_ms = 0
+        self._onset_run = 0           # frame bersuara berurutan sebelum trigger (#6)
+        self._voiced_ms = 0           # akumulasi ms bersuara dalam ucapan (#6)
 
     def reset(self):
+        # catatan: noise_floor SENGAJA tidak di-reset (dipelajari lintas ucapan).
         self._speech = bytearray()
         self._triggered = False
         self._silence_run = 0
         self._speech_ms = 0
+        self._onset_run = 0
+        self._voiced_ms = 0
 
     @property
     def triggered(self):
@@ -290,11 +332,57 @@ class Endpointer:
         v = self._speech_ms - self._silence_run
         return v if v > 0 else 0
 
+    def _frame_is_speech(self, frame, rms_min):
+        """Kembalikan (is_speech, rms) untuk satu frame, dengan lantai noise adaptif.
+
+        Anti-noise adaptif (#6): ambang energi efektif = max(ambang biasa,
+        noise_floor * snr_ratio). noise_floor dipantau otomatis (EMA) dari frame
+        NON-bicara saat bot TIDAK bicara -> ambang naik sendiri di lingkungan
+        berisik. Ambang hanya MENGETATKAN (tak pernah lebih longgar dari
+        rms_default / rms_min penjaga gema).
+        """
+        rms = _rms(frame)
+        vad = _get_webrtc_vad(self.vad_aggr)
+        vad_pos = None
+        if vad is not None and len(frame) == FRAME_BYTES:
+            try:
+                vad_pos = bool(vad.is_speech(frame, SAMPLE_RATE))
+            except Exception:
+                vad_pos = None
+        base_thr = rms_min if rms_min is not None else self.rms_default
+        thr = base_thr
+        if self.noise_adapt and self.snr_ratio > 0:
+            thr = max(base_thr, self.noise_floor * self.snr_ratio)
+        if vad_pos is not None:
+            is_sp = vad_pos and rms >= thr
+        else:
+            is_sp = rms >= thr
+        # perbarui lantai noise dari frame ambient (bukan bicara), hanya saat bot diam
+        if self.noise_adapt and rms_min is None and not is_sp:
+            self.noise_floor = 0.95 * self.noise_floor + 0.05 * rms
+        return is_sp, rms
+
+    def _voiced_ok(self, voiced_ms, spoke_ms):
+        """True bila rasio frame bersuara memenuhi voiced_ratio_min (#6)."""
+        if not self.voiced_ratio_min or self.voiced_ratio_min <= 0:
+            return True
+        if spoke_ms <= 0:
+            return False
+        ratio = voiced_ms / float(spoke_ms)
+        ok = ratio >= self.voiced_ratio_min
+        if not ok:
+            _log("utterance dibuang (#6): rasio bersuara %.2f < %.2f (noise dominan)."
+                 % (ratio, self.voiced_ratio_min))
+        return ok
+
     def add(self, data: bytes, rms_min=None):
         """Proses byte masuk; kembalikan list event.
 
         Event: ("speech_start",) atau ("utterance", wav_bytes).
         rms_min menaikkan ambang energi (fallback non-webrtcvad) saat bot bicara.
+        Anti-noise adaptif (#6): butuh onset_frames frame bersuara BERURUTAN untuk
+        memicu awal bicara (buang klik/pop sesaat), dan ucapan hanya diterima bila
+        rasio frame bersuara >= voiced_ratio_min (buang segmen didominasi noise).
         """
         events = []
         self._buf.extend(data)
@@ -302,38 +390,49 @@ class Endpointer:
         while len(self._buf) >= FRAME_BYTES:
             frame = bytes(self._buf[:FRAME_BYTES])
             del self._buf[:FRAME_BYTES]
-            speech = _is_speech(frame, self.vad_aggr, self.rms_default, rms_min)
+            speech, _r = self._frame_is_speech(frame, rms_min)
             if not self._triggered:
                 self._preroll.extend(frame)
                 if len(self._preroll) > preroll_max:
                     del self._preroll[:len(self._preroll) - preroll_max]
                 if speech:
+                    self._onset_run += 1
+                else:
+                    self._onset_run = 0
+                if self._onset_run >= self.onset_frames:
+                    # onset dikonfirmasi -> mulai rekam ucapan. preroll sudah memuat
+                    # frame-frame onset; speech_ms dihitung dari onset (bukan preroll).
                     self._triggered = True
                     self._speech = bytearray(self._preroll)
-                    self._speech.extend(frame)
                     self._preroll = bytearray()
                     self._silence_run = 0
-                    self._speech_ms = FRAME_MS
+                    self._speech_ms = self._onset_run * FRAME_MS
+                    self._voiced_ms = self._onset_run * FRAME_MS
+                    self._onset_run = 0
                     events.append(("speech_start",))
             else:
                 self._speech.extend(frame)
                 self._speech_ms += FRAME_MS
                 if speech:
                     self._silence_run = 0
+                    self._voiced_ms += FRAME_MS
                 else:
                     self._silence_run += FRAME_MS
                     if self._silence_run >= self.silence_ms:
                         pcm = bytes(self._speech)
                         spoke = self._speech_ms - self._silence_run
+                        voiced = self._voiced_ms
                         self.reset()
-                        if spoke >= self.min_speech_ms:
+                        if spoke >= self.min_speech_ms and self._voiced_ok(voiced, spoke):
                             events.append(("utterance", _pcm16_to_wav(pcm)))
         return events
 
     def flush(self):
         wav = None
-        if self._triggered and (self._speech_ms - self._silence_run) >= self.min_speech_ms:
-            wav = _pcm16_to_wav(bytes(self._speech))
+        if self._triggered:
+            spoke = self._speech_ms - self._silence_run
+            if spoke >= self.min_speech_ms and self._voiced_ok(self._voiced_ms, spoke):
+                wav = _pcm16_to_wav(bytes(self._speech))
         self.reset()
         return wav
 
@@ -374,9 +473,11 @@ async def handle(websocket: WebSocket):
     idle_prompt_text = vb_dialog.idle_prompt_text(settings) if idle_enabled else ""
     idle_end_text = vb_dialog.idle_end_text(settings) if idle_enabled else ""
 
-    _log("sesi %s dibuka | bargein=%s ducking=%s speaking_rms=%d bargein_min_ms=%d vad_aggr=%d rms=%d | idle=%s prompt=%dms end=%dms"
+    _log("sesi %s dibuka | bargein=%s ducking=%s speaking_rms=%d bargein_min_ms=%d vad_aggr=%d rms=%d | idle=%s prompt=%dms end=%dms | noise_adapt=%s snr=%.2f floor0=%d onset=%d vratio=%.2f"
          % (session_id, bargein_on, ducking, speaking_rms, bargein_min_ms,
-            tuning["vad_aggr"], tuning["rms"], idle_enabled, idle_prompt_ms, idle_end_ms))
+            tuning["vad_aggr"], tuning["rms"], idle_enabled, idle_prompt_ms, idle_end_ms,
+            tuning["noise_adapt"], tuning["snr_ratio"], tuning["noise_floor_init"],
+            tuning["onset_frames"], tuning["voiced_ratio_min"]))
 
     try:
         await websocket.send_text(json.dumps({
@@ -387,6 +488,7 @@ async def handle(websocket: WebSocket):
             "ducking": ducking,
             "duck_gain": tuning["duck_gain"],
             "speaking_rms": speaking_rms,
+            "noise_adapt": tuning["noise_adapt"],
             "idle_watchdog": idle_enabled,
         }))
     except Exception:
