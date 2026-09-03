@@ -68,6 +68,31 @@ Server -> klien:
       flag basi membuat audio JAWABAN BERIKUTNYA ikut di-skip (jawaban ada
       teksnya tapi tak pernah dibacakan).
 
+6) DIAGNOSA PRESISI + AMBANG ADAPTIF MIC PELAN (perbaikan 3 Sep, larut malam):
+   a. VERSI KODE dicatat di log saat sesi dibuka -> memastikan kode yang jalan
+      adalah kode terbaru (bukan sisa deploy lama).
+   b. TELEMETRI MIC ~1x/detik (stream_debug, default AKTIF): jumlah frame,
+      rms rata2/maks, jumlah frame sunyi total (indikasi gerbang browser
+      menahan audio -> klien mengirim frame nol), jumlah frame lolos webrtcvad,
+      jumlah frame lolos ambang energi, ambang efektif & lantai noise, status
+      talking/trigger. Dengan ini penyebab 'budeg' terlihat PASTI dari log:
+      - rms maks tinggi tapi 'ketat' 0            -> ambang energi kebesaran;
+      - hampir semua frame 'sunyi total'          -> browser menahan audio;
+      - tidak ada telemetri sama sekali           -> frame tak sampai server;
+      - trigger jalan tapi tak ada 'SELESAI->STT' -> masalah endpointing;
+      - 'SELESAI->STT' ada tapi transkrip kosong  -> masalah STT.
+   c. AMBANG DENGAR ADAPTIF UNTUK MIC PELAN (anti-budeg #7). stream_rms bersifat
+      ABSOLUT (default 600), padahal level mic tiap PC beda jauh. Pada mic pelan
+      (contoh nyata: ambient ~45-76, ucapan ~200-500) ambang 600 TAK PERNAH
+      tertembus -> endpointer tak pernah trigger -> budeg total tanpa log apa pun.
+      Kini SAAT MENDENGAR (bukan saat bot bicara) ambang efektif juga dibatasi
+      dari atas: thr = min(thr_lama, max(lantai_noise*QUIET_SNR_MULT, ABS_MIN_THR)).
+      Lingkungan normal (lantai >= ~150) tak berubah; mic pelan otomatis peka.
+      Penjaga gema saat bot bicara (speaking_rms) SENGAJA tetap absolut.
+   d. Log tambahan: utterance selesai/terlalu pendek, utterance tertelan jendela
+      'bot bicara', hasil STT/NLU (transkrip, intent, sumber, elapsed), antrean,
+      dan playing on/off dari klien.
+
 PENJAGA DIAM #3 & SALAM PENUTUP #4: tak berubah perilakunya.
 
 SEMUA TUNING DAPAT DIATUR DARI UI (/voicebot, panel \"Streaming (Mode B) & barge-in\";
@@ -79,6 +104,7 @@ tersedia tombol \"Reset ke rekomendasi\"). Kunci config -> (ENV lama, default):
   stream_noise_floor_init(150) stream_onset_frames(3) stream_voiced_ratio_min(0.35)
   stream_autocalibrate(1) stream_calib_ms(1200) stream_mic_hangover_ms(250)
   stream_idle_enabled(1) stream_idle_prompt_ms(8000) stream_idle_end_ms(10000)
+  stream_debug(1)
 Perubahan berlaku untuk sesi streaming BERIKUTNYA (buka ulang percakapan Mode B).
 """
 from __future__ import annotations
@@ -100,6 +126,9 @@ from voicebot import dialog as vb_dialog
 from voicebot import config_db as cfg
 
 
+# Versi kode; dicatat di log tiap sesi dibuka supaya PASTI kode terbaru yang jalan.
+STREAM_VERSION = "2026-09-03d (diagnosa + anti-budeg #7 mic pelan)"
+
 SAMPLE_RATE = 16000
 FRAME_MS = 30
 FRAME_BYTES = int(SAMPLE_RATE * FRAME_MS / 1000) * 2  # 960 byte / frame 30ms
@@ -107,6 +136,14 @@ FRAME_BYTES = int(SAMPLE_RATE * FRAME_MS / 1000) * 2  # 960 byte / frame 30ms
 # Lantai noise adaptif tak boleh menaikkan ambang lebih dari CAP x ambang dasar
 # supaya tak pernah 'budeg' terhadap ucapan asli di lingkungan berisik.
 NOISE_FLOOR_CAP_MULT = 4.0
+# #7: pada MIC PELAN, ambang absolut stream_rms bisa jauh di atas level suara mic.
+# Saat mendengar, ambang efektif dibatasi dari atas oleh lantai_noise*QUIET_SNR_MULT
+# (min ABS_MIN_THR) -> mic pelan otomatis peka, lingkungan normal tak berubah.
+QUIET_SNR_MULT = 4.0
+ABS_MIN_THR = 120.0
+# Frame dengan rms di bawah ini dihitung 'sunyi total' (indikasi klien mengirim
+# frame nol karena gerbang noise browser tertutup).
+SILENT_FRAME_RMS = 5.0
 # Jeda-aman setelah bot selesai mengirim audio, menutup celah sampai klien
 # mengirim {"type":"playing",on:true}. Detik.
 SPEAK_GUARD_SEC = 0.8
@@ -193,6 +230,7 @@ def _stream_tuning(settings):
         "idle_enabled": _cfg_bool(s, "stream_idle_enabled", "VOICEBOT_STREAM_IDLE_ENABLED", True),
         "idle_prompt_ms": _cfg_num(s, "stream_idle_prompt_ms", "VOICEBOT_STREAM_IDLE_PROMPT_MS", 8000, _to_int),
         "idle_end_ms": _cfg_num(s, "stream_idle_end_ms", "VOICEBOT_STREAM_IDLE_END_MS", 10000, _to_int),
+        "debug": _cfg_bool(s, "stream_debug", "VOICEBOT_STREAM_DEBUG", True),
     }
 
 
@@ -269,6 +307,12 @@ class Endpointer:
     tapi rasio-bersuara dihitung LONGGAR (vad OR energi) supaya frame lirih di
     ujung kata / konsonan tak bersuara tetap terhitung sebagai bicara dan
     ucapan asli tidak dibuang sebagai 'noise dominan'.
+
+    Anti-budeg #7: saat MENDENGAR (bukan saat bot bicara), ambang energi juga
+    dibatasi dari ATAS oleh lantai_noise*QUIET_SNR_MULT (min ABS_MIN_THR) supaya
+    mic pelan (level ucapan < stream_rms) tetap bisa men-trigger. webrtcvad
+    (AND) tetap menjaga dari noise. Diagnosa #6b: statistik per-frame dikumpulkan
+    (pop_stats) untuk telemetri log ~1x/detik.
     """
 
     def __init__(self, tuning):
@@ -283,6 +327,8 @@ class Endpointer:
         self._floor_init = float(tuning["noise_floor_init"])
         self.onset_frames = tuning["onset_frames"]
         self.voiced_ratio_min = tuning["voiced_ratio_min"]
+        self.debug = bool(tuning.get("debug", True))
+        self.stats = self._new_stats()
         self._buf = bytearray()
         self._preroll = bytearray()
         self._speech = bytearray()
@@ -291,6 +337,17 @@ class Endpointer:
         self._speech_ms = 0
         self._onset_run = 0
         self._voiced_ms = 0
+
+    @staticmethod
+    def _new_stats():
+        return {"frames": 0, "rms_sum": 0.0, "rms_max": 0.0, "silent": 0,
+                "vad_pos": 0, "above_thr": 0, "strict": 0, "thr_last": 0.0}
+
+    def pop_stats(self):
+        """Ambil & reset statistik per-frame (untuk telemetri diagnosa #6b)."""
+        st = self.stats
+        self.stats = self._new_stats()
+        return st
 
     def reset(self):
         # noise_floor SENGAJA tidak di-reset (dipelajari lintas ucapan).
@@ -314,13 +371,22 @@ class Endpointer:
         v = self._speech_ms - self._silence_run
         return v if v > 0 else 0
 
-    def _eff_threshold(self, base_thr):
-        """Ambang energi efektif dengan lantai adaptif yang DIBATASI (anti-budeg)."""
+    def _eff_threshold(self, base_thr, listening=True):
+        """Ambang energi efektif: lantai adaptif DIBATASI (anti-budeg #6) dan,
+        saat mendengar, DIBATASI DARI ATAS utk mic pelan (anti-budeg #7)."""
         thr = base_thr
         if self.noise_adapt and self.snr_ratio > 0:
             thr = max(base_thr, self.noise_floor * self.snr_ratio)
             thr = min(thr, base_thr * NOISE_FLOOR_CAP_MULT)
+        if listening:
+            quiet_thr = max(self.noise_floor * QUIET_SNR_MULT, ABS_MIN_THR)
+            if quiet_thr < thr:
+                thr = quiet_thr
         return thr
+
+    def listen_threshold(self):
+        """Ambang efektif saat mendengar (untuk log diagnosa)."""
+        return self._eff_threshold(self.rms_default, listening=True)
 
     def _frame_is_speech(self, frame, rms_min):
         """(is_speech, rms, voiced_like).
@@ -332,14 +398,30 @@ class Endpointer:
         """
         rms = _rms(frame)
         vad_pos = _vad_verdict(frame, self.vad_aggr)
+        listening = rms_min is None
         base_thr = rms_min if rms_min is not None else self.rms_default
-        thr = self._eff_threshold(base_thr)
+        thr = self._eff_threshold(base_thr, listening=listening)
         if vad_pos is not None:
             is_sp = vad_pos and rms >= thr
             voiced_like = vad_pos or rms >= thr
         else:
             is_sp = rms >= thr
             voiced_like = is_sp
+        # --- statistik diagnosa #6b
+        st = self.stats
+        st["frames"] += 1
+        st["rms_sum"] += rms
+        if rms > st["rms_max"]:
+            st["rms_max"] = rms
+        if rms < SILENT_FRAME_RMS:
+            st["silent"] += 1
+        if vad_pos:
+            st["vad_pos"] += 1
+        if rms >= thr:
+            st["above_thr"] += 1
+        if is_sp:
+            st["strict"] += 1
+        st["thr_last"] = thr
         # Perbarui lantai noise HANYA dari non-bicara terpastikan (webrtcvad False),
         # dan hanya saat bot TIDAK bicara. Dibatasi supaya tak pernah 'runaway'.
         if self.noise_adapt and rms_min is None:
@@ -395,6 +477,9 @@ class Endpointer:
                     self._speech_ms = self._onset_run * FRAME_MS
                     self._voiced_ms = self._onset_run * FRAME_MS
                     self._onset_run = 0
+                    if self.debug:
+                        _log("trigger bicara: %d frame onset berturut (frame terakhir rms~%.0f, thr~%.0f)."
+                             % (self.onset_frames, _r, self.stats["thr_last"]))
                     events.append(("speech_start",))
             else:
                 self._speech.extend(frame)
@@ -413,11 +498,15 @@ class Endpointer:
                         if spoke >= self.min_speech_ms:
                             ok, ratio = self._voiced_ok(voiced, spoke)
                             if ok:
+                                _log("utterance SELESAI: bicara %dms (bersuara %dms, rasio %.2f >= %.2f) -> kirim ke STT."
+                                     % (spoke, voiced, ratio, self.voiced_ratio_min))
                                 events.append(("utterance", _pcm16_to_wav(pcm)))
                             else:
                                 events.append(("discard", ratio))
                         else:
                             # terlalu pendek: beri tahu (jangan senyap, #5b)
+                            _log("utterance terlalu PENDEK: %dms < %dms -> dibuang (blip/klik)."
+                                 % (spoke, self.min_speech_ms))
                             events.append(("discard", 0.0))
         return events
 
@@ -459,6 +548,7 @@ async def handle(websocket: WebSocket):
     ducking = tuning["ducking"]
     speaking_rms = tuning["speaking_rms"]
     bargein_min_ms = tuning["bargein_min_ms"]
+    debug = tuning["debug"]
 
     idle_enabled = tuning["idle_enabled"]
     idle_prompt_ms = tuning["idle_prompt_ms"]
@@ -466,6 +556,7 @@ async def handle(websocket: WebSocket):
     idle_prompt_text = vb_dialog.idle_prompt_text(settings) if idle_enabled else ""
     idle_end_text = vb_dialog.idle_end_text(settings) if idle_enabled else ""
 
+    _log("kode stream versi: %s | debug=%s" % (STREAM_VERSION, debug))
     _log("sesi %s dibuka | bargein=%s ducking=%s speaking_rms=%d bargein_min_ms=%d vad_aggr=%d rms=%d | idle=%s | noise_adapt=%s snr=%.2f floor0=%d onset=%d vratio=%.2f | autocal=%s calib=%dms hang=%dms"
          % (session_id, bargein_on, ducking, speaking_rms, bargein_min_ms,
             tuning["vad_aggr"], tuning["rms"], idle_enabled,
@@ -498,7 +589,8 @@ async def handle(websocket: WebSocket):
              "bargein_on": bargein_on, "client_playing": False,
              "speak_guard_until": 0.0, "capture": False,
              "calib_started": False, "calib_done": (not tuning["autocalibrate"]),
-             "calib_until": 0.0, "calib_sum": 0.0, "calib_n": 0}
+             "calib_until": 0.0, "calib_sum": 0.0, "calib_n": 0,
+             "diag_next": 0.0}
     ep = Endpointer(tuning)
     queue: asyncio.Queue = asyncio.Queue()
 
@@ -546,8 +638,9 @@ async def handle(websocket: WebSocket):
                         if state["calib_n"] > 0:
                             amb = state["calib_sum"] / state["calib_n"]
                             ep.noise_floor = max(ep._floor_init * 0.5, amb)
-                            _log("auto-kalibrasi: ambient ~%.0f dari %d frame -> noise_floor=%.0f."
-                                 % (amb, state["calib_n"], ep.noise_floor))
+                            _log("auto-kalibrasi: ambient ~%.0f dari %d frame -> noise_floor=%.0f | ambang dengar efektif ~%.0f (dasar rms=%d, anti-budeg #7)."
+                                 % (amb, state["calib_n"], ep.noise_floor,
+                                    ep.listen_threshold(), ep.rms_default))
                         state["calib_done"] = True
                     rms_min = speaking_rms if talking else None
                     for ev in ep.add(data, rms_min):
@@ -564,7 +657,11 @@ async def handle(websocket: WebSocket):
                                 state["capture"] = False
                                 state["last_activity"] = now
                                 state["idle_prompted"] = False
+                                _log("utterance masuk ANTREAN proses (%d byte wav, antrean=%d)."
+                                     % (len(ev[1]), queue.qsize() + 1))
                                 await queue.put(ev[1])
+                            else:
+                                _log("utterance saat bot bicara DIBUANG (barge-in belum terkonfirmasi) -- kemungkinan gema ATAU ucapan user tertelan jendela 'bot bicara'.")
                         elif kind == "discard":
                             # #5b: jangan senyap -- beri tahu klien supaya UI tak menggantung.
                             if not talking or state["capture"]:
@@ -574,6 +671,18 @@ async def handle(websocket: WebSocket):
                                     "type": "no_speech",
                                     "reason": "segmen dibuang server (rasio bersuara %.2f)" % ev[1],
                                 })
+                    # --- telemetri diagnosa #6b: ~1x/detik saat frame mengalir
+                    if debug and now >= state["diag_next"]:
+                        st = ep.pop_stats()
+                        if st["frames"]:
+                            avg = st["rms_sum"] / st["frames"]
+                            _log("mic~1s: %d frame | rms avg~%.0f max~%.0f | sunyi<%.0f=%d | vad+=%d >=thr=%d ketat=%d (thr~%.0f floor~%.0f) | talking=%s trig=%s aktif=%dms capture=%s"
+                                 % (st["frames"], avg, st["rms_max"], SILENT_FRAME_RMS,
+                                    st["silent"], st["vad_pos"], st["above_thr"],
+                                    st["strict"], st["thr_last"], ep.noise_floor,
+                                    talking, ep.triggered, ep.active_speech_ms,
+                                    state["capture"]))
+                        state["diag_next"] = now + 1.0
                     if talking and state["bargein_on"] and not state["interrupt"]:
                         if ep.triggered and not state["candidate"]:
                             state["candidate"] = True
@@ -622,6 +731,9 @@ async def handle(websocket: WebSocket):
                         on = bool(ctrl.get("on"))
                         state["client_playing"] = on
                         state["last_activity"] = time.time()
+                        if debug:
+                            _log("klien: playing=%s (jendela 'bot bicara' %s)."
+                                 % (on, "MULAI" if on else "SELESAI"))
                         if not on:
                             state["speak_guard_until"] = 0.0
                             state["candidate"] = False
@@ -726,6 +838,7 @@ async def handle(websocket: WebSocket):
             try:
                 state["gen"] += 1
                 t_utt = time.time()
+                _log("proses #%d: %d byte wav -> STT/NLU..." % (state["gen"], len(wav)))
                 await _safe_send_text({"type": "thinking"})
                 try:
                     res = await loop.run_in_executor(
@@ -733,12 +846,19 @@ async def handle(websocket: WebSocket):
                         state["want_audio"], False,
                     )
                 except Exception as e:  # noqa: BLE001
+                    _log("proses #%d GAGAL: %s" % (state["gen"], e))
                     await _safe_send_text({"type": "error", "error": str(e)})
                     continue
                 if state["closed"]:
                     break
+                _log("hasil #%d: no_speech=%s transkrip='%s' stt_err=%s intent=%s conf=%s sumber=%s elapsed=%sms"
+                     % (state["gen"], bool(res.get("no_speech")),
+                        (res.get("transkrip") or "")[:80], res.get("stt_error"),
+                        res.get("intent"), res.get("confidence"),
+                        res.get("sumber"), res.get("elapsed_ms")))
                 if res.get("no_speech") or not (res.get("transkrip") or "").strip():
-                    await _safe_send_text({"type": "no_speech"})
+                    await _safe_send_text({"type": "no_speech",
+                                           "reason": "STT tidak mendengar ucapan"})
                     continue
                 await _safe_send_text({"type": "transcript",
                                        "text": res.get("transkrip") or ""})
