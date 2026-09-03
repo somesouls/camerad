@@ -72,7 +72,7 @@
         <tbody id="evalBody"></tbody>
       </table>
     </div>
-    <p style="font-size:11.5px;color:var(--text-muted);margin:8px 0 0;">*TTFA = waktu dari “memproses” sampai potongan audio pertama tiba di browser (khusus Mode B). Semua nilai dalam milidetik (ms).</p>
+    <p style="font-size:11.5px;color:var(--text-muted);margin:8px 0 0;">*TTFA = waktu dari “memproses” sampai potongan audio pertama tiba di browser (khusus Mode B). Semua nilai dalam milidetik (ms). Kolom <b>Suara</b>: “✅ diputar”, “gagal TTS” (server tak menghasilkan audio), “diblokir browser” (audio jadi tapi autoplay diblokir), “✋ dipotong”.</p>
   </section>
 
   <section class="vbl-card" style="margin-top:16px;">
@@ -193,9 +193,9 @@
     if(d.jawaban_audio_b64){h+='<div class="vbl-kv"><b>🔊 Suara</b><audio id="vblAudio" controls src="data:audio/wav;base64,'+d.jawaban_audio_b64+'" style="height:34px;"></audio></div>';}
     else if(!d.tts_error){h+='<div class="vbl-kv"><b>🔊 Suara</b><span style="color:var(--text-muted);">(TTS mati / tak menghasilkan audio)</span></div>';}
     if(d.stt_error){h+='<div class="vbl-kv"><b>STT error</b><span style="color:#dc2626;">'+esc(d.stt_error)+'</span></div>';}
-    if(d.tts_error){h+='<div class="vbl-kv"><b>TTS error</b><span style="color:var(--text-muted);">'+esc(d.tts_error)+'</span></div>';}
+    if(d.tts_error){h+='<div class="vbl-kv"><b>TTS error</b><span style="color:#dc2626;">'+esc(d.tts_error)+'</span></div>';}
     $('out').innerHTML=h;
-    if(d.jawaban_audio_b64){try{var a=$('vblAudio');if(a){a.play().catch(function(){});}}catch(e){}}
+    if(d.jawaban_audio_b64){try{var a=$('vblAudio');if(a){var pr=a.play(); if(pr&&pr['catch']){pr['catch'](function(){ $('recMsg').textContent='🔊 Autoplay diblokir — klik ▶ pada pemutar untuk mendengarkan.'; });}}}catch(e){}}
     var t=document.createElement('div');t.className='vbl-turn';
     t.innerHTML='<b>🧑 '+esc(d.transkrip||'')+'</b><br>🤖 '+esc(d.jawaban_teks||'')+' '+srcBadge+ho;
     $('log').insertBefore(t,$('log').firstChild);
@@ -265,12 +265,24 @@
   function frameRms(f32){ var s=0; for(var i=0;i<f32.length;i++){s+=f32[i]*f32[i];} return Math.sqrt(s/(f32.length||1)); }
 
   function stopAudio(){ if(curAudio){try{curAudio.pause();}catch(e){} curAudio=null;} }
-  function playParts(){
-    if(!audioParts.length)return;
+  // Putar audio yang terkumpul. `row` = baris evaluasi terkait; status kolom Suara
+  // diperbarui dari HASIL play(): '✅ diputar' bila sukses, 'diblokir browser' bila
+  // autoplay ditolak (audio SUDAH jadi -> ini masalah browser, bukan server).
+  function playParts(row){
+    if(!audioParts.length){ if(row){row.suara='kosong'; renderEval();} return; }
     var blob=new Blob(audioParts,{type:'audio/wav'}); audioParts=[];
     var url=URL.createObjectURL(blob); stopAudio();
     curAudio=new Audio(url); curAudio.volume=1.0; curAudio.onended=function(){URL.revokeObjectURL(url);};
-    curAudio.play().catch(function(err){ sStat('⚠️ Browser memblokir autoplay — klik area halaman lalu ulangi.'); });
+    var pr=curAudio.play();
+    if(pr&&pr.then){
+      pr.then(function(){ if(row){row.suara='✅ diputar'; renderEval();} })
+        .catch(function(err){
+          var nm=(err&&(err.name||err.message))||err;
+          sStat('⚠️ Browser memblokir autoplay — klik area halaman lalu ulangi.');
+          sAdd('⚠️','🔇 Audio SUDAH diterima dari server tapi DIBLOKIR browser ('+esc(String(nm))+'). Klik halaman/izinkan autoplay lalu ulangi.');
+          if(row){row.suara='diblokir browser'; renderEval();}
+        });
+    } else { if(row){row.suara='✅ diputar'; renderEval();} }
   }
 
   function startStream(){
@@ -323,14 +335,22 @@
           sStat('💬 '+src+' · '+(m.intent||'(fallback)')+' · '+(m.elapsed_ms||0)+' ms (STT '+(tm.stt_ms==null?'?':tm.stt_ms)+' / think '+(tm.think_ms==null?'?':tm.think_ms)+' / TTS '+(tm.tts_ms==null?'?':tm.tts_ms)+')'+(m.action==='handoff'?' · HANDOFF':''));
           curRow={ n:evalRows.length+1, mode:'B', transkrip:(pend&&pend.transkrip)||m.transkrip||'', intent:m.intent||'(fallback)', sumber:src, stt:tm.stt_ms, think:tm.think_ms, tts:tm.tts_ms, server:m.elapsed_ms, ttfa:null, suara:(m.tts_error?'gagal TTS':'menunggu…') };
           evalPush(curRow);
+          if(m.tts_error){ sAdd('⚠️','🔇 TTS GAGAL di server — jawaban tak dibacakan. Alasan: '+esc(m.tts_error)); }
           clearBusyTimer();
           if(m.tts_error){ setBusy(false); }
           else { busyTimer=setTimeout(function(){ setBusy(false); },2500); }
         }
+        else if(m.type==='no_audio'){
+          var rz=m.reason||m.tts_error||'TTS tidak menghasilkan audio';
+          sStat('🔇 Jawaban tidak dibacakan: '+rz);
+          sAdd('⚠️','🔇 Jawaban TIDAK dibacakan (server) — '+esc(rz));
+          clearBusyTimer(); setBusy(false);
+          if(curRow){ curRow.suara='gagal TTS'; renderEval(); curRow=null; }
+        }
         else if(m.type==='audio_begin'){ clearBusyTimer(); setBusy(true); audioParts=[]; if(m.greeting){ sStat('🔊 Salam pembuka…'); } if(curRow){ curRow.ttfa=Math.round(performance.now()-tThink); curRow.suara='▶️ memutar'; renderEval(); } }
-        else if(m.type==='audio_end'){ playParts(); clearBusyTimer(); setBusy(false); if(curRow){ curRow.suara='✅ diputar'; renderEval(); curRow=null; } }
+        else if(m.type==='audio_end'){ var _r=curRow; curRow=null; clearBusyTimer(); setBusy(false); playParts(_r); }
         else if(m.type==='interrupted'){ sStat('✋ Dipotong (barge-in)'); audioParts=[]; stopAudio(); clearBusyTimer(); setBusy(false); if(curRow){ curRow.suara='✋ dipotong'; renderEval(); curRow=null; } }
-        else if(m.type==='error'){ sStat('⚠️ '+(m.error||'error')); clearBusyTimer(); setBusy(false); }
+        else if(m.type==='error'){ sStat('⚠️ '+(m.error||'error')); sAdd('⚠️','Error server: '+esc(m.error||'')); clearBusyTimer(); setBusy(false); }
       };
       ws.onerror=function(){ sStat('⚠️ WebSocket error'); };
       ws.onclose=function(){ if(streaming)stopStream(true); };
