@@ -7,6 +7,8 @@ Lapisan keputusan percakapan bergaya agen:
   - Konfirmasi selektif + resolusi jawaban ya/tidak (state pending_confirm).
   - Konfirmasi-dulu (#1): saat intent ditemukan, baca ulang kalimat konfirmasi
     deterministik (tanpa LLM) lalu siapkan jawaban di background.
+  - Jawaban menuntun / guided walkthrough (#2): sampaikan jawaban panjang
+    BERTAHAP (satu langkah tiap giliran) + tawar agen bila penelepon buntu.
   - Digression: deteksi pindah intent + tawaran resume intent sebelumnya.
   - Readback selektif, sapaan 'Kak', dan teks filler.
 
@@ -112,6 +114,20 @@ def _sal_prefix(settings):
     return ("Baik, %s. " % s) if s else "Baik. "
 
 
+def _sal_value(settings):
+    """Nilai sapaan efektif ('' bila sapaan dinonaktifkan)."""
+    if str((settings or {}).get("salutation_enabled", "1")) == "0":
+        return ""
+    return salutation(settings)
+
+
+def _fill_sal(tmpl, settings, default=""):
+    """Isi {sal} pada template lalu rapikan spasi/tanda baca menggantung."""
+    body = (tmpl or default).replace("{sal}", _sal_value(settings))
+    body = re.sub(r"\s+", " ", body).replace(" ,", ",").replace(" .", ".")
+    return body.strip()
+
+
 def confirm_prompt(intent, settings):
     """Prompt konfirmasi selektif untuk tier menengah."""
     tmpl = (settings or {}).get("confirm_template") or (
@@ -156,6 +172,53 @@ def confirm_first_prompt(label, settings):
     body = tmpl.replace("{sal}", sal).replace("{label}", (label or "").strip())
     body = re.sub(r"\s+", " ", body).replace(" ,", ",").strip()
     return body
+
+
+# ------------------------------------------ jawaban menuntun / guided (#2)
+def guided_enabled(settings):
+    """Jawaban menuntun bertahap aktif? (default ON)."""
+    return str((settings or {}).get("guided_enabled", "1")) != "0"
+
+
+def guided_min_steps(settings):
+    """Minimal jumlah langkah agar jawaban disampaikan bertahap (>= 2)."""
+    try:
+        n = int((settings or {}).get("guided_min_steps") or 2)
+    except Exception:
+        n = 2
+    return max(2, n)
+
+
+def guided_intro(settings):
+    """Pembuka singkat sebelum langkah pertama, mis. 'Baik Kak, saya bantu ya.'"""
+    return _fill_sal((settings or {}).get("guided_intro_template"),
+                     settings, "Baik {sal}, saya bantu ya.")
+
+
+def guided_nudge(settings):
+    """Dorongan lembut setelah langkah non-terakhir agar penelepon menanggapi."""
+    return _fill_sal((settings or {}).get("guided_nudge_template"),
+                     settings, "Kalau sudah atau ada kendala, sampaikan saja ya, {sal}.")
+
+
+def guided_closing(settings):
+    """Penutup alur menuntun setelah langkah terakhir."""
+    return _fill_sal((settings or {}).get("guided_closing_template"),
+                     settings,
+                     "Itu tadi langkah-langkahnya, {sal}. Ada lagi yang bisa saya bantu?")
+
+
+def guided_handoff_offer(settings):
+    """Tawaran menghubungkan ke agen saat penelepon buntu di tengah alur."""
+    return _fill_sal((settings or {}).get("guided_handoff_offer"),
+                     settings,
+                     "Mohon maaf {sal}, untuk hal itu sepertinya perlu bantuan petugas kami. "
+                     "Mau saya hubungkan dengan agen?")
+
+
+def wants_handoff_in_flow(text, settings):
+    """True bila selaan penelepon menandakan buntu/tak terbantu (tawar agen)."""
+    return _contains_any(text, _csv(settings, "guided_handoff_triggers")) is not None
 
 
 def readback_prompt(text, settings):
