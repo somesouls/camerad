@@ -241,4 +241,223 @@
       $('cSys').value=s.llm_system||''; $('cFb').value=s.fallback_reply||'';
       $('p5SttEn').value=String(s.stt_bias_enabled||'1'); $('p5MaxT').value=s.stt_bias_max_terms||'64';
       $('p5FromLex').value=String(s.stt_bias_from_lexicon||'1'); $('p5FromInt').value=String(s.stt_bias_from_intents||'1');
-      $('p5NluEn').value=String(s.nlu_
+      $('p5NluEn').value=String(s.nlu_bias_enabled||'1'); $('p5Boost').value=(s.nlu_bias_boost!=null&&s.nlu_bias_boost!=='')?s.nlu_bias_boost:'0.08';
+      $('p5Prompt').value=s.stt_bias_prompt||''; $('p5Terms').value=s.stt_bias_terms||''; $('p5Map').value=s.nlu_bias_map||'';
+      $('dEn').value=String(s.dialog_enabled||'1'); $('dCmin').value=s.confirm_min||'0.45';
+      $('dCFirst').value=String(s.confirm_first||'1'); $('dCFirstTmpl').value=s.confirm_first_template||'';
+      $('dSal').value=s.salutation||'Kak'; $('dSalEn').value=String(s.salutation_enabled||'1');
+      $('dFilEn').value=String(s.filler_enabled||'1'); $('dResEn').value=String(s.resume_enabled||'0');
+      $('dSh').value=String(s.intent_shorten_enabled||'0'); $('dShMin').value=s.intent_shorten_min_chars||'160';
+      $('dShSys').value=s.intent_shorten_system||'';
+      $('dGuided').value=String(s.guided_enabled||'1'); $('dGuidedMin').value=s.guided_min_steps||'2';
+      $('dGuidedBlend').value=String(s.guided_llm_blend||'1');
+      $('dGuidedIntro').value=s.guided_intro_template||''; $('dGuidedNudge').value=s.guided_nudge_template||'';
+      $('dGuidedClose').value=s.guided_closing_template||''; $('dGuidedHo').value=s.guided_handoff_offer||'';
+      $('dGuidedHoTrig').value=s.guided_handoff_triggers||''; $('dGuidedSys').value=s.guided_step_system||'';
+      $('dGreet').value=s.greeting||''; $('dClose').value=s.closing_reply||''; $('dConf').value=s.confirm_template||'';
+      $('dCloseEn').value=String(s.closing_enabled||'1'); $('dCloseMaxW').value=s.closing_trigger_max_words||'5';
+      $('dCloseTrig').value=s.closing_triggers||''; $('dCloseHalu').value=s.closing_hallucination_patterns||'';
+      $('dRep').value=s.cmd_repeat||''; $('dEnd').value=s.cmd_end||''; $('dAff').value=s.affirmations||''; $('dNeg').value=s.negations||'';
+      $('dFil').value=s.filler_texts||'';
+      $('sGate').value=(s.stream_gate_rms!=null&&s.stream_gate_rms!=='')?s.stream_gate_rms:'0.012';
+      $('sGateHang').value=s.stream_gate_hangover_ms||'600';
+      $('sRms').value=s.stream_rms||'600'; $('sAggr').value=s.stream_vad_aggr||'3';
+      $('sSil').value=s.stream_silence_ms||'700'; $('sMinSp').value=s.stream_min_speech_ms||'350';
+      $('sPre').value=s.stream_preroll_ms||'300'; $('sBarge').value=String(s.stream_bargein||'1');
+      $('sBargeMs').value=s.stream_bargein_min_ms||'500'; $('sSpkRms').value=s.stream_speaking_rms||'900';
+      $('sDuck').value=String(s.stream_ducking||'1');
+      $('sDuckGain').value=(s.stream_duck_gain!=null&&s.stream_duck_gain!=='')?s.stream_duck_gain:'0.2';
+      $('sIdle').value=String(s.stream_idle_enabled||'1');
+      $('sIdlePromptMs').value=s.stream_idle_prompt_ms||'8000';
+      $('sIdleEndMs').value=s.stream_idle_end_ms||'10000';
+      $('sIdlePrompt').value=s.stream_idle_prompt_text||'';
+      $('sIdleEnd').value=s.stream_idle_end_text||'';
+      $('sNoiseAdapt').value=String(s.stream_noise_adapt||'1');
+      $('sSnr').value=(s.stream_snr_ratio!=null&&s.stream_snr_ratio!=='')?s.stream_snr_ratio:'1.8';
+      $('sNoiseFloor').value=s.stream_noise_floor_init||'150';
+      $('sOnset').value=s.stream_onset_frames||'3';
+      $('sVoiced').value=(s.stream_voiced_ratio_min!=null&&s.stream_voiced_ratio_min!=='')?s.stream_voiced_ratio_min:'0.35';
+      $('sAutoCal').value=String(s.stream_autocalibrate||'1');
+      $('sCalibMs').value=s.stream_calib_ms||'1200';
+      $('sMicHang').value=s.stream_mic_hangover_ms||'250';
+      $('kpiStt').textContent='STT: '+(d.stt_ready?'siap ✅':'belum ⚠️');
+      $('kpiTts').textContent='TTS: '+(d.tts_ready?'siap ✅':'belum ⚠️')+(d.tts_engine?(' ('+d.tts_engine+')'):'');
+    });
+  }
+  $('btnSaveCfg').onclick=function(){
+    $('cfgMsg').textContent='Menyimpan…';
+    post('/api/voicebot/config/save',{
+      threshold:$('cThr').value,stt_lang:$('cLang').value,stt_enabled:$('cStt').value,
+      tts_enabled:$('cTts').value,handoff_max_fallback:$('cMaxFb').value,handoff_triggers:$('cHo').value,
+      pron_enabled:$('cPron').value,pron_spell_digits_min:$('cSpellMin').value,
+      tts_engine:$('cTtsEng').value,mms_model:$('cMms').value,
+      llm_system:$('cSys').value,fallback_reply:$('cFb').value
+    }).then(function(d){$('cfgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');loadCfg();});
+  };
+
+  $('btnSaveP5').onclick=function(){
+    $('p5Msg').textContent='Menyimpan…';
+    post('/api/voicebot/config/save',{
+      stt_bias_enabled:$('p5SttEn').value,stt_bias_max_terms:$('p5MaxT').value,
+      stt_bias_from_lexicon:$('p5FromLex').value,stt_bias_from_intents:$('p5FromInt').value,
+      stt_bias_prompt:$('p5Prompt').value,stt_bias_terms:$('p5Terms').value,
+      nlu_bias_enabled:$('p5NluEn').value,nlu_bias_boost:$('p5Boost').value,nlu_bias_map:$('p5Map').value
+    }).then(function(d){$('p5Msg').textContent=d.ok?'Tersimpan. Berlaku untuk giliran berikutnya.':(d.error||'Gagal.');loadCfg();});
+  };
+
+  $('btnSaveStream').onclick=function(){
+    $('strMsg').textContent='Menyimpan…';
+    post('/api/voicebot/config/save',{
+      stream_gate_rms:$('sGate').value,stream_gate_hangover_ms:$('sGateHang').value,
+      stream_rms:$('sRms').value,stream_vad_aggr:$('sAggr').value,
+      stream_silence_ms:$('sSil').value,stream_min_speech_ms:$('sMinSp').value,
+      stream_preroll_ms:$('sPre').value,stream_bargein:$('sBarge').value,
+      stream_bargein_min_ms:$('sBargeMs').value,stream_speaking_rms:$('sSpkRms').value,
+      stream_ducking:$('sDuck').value,stream_duck_gain:$('sDuckGain').value,
+      stream_idle_enabled:$('sIdle').value,stream_idle_prompt_ms:$('sIdlePromptMs').value,
+      stream_idle_end_ms:$('sIdleEndMs').value,stream_idle_prompt_text:$('sIdlePrompt').value,
+      stream_idle_end_text:$('sIdleEnd').value,
+      stream_noise_adapt:$('sNoiseAdapt').value,stream_snr_ratio:$('sSnr').value,
+      stream_noise_floor_init:$('sNoiseFloor').value,stream_onset_frames:$('sOnset').value,
+      stream_voiced_ratio_min:$('sVoiced').value,
+      stream_autocalibrate:$('sAutoCal').value,stream_calib_ms:$('sCalibMs').value,
+      stream_mic_hangover_ms:$('sMicHang').value
+    }).then(function(d){$('strMsg').textContent=d.ok?'Tersimpan. Berlaku untuk sesi streaming berikutnya.':(d.error||'Gagal.');loadCfg();});
+  };
+
+  $('btnResetStream').onclick=function(){
+    if(!confirm('Kembalikan semua setelan Streaming (Mode B) ke nilai rekomendasi?'))return;
+    var R={sGate:'0.012',sGateHang:'600',sRms:'600',sAggr:'3',sSil:'700',sMinSp:'350',
+      sPre:'300',sBarge:'1',sBargeMs:'500',sSpkRms:'900',sDuck:'1',sDuckGain:'0.2',
+      sIdle:'1',sIdlePromptMs:'8000',sIdleEndMs:'10000',sNoiseAdapt:'1',sSnr:'1.8',
+      sNoiseFloor:'150',sOnset:'3',sVoiced:'0.35',sAutoCal:'1',sCalibMs:'1200',sMicHang:'250'};
+    for(var k in R){ if($(k)) $(k).value=R[k]; }
+    $('strMsg').textContent='Direset ke rekomendasi — menyimpan…';
+    $('btnSaveStream').onclick();
+  };
+
+  $('btnSaveDlg').onclick=function(){
+    $('dlgMsg').textContent='Menyimpan…';
+    post('/api/voicebot/config/save',{
+      dialog_enabled:$('dEn').value,confirm_min:$('dCmin').value,
+      confirm_first:$('dCFirst').value,confirm_first_template:$('dCFirstTmpl').value,
+      guided_enabled:$('dGuided').value,guided_min_steps:$('dGuidedMin').value,guided_llm_blend:$('dGuidedBlend').value,
+      guided_intro_template:$('dGuidedIntro').value,guided_nudge_template:$('dGuidedNudge').value,
+      guided_closing_template:$('dGuidedClose').value,guided_handoff_offer:$('dGuidedHo').value,
+      guided_handoff_triggers:$('dGuidedHoTrig').value,guided_step_system:$('dGuidedSys').value,
+      salutation:$('dSal').value,
+      salutation_enabled:$('dSalEn').value,filler_enabled:$('dFilEn').value,resume_enabled:$('dResEn').value,
+      intent_shorten_enabled:$('dSh').value,intent_shorten_min_chars:$('dShMin').value,intent_shorten_system:$('dShSys').value,
+      greeting:$('dGreet').value,closing_reply:$('dClose').value,confirm_template:$('dConf').value,
+      closing_enabled:$('dCloseEn').value,closing_trigger_max_words:$('dCloseMaxW').value,
+      closing_triggers:$('dCloseTrig').value,closing_hallucination_patterns:$('dCloseHalu').value,
+      cmd_repeat:$('dRep').value,cmd_end:$('dEnd').value,affirmations:$('dAff').value,negations:$('dNeg').value,
+      filler_texts:$('dFil').value
+    }).then(function(d){$('dlgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');});
+  };
+  $('btnFillerTest').onclick=function(){
+    $('dlgMsg').textContent='Memuat filler…';
+    fetch('/api/voicebot/filler').then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){$('dlgMsg').textContent=d.error||'Gagal.';return;}
+      $('dlgMsg').textContent='Filler: "'+(d.text||'—')+'"'+(d.tts_error?(' · TTS: '+d.tts_error):'');
+      if(d.audio_b64){try{new Audio('data:audio/wav;base64,'+d.audio_b64).play();}catch(e){}}
+    });
+  };
+
+  function dfBody(){
+    return {limit:$('dfLimit').value||20,max_phrases:$('dfMaxPhr').value||40,
+      start:$('dfStart').value||null,end:$('dfEnd').value||null,
+      skip_existing:$('dfSkip').value==='1',activate:$('dfAkt').value};
+  }
+  $('btnDfPrev').onclick=function(){
+    $('dfMsg').textContent='Memuat pratinjau…';
+    post('/api/voicebot/intents/df-preview',dfBody()).then(function(d){
+      if(!d.ok){$('dfMsg').textContent=d.error||'Gagal.';$('dfPrev').innerHTML='';return;}
+      if(!d.rows.length){$('dfMsg').textContent='';$('dfPrev').innerHTML='<p style="color:var(--text-muted);">Tidak ada intent ditemukan di analytics.db. Tarik data Dialogflow dulu lewat menu <b>Kelola Data</b>.</p>';return;}
+      $('dfMsg').textContent=d.total+' intent teratas (belum diimpor):';
+      var h='<table class="vb-tab"><thead><tr><th>#</th><th>Intent</th><th>Jumlah panggilan</th></tr></thead><tbody>';
+      d.rows.forEach(function(r,i){h+='<tr><td>'+(i+1)+'</td><td><b>'+esc(r.intent)+'</b></td><td>'+r.count+'</td></tr>';});
+      h+='</tbody></table>';$('dfPrev').innerHTML=h;
+    });
+  };
+  $('btnDfImp').onclick=function(){
+    if(!confirm('Impor intent tersibuk Dialogflow ke voicebot sekarang?'))return;
+    $('dfMsg').textContent='Mengimpor… (bisa beberapa detik)';
+    post('/api/voicebot/intents/df-import',dfBody()).then(function(d){
+      if(!d.ok){$('dfMsg').textContent=d.error||'Gagal.';return;}
+      $('dfMsg').textContent='Selesai: '+d.imported+' baru, '+d.updated+' diperbarui, '+d.skipped+' dilewati ('+d.phrases+' training phrase).';
+      loadInt();loadKpi();
+    });
+  };
+
+  function resetInt(){$('iId').value='';$('iName').value='';$('iPhr').value='';$('iResp').value='';$('iConf').value='';$('iAktif').value='1';$('intMsg').textContent='';}
+  $('btnResetInt').onclick=resetInt;
+  $('btnSaveInt').onclick=function(){
+    var b={id:$('iId').value||null,name:$('iName').value.trim(),phrases:$('iPhr').value,response:$('iResp').value.trim(),confirm_label:$('iConf').value.trim(),aktif:$('iAktif').value};
+    if(!b.name){$('intMsg').textContent='Nama intent wajib.';return;}
+    $('intMsg').textContent='Menyimpan…';
+    post('/api/voicebot/intents/save',b).then(function(d){if(d.ok){resetInt();loadInt();loadKpi();$('intMsg').textContent='Tersimpan.';}else{$('intMsg').textContent=d.error||'Gagal.';}});
+  };
+  function isi(r){$('iId').value=r.id||'';$('iName').value=r.name||'';$('iPhr').value=(r.phrases_list||[]).join(', ');$('iResp').value=r.response||'';$('iConf').value=r.confirm_label||'';$('iAktif').value=String(r.aktif==null?1:r.aktif);window.scrollTo({top:0,behavior:'smooth'});}
+  function loadInt(){
+    post('/api/voicebot/intents/list',{q:($('q').value||'').trim()}).then(function(d){
+      var box=$('tabel'); if(!d.ok){box.innerHTML='<p style="color:#dc2626;">'+esc(d.error||'Gagal')+'</p>';return;}
+      if(!d.rows.length){box.innerHTML='<p style="color:var(--text-muted);">Belum ada intent.</p>';return;}
+      var h='<table class="vb-tab"><thead><tr><th>Intent</th><th>Training phrase</th><th>Respons</th><th>Konfirmasi #1</th><th>Aktif</th><th></th></tr></thead><tbody>';
+      d.rows.forEach(function(r){
+        var chips=(r.phrases_list||[]).map(function(s){return '<span class="vb-chip">'+esc(s)+'</span>';}).join('')||'—';
+        h+='<tr><td><b>'+esc(r.name)+'</b></td><td>'+chips+'</td><td>'+esc(r.response||'')+'</td><td>'+esc(r.confirm_label||'')+'</td><td>'+(r.aktif?'✅':'—')+'</td><td style="white-space:nowrap;"><button class="vb-link" data-ed=\''+esc(JSON.stringify(r))+'\'>Ubah</button> <button class="vb-link del" data-del="'+r.id+'">Hapus</button></td></tr>';
+      });
+      h+='</tbody></table>'; box.innerHTML=h;
+      box.querySelectorAll('[data-ed]').forEach(function(b){b.onclick=function(){try{isi(JSON.parse(b.getAttribute('data-ed')));}catch(e){}};});
+      box.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){if(!confirm('Hapus intent ini?'))return;post('/api/voicebot/intents/delete',{id:b.getAttribute('data-del')}).then(function(){loadInt();loadKpi();});};});
+    });
+  }
+  $('btnCari').onclick=loadInt; $('q').addEventListener('keydown',function(e){if(e.key==='Enter')loadInt();});
+
+  function resetLex(){$('lId').value='';$('lPat').value='';$('lRep').value='';$('lMode').value='eja';$('lAktif').value='1';$('lexMsg').textContent='';}
+  $('btnResetLex').onclick=resetLex;
+  $('btnSaveLex').onclick=function(){
+    var b={id:$('lId').value||null,pattern:$('lPat').value.trim(),replacement:$('lRep').value.trim(),mode:$('lMode').value,enabled:$('lAktif').value};
+    if(!b.pattern){$('lexMsg').textContent='Istilah wajib diisi.';return;}
+    $('lexMsg').textContent='Menyimpan…';
+    post('/api/voicebot/lexicon/save',b).then(function(d){if(d.ok){resetLex();loadLex();$('lexMsg').textContent='Tersimpan.';}else{$('lexMsg').textContent=d.error||'Gagal.';}});
+  };
+  function isiLex(r){$('lId').value=r.id||'';$('lPat').value=r.pattern||'';$('lRep').value=r.replacement||'';$('lMode').value=r.mode||'eja';$('lAktif').value=String(r.enabled==null?1:r.enabled);window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});}
+  function loadLex(){
+    post('/api/voicebot/lexicon/list',{q:($('lq').value||'').trim()}).then(function(d){
+      var box=$('tabelLex'); if(!d.ok){box.innerHTML='<p style="color:#dc2626;">'+esc(d.error||'Gagal')+'</p>';return;}
+      if(!d.rows.length){box.innerHTML='<p style="color:var(--text-muted);">Belum ada istilah.</p>';return;}
+      var h='<table class="vb-tab"><thead><tr><th>Istilah</th><th>Cara baca</th><th>Jenis</th><th>Aktif</th><th></th></tr></thead><tbody>';
+      d.rows.forEach(function(r){
+        h+='<tr><td><b>'+esc(r.pattern)+'</b></td><td>'+esc(r.replacement||'')+'</td><td>'+(r.mode==='baca'?'kata':'dieja')+'</td><td>'+(r.enabled?'✅':'—')+'</td><td style="white-space:nowrap;"><button class="vb-link" data-edl=\''+esc(JSON.stringify(r))+'\'>Ubah</button> <button class="vb-link del" data-dell="'+r.id+'">Hapus</button></td></tr>';
+      });
+      h+='</tbody></table>'; box.innerHTML=h;
+      box.querySelectorAll('[data-edl]').forEach(function(b){b.onclick=function(){try{isiLex(JSON.parse(b.getAttribute('data-edl')));}catch(e){}};});
+      box.querySelectorAll('[data-dell]').forEach(function(b){b.onclick=function(){if(!confirm('Hapus istilah ini?'))return;post('/api/voicebot/lexicon/delete',{id:b.getAttribute('data-dell')}).then(function(){loadLex();});};});
+    });
+  }
+  $('btnCariLex').onclick=loadLex; $('lq').addEventListener('keydown',function(e){if(e.key==='Enter')loadLex();});
+  $('btnPronPrev').onclick=function(){
+    $('lPrevOut').textContent='…';
+    post('/api/voicebot/pron/preview',{text:$('lPrevIn').value}).then(function(d){
+      $('lPrevOut').innerHTML=d.ok?('→ <b>'+esc(d.normalized)+'</b>'):esc(d.error||'Gagal');
+    });
+  };
+
+  function loadKpi(){post('/api/voicebot/intents/list',{}).then(function(d){if(d.ok)$('kpiIntent').textContent='Intent: '+(d.total||0);});}
+
+  function loadLogs(){
+    post('/api/voicebot/logs',{limit:30}).then(function(d){
+      var box=$('logs'); if(!d.ok){box.innerHTML='';return;}
+      if(!d.rows.length){box.innerHTML='<p style="color:var(--text-muted);">Belum ada log.</p>';return;}
+      var h='<table class="vb-tab"><thead><tr><th>Waktu</th><th>Transkrip</th><th>Intent</th><th>Skor</th><th>Sumber</th><th>HO</th></tr></thead><tbody>';
+      d.rows.forEach(function(r){h+='<tr><td style="white-space:nowrap;">'+esc(r.created_at||'')+'</td><td>'+esc(r.user_text||'')+'</td><td>'+esc(r.intent||'—')+'</td><td>'+(r.confidence!=null?Number(r.confidence).toFixed(2):'')+'</td><td>'+esc(r.sumber||'')+'</td><td>'+(r.handoff?'🔴':'')+'</td></tr>';});
+      h+='</tbody></table>'; box.innerHTML=h;
+    });
+  }
+
+  loadCfg();loadInt();loadKpi();loadLex();loadLogs();
+})();
+</script>
+{% endblock %}
