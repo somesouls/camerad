@@ -47,7 +47,7 @@ DEFAULT_SETTINGS = {
         "Selamat datang di layanan kami. Ada yang bisa saya bantu, Kak?"
     ),
     "closing_reply": (
-        "Baik, terima kasih sudah menghubungi kami. Semoga harinya menyenangkan."
+        "Baik, terima kasih sudah menghubungi kami. Selamat beraktivitas kembali."
     ),
     "handoff_reply": (
         "Baik, saya hubungkan Anda dengan agen kami. Mohon tunggu sebentar."
@@ -111,6 +111,30 @@ DEFAULT_SETTINGS = {
     "negations": (
         "tidak, bukan, salah, tidak benar, bukan itu, nggak, enggak, gak, "
         "bukan begitu"
+    ),
+    # --- salam penutup + pemicu 'terima kasih' (#4) ---
+    # Selain perintah 'selesai' (cmd_end), penelepon sering menutup percakapan
+    # dengan ucapan LUNAK seperti 'terima kasih'/'makasih'/'sekian'. closing_triggers
+    # mendeteksi ini, TAPI hanya bila ucapan BERDIRI SENDIRI / pendek
+    # (<= closing_trigger_max_words kata) supaya 'terima kasih' di tengah kalimat
+    # sopan ("oh terima kasih, tapi saya masih mau tanya ...") TIDAK memicu penutupan.
+    # closing_hallucination_patterns = pola HALUSINASI STT saat senyap (mis.
+    # 'terima kasih telah menonton') yang WAJIB diabaikan: tak dibalas & tak menutup.
+    # Saat menutup, bot membaca closing_reply APA ADANYA (verbatim) lalu 'langsung
+    # tutup' (di Mode B koneksi WebSocket ditutup otomatis setelah salam penutup).
+    "closing_enabled": "1",
+    "closing_trigger_max_words": "5",
+    "closing_triggers": (
+        "terima kasih, terimakasih, makasih, makasih ya, terima kasih ya, "
+        "terima kasih banyak, oke terima kasih, ok terima kasih, itu saja, itu aja, "
+        "sekian, cukup sekian, tidak ada lagi, tidak ada lagi yang ditanyakan"
+    ),
+    "closing_hallucination_patterns": (
+        "terima kasih telah menonton, terima kasih sudah menonton, "
+        "terima kasih telah menyaksikan, terima kasih sudah menyaksikan, "
+        "terima kasih telah mendengarkan, sampai jumpa di video selanjutnya, "
+        "sampai jumpa di video berikutnya, jangan lupa like dan subscribe, "
+        "like dan subscribe, jangan lupa subscribe"
     ),
     "filler_enabled": "1",
     "filler_texts": (
