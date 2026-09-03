@@ -67,6 +67,39 @@ DEFAULT_SETTINGS = {
     # 'ya' jawaban lengkap dibacakan. {sal}=sapaan, {label}=confirm_label intent.
     "confirm_first": "1",
     "confirm_first_template": "Baik {sal}, saya konfirmasi, {label}",
+    # --- jawaban menuntun / guided walkthrough (#2, hybrid) ---
+    # Bila jawaban intent bisa dipecah >= guided_min_steps langkah, jawaban
+    # disampaikan BERTAHAP (satu langkah tiap giliran) mengikuti selaan penelepon.
+    # Langkah dipotong deterministik (voicebot.rag.segment_steps); tiap balasan
+    # menuntun boleh diperhalus LLM (rag.guided_step_reply -> fail-soft ke teks
+    # langkah apa adanya) bila guided_llm_blend aktif. Penelepon buntu -> tawar agen.
+    "guided_enabled": "1",
+    "guided_min_steps": "2",
+    "guided_llm_blend": "1",
+    "guided_intro_template": "Baik {sal}, saya bantu ya.",
+    "guided_nudge_template": "Kalau sudah atau ada kendala, sampaikan saja ya, {sal}.",
+    "guided_closing_template": (
+        "Itu tadi langkah-langkahnya, {sal}. Ada lagi yang bisa saya bantu?"
+    ),
+    "guided_handoff_offer": (
+        "Mohon maaf {sal}, untuk hal itu sepertinya perlu bantuan petugas kami. "
+        "Mau saya hubungkan dengan agen?"
+    ),
+    "guided_handoff_triggers": (
+        "tidak bisa dibantu, nggak bisa dibantu, gak bisa dibantu, tidak berhasil, "
+        "masih gagal, tetap gagal, mentok, tidak bisa lagi, belum selesai juga"
+    ),
+    "guided_step_system": (
+        "Anda asisten suara call center berbahasa Indonesia yang sedang MENUNTUN "
+        "penelepon langkah demi langkah. Anda diberi: ucapan/selaan penelepon, "
+        "LANGKAH BERIKUTNYA yang wajib disampaikan, dan langkah sebelumnya sebagai "
+        "konteks. Tugas Anda: akui singkat selaan penelepon lalu sampaikan LANGKAH "
+        "BERIKUTNYA itu secara utuh dengan bahasa lisan yang sopan dan jelas. "
+        "DILARANG mengubah, menambah, atau menghapus fakta, angka, alamat email, "
+        "nominal, atau syarat pada langkah tersebut. Jangan melompati atau mengarang "
+        "langkah. Ringkas 1-3 kalimat, tanpa markdown, tanpa poin bertanda, tanpa "
+        "emoji. Keluarkan HANYA kalimat untuk dibacakan."
+    ),
     "cmd_repeat": "ulangi, tolong ulangi, ulangi lagi, bisa diulang, ulang",
     "cmd_end": (
         "selesai, sudah cukup, cukup, tutup, sudah selesai, terima kasih sudah cukup"
