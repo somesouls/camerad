@@ -520,3 +520,365 @@ def import_config(data, mode="merge", conn=None):
             set_settings(settings, conn=conn)
             counts["settings"] = len(settings)
         if mode == "replace":
+            try:
+                conn.execute("DELETE FROM vb_intents")
+                conn.execute("DELETE FROM vb_lexicon")
+                conn.commit()
+            except Exception:
+                pass
+        for it in (data.get("intents") or []):
+            try:
+                rec = dict(it)
+                rec["phrases"] = rec.get("phrases_list") or _phr_list(rec.get("phrases"))
+                rec.pop("phrases_list", None)
+                rec.pop("id", None)
+                upsert_intent(rec, conn=conn)
+                counts["intents"] += 1
+            except Exception:
+                pass
+        for lx in (data.get("lexicon") or []):
+            try:
+                rec = dict(lx)
+                rec.pop("id", None)
+                upsert_lexicon(rec, conn=conn)
+                counts["lexicon"] += 1
+            except Exception:
+                pass
+        return counts
+    finally:
+        if own:
+            conn.close()
+
+
+# ------------------------------------------------------------------ intents
+def _phr_list(v):
+    try:
+        x = json.loads(v) if v else []
+        return [str(t).strip() for t in x if str(t).strip()] if isinstance(x, list) else []
+    except Exception:
+        return []
+
+
+def _norm_phrases(v):
+    if isinstance(v, list):
+        arr = [str(t).strip() for t in v if str(t).strip()]
+    else:
+        arr = [t.strip() for t in re.split(r"[,\n;]+", str(v or "")) if t.strip()]
+    out, low = [], set()
+    for t in arr:
+        if t.lower() not in low:
+            low.add(t.lower())
+            out.append(t)
+    return out
+
+
+def list_intents(q="", conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        q = (q or "").strip()
+        if q:
+            rows = conn.execute(
+                "SELECT * FROM vb_intents WHERE name LIKE ? OR COALESCE(phrases,'') LIKE ? "
+                "ORDER BY name",
+                ("%" + q + "%", "%" + q + "%"),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM vb_intents ORDER BY name").fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            d["phrases_list"] = _phr_list(d.get("phrases"))
+            out.append(d)
+        return out
+    finally:
+        if own:
+            conn.close()
+
+
+def upsert_intent(data, conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        name = str(data.get("name") or "").strip()
+        if not name:
+            raise ValueError("field 'name' wajib diisi")
+        phrases = json.dumps(_norm_phrases(data.get("phrases")), ensure_ascii=False)
+        response = str(data.get("response") or "").strip()
+        confirm_label = str(data.get("confirm_label") or "").strip()
+        aktif = 0 if str(data.get("aktif")) in ("0", "false", "False", "no") else 1
+        idv = data.get("id")
+        if idv:
+            conn.execute(
+                "UPDATE vb_intents SET name=?, phrases=?, response=?, confirm_label=?, "
+                "aktif=?, updated_at=datetime('now') WHERE id=?",
+                (name, phrases, response, confirm_label, aktif, int(idv)),
+            )
+            new_id = int(idv)
+        else:
+            cur = conn.execute(
+                "INSERT INTO vb_intents(name, phrases, response, confirm_label, aktif) "
+                "VALUES (?,?,?,?,?) ON CONFLICT(name) DO UPDATE SET "
+                "phrases=excluded.phrases, response=excluded.response, "
+                "confirm_label=excluded.confirm_label, aktif=excluded.aktif, "
+                "updated_at=datetime('now')",
+                (name, phrases, response, confirm_label, aktif),
+            )
+            new_id = int(cur.lastrowid or 0)
+        conn.commit()
+        return {"id": new_id}
+    finally:
+        if own:
+            conn.close()
+
+
+def delete_intent(id_, conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        conn.execute("DELETE FROM vb_intents WHERE id=?", (int(id_),))
+        conn.commit()
+        return {"dihapus": 1}
+    finally:
+        if own:
+            conn.close()
+
+
+def all_phrases(conn=None):
+    """[(intent_name, phrase, response)] utk intent aktif -> dipakai NLU."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        rows = conn.execute(
+            "SELECT name, phrases, response FROM vb_intents WHERE COALESCE(aktif,1)=1"
+        ).fetchall()
+        out = []
+        for r in rows:
+            resp = r["response"] or ""
+            for ph in _phr_list(r["phrases"]):
+                out.append((r["name"], ph, resp))
+        return out
+    finally:
+        if own:
+            conn.close()
+
+
+def intent_response(name, conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        r = conn.execute("SELECT response FROM vb_intents WHERE name=?", (name,)).fetchone()
+        return (r["response"] if r else "") or ""
+    finally:
+        if own:
+            conn.close()
+
+
+def intent_confirm_label(name, conn=None):
+    """Kalimat konfirmasi manual per intent (confirm-first #1); '' bila kosong."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        r = conn.execute(
+            "SELECT confirm_label FROM vb_intents WHERE name=?", (name,)
+        ).fetchone()
+        if not r:
+            return ""
+        try:
+            return (r["confirm_label"] or "")
+        except Exception:
+            return ""
+    except Exception:
+        return ""
+    finally:
+        if own:
+            conn.close()
+
+
+# ------------------------------------------------------------------ lexicon
+def list_lexicon(q="", conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        q = (q or "").strip()
+        if q:
+            rows = conn.execute(
+                "SELECT * FROM vb_lexicon WHERE pattern LIKE ? OR COALESCE(replacement,'') LIKE ? "
+                "ORDER BY pattern",
+                ("%" + q + "%", "%" + q + "%"),
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM vb_lexicon ORDER BY pattern").fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        if own:
+            conn.close()
+
+
+def upsert_lexicon(data, conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        pattern = str(data.get("pattern") or "").strip()
+        if not pattern:
+            raise ValueError("field 'pattern' wajib diisi")
+        replacement = str(data.get("replacement") or "").strip()
+        mode = (str(data.get("mode") or "eja").strip() or "eja")
+        enabled = 0 if str(data.get("enabled")) in ("0", "false", "False", "no") else 1
+        notes = str(data.get("notes") or "").strip()
+        idv = data.get("id")
+        if idv:
+            conn.execute(
+                "UPDATE vb_lexicon SET pattern=?, replacement=?, mode=?, enabled=?, "
+                "notes=?, updated_at=datetime('now') WHERE id=?",
+                (pattern, replacement, mode, enabled, notes, int(idv)),
+            )
+            new_id = int(idv)
+        else:
+            cur = conn.execute(
+                "INSERT INTO vb_lexicon(pattern, replacement, mode, enabled, notes) "
+                "VALUES (?,?,?,?,?) ON CONFLICT(pattern) DO UPDATE SET "
+                "replacement=excluded.replacement, mode=excluded.mode, "
+                "enabled=excluded.enabled, notes=excluded.notes, updated_at=datetime('now')",
+                (pattern, replacement, mode, enabled, notes),
+            )
+            new_id = int(cur.lastrowid or 0)
+        conn.commit()
+        return {"id": new_id}
+    finally:
+        if own:
+            conn.close()
+
+
+def delete_lexicon(id_, conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        conn.execute("DELETE FROM vb_lexicon WHERE id=?", (int(id_),))
+        conn.commit()
+        return {"dihapus": 1}
+    finally:
+        if own:
+            conn.close()
+
+
+def lexicon_map(conn=None):
+    """[{pattern, replacement, mode}] utk entri aktif -> dipakai voicebot.pron."""
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        rows = conn.execute(
+            "SELECT pattern, replacement, mode FROM vb_lexicon WHERE COALESCE(enabled,1)=1"
+        ).fetchall()
+        return [{"pattern": r["pattern"], "replacement": r["replacement"] or "",
+                 "mode": r["mode"]} for r in rows]
+    finally:
+        if own:
+            conn.close()
+
+
+# ------------------------------------------------------------------ turns/log
+def log_turn(rec, conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        conn.execute(
+            "INSERT INTO vb_turns(session_id,id_trace,user_text,intent,confidence,"
+            "sumber,bot_text,handoff) VALUES (?,?,?,?,?,?,?,?)",
+            (
+                rec.get("session_id"),
+                rec.get("id_trace"),
+                rec.get("user_text"),
+                rec.get("intent"),
+                float(rec.get("confidence") or 0.0),
+                rec.get("sumber"),
+                rec.get("bot_text"),
+                1 if rec.get("handoff") else 0,
+            ),
+        )
+        conn.commit()
+    finally:
+        if own:
+            conn.close()
+
+
+def list_turns(limit=50, conn=None):
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        rows = conn.execute(
+            "SELECT * FROM vb_turns ORDER BY id DESC LIMIT ?", (int(limit),)
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        if own:
+            conn.close()
+
+
+# ------------------------------------------------------------------ seed
+_SEED_INTENTS = [
+    {
+        "name": "Cek Status NPWP",
+        "phrases": ["cek status npwp", "status npwp saya", "npwp saya aktif atau tidak",
+                    "mau tanya npwp", "cek npwp"],
+        "response": ("Untuk pengecekan status NPWP, mohon sebutkan nomor NPWP Anda, "
+                     "nanti saya bantu arahkan verifikasinya."),
+        "confirm_label": "apakah Kakak ingin cek status NPWP?",
+    },
+    {
+        "name": "Jam Operasional",
+        "phrases": ["jam buka", "jam operasional", "buka jam berapa", "kapan buka",
+                    "jam layanan"],
+        "response": ("Layanan kami buka Senin sampai Jumat, pukul 08.00 sampai 16.00 "
+                     "waktu setempat."),
+        "confirm_label": "apakah Kakak menanyakan jam operasional?",
+    },
+]
+
+_SEED_LEXICON = [
+    ("NPWP", "en pe we pe", "eja"),
+    ("NIK", "en i ka", "eja"),
+    ("EFIN", "efin", "baca"),
+    ("SPT", "es pe te", "eja"),
+    ("PPh", "pe pe ha", "eja"),
+    ("PPN", "pe pe en", "eja"),
+    ("DJP", "de je pe", "eja"),
+    ("KPP", "ka pe pe", "eja"),
+    ("KTP", "ka te pe", "eja"),
+    ("e-Filing", "i failing", "baca"),
+    ("e-Billing", "i biling", "baca"),
+    ("e-Faktur", "i faktur", "baca"),
+]
+
+
+def seed_intents(conn):
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM vb_intents").fetchone()[0] or 0
+    except Exception:
+        return
+    if n:
+        return
+    for it in _SEED_INTENTS:
+        try:
+            upsert_intent(it, conn=conn)
+        except Exception:
+            pass
+
+
+def seed_lexicon(conn):
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM vb_lexicon").fetchone()[0] or 0
+    except Exception:
+        return
+    if n:
+        return
+    for pat, rep, mode in _SEED_LEXICON:
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO vb_lexicon(pattern, replacement, mode, enabled) "
+                "VALUES (?,?,?,1)",
+                (pat, rep, mode),
+            )
+        except Exception:
+            pass
+    conn.commit()
