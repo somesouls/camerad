@@ -87,6 +87,43 @@ ASK_AGENTIC_SCOPES = {
         "item_type='pertanyaan') untuk menemukan pertanyaan berulang/tren. "
         "Jangan mengarang klaster di luar data yang ada."
     ),
+    "peraturan": (
+        "KONTEKS HALAMAN: 'Basis Data Peraturan' \u2014 basis data regulasi "
+        "pajak per unit (pasal/ayat/lampiran). Untuk RANGKUMAN/REKAP/CROSS-CHECK "
+        "berbasis SQL, UTAMAKAN database `peraturan` (tabel `peraturan_unit`; "
+        "kolom a.l. jenis_peraturan, nomor, tahun, judul, pasal, ayat, isi, "
+        "status['berlaku'/'dicabut'/'diubah'], topik; relasi antar-peraturan di "
+        "`peraturan_relasi`). Cocok untuk: rekap COUNT/GROUP BY "
+        "jenis_peraturan/tahun/status, cek pencabutan/perubahan via "
+        "`peraturan_relasi`, dan cross-check silang-tabel (mis. peraturan yang "
+        "belum tercakup di SOP -> bandingkan dengan database `sop`). Pencarian "
+        "isi/judul pakai LIKE (mis. judul LIKE '%PPN%'). CATATAN: pencarian "
+        "makna/kualitas jawaban regulasi ditangani mesin RAG, BUKAN jalur ini; "
+        "di sini andalkan filter SQL (LIKE/agregasi) dan akui bila cakupan teks "
+        "terbatas. Jangan SELECT tabel `peraturan_vec`/`peraturan_fts`. Jangan "
+        "mengarang nomor/pasal."
+    ),
+    "sop": (
+        "KONTEKS HALAMAN: 'SOP & Proses Bisnis'. Untuk RANGKUMAN/REKAP/CROSS-"
+        "CHECK berbasis SQL, UTAMAKAN database `sop` (tabel `sop_unit`; kolom "
+        "a.l. dokumen_id, judul, kategori['SOP'/'Proses Bisnis'/'Panduan'/"
+        "'Lainnya'], bagian, isi, status['aktif']). Cocok untuk: rekap "
+        "COUNT/GROUP BY kategori/dokumen_id, inventarisasi SOP aktif, dan "
+        "cross-check silang-tabel dengan database `peraturan` (mis. peraturan "
+        "yang belum punya SOP terkait). Pencarian pakai LIKE pada judul/isi. "
+        "CATATAN: pencarian makna/kualitas ditangani mesin RAG, BUKAN jalur ini. "
+        "Jangan SELECT tabel `sop_vec`/`sop_fts`. Jangan mengarang isi SOP di "
+        "luar data."
+    ),
+    "kamus": (
+        "KONTEKS HALAMAN: 'Kamus & Rewriting' \u2014 kamus sinonim/istilah pajak "
+        "untuk normalisasi query. UTAMAKAN database `kamus` (tabel "
+        "`kamus_sinonim`; kolom istilah, sinonim [JSON array], kategori, aktif). "
+        "Cocok untuk: rekap COUNT/GROUP BY kategori, mencari padanan/sinonim "
+        "istilah (LIKE pada kolom istilah; sinonim disimpan sebagai JSON array), "
+        "dan cek istilah aktif/nonaktif. CATATAN: gunakan untuk lookup/rekap, "
+        "bukan pencarian makna dokumen. Jangan mengarang istilah di luar data."
+    ),
 }
 
 
