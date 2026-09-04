@@ -30,11 +30,27 @@
       <label>Eja angka bila ≥ N digit<input id="cSpellMin" class="vb-inp" type="number" min="0"></label>
       <label>Mesin TTS<select id="cTtsEng" class="vb-inp"><option value="piper">Piper (ringan / cepat)</option><option value="mms">MMS-TTS Indonesia (natural)</option></select></label>
       <label>Model MMS-TTS<input id="cMms" class="vb-inp" placeholder="facebook/mms-tts-ind"></label>
+      <label>Model STT (faster-whisper)<input id="cSttModel" class="vb-inp" placeholder="large-v3 / medium / small"></label>
+      <label>Cache TTS (frasa berulang)<select id="cTtsCache" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
     </div>
     <p style="color:var(--text-muted);font-size:11.5px;margin:8px 0 0;">Mesin TTS: <b>Piper</b> paling ringan (butuh <code>VOICEBOT_PIPER_VOICE</code>). <b>MMS-TTS Indonesia</b> (<code>facebook/mms-tts-ind</code>, Meta) lebih natural &amp; native Bahasa Indonesia — perlu <code>pip install transformers torch</code> + unduh model sekali (≈145 MB), lalu jalan penuh lokal (GPU/CPU). Bila MMS gagal saat runtime dan Piper siap, sistem otomatis memakai Piper.</p>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;"><b>Model STT</b>: kosongkan untuk memakai default (ENV <code>AWE_STT_MODEL</code> lalu <code>large-v3</code>). Isi <code>medium</code> atau <code>small</code> untuk transkripsi lebih cepat (latency turun) dengan sedikit trade-off akurasi. <b>Cache TTS</b>: simpan hasil suara frasa berulang (salam, konfirmasi, penjaga diam, filler) di memori supaya tak disintesis ulang — hemat ~3 detik pada giliran berikutnya. Berubah otomatis dikosongkan saat konfigurasi disimpan.</p>
     <label style="display:block;margin-top:10px;">System prompt LLM<textarea id="cSys" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
     <label style="display:block;margin-top:10px;">Balasan fallback default<input id="cFb" class="vb-inp" style="width:100%;"></label>
     <div style="margin-top:12px;"><button id="btnSaveCfg" class="vb-btnp">Simpan konfigurasi</button> <span id="cfgMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
+  </section>
+
+  <section class="vb-pnl" style="margin-top:22px;">
+    <h2 class="vb-ph">💾 Backup / Restore konfigurasi</h2>
+    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
+      Unduh <b>cadangan</b> seluruh konfigurasi (setelan mesin, intent + training phrase, dan kamus pelafalan) sebagai satu berkas JSON, lalu <b>pulihkan</b> kapan saja bila konfigurasi tak sengaja ter-reset. Mode <b>Gabung</b> menimpa/menambah tanpa menghapus data lain; mode <b>Ganti total</b> mengosongkan seluruh intent &amp; kamus dulu sebelum mengisi ulang dari berkas.
+    </p>
+    <div style="margin-bottom:12px;"><button id="btnCfgExport" class="vb-btns">⬇️ Unduh cadangan (JSON)</button></div>
+    <div class="vb-grid2">
+      <label>Berkas cadangan (.json)<input id="cfgImpFile" class="vb-inp" type="file" accept="application/json,.json"></label>
+      <label>Mode impor<select id="cfgImpMode" class="vb-inp"><option value="merge">Gabung (timpa + tambah)</option><option value="replace">Ganti total (kosongkan dulu)</option></select></label>
+    </div>
+    <div style="margin-top:12px;"><button id="btnCfgImport" class="vb-btnp">⬆️ Pulihkan dari berkas</button> <span id="impMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
   </section>
 
   <section class="vb-pnl" style="margin-top:22px;">
@@ -238,6 +254,7 @@
       $('cMaxFb').value=s.handoff_max_fallback||'2'; $('cHo').value=s.handoff_triggers||'';
       $('cPron').value=String(s.pron_enabled||'1'); $('cSpellMin').value=s.pron_spell_digits_min||'7';
       $('cTtsEng').value=String(s.tts_engine||'piper'); $('cMms').value=s.mms_model||'facebook/mms-tts-ind';
+      $('cSttModel').value=s.stt_model||''; $('cTtsCache').value=String(s.tts_cache_enabled||'1');
       $('cSys').value=s.llm_system||''; $('cFb').value=s.fallback_reply||'';
       $('p5SttEn').value=String(s.stt_bias_enabled||'1'); $('p5MaxT').value=s.stt_bias_max_terms||'64';
       $('p5FromLex').value=String(s.stt_bias_from_lexicon||'1'); $('p5FromInt').value=String(s.stt_bias_from_intents||'1');
@@ -291,8 +308,31 @@
       tts_enabled:$('cTts').value,handoff_max_fallback:$('cMaxFb').value,handoff_triggers:$('cHo').value,
       pron_enabled:$('cPron').value,pron_spell_digits_min:$('cSpellMin').value,
       tts_engine:$('cTtsEng').value,mms_model:$('cMms').value,
+      stt_model:$('cSttModel').value,tts_cache_enabled:$('cTtsCache').value,
       llm_system:$('cSys').value,fallback_reply:$('cFb').value
     }).then(function(d){$('cfgMsg').textContent=d.ok?'Tersimpan.':(d.error||'Gagal.');loadCfg();});
+  };
+
+  $('btnCfgExport').onclick=function(){ window.location.href='/api/voicebot/config/export'; };
+  $('btnCfgImport').onclick=function(){
+    var f=$('cfgImpFile').files&&$('cfgImpFile').files[0];
+    if(!f){$('impMsg').textContent='Pilih berkas cadangan .json dulu.';return;}
+    var mode=$('cfgImpMode').value;
+    if(mode==='replace'&&!confirm('Mode Ganti total akan MENGHAPUS semua intent & kamus lalu menggantinya dari berkas. Lanjutkan?'))return;
+    $('impMsg').textContent='Membaca berkas…';
+    var rd=new FileReader();
+    rd.onload=function(){
+      var data;
+      try{data=JSON.parse(rd.result);}catch(e){$('impMsg').textContent='Berkas bukan JSON valid.';return;}
+      $('impMsg').textContent='Memulihkan…';
+      post('/api/voicebot/config/import',{data:data,mode:mode}).then(function(d){
+        if(!d.ok){$('impMsg').textContent=d.error||'Gagal.';return;}
+        $('impMsg').textContent='Selesai: '+(d.settings||0)+' setelan, '+(d.intents||0)+' intent, '+(d.lexicon||0)+' istilah dipulihkan.';
+        loadCfg();loadInt();loadKpi();loadLex();
+      });
+    };
+    rd.onerror=function(){$('impMsg').textContent='Gagal membaca berkas.';};
+    rd.readAsText(f);
   };
 
   $('btnSaveP5').onclick=function(){
