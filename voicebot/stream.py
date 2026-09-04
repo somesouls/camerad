@@ -129,6 +129,17 @@ Server -> klien:
    transkrip belum tersedia saat penyambung diputar, frasa sengaja NETRAL (empati
    untuk keluhan tetap muncul di isi jawaban). Default MATI -> perilaku lama.
 
+10) BARGE-IN KONFIRMASI-STT (#3b, OPSIONAL, perbaikan 4 Sep) + SALAM PENUTUP
+   TUNTAS. Bila setting `stream_bargein_confirm_stt` aktif (default MATI), energi
+   bicara TIDAK langsung memotong bot: bot terus bicara (ducked) dan ucapan
+   penyela DIREKAM, lalu pemotongan hanya dilakukan SETELAH STT MENGONFIRMASI ada
+   transkrip asli (di processor). Efeknya noise/gema/ketikan/blip yang tak jadi
+   transkrip TAK PERNAH menghentikan bot di tengah kalimat. Selain itu (selalu
+   aktif), saat sesi ditutup (salam penutup #4) server kini MENUNGGU audio penutup
+   selesai diputar klien sebelum menutup koneksi, supaya kalimat penutup tidak
+   terpotong (hangup terlalu cepat). Default MATI -> perilaku barge-in lama
+   (potong berbasis energi berkelanjutan >= bargein_min_ms).
+
 PENJAGA DIAM #3 & SALAM PENUTUP #4: tak berubah perilakunya.
 
 SEMUA TUNING DAPAT DIATUR DARI UI (/voicebot, panel \"Streaming (Mode B) & barge-in\";
@@ -145,6 +156,7 @@ tersedia tombol \"Reset ke rekomendasi\"). Kunci config -> (ENV lama, default):
   tts_stream_min_chars(80; jawaban lebih pendek dari ini dikirim utuh)
   stream_connector_enabled(0; #3a penyambung instan diputar selagi memproses)
   stream_connector_texts(frasa penyambung netral, dipisah '|', dirotasi)
+  stream_bargein_confirm_stt(0; #3b energi tak langsung memotong -> tunggu konfirmasi STT)
 Perubahan berlaku untuk sesi streaming BERIKUTNYA (buka ulang percakapan Mode B).
 """
 from __future__ import annotations
@@ -167,7 +179,7 @@ from voicebot import config_db as cfg
 
 
 # Versi kode; dicatat di log tiap sesi dibuka supaya PASTI kode terbaru yang jalan.
-STREAM_VERSION = "2026-09-04c (penyambung instan #3a opsional + streaming TTS per-kalimat #3.1 + anti tumpang tindih #8)"
+STREAM_VERSION = "2026-09-04d (#3b barge-in konfirmasi-STT opsional + tunggu salam penutup selesai + penyambung instan #3a + streaming TTS per-kalimat #3.1 + anti tumpang tindih #8)"
 
 SAMPLE_RATE = 16000
 FRAME_MS = 30
@@ -273,6 +285,7 @@ def _stream_tuning(settings):
         "vad_aggr": aggr,
         "bargein": _cfg_bool(s, "stream_bargein", "VOICEBOT_STREAM_BARGEIN", True),
         "bargein_min_ms": _cfg_num(s, "stream_bargein_min_ms", "VOICEBOT_STREAM_BARGEIN_MIN_MS", 500, _to_int),
+        "bargein_confirm_stt": _cfg_bool(s, "stream_bargein_confirm_stt", "VOICEBOT_STREAM_BARGEIN_CONFIRM_STT", False),
         "speaking_rms": _cfg_num(s, "stream_speaking_rms", "VOICEBOT_STREAM_SPEAKING_RMS", 900, _to_int),
         "gate_rms": _cfg_num(s, "stream_gate_rms", "VOICEBOT_STREAM_GATE_RMS", 0.012, _to_float),
         "gate_hangover_ms": _cfg_num(s, "stream_gate_hangover_ms", "VOICEBOT_STREAM_GATE_HANGOVER_MS", 600, _to_int),
@@ -607,6 +620,7 @@ async def handle(websocket: WebSocket):
     ducking = tuning["ducking"]
     speaking_rms = tuning["speaking_rms"]
     bargein_min_ms = tuning["bargein_min_ms"]
+    bargein_confirm_stt = tuning["bargein_confirm_stt"]
     debug = tuning["debug"]
 
     idle_enabled = tuning["idle_enabled"]
@@ -631,6 +645,8 @@ async def handle(websocket: WebSocket):
             tuning["autocalibrate"], tuning["calib_ms"], tuning["mic_hangover_ms"]))
     if connector_enabled:
         _log("#3a penyambung instan AKTIF: %d frasa (dirotasi)." % len(connector_texts))
+    if bargein_confirm_stt:
+        _log("#3b barge-in KONFIRMASI-STT AKTIF: energi tak langsung memotong; tunggu transkrip STT sebelum memotong audio bot.")
 
     try:
         await websocket.send_text(json.dumps({
@@ -782,14 +798,25 @@ async def handle(websocket: WebSocket):
                             if ducking:
                                 await _safe_send_text({"type": "speech_cancel"})
                         if ep.triggered and ep.active_speech_ms >= bargein_min_ms:
-                            state["interrupt"] = True
-                            state["candidate"] = False
-                            state["capture"] = True  # #5c: rekam terus ucapan penyela
-                            _log("BARGE-IN dikonfirmasi: bicara %dms (>=%dms) berkelanjutan di atas ambang (frame terakhir rms~%.0f) -> POTONG audio bot; ucapan penyela direkam & akan diproses."
-                                 % (ep.active_speech_ms, bargein_min_ms, cur_rms))
-                            await _safe_send_text({"type": "speech_start",
-                                                   "rms": round(cur_rms),
-                                                   "speaking_rms": speaking_rms})
+                            if bargein_confirm_stt:
+                                # #3b: JANGAN potong berbasis energi. Bot terus bicara
+                                # (tetap ducked) & ucapan penyela DIREKAM; pemotongan
+                                # audio bot menunggu KONFIRMASI STT (ada transkrip asli)
+                                # yang dilakukan di processor(). Ini mencegah noise/gema
+                                # menghentikan bot di tengah kalimat.
+                                if not state["capture"]:
+                                    _log("#3b kandidat barge-in %dms (>=%dms) -> REKAM & tunggu konfirmasi STT (bot lanjut, ducked)."
+                                         % (ep.active_speech_ms, bargein_min_ms))
+                                state["capture"] = True
+                            else:
+                                state["interrupt"] = True
+                                state["candidate"] = False
+                                state["capture"] = True  # #5c: rekam terus ucapan penyela
+                                _log("BARGE-IN dikonfirmasi: bicara %dms (>=%dms) berkelanjutan di atas ambang (frame terakhir rms~%.0f) -> POTONG audio bot; ucapan penyela direkam & akan diproses."
+                                     % (ep.active_speech_ms, bargein_min_ms, cur_rms))
+                                await _safe_send_text({"type": "speech_start",
+                                                       "rms": round(cur_rms),
+                                                       "speaking_rms": speaking_rms})
                     continue
                 txt = msg.get("text")
                 if txt:
@@ -1038,6 +1065,15 @@ async def handle(websocket: WebSocket):
                     await _safe_send_text({"type": "no_speech",
                                            "reason": "STT tidak mendengar ucapan"})
                     continue
+                # #3b: transkrip ASLI terkonfirmasi. Bila mode konfirmasi-STT aktif
+                # dan bot MASIH bicara (energi belum memotong), POTONG sekarang --
+                # kita yakin ini ucapan asli (ada transkrip), bukan noise/gema.
+                if bargein_confirm_stt and _is_talking() and not state["closed"]:
+                    state["interrupt"] = True
+                    _log("#3b barge-in TERKONFIRMASI STT -> potong audio bot sebelum menjawab.")
+                    await _safe_send_text({"type": "interrupted",
+                                           "reason": "barge-in terkonfirmasi STT"})
+                    await asyncio.sleep(0.05)
                 await _safe_send_text({"type": "transcript",
                                        "text": res.get("transkrip") or ""})
                 await _safe_send_text({
@@ -1086,7 +1122,15 @@ async def handle(websocket: WebSocket):
                             "tts_error": res.get("tts_error"),
                         })
                 if res.get("action") == "end" and not state["closed"]:
-                    _log("action=end (salam penutup #4) -> tutup sesi setelah audio.")
+                    # #3b: tunggu salam penutup SELESAI diputar klien sebelum menutup
+                    # koneksi, supaya kalimat penutup tidak terpotong (hangup terlalu
+                    # cepat). Ada timeout pengaman + jeda kecil sesudahnya.
+                    _wend = time.time()
+                    while (not state["closed"] and _is_talking()
+                           and (time.time() - _wend) < PLAYBACK_WAIT_MAX_SEC):
+                        await asyncio.sleep(0.05)
+                    await asyncio.sleep(0.3)
+                    _log("action=end (salam penutup #4) -> tutup sesi setelah audio selesai diputar.")
                     state["closed"] = True
                     try:
                         await queue.put(None)
