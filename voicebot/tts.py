@@ -8,6 +8,14 @@ Dua mesin, dipilih lewat setting `tts_engine`:
              sekali dari HuggingFace (~145 MB), setelah itu jalan penuh lokal;
              bisa GPU (RTX 5060 Ti) atau CPU.
 
+CACHE SINTESIS (latency): synth() menyimpan hasil WAV di memori proses dengan
+kunci (mesin + suara/model + teks tersanitasi). Frasa yang SERING BERULANG --
+salam pembuka, kalimat konfirmasi, sapaan penjaga diam, filler -- tak perlu
+disintesis ulang sehingga giliran berikutnya tidak menanggung ~3 dtk TTS.
+Dikontrol setting `tts_cache_enabled` (default '1') & `tts_cache_max` (default
+64 entri, LRU). Hanya hasil SUKSES yang disimpan. clear_cache() dipanggil saat
+konfigurasi/suara berubah. Semua fail-soft.
+
 KEANDALAN SUARA (penting): synth() dirancang supaya suara SELALU diusahakan keluar.
   - Piper gagal transien (subprocess/output kosong) -> otomatis DICOBA ULANG 1x
     dengan MESIN YANG SAMA (tidak mengganti suara).
@@ -65,6 +73,7 @@ import shutil
 import struct
 import subprocess
 import tempfile
+from collections import OrderedDict
 
 
 def _log(msg):
@@ -136,6 +145,76 @@ def _mms_deps_present():
         return False
 
 
+# ------------------------------------------------------------------ cache
+# Cache hasil sintesis di memori proses. Kunci = mesin + identitas suara/model +
+# teks TERSANITASI. Frasa berulang (salam/konfirmasi/penjaga diam/filler) tak
+# perlu disintesis ulang -> hemat ~3 dtk per giliran. LRU sederhana, hanya hasil
+# sukses yang disimpan. Semua fail-soft.
+_SYNTH_CACHE = OrderedDict()
+
+
+def _cache_enabled():
+    off = ("0", "false", "False", "no", "NO", "")
+    try:
+        from voicebot import config_db as _cfg
+        return str(_cfg.get_setting("tts_cache_enabled", "1")) not in off
+    except Exception:
+        return True
+
+
+def _cache_max():
+    try:
+        from voicebot import config_db as _cfg
+        n = int(_cfg.get_setting("tts_cache_max", "64") or 64)
+        return n if n > 0 else 64
+    except Exception:
+        return 64
+
+
+def _cache_identity():
+    """Identitas mesin utk kunci cache (suara Piper / model MMS)."""
+    if _engine() == "mms":
+        return "mms:" + _mms_model_id()
+    return "piper:" + (_voice() or "")
+
+
+def _cache_get(text):
+    if not _cache_enabled():
+        return None
+    try:
+        key = _engine() + "|" + _cache_identity() + "|" + text
+        wav = _SYNTH_CACHE.get(key)
+        if wav is not None:
+            _SYNTH_CACHE.move_to_end(key)
+            _log("cache HIT (%d frasa tersimpan, %d byte)."
+                 % (len(_SYNTH_CACHE), len(wav)))
+        return wav
+    except Exception:
+        return None
+
+
+def _cache_put(text, wav):
+    if not wav or not _cache_enabled():
+        return
+    try:
+        key = _engine() + "|" + _cache_identity() + "|" + text
+        _SYNTH_CACHE[key] = wav
+        _SYNTH_CACHE.move_to_end(key)
+        while len(_SYNTH_CACHE) > _cache_max():
+            _SYNTH_CACHE.popitem(last=False)
+    except Exception:
+        pass
+
+
+def clear_cache():
+    """Kosongkan cache TTS (mis. saat suara/model/konfigurasi berubah). Fail-soft."""
+    try:
+        _SYNTH_CACHE.clear()
+        _log("cache dikosongkan.")
+    except Exception:
+        pass
+
+
 # ------------------------------------------------------------------ ketersediaan
 def piper_available():
     if not _voice():
@@ -162,6 +241,8 @@ def diagnostics():
         "engine": eng,
         "ready": available(),
         "cross_fallback": _cross_fallback_on(),
+        "cache_enabled": _cache_enabled(),
+        "cache_size": len(_SYNTH_CACHE),
         # Piper
         "bin": _bin(),
         "bin_resolved": _resolve_bin(),
@@ -508,7 +589,8 @@ def synth(text):
     Mesin ditentukan setting `tts_engine`. Cadangan lintas-mesin (piper<->mms)
     HANYA dipakai bila setting `tts_cross_fallback` aktif (default mati) -- jadi
     secara default suara memakai mesin terpilih saja (tak berganti-ganti).
-    Semua kegagalan dicatat ke log server.
+    Hasil sukses di-cache (lihat _cache_*) supaya frasa berulang tak disintesis
+    ulang. Semua kegagalan dicatat ke log server.
     """
     text = (text or "").strip()
     if not text:
@@ -520,17 +602,24 @@ def synth(text):
     if not text:
         return None, "teks kosong setelah sanitasi"
 
+    # cache: frasa berulang (salam/konfirmasi/penjaga diam/filler) langsung pakai.
+    cached = _cache_get(text)
+    if cached is not None:
+        return cached, None
+
     cross = _cross_fallback_on()
 
     if _engine() == "mms":
         data, err = _synth_mms(text)
         if data:
+            _cache_put(text, data)
             return data, None
         if cross and piper_available():
             _log("MMS gagal (%s); cadangan lintas-mesin AKTIF -> memakai Piper." % err)
             data2, err2 = _synth_piper(text)
             if data2:
                 _log("Piper (cadangan) sukses menghasilkan audio.")
+                _cache_put(text, data2)
                 return data2, None
             return None, "MMS gagal: %s | Piper gagal: %s" % (err, err2)
         _log("MMS gagal (cadangan lintas-mesin mati): %s" % err)
@@ -539,12 +628,14 @@ def synth(text):
     # engine 'piper' (default)
     data, err = _synth_piper(text)
     if data:
+        _cache_put(text, data)
         return data, None
     if cross and mms_available():
         _log("Piper gagal (%s); cadangan lintas-mesin AKTIF -> mencoba MMS." % err)
         data2, err2 = _synth_mms(text)
         if data2:
             _log("MMS (cadangan) sukses menghasilkan audio.")
+            _cache_put(text, data2)
             return data2, None
         return None, "Piper gagal: %s | MMS gagal: %s" % (err, err2)
     _log("Piper gagal (cadangan lintas-mesin mati): %s" % err)
