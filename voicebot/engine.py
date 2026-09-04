@@ -49,6 +49,14 @@ Peringkas jawaban intent (2b): bila 'intent_shorten_enabled', jawaban match-inte
 dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara (cache + fail-soft;
 fakta/angka dijaga). Jalur RAG memang sudah ringkas by design.
 
+JARING PENGAMAN PENANDA 'spoken-first' (#3b): respons intent format baru memakai
+penanda [INTI]/[TANYA]/[CABANG: ..]/[ESKALASI]/[TAUTAN] yang HANYA untuk menyusun
+jawaban, bukan untuk dibacakan. Sebelum TTS, engine SELALU membersihkan penanda ini
+lewat _clean_spoken() (apa pun jalurnya: shorten/guided/RAG/konfirmasi), jadi walau
+LLM peringkas mati/gagal, penanda tak pernah ikut terucap. Respons berpenanda juga
+tidak dipecah guided deterministik (butuh pemilihan cabang oleh LLM) -> diserahkan
+ke jalur peringkas yang promptnya memang menangani [TANYA]/[CABANG].
+
 Sentimen & valensi (Poin 3.3, OPSIONAL): bila 'sentiment_enabled' aktif, transkrip
 dianalisis ringan (voicebot.sentiment) untuk menyesuaikan CARA menjawab: saat
 penelepon terdengar frustrasi, jawaban biasa diawali pengakuan empatik singkat dan
@@ -71,6 +79,7 @@ berat di-impor LAZY + fail-soft. Reuse: voicebot.stt (faster-whisper),
 voicebot.rag (RAG bersumber tunggal intent+training phrase), common.llm_client
 (cadangan), handoff.routing_db (perutean layanan).
 """
+import re
 import time
 import uuid
 import base64
@@ -90,6 +99,48 @@ _SESSIONS = {}
 
 def _now_iso():
     return _dt.datetime.now().isoformat(timespec="seconds")
+
+
+# --- pembersih penanda format 'spoken-first' (#3b) ---------------------------
+# Respons intent format baru memakai penanda [INTI]/[TANYA]/[CABANG: ..]/
+# [ESKALASI]/[TAUTAN]. Penanda ini untuk MENYUSUN jawaban, TIDAK boleh ikut
+# TERUCAP. _clean_spoken() membuang semua penanda + seluruh baris [TAUTAN] (URL
+# untuk layar) sebagai jaring pengaman di HILIR (apa pun jalurnya:
+# shorten/guided/RAG/konfirmasi), jadi walau LLM peringkas mati/gagal, penanda
+# tetap tak pernah dibacakan. _has_markers() dipakai agar respons berformat ini
+# TIDAK dipecah guided deterministik (butuh pemilihan cabang oleh LLM).
+_MARK_TAUTAN_LINE = re.compile(r"(?im)^[ \t]*\[TAUTAN\][^\n]*$")
+_MARK_CABANG = re.compile(r"(?i)\[CABANG:[^\]]*\]")
+_MARK_TAG = re.compile(r"(?i)\[(?:INTI|TANYA|ESKALASI|TAUTAN)\]")
+
+
+def _has_markers(text):
+    """True bila teks memakai penanda format 'spoken-first'."""
+    try:
+        t = (text or "").upper()
+        return ("[INTI]" in t or "[TANYA]" in t or "[CABANG" in t
+                or "[ESKALASI]" in t or "[TAUTAN]" in t)
+    except Exception:
+        return False
+
+
+def _clean_spoken(text):
+    """Buang penanda [INTI]/[TANYA]/[CABANG:..]/[ESKALASI] & seluruh baris
+    [TAUTAN] supaya tak pernah ikut terucap. No-op untuk teks tanpa penanda;
+    fail-soft (kembalikan input apa adanya bila error / hasil jadi kosong)."""
+    try:
+        t = text or ""
+        if "[" not in t:
+            return text
+        t = _MARK_TAUTAN_LINE.sub("", t)
+        t = _MARK_CABANG.sub(" ", t)
+        t = _MARK_TAG.sub(" ", t)
+        t = re.sub(r"[ \t]+", " ", t)
+        t = re.sub(r"\n{3,}", "\n\n", t)
+        t = "\n".join(ln.strip() for ln in t.split("\n"))
+        return t.strip() or text
+    except Exception:
+        return text
 
 
 def create_session():
@@ -199,6 +250,12 @@ def _start_guided(intent, raw, score, sess, settings):
     (kalimat_langkah_pertama, True). Bila hanya 1 langkah: kembalikan ('', False)
     -> pemanggil memakai jalur jawaban ringkas biasa.
     """
+    # Respons berformat 'spoken-first' (penanda [CABANG]/[TANYA]/[INTI]) butuh
+    # PEMILIHAN CABANG oleh LLM -> jangan dipecah guided deterministik (akan
+    # mencampur semua cabang jadi tak nyambung). Serahkan ke jalur peringkas
+    # (shorten) yang promptnya memang menangani [TANYA]/[CABANG].
+    if _has_markers(raw):
+        return "", False
     steps = _seg_steps(raw, settings)
     if len(steps) < vb_dialog.guided_min_steps(settings):
         return "", False
@@ -757,6 +814,12 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
         low = jawaban.lower()
         if pref and not (low.startswith("mohon maaf") or low.startswith("maaf")):
             jawaban = (pref + " " + jawaban).strip()
+
+    # JARING PENGAMAN #3b: buang penanda 'spoken-first' ([INTI]/[TANYA]/[CABANG]/
+    # [ESKALASI]/[TAUTAN]) agar TIDAK pernah ikut terucap, apa pun jalur di atas.
+    # No-op untuk jawaban tanpa penanda; fail-soft.
+    if jawaban:
+        jawaban = _clean_spoken(jawaban)
 
     # simpan jawaban substantif utk perintah \"ulangi\"
     if sumber in ("nlu", "rag", "llm", "dialog") and jawaban and action not in ("confirm",):
