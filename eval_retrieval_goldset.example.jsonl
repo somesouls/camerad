@@ -1,0 +1,7 @@
+{"_comment": "TEMPLATE gold set retrieval. Salin ke eval_retrieval_goldset.jsonl lalu isi dengan pertanyaan NYATA dari livechat + pasal jawabannya. Nilai jenis/nomor/pasal di bawah HANYA CONTOH - ganti dengan nilai PERSIS seperti di DB (cek menu admin peraturan atau peraturan_db.peraturan_tersusun). Baris _comment ini dilewati otomatis."}
+{"pertanyaan": "npwp ku ilang gmn cara urusnya", "gold": [{"jenis": "PER", "nomor": "PER-04/PJ/2020", "pasal": "10"}]}
+{"pertanyaan": "batas lapor spt tahunan orang pribadi kapan sih", "gold": [{"jenis": "UU", "nomor": "6 TAHUN 1983", "pasal": "3"}]}
+{"pertanyaan": "tarif pph final umkm brp persen skrng", "gold": [{"jenis": "PP", "nomor": "55 TAHUN 2022", "pasal": "5"}]}
+{"pertanyaan": "cara daftar npwp online lewat coretax", "gold": [{"jenis": "PER", "nomor": "PER-04/PJ/2020"}]}
+{"pertanyaan": "ppn skrng brp persen 2025", "gold": [{"jenis": "UU", "nomor": "7 TAHUN 2021", "pasal": "7"}]}
+{"pertanyaan": "gmn cara ngajuin keberatan pajak", "gold_ids": ["CONTOH__ganti-dengan-id-unit-asli"]}
