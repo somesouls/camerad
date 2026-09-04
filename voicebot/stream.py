@@ -105,6 +105,17 @@ Server -> klien:
       selesai (butuh 'barge-in via mic' aktif). Sesudah giliran pertama, perilaku
       penjaga-gema saat bot bicara kembali ketat seperti biasa.
 
+8) STREAMING TTS PER-KALIMAT (#3.1, OPSIONAL, perbaikan 4 Sep). Bila setting
+   `tts_stream_sentences` aktif (default MATI), jawaban dibacakan PER-KALIMAT:
+   engine TIDAK menyintesis audio penuh, melainkan stream.py menyintesis tiap
+   kalimat lalu mengirimnya lewat send_audio (yang sudah menjaga urutan &
+   menunggu pemutaran sebelumnya via audio_lock). Kalimat berikutnya disintesis
+   SELAGI kalimat sebelumnya diputar klien sehingga suara pertama terdengar jauh
+   lebih cepat (TTFA turun). Tak perlu perubahan klien -- klien sudah menangani
+   beberapa siklus audio_begin/audio_end (seperti salam + jawaban). Saat penelepon
+   menyela, sisa kalimat dibatalkan (send_audio mengembalikan False). Default MATI
+   -> perilaku lama utuh (engine menyintesis penuh, dikirim sekali).
+
 PENJAGA DIAM #3 & SALAM PENUTUP #4: tak berubah perilakunya.
 
 SEMUA TUNING DAPAT DIATUR DARI UI (/voicebot, panel \"Streaming (Mode B) & barge-in\";
@@ -117,6 +128,8 @@ tersedia tombol \"Reset ke rekomendasi\"). Kunci config -> (ENV lama, default):
   stream_autocalibrate(1) stream_calib_ms(1200) stream_mic_hangover_ms(250)
   stream_idle_enabled(1) stream_idle_prompt_ms(8000) stream_idle_end_ms(10000)
   stream_debug(0; set 1 utk telemetri diagnosa ~1x/detik)
+  tts_stream_sentences(0; #3.1 jawaban dibacakan per-kalimat -> TTFA lebih cepat)
+  tts_stream_min_chars(80; jawaban lebih pendek dari ini dikirim utuh)
 Perubahan berlaku untuk sesi streaming BERIKUTNYA (buka ulang percakapan Mode B).
 """
 from __future__ import annotations
@@ -139,7 +152,7 @@ from voicebot import config_db as cfg
 
 
 # Versi kode; dicatat di log tiap sesi dibuka supaya PASTI kode terbaru yang jalan.
-STREAM_VERSION = "2026-09-04a (anti tumpang tindih #8 + tangkap ucapan pertama saat salam)"
+STREAM_VERSION = "2026-09-04b (streaming TTS per-kalimat #3.1 opsional + anti tumpang tindih #8)"
 
 SAMPLE_RATE = 16000
 FRAME_MS = 30
@@ -792,10 +805,15 @@ async def handle(websocket: WebSocket):
             await queue.put(None)
 
     async def send_audio(b64, greeting_flag=False):
+        """Kirim satu potongan audio WAV (base64) ke klien. Kembalikan True bila
+        SELESAI normal (audio_end terkirim); False bila disela (barge-in), sesi
+        tertutup, atau gagal. Nilai kembalian dipakai speak_streaming (#3.1) untuk
+        menghentikan sisa kalimat saat penelepon menyela.
+        """
         try:
             raw = base64.b64decode(b64)
         except Exception:
-            return
+            return False
         # #8: satu aliran audio pada satu waktu + tunggu pemutaran sebelumnya selesai.
         async with audio_lock:
             # Tunggu klien selesai memutar audio sebelumnya (salam / jawaban lalu)
@@ -808,12 +826,12 @@ async def handle(websocket: WebSocket):
                        and (time.time() - _wstart) < PLAYBACK_WAIT_MAX_SEC):
                     await asyncio.sleep(0.05)
             if state["closed"]:
-                return
+                return False
             begin = {"type": "audio_begin", "mime": "audio/wav"}
             if greeting_flag:
                 begin["greeting"] = True
             if not await _safe_send_text(begin):
-                return
+                return False
             state["speaking"] = True
             state["interrupt"] = False
             state["candidate"] = False
@@ -845,8 +863,11 @@ async def handle(websocket: WebSocket):
                                        "rms": round(state.get("last_rms", 0.0)),
                                        "speaking_rms": speaking_rms})
                 state["interrupt"] = False
-            elif not state["closed"]:
-                await _safe_send_text({"type": "audio_end"})
+                return False
+            if state["closed"]:
+                return False
+            await _safe_send_text({"type": "audio_end"})
+            return True
 
     async def speak_text(text):
         if not text or state["closed"] or not state["want_audio"]:
@@ -858,6 +879,47 @@ async def handle(websocket: WebSocket):
         if wav and not state["closed"]:
             b64 = base64.b64encode(wav).decode("ascii")
             await send_audio(b64)
+
+    async def speak_streaming(text):
+        """#3.1: sampaikan jawaban PER-KALIMAT supaya suara pertama terdengar lebih
+        cepat (TTFA). Tiap segmen disintesis lalu dikirim lewat send_audio yang
+        SUDAH menjaga urutan (audio_lock) & menunggu pemutaran sebelumnya selesai,
+        jadi tidak ada tumpang tindih; segmen berikutnya disintesis SELAGI segmen
+        sebelumnya diputar klien. Bila penelepon menyela (send_audio -> False),
+        sisa kalimat dibatalkan. Fail-soft; kembalikan True bila ada audio terkirim.
+        """
+        if not text or state["closed"] or not state["want_audio"]:
+            return False
+        try:
+            segs = vb_tts.split_for_stream(text)
+        except Exception:
+            segs = [text]
+        if not segs:
+            return False
+        any_audio = False
+        started = False
+        for seg in segs:
+            if state["closed"]:
+                break
+            if started and state["interrupt"]:
+                # penelepon sudah menyela di antara kalimat -> hentikan sisa.
+                break
+            try:
+                wav, _terr = await loop.run_in_executor(None, vb_tts.synth, seg)
+            except Exception:
+                wav = None
+            if not wav or state["closed"]:
+                continue
+            b64 = base64.b64encode(wav).decode("ascii")
+            if not started:
+                # jawaban BARU: bersihkan flag interrupt basi (#5d), spt jalur biasa.
+                state["interrupt"] = False
+            ok = await send_audio(b64)
+            started = True
+            any_audio = any_audio or bool(ok)
+            if not ok:
+                break
+        return any_audio
 
     async def greet():
         if not greeting:
@@ -884,10 +946,20 @@ async def handle(websocket: WebSocket):
                 t_utt = time.time()
                 _log("proses #%d: %d byte wav -> STT/NLU..." % (state["gen"], len(wav)))
                 await _safe_send_text({"type": "thinking"})
+                # #3.1: bila streaming per-kalimat aktif, JANGAN minta engine
+                # menyintesis audio penuh (hindari sintesis ganda) -- audio dibuat
+                # per kalimat di sini (speak_streaming). Bila mati, jalur lama utuh.
+                stream_tts = False
+                if state["want_audio"]:
+                    try:
+                        stream_tts = bool(vb_tts.stream_enabled())
+                    except Exception:
+                        stream_tts = False
+                talk_audio = state["want_audio"] and not stream_tts
                 try:
                     res = await loop.run_in_executor(
                         None, vb_engine.talk, session_id, None, wav, "stream.wav",
-                        state["want_audio"], False,
+                        talk_audio, False,
                     )
                 except Exception as e:  # noqa: BLE001
                     _log("proses #%d GAGAL: %s" % (state["gen"], e))
@@ -923,7 +995,21 @@ async def handle(websocket: WebSocket):
                 })
                 b64 = res.get("jawaban_audio_b64")
                 if state["want_audio"] and not state["closed"]:
-                    if b64:
+                    if stream_tts:
+                        # #3.1: bacakan jawaban PER-KALIMAT (audio dibuat di sini).
+                        jt = (res.get("jawaban_teks") or "").strip()
+                        did = False
+                        if jt:
+                            did = await speak_streaming(jt)
+                        if not did and not state["closed"]:
+                            reason = res.get("tts_error") or "TTS tidak menghasilkan audio"
+                            _log("no_audio (stream per-kalimat): %s" % reason)
+                            await _safe_send_text({
+                                "type": "no_audio",
+                                "reason": reason,
+                                "tts_error": res.get("tts_error"),
+                            })
+                    elif b64:
                         # #5d: jawaban BARU selalu dibacakan. Flag interrupt lama
                         # sudah selesai tugasnya (memotong audio sebelumnya) --
                         # jangan sampai flag basi membuat bot bisu.
