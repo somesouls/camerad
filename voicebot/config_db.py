@@ -199,6 +199,38 @@ DEFAULT_SETTINGS = {
     # di memori proses supaya tak disintesis ulang -> hemat ~3 dtk/giliran.
     "tts_cache_enabled": "1",
     "tts_cache_max": "64",
+    # --- resample OUTPUT TTS ke 8 kHz (Poin 2A, sisi keluaran) ---
+    # 0 = mati (audio keluar byte-identik dg sebelumnya). Mis. 8000 -> semua audio
+    # jawaban di-resample ke 8 kHz (kualitas kanal telepon/Avaya). Lihat voicebot.tts.
+    "tts_target_sample_rate": "0",
+    # --- band-limit 8 kHz INPUT STT (Poin 2A, sisi masukan) ---
+    # 1 = turunkan audio masuk ke 8 kHz (lalu naik lagi) sebelum STT untuk menguji
+    # ketahanan transkripsi pada kualitas telephony. Default 0 = mati.
+    "stt_telephony_band": "0",
+    # --- sentimen & valensi ringan (Poin 3.3) ---
+    # Bila aktif, transkrip dianalisis leksikon ringan (voicebot.sentiment) untuk
+    # menyesuaikan CARA menjawab: empati singkat + menawarkan agen lebih cepat saat
+    # penelepon terdengar FRUSTRASI. Default MATI -> tanpa efek apa pun.
+    #   sentiment_pos_words / sentiment_neg_words : PERLUAS (bukan ganti) leksikon
+    #     default, daftar kata dipisah koma.
+    #   sentiment_valence_cut     : ambang |valensi| utk melabeli neg/pos (0..1).
+    #   sentiment_frustrated_min  : kekuatan sinyal minimal agar 'neg' = FRUSTRASI.
+    #   sentiment_empathy_prefix  : kalimat empati yang diawalkan pada jawaban biasa.
+    #   sentiment_empathy_enabled : 1 = pakai prefix empati saat frustrasi.
+    #   sentiment_handoff_neg_streak : jumlah giliran frustrasi beruntun -> tawar agen.
+    "sentiment_enabled": "0",
+    "sentiment_pos_words": "",
+    "sentiment_neg_words": "",
+    "sentiment_valence_cut": "0.34",
+    "sentiment_frustrated_min": "1.5",
+    "sentiment_empathy_enabled": "1",
+    "sentiment_empathy_prefix": "Mohon maaf atas ketidaknyamanannya.",
+    "sentiment_handoff_neg_streak": "2",
+    # --- pra-hasil jawaban / pregen (Poin 3.2) ---
+    # Bila aktif, endpoint warmup menghangatkan cache shorten + TTS untuk frasa yang
+    # sering dipakai (salam/penutup/filler/konfirmasi/jawaban intent) supaya giliran
+    # awal tidak menanggung waktu shorten/TTS. Default MATI ('0').
+    "pregen_enabled": "0",
     # --- streaming Mode B & barge-in (#4b) \u2014 DAPAT DIATUR DARI UI KONFIGURASI ---
     # Semua ambang di bawah bisa diubah dari panel "Streaming (Mode B) & barge-in"
     # di halaman /voicebot tanpa menyentuh kode/ENV. Bila sebuah nilai dikosongkan,
