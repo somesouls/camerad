@@ -7,6 +7,11 @@ SQLite tunggal (env VOICEBOT_DB_FILE, default 'voicebot.db'). Tabel:
   vb_lexicon(id, pattern, replacement...) -- kamus pelafalan (dipakai TTS)
   vb_turns(...)                           -- log tiap giliran
 
+Backup/restore: export_config() mengembalikan snapshot lengkap (settings +
+intents + lexicon) yang JSON-able; import_config(data, mode) menerapkannya
+kembali (mode 'merge' menimpa+menambah, 'replace' mengosongkan intents & lexicon
+dulu). Berguna bila konfigurasi tak sengaja ter-reset -- cukup impor cadangan.
+
 Gagal-anggun: fungsi baca mengembalikan default bila DB bermasalah.
 """
 import os
@@ -19,6 +24,9 @@ DB_FILE = os.environ.get("VOICEBOT_DB_FILE") or "voicebot.db"
 DEFAULT_SETTINGS = {
     "threshold": "0.6",
     "stt_lang": "id",
+    # Ukuran model STT (faster-whisper). Kosong = pakai ENV AWE_STT_MODEL lalu
+    # default kode (large-v3). Isi 'medium' / 'small' untuk latency lebih rendah.
+    "stt_model": "",
     "stt_enabled": "1",
     "tts_enabled": "1",
     "llm_system": (
@@ -186,6 +194,11 @@ DEFAULT_SETTINGS = {
     # unduhan model sekali dari HuggingFace; setelah itu jalan penuh lokal.
     "tts_engine": "piper",
     "mms_model": "facebook/mms-tts-ind",
+    # --- cache TTS (latency) ---
+    # Simpan hasil sintesis frasa berulang (salam/konfirmasi/penjaga diam/filler)
+    # di memori proses supaya tak disintesis ulang -> hemat ~3 dtk/giliran.
+    "tts_cache_enabled": "1",
+    "tts_cache_max": "64",
     # --- streaming Mode B & barge-in (#4b) \u2014 DAPAT DIATUR DARI UI KONFIGURASI ---
     # Semua ambang di bawah bisa diubah dari panel "Streaming (Mode B) & barge-in"
     # di halaman /voicebot tanpa menyentuh kode/ENV. Bila sebuah nilai dikosongkan,
@@ -371,6 +384,104 @@ def set_settings(data, conn=None):
             n += 1
         conn.commit()
         return {"saved": n}
+    finally:
+        if own:
+            conn.close()
+
+
+# ------------------------------------------------------------------ backup/restore
+def export_config(conn=None):
+    """Snapshot lengkap konfigurasi (settings + intents + lexicon), JSON-able.
+
+    Dipakai fitur backup/restore. exported_at diisi waktu server (SQLite
+    datetime('now')). Semua nilai bertipe dasar sehingga aman di-json.dumps.
+    """
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        try:
+            ts = conn.execute("SELECT datetime('now')").fetchone()[0]
+        except Exception:
+            ts = None
+        settings = {}
+        for r in conn.execute("SELECT key, value FROM vb_settings").fetchall():
+            settings[r["key"]] = r["value"]
+        intents = []
+        for r in conn.execute(
+            "SELECT name, phrases, response, confirm_label, aktif "
+            "FROM vb_intents ORDER BY name"
+        ).fetchall():
+            d = dict(r)
+            d["phrases_list"] = _phr_list(d.get("phrases"))
+            intents.append(d)
+        lexicon = []
+        for r in conn.execute(
+            "SELECT pattern, replacement, mode, enabled, notes "
+            "FROM vb_lexicon ORDER BY pattern"
+        ).fetchall():
+            lexicon.append(dict(r))
+        return {
+            "type": "camerad-voicebot-config",
+            "version": 1,
+            "exported_at": ts,
+            "settings": settings,
+            "intents": intents,
+            "lexicon": lexicon,
+        }
+    finally:
+        if own:
+            conn.close()
+
+
+def import_config(data, mode="merge", conn=None):
+    """Terapkan snapshot export_config() kembali ke DB. Kembalikan jumlah entri.
+
+    mode:
+      'merge'   -> settings ditimpa/ditambah; intents & lexicon di-upsert
+                   (baris dengan nama/pattern sama diperbarui, sisanya ditambah).
+      'replace' -> intents & lexicon DIKOSONGKAN dulu lalu diisi dari data;
+                   settings tetap ditimpa/ditambah (tidak dihapus).
+    Fail-soft per entri (satu entri rusak tak menggagalkan seluruh impor).
+    """
+    if not isinstance(data, dict):
+        raise ValueError("data konfigurasi tidak valid (harus objek JSON).")
+    mode = (str(mode or "merge").strip().lower())
+    if mode not in ("merge", "replace"):
+        mode = "merge"
+    own = conn is None
+    conn = conn or init_db(connect())
+    try:
+        counts = {"settings": 0, "intents": 0, "lexicon": 0}
+        settings = data.get("settings") or {}
+        if isinstance(settings, dict) and settings:
+            set_settings(settings, conn=conn)
+            counts["settings"] = len(settings)
+        if mode == "replace":
+            try:
+                conn.execute("DELETE FROM vb_intents")
+                conn.execute("DELETE FROM vb_lexicon")
+                conn.commit()
+            except Exception:
+                pass
+        for it in (data.get("intents") or []):
+            try:
+                rec = dict(it)
+                rec["phrases"] = rec.get("phrases_list") or _phr_list(rec.get("phrases"))
+                rec.pop("phrases_list", None)
+                rec.pop("id", None)
+                upsert_intent(rec, conn=conn)
+                counts["intents"] += 1
+            except Exception:
+                pass
+        for lx in (data.get("lexicon") or []):
+            try:
+                rec = dict(lx)
+                rec.pop("id", None)
+                upsert_lexicon(rec, conn=conn)
+                counts["lexicon"] += 1
+            except Exception:
+                pass
+        return counts
     finally:
         if own:
             conn.close()
