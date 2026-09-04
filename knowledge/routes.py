@@ -17,6 +17,7 @@ from knowledge import glossary_db as gdb
 from knowledge import disambig_db as ddb
 from knowledge import intentmap_db as imdb
 from knowledge import ctx as kctx
+from knowledge import agentic as agentic
 import common.llm_client as llm_client
 import common.pii_mask as pii_mask
 
@@ -214,6 +215,36 @@ async def api_ask(request: Request):
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
+
+async def api_ask_agentic(request: Request):
+    """Tanya AI 'agentic' (Fase 2): loop read-only lintas database via registry.
+
+    Body: {question, lang?, max_iters?}. Non-breaking: endpoint terpisah;
+    /api/ask dan /api/ask-data tidak terpengaruh.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    question = (body.get("question") or "").strip()
+    lang = body.get("lang") or None
+    if not question:
+        return JSONResponse({"ok": False, "error": "question kosong."})
+    try:
+        max_iters = int(body.get("max_iters") or agentic.MAX_ITERS)
+    except Exception:
+        max_iters = agentic.MAX_ITERS
+    max_iters = max(1, min(max_iters, agentic.MAX_ITERS))
+    try:
+        return JSONResponse(await run_in_threadpool(
+            agentic.answer_agentic, question, lang, max_iters))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 def register(app):
     app.add_api_route("/api/ask-data", api_ask_data, methods=["POST"])
     app.add_api_route("/api/ask", api_ask, methods=["POST"])
+    app.add_api_route("/api/ask-agentic", api_ask_agentic, methods=["POST"])
