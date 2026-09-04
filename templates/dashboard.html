@@ -236,23 +236,7 @@ a:hover { text-decoration: underline; }
     <p>Pantau performa intent, fallback, dan tren percakapan harian.</p>
   </div>
 
-  <div class="ai">
-    <div class="ai-header">
-      <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 2v4M9 12h.01M15 12h.01"/></svg></div>
-      <h2>AI Data Assistant</h2>
-    </div>
-    <div class="cap">Cari tahu informasi spesifik secara instan. AI akan mengeksekusi query database untuk menjawab pertanyaan Anda.</div>
-    <div class="row">
-      <input id="askInput" placeholder="Contoh: Berapa total sesi interaksi bulan ini?">
-      <button class="btn primary" id="askBtn">Tanya AI</button>
-    </div>
-    <div class="ex">
-      <button data-q="Apa 5 intent terbanyak minggu lalu?">Top 5 intent minggu lalu?</button>
-      <button data-q="Berapa persentase fallback rate 7 hari terakhir?">Fallback rate 7 hari terakhir?</button>
-      <button data-q="Tampilkan pertanyaan fallback terbanyak hari ini">Top pertanyaan fallback hari ini</button>
-    </div>
-    <div class="answer" id="answer"></div>
-  </div>
+  {% include "_ask_ai.html" %}
 
   <div class="toolbar">
     <div class="seg" id="seg">
@@ -466,36 +450,6 @@ async function searchIntent(){
 }
 el('intentSearchBtn').onclick=searchIntent;
 el('intentQ').addEventListener('keydown',e=>{ if(e.key==='Enter') searchIntent(); });
-
-// Ask AI
-function mdLite(src){
-  let t=esc(src||'');
-  t=t.replace(/```(\w*)\n?([\s\S]*?)```/g,(m,l,c)=>'<pre>'+c+'</pre>');
-  t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>');
-  return '<p>'+t+'</p>';
-}
-async function ask(){
-  const q=el('askInput').value.trim(); if(!q) return;
-  const box=el('answer'); box.classList.add('show'); 
-  box.innerHTML='<div class="state"><span class="spin"></span>AI sedang menganalisis database SQLite...</div>';
-  const btn=el('askBtn'); btn.disabled=true;
-  try{
-    const r=await (await fetch('/api/ask-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})})).json();
-    if(!r.ok){ 
-      box.innerHTML='<div class="body">\u26a0 '+esc(r.error||'Gagal memproses kueri.')+'</div>'+(r.sql?'<div class="sqlbox">Gagal mengeksekusi SQL: <code>'+esc(r.sql)+'</code></div>':''); 
-    } else {
-      let tbl='';
-      if(r.columns&&r.rows&&r.rows.length){
-        tbl='<table><tr>'+r.columns.map(c=>'<th>'+esc(String(c))+'</th>').join('')+'</tr>'+r.rows.slice(0,15).map(row=>'<tr>'+row.map(v=>'<td>'+esc(String(v==null?'':v))+'</td>').join('')+'</tr>').join('')+'</table>';
-      }
-      box.innerHTML='<div class="body">'+mdLite(r.answer)+'</div>'+tbl+'<div class="sqlbox">Syntax Referensi SQLite: <code>'+esc(r.sql||'')+'</code></div>';
-    }
-  }catch(e){ box.innerHTML='<div class="body">\u26a0 '+esc(e.message)+'</div>'; }
-  btn.disabled=false;
-}
-el('askBtn').onclick=ask;
-el('askInput').addEventListener('keydown',e=>{ if(e.key==='Enter') ask(); });
-document.querySelectorAll('.ai .ex button').forEach(b=>b.onclick=()=>{ el('askInput').value=b.dataset.q; ask(); });
 
 load();
 </script>

@@ -50,6 +50,7 @@
     glosarium: 'Menjawab dari Glosarium Istilah Pajak',
     disambiguasi: 'Menjawab dari Pustaka Disambiguasi',
     intentmap: 'Menjawab dari Peta Intent & Katalog',
+    dashboard: 'Menjawab dari database interaksi (query SQL)',
     data: 'Menjawab dari database interaksi (query SQL)',
     deflection: 'Menjawab dari data interaksi (query SQL)',
     lifecycle: 'Menjawab dari data interaksi (query SQL)',
@@ -59,6 +60,7 @@
     glosarium: ['Apa itu EFIN?', 'Jelaskan istilah Coretax'],
     disambiguasi: ['Kapan pakai DJP Online vs Coretax?', 'Arti "lapor pajak" yang ambigu'],
     intentmap: ['Intent untuk lupa EFIN?', 'Kebijakan jawaban reset password'],
+    dashboard: ['Top 5 intent minggu lalu?', 'Fallback rate 7 hari terakhir?', 'Top pertanyaan fallback hari ini'],
     data: ['Berapa total sesi bulan ini?', 'Top 5 intent minggu lalu'],
     deflection: ['Berapa fallback rate 7 hari terakhir?'],
     lifecycle: ['Berapa intent yang tak pernah dipanggil?'],
@@ -89,9 +91,21 @@
     if (!text || busy) return;
     busy = true; send.disabled = true;
     show('<div class="ask-state"><span class="ask-spin"></span>Menganalisis data internal…</div>');
+    var _status = 0;
     fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: text, page: page }) })
-      .then(function(r){ return r.json(); })
-      .then(function(r){
+      .then(function(r){ _status = r.status; return r.text(); })
+      .then(function(raw){
+        var r;
+        try { r = JSON.parse(raw); }
+        catch (_e) {
+          var msg;
+          if (_status === 401 || _status === 403) msg = 'Sesi berakhir atau akses ditolak. Muat ulang halaman lalu login kembali.';
+          else if (_status === 502 || _status === 503 || _status === 504) msg = 'Server AI melebihi batas waktu (gateway ' + _status + '). Coba lagi sebentar atau persempit pertanyaan.';
+          else if (_status && (_status < 200 || _status >= 300)) msg = 'Server membalas status ' + _status + ' dengan format non-JSON. Coba lagi sebentar.';
+          else msg = 'Respons server tidak dapat dibaca (bukan JSON). Kemungkinan permintaan melebihi batas waktu proxy saat menunggu jawaban AI.';
+          show('⚠ ' + esc(msg));
+          return;
+        }
         if (!r.ok) { show('⚠ ' + esc(r.error || 'Gagal memproses.') + (r.sql ? '<div class="ask-sql">SQL gagal: <code>'+esc(r.sql)+'</code></div>' : '')); return; }
         var html = mdLite(r.answer);
         if (r.mode === 'data') {
