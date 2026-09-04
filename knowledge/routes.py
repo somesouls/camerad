@@ -28,6 +28,7 @@ import common.pii_mask as pii_mask
 # seperti sebelumnya (tanpa tambahan scope).
 #   - ASK_DATA_SCOPES      : panduan tambahan text-to-SQL utk halaman DATA.
 #   - ASK_KNOWLEDGE_SCOPES : penajaman guardrail utk halaman PUSTAKA.
+#   - ASK_AGENTIC_SCOPES   : konteks halaman utk jalur AGENTIC (mis. Sosmed).
 # Tidak menyentuh analytics_db, pipeline ingest, atau halaman lain.
 # =============================================================
 ASK_DATA_SCOPES = {
@@ -58,6 +59,33 @@ ASK_KNOWLEDGE_SCOPES = {
         "draf. Untuk pertanyaan 'intent untuk X', sebutkan nama intent yang tepat "
         "beserta maksud/cakupannya sesuai peta/katalog. Jangan mengarang nama "
         "intent yang tidak ada dalam konteks."
+    ),
+}
+
+ASK_AGENTIC_SCOPES = {
+    "sosmed_qna": (
+        "KONTEKS HALAMAN: 'Q&A Sosmed' \u2014 kumpulan pertanyaan warga & utas "
+        "dari media sosial (X/IG/TikTok). Untuk menjawab, UTAMAKAN database "
+        "`sosmed` (tabel `sosmed_items`; pertanyaan warga = "
+        "item_type='pertanyaan', teks pada kolom `text`, waktu pada kolom `ts`). "
+        "Untuk 'pertanyaan tersering/terbaru', agregasi/urutkan `sosmed_items`. "
+        "Jangan mencampur dengan data Dialogflow (`analytics`/`interactions`) "
+        "kecuali memang diminta."
+    ),
+    "sosmed_sla": (
+        "KONTEKS HALAMAN: 'SLA & Analitik Sosmed' \u2014 cakupan/keterjawaban & "
+        "analitik interaksi media sosial. UTAMAKAN database `sosmed` (tabel "
+        "`sosmed_items`, `sosmed_batches`). Hitung volume & keterjawaban dari "
+        "`sosmed_items` (pertanyaan = item_type='pertanyaan'); pakai kolom `ts` "
+        "untuk tren waktu. Jangan mencampur dengan data Dialogflow "
+        "(`analytics`/`interactions`)."
+    ),
+    "sosmed_deflection": (
+        "KONTEKS HALAMAN: 'Coverage & Deflection Sosmed' \u2014 klaster pertanyaan "
+        "warga yang sedang tren dan potensi gap pengetahuan bot. UTAMAKAN "
+        "database `sosmed` (tabel `sosmed_items`, pertanyaan = "
+        "item_type='pertanyaan') untuk menemukan pertanyaan berulang/tren. "
+        "Jangan mengarang klaster di luar data yang ada."
     ),
 }
 
@@ -272,8 +300,11 @@ async def api_ask(request: Request):
 async def api_ask_agentic(request: Request):
     """Tanya AI 'agentic' (Fase 2): loop read-only lintas database via registry.
 
-    Body: {question, lang?, max_iters?}. Non-breaking: endpoint terpisah;
-    /api/ask dan /api/ask-data tidak terpengaruh.
+    Body: {question, lang?, max_iters?, page?}. Non-breaking: endpoint terpisah;
+    /api/ask dan /api/ask-data tidak terpengaruh. Tahap 3: bila `page` terdaftar
+    di ASK_AGENTIC_SCOPES, konteks halaman ditambahkan sebagai PENGARAH
+    penelusuran (mis. menu Sosmed -> database `sosmed`). Engine agentic TIDAK
+    diubah; scope hanya menambah konteks pada pertanyaan, halaman lain identik.
     """
     try:
         body = await request.json()
@@ -283,6 +314,7 @@ async def api_ask_agentic(request: Request):
         body = {}
     question = (body.get("question") or "").strip()
     lang = body.get("lang") or None
+    page = (body.get("page") or "").strip().lower()
     if not question:
         return JSONResponse({"ok": False, "error": "question kosong."})
     try:
@@ -290,9 +322,14 @@ async def api_ask_agentic(request: Request):
     except Exception:
         max_iters = agentic.MAX_ITERS
     max_iters = max(1, min(max_iters, agentic.MAX_ITERS))
+    _scope = ASK_AGENTIC_SCOPES.get(page)
+    q_in = question
+    if _scope:
+        q_in = ("[KONTEKS HALAMAN untuk mengarahkan penelusuran]\n" + _scope +
+                "\n\n[PERTANYAAN PENGGUNA]\n" + question)
     try:
         return JSONResponse(await run_in_threadpool(
-            agentic.answer_agentic, question, lang, max_iters))
+            agentic.answer_agentic, q_in, lang, max_iters))
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
