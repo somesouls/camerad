@@ -172,6 +172,37 @@ DEFAULT_SETTINGS = {
         "jam buka => Jam Operasional\n"
         "jam operasional => Jam Operasional"
     ),
+    # --- koreksi domain pasca-STT (#STT-domain) ---
+    # Setelah STT, transkrip diperbaiki agar istilah domain yang SERING salah
+    # didengar (mis. 'Coretax' -> 'memkorteks' / 'core tax') dikembalikan ke
+    # bentuk baku SEBELUM NLU/dialog. Dua lapis, fail-soft (voicebot.stt_correct):
+    #   1) Peta pengganti eksplisit (stt_correct_map): satu aturan per baris
+    #      (atau dipisah '|') 'salah dengar => bentuk baku'. Cocok huruf-kecil,
+    #      spasi dinormalkan, batas kata.
+    #   2) Pencocokan fuzzy (stt_correct_fuzzy): tiap kata transkrip yang MIRIP
+    #      (rasio >= stt_correct_fuzzy_min) dg salah satu istilah baku
+    #      (stt_correct_terms, hanya >=5 huruf & satu kata) diganti ke istilah baku.
+    #      Set 0 utk mematikan fuzzy.
+    # Default AKTIF; kosongkan stt_correct_map/terms utk menonaktifkan efek.
+    "stt_correct_enabled": "1",
+    "stt_correct_map": (
+        "memkorteks => Coretax\n"
+        "mem korteks => Coretax\n"
+        "korteks => Coretax\n"
+        "kortek => Coretax\n"
+        "kortaks => Coretax\n"
+        "kortax => Coretax\n"
+        "core tax => Coretax\n"
+        "koretaks => Coretax\n"
+        "koretak => Coretax\n"
+        "koretax => Coretax"
+    ),
+    "stt_correct_fuzzy": "1",
+    "stt_correct_fuzzy_min": "0.86",
+    "stt_correct_terms": (
+        "Coretax, NPWP, NIK, EFIN, SPT, PPh, PPN, DJP, KPP, KTP, NITKU, "
+        "e-Filing, e-Billing, e-Faktur"
+    ),
     "filler_enabled": "1",
     "filler_texts": (
         "Baik, mohon tunggu sebentar ya.|Baik, saya periksa dulu.|"
@@ -267,6 +298,17 @@ DEFAULT_SETTINGS = {
     "stream_preroll_ms": "300",        # pra-roll audio sebelum trigger (ms)
     "stream_bargein": "1",             # izinkan barge-in via mic saat bot bicara
     "stream_bargein_min_ms": "500",    # durasi bicara berkelanjutan utk konfirmasi barge-in (ms)
+    # --- barge-in grace & hangover (Poin 3c) — DAPAT DIATUR DARI UI ---
+    # Penghalusan interupsi supaya barge-in makin tahan-gema TANPA mengubah
+    # perilaku dasar (keduanya hanya MENGETATKAN, tak pernah lebih sensitif):
+    #   stream_bargein_grace_ms : masa TENGGANG di awal tiap segmen audio bot;
+    #     selama ini kandidat barge-in via energi diabaikan supaya onset/gema
+    #     audio bot sendiri tak langsung memicu interupsi. 0 = mati.
+    #   stream_bargein_hangover_ms : setelah energi bicara menurun sesaat, kandidat
+    #     (ducking) DIPERTAHANKAN selama ini sebelum dibatalkan, supaya jeda mikro
+    #     di tengah ucapan penyela tak membuat ducking berkedip. 0 = mati.
+    "stream_bargein_grace_ms": "300",
+    "stream_bargein_hangover_ms": "250",
     # --- barge-in tahan-noise via konfirmasi STT (#3b) — DAPAT DIATUR DARI UI ---
     # Bila '1', energi bicara TIDAK langsung memotong bot. Bot terus bicara (sambil
     # di-duck) dan ucapan penyela direkam; pemotongan audio bot hanya dilakukan
