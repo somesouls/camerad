@@ -123,7 +123,7 @@
     show('<div class="ask-state"><span class="ask-spin"></span>' + (agentic ? 'Menganalisis lintas database (bisa beberapa langkah)…' : 'Menganalisis data internal…') + '</div>');
     var _status = 0;
     var url = agentic ? '/api/ask-agentic' : '/api/ask';
-    var payload = agentic ? { question: text } : { question: text, page: page };
+    var payload = { question: text, page: page };
     fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
       .then(function(r){ _status = r.status; return r.text(); })
       .then(function(raw){
