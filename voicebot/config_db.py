@@ -125,7 +125,7 @@ DEFAULT_SETTINGS = {
     # dengan ucapan LUNAK seperti 'terima kasih'/'makasih'/'sekian'. closing_triggers
     # mendeteksi ini, TAPI hanya bila ucapan BERDIRI SENDIRI / pendek
     # (<= closing_trigger_max_words kata) supaya 'terima kasih' di tengah kalimat
-    # sopan ("oh terima kasih, tapi saya masih mau tanya ...") TIDAK memicu penutupan.
+    # sopan (\"oh terima kasih, tapi saya masih mau tanya ...\") TIDAK memicu penutupan.
     # closing_hallucination_patterns = pola HALUSINASI STT saat senyap (mis.
     # 'terima kasih telah menonton') yang WAJIB diabaikan: tak dibalas & tak menutup.
     # Saat menutup, bot membaca closing_reply APA ADANYA (verbatim) lalu 'langsung
@@ -231,8 +231,16 @@ DEFAULT_SETTINGS = {
     # sering dipakai (salam/penutup/filler/konfirmasi/jawaban intent) supaya giliran
     # awal tidak menanggung waktu shorten/TTS. Default MATI ('0').
     "pregen_enabled": "0",
-    # --- streaming Mode B & barge-in (#4b) \u2014 DAPAT DIATUR DARI UI KONFIGURASI ---
-    # Semua ambang di bawah bisa diubah dari panel "Streaming (Mode B) & barge-in"
+    # --- streaming TTS per-kalimat (Poin 3.1, Mode B) ---
+    # Bila aktif, jawaban di Mode B dibacakan PER-KALIMAT: tiap kalimat disintesis
+    # lalu dikirim berurutan sehingga suara PERTAMA terdengar lebih cepat (TTFA
+    # turun) -- kalimat berikutnya disintesis selagi kalimat sebelumnya diputar.
+    # Default MATI ('0') -> jawaban disintesis penuh lalu dikirim sekali (perilaku
+    # lama). tts_stream_min_chars: jawaban lebih pendek dari ini dikirim UTUH.
+    "tts_stream_sentences": "0",
+    "tts_stream_min_chars": "80",
+    # --- streaming Mode B & barge-in (#4b) — DAPAT DIATUR DARI UI KONFIGURASI ---
+    # Semua ambang di bawah bisa diubah dari panel \"Streaming (Mode B) & barge-in\"
     # di halaman /voicebot tanpa menyentuh kode/ENV. Bila sebuah nilai dikosongkan,
     # stream.py akan fallback ke ENV lama lalu default kode. Berlaku untuk sesi
     # streaming BERIKUTNYA (buka ulang percakapan Mode B setelah menyimpan).
@@ -248,7 +256,7 @@ DEFAULT_SETTINGS = {
     "stream_speaking_rms": "900",      # ambang energi saat bot bicara (anti-gema loudspeaker)
     "stream_ducking": "1",             # kecilkan volume bot saat memverifikasi kandidat suara user
     "stream_duck_gain": "0.2",         # level volume bot saat di-duck (0..1)
-    # --- noise vs speech / anti-noise adaptif (#6) \u2014 DAPAT DIATUR DARI UI ---
+    # --- noise vs speech / anti-noise adaptif (#6) — DAPAT DIATUR DARI UI ---
     # Membedakan SUARA ASLI dari NOISE lingkungan supaya bot tidak menjawab noise,
     # bunyi sesaat (klik/ketikan/pintu), atau dengungan steady. Tiga lapis:
     #   1) Lantai noise adaptif (stream_noise_adapt): server memantau energi ambient
@@ -267,9 +275,9 @@ DEFAULT_SETTINGS = {
     "stream_noise_floor_init": "150",
     "stream_onset_frames": "3",
     "stream_voiced_ratio_min": "0.35",
-    # --- penjaga diam / silence watchdog (#3) \u2014 DAPAT DIATUR DARI UI ---
+    # --- penjaga diam / silence watchdog (#3) — DAPAT DIATUR DARI UI ---
     # Khusus Mode B (streaming). Bila penelepon diam: setelah stream_idle_prompt_ms
-    # tanpa suara, bot menyapa (stream_idle_prompt_text, mis. "masih terhubung?").
+    # tanpa suara, bot menyapa (stream_idle_prompt_text, mis. \"masih terhubung?\").
     # Bila diam berlanjut stream_idle_end_ms lagi tanpa respons, sesi diakhiri
     # otomatis (bot membaca stream_idle_end_text lalu menutup koneksi). Timer diam
     # hanya berjalan saat bot TIDAK bicara/memproses. {sal}=sapaan.
