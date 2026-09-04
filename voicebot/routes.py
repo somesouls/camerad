@@ -21,6 +21,8 @@ API engine (Mode B):
 API kelola:
   GET  /api/voicebot/config              -> ambil konfigurasi
   POST /api/voicebot/config/save         -> simpan konfigurasi
+  GET  /api/voicebot/config/export       -> unduh cadangan konfigurasi (JSON)
+  POST /api/voicebot/config/import       -> terapkan cadangan konfigurasi (JSON)
   POST /api/voicebot/intents/list        -> daftar intent (+cari)
   POST /api/voicebot/intents/save        -> tambah/ubah intent
   POST /api/voicebot/intents/delete      -> hapus intent
@@ -38,9 +40,10 @@ Akses admin diatur di app_core._route_area (area 'peraturan'). Endpoint
     import voicebot.routes as voicebot_routes; voicebot_routes.register(app)
 """
 import base64
+import json
 
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from app_core import render_page
@@ -216,6 +219,63 @@ async def api_config_save(request: Request):
     b = await _json_body(request)
     try:
         res = await run_in_threadpool(cfg.set_settings, b)
+        # konfigurasi berubah -> kosongkan cache TTS supaya suara/parameter baru
+        # langsung dipakai (fail-soft, tak menggagalkan simpan).
+        try:
+            vb_tts.clear_cache()
+        except Exception:
+            pass
+        return JSONResponse({"ok": True, **res})
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_config_export(request: Request):
+    """Unduh cadangan konfigurasi (settings + intents + kamus) sebagai berkas JSON.
+
+    Dikirim sebagai attachment 'voicebot-config.json' supaya langsung terunduh di
+    browser. Simpan berkas ini sebagai cadangan; pulihkan lewat /config/import.
+    """
+    try:
+        data = await run_in_threadpool(cfg.export_config)
+        body = json.dumps(data, ensure_ascii=False, indent=2)
+        return Response(
+            content=body,
+            media_type="application/json; charset=utf-8",
+            headers={
+                "Content-Disposition": "attachment; filename=voicebot-config.json"
+            },
+        )
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+async def api_config_import(request: Request):
+    """Terapkan cadangan konfigurasi dari body JSON {data, mode}.
+
+    - data: objek hasil /config/export (berisi settings/intents/lexicon).
+    - mode: 'merge' (default, timpa+tambah) atau 'replace' (kosongkan intent &
+      kamus dulu, lalu isi ulang dari data). Setelah impor, cache NLU direset &
+      cache TTS dikosongkan supaya perubahan langsung berlaku.
+    """
+    b = await _json_body(request)
+    data = b.get("data")
+    mode = b.get("mode") or "merge"
+    if not isinstance(data, dict):
+        return JSONResponse(
+            {"ok": False,
+             "error": "Field 'data' (objek konfigurasi hasil ekspor) wajib diisi."}
+        )
+    try:
+        res = await run_in_threadpool(cfg.import_config, data, mode)
+        try:
+            vb_nlu_reset()
+        except Exception:
+            pass
+        try:
+            vb_tts.clear_cache()
+        except Exception:
+            pass
         return JSONResponse({"ok": True, **res})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)})
@@ -372,6 +432,8 @@ def register(app):
     app.add_api_route("/api/voicebot/greeting", api_greeting, methods=["GET"])
     app.add_api_route("/api/voicebot/config", api_config_get, methods=["GET"])
     app.add_api_route("/api/voicebot/config/save", api_config_save, methods=["POST"])
+    app.add_api_route("/api/voicebot/config/export", api_config_export, methods=["GET"])
+    app.add_api_route("/api/voicebot/config/import", api_config_import, methods=["POST"])
     app.add_api_route("/api/voicebot/intents/list", api_intents_list, methods=["POST"])
     app.add_api_route("/api/voicebot/intents/save", api_intents_save, methods=["POST"])
     app.add_api_route("/api/voicebot/intents/delete", api_intents_delete, methods=["POST"])
