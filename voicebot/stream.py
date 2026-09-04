@@ -140,6 +140,22 @@ Server -> klien:
    terpotong (hangup terlalu cepat). Default MATI -> perilaku barge-in lama
    (potong berbasis energi berkelanjutan >= bargein_min_ms).
 
+11) BARGE-IN GRACE + HANGOVER (#3c, perbaikan 4 Sep). Dua penghalus barge-in yang
+   hanya MENGETATKAN (tak pernah membuat lebih sensitif), berguna terutama untuk
+   loudspeaker/ruangan bergema:
+   a. GRACE (stream_bargein_grace_ms, default 300): di AWAL tiap segmen audio bot
+      (dihitung sejak state.speak_started_at) kandidat barge-in via energi
+      DIABAIKAN. Ini mencegah onset/gema audio bot SENDIRI langsung memicu
+      ducking/interupsi di milidetik pertama pemutaran. 0 = mati.
+   b. HANGOVER (stream_bargein_hangover_ms, default 250): saat energi bicara
+      kandidat MENURUN sesaat (jeda mikro di tengah ucapan penyela / gema
+      berkedip), kandidat TIDAK langsung dibatalkan; ditahan selama hangover ini,
+      lalu baru dibatalkan bila energi bicara tak kembali. Mencegah ducking
+      berkedip-kedip. Bila energi bicara kembali sebelum hangover habis, timer
+      di-reset. 0 = mati (batalkan seketika seperti perilaku lama). Keduanya
+      TIDAK mengubah syarat konfirmasi barge-in (>= bargein_min_ms) maupun jalur
+      konfirmasi-STT (#3b).
+
 PENJAGA DIAM #3 & SALAM PENUTUP #4: tak berubah perilakunya.
 
 SEMUA TUNING DAPAT DIATUR DARI UI (/voicebot, panel \"Streaming (Mode B) & barge-in\";
@@ -150,13 +166,14 @@ tersedia tombol \"Reset ke rekomendasi\"). Kunci config -> (ENV lama, default):
   stream_ducking(1) stream_duck_gain(0.2) stream_noise_adapt(1) stream_snr_ratio(1.8)
   stream_noise_floor_init(150) stream_onset_frames(3) stream_voiced_ratio_min(0.35)
   stream_autocalibrate(1) stream_calib_ms(1200) stream_mic_hangover_ms(250)
-  stream_idle_enabled(1) stream_idle_prompt_ms(8000) stream_idle_end_ms(10000)
   stream_debug(0; set 1 utk telemetri diagnosa ~1x/detik)
   tts_stream_sentences(0; #3.1 jawaban dibacakan per-kalimat -> TTFA lebih cepat)
   tts_stream_min_chars(80; jawaban lebih pendek dari ini dikirim utuh)
   stream_connector_enabled(0; #3a penyambung instan diputar selagi memproses)
   stream_connector_texts(frasa penyambung netral, dipisah '|', dirotasi)
   stream_bargein_confirm_stt(0; #3b energi tak langsung memotong -> tunggu konfirmasi STT)
+  stream_bargein_grace_ms(300; #3c abaikan kandidat barge-in di awal tiap segmen audio bot)
+  stream_bargein_hangover_ms(250; #3c tahan kandidat sesaat sebelum batal supaya ducking tak berkedip)
 Perubahan berlaku untuk sesi streaming BERIKUTNYA (buka ulang percakapan Mode B).
 """
 from __future__ import annotations
@@ -179,7 +196,7 @@ from voicebot import config_db as cfg
 
 
 # Versi kode; dicatat di log tiap sesi dibuka supaya PASTI kode terbaru yang jalan.
-STREAM_VERSION = "2026-09-04d (#3b barge-in konfirmasi-STT opsional + tunggu salam penutup selesai + penyambung instan #3a + streaming TTS per-kalimat #3.1 + anti tumpang tindih #8)"
+STREAM_VERSION = "2026-09-04e (#3c barge-in grace/hangover + #3b konfirmasi-STT opsional + tunggu salam penutup selesai + penyambung instan #3a + streaming TTS per-kalimat #3.1 + anti tumpang tindih #8)"
 
 SAMPLE_RATE = 16000
 FRAME_MS = 30
@@ -285,6 +302,8 @@ def _stream_tuning(settings):
         "vad_aggr": aggr,
         "bargein": _cfg_bool(s, "stream_bargein", "VOICEBOT_STREAM_BARGEIN", True),
         "bargein_min_ms": _cfg_num(s, "stream_bargein_min_ms", "VOICEBOT_STREAM_BARGEIN_MIN_MS", 500, _to_int),
+        "bargein_grace_ms": _cfg_num(s, "stream_bargein_grace_ms", "VOICEBOT_STREAM_BARGEIN_GRACE_MS", 300, _to_int),
+        "bargein_hangover_ms": _cfg_num(s, "stream_bargein_hangover_ms", "VOICEBOT_STREAM_BARGEIN_HANGOVER_MS", 250, _to_int),
         "bargein_confirm_stt": _cfg_bool(s, "stream_bargein_confirm_stt", "VOICEBOT_STREAM_BARGEIN_CONFIRM_STT", False),
         "speaking_rms": _cfg_num(s, "stream_speaking_rms", "VOICEBOT_STREAM_SPEAKING_RMS", 900, _to_int),
         "gate_rms": _cfg_num(s, "stream_gate_rms", "VOICEBOT_STREAM_GATE_RMS", 0.012, _to_float),
@@ -620,6 +639,8 @@ async def handle(websocket: WebSocket):
     ducking = tuning["ducking"]
     speaking_rms = tuning["speaking_rms"]
     bargein_min_ms = tuning["bargein_min_ms"]
+    bargein_grace_ms = tuning["bargein_grace_ms"]
+    bargein_hangover_ms = tuning["bargein_hangover_ms"]
     bargein_confirm_stt = tuning["bargein_confirm_stt"]
     debug = tuning["debug"]
 
@@ -647,6 +668,9 @@ async def handle(websocket: WebSocket):
         _log("#3a penyambung instan AKTIF: %d frasa (dirotasi)." % len(connector_texts))
     if bargein_confirm_stt:
         _log("#3b barge-in KONFIRMASI-STT AKTIF: energi tak langsung memotong; tunggu transkrip STT sebelum memotong audio bot.")
+    if bargein_grace_ms > 0 or bargein_hangover_ms > 0:
+        _log("#3c barge-in grace=%dms hangover=%dms (haluskan interupsi; hanya MENGETATKAN, tak lebih sensitif)."
+             % (bargein_grace_ms, bargein_hangover_ms))
 
     try:
         await websocket.send_text(json.dumps({
@@ -674,7 +698,8 @@ async def handle(websocket: WebSocket):
              "speak_guard_until": 0.0, "capture": False,
              "calib_started": False, "calib_done": (not tuning["autocalibrate"]),
              "calib_until": 0.0, "calib_sum": 0.0, "calib_n": 0,
-             "diag_next": 0.0, "first_turn_done": False, "connector_idx": 0}
+             "diag_next": 0.0, "first_turn_done": False, "connector_idx": 0,
+             "speak_started_at": 0.0, "cand_drop_at": 0.0}
     ep = Endpointer(tuning)
     queue: asyncio.Queue = asyncio.Queue()
     # #8: kunci audio -> hanya SATU aliran audio dikirim ke klien pada satu waktu
@@ -782,21 +807,46 @@ async def handle(websocket: WebSocket):
                                     talking, ep.triggered, ep.active_speech_ms,
                                     state["capture"]))
                         state["diag_next"] = now + 1.0
-                    if talking and state["bargein_on"] and not state["interrupt"]:
+                    # #3c: masa TENGGANG (grace) di awal tiap segmen audio bot -> abaikan
+                    # kandidat barge-in via energi supaya onset/gema audio bot sendiri
+                    # tak langsung memicu ducking/interupsi. Hanya MENGETATKAN.
+                    grace_active = (bargein_grace_ms > 0 and talking
+                                    and state["speak_started_at"] > 0.0
+                                    and (now - state["speak_started_at"]) * 1000.0 < bargein_grace_ms)
+                    if (talking and state["bargein_on"] and not state["interrupt"]
+                            and not grace_active):
                         if ep.triggered and not state["candidate"]:
                             state["candidate"] = True
+                            state["cand_drop_at"] = 0.0
                             _log("kandidat suara saat bot bicara: rms~%.0f (ambang speaking_rms=%d) -> DUCK."
                                  % (cur_rms, speaking_rms))
                             if ducking:
                                 await _safe_send_text({"type": "speech_candidate",
                                                        "rms": round(cur_rms),
                                                        "speaking_rms": speaking_rms})
+                        elif state["candidate"] and ep.triggered:
+                            # #3c: energi bicara kembali -> batalkan timer hangover.
+                            state["cand_drop_at"] = 0.0
                         elif state["candidate"] and not ep.triggered:
-                            state["candidate"] = False
-                            _log("kandidat batal (noise/gema sesaat): rms~%.0f -> pulihkan volume bot."
-                                 % cur_rms)
-                            if ducking:
-                                await _safe_send_text({"type": "speech_cancel"})
+                            # #3c: jangan langsung batalkan kandidat pada jeda mikro.
+                            # Tahan (hangover) dulu; baru batalkan bila energi bicara
+                            # tak kembali dalam bargein_hangover_ms (cegah ducking berkedip).
+                            if bargein_hangover_ms <= 0:
+                                state["candidate"] = False
+                                state["cand_drop_at"] = 0.0
+                                _log("kandidat batal (noise/gema sesaat): rms~%.0f -> pulihkan volume bot."
+                                     % cur_rms)
+                                if ducking:
+                                    await _safe_send_text({"type": "speech_cancel"})
+                            elif state["cand_drop_at"] <= 0.0:
+                                state["cand_drop_at"] = now + (bargein_hangover_ms / 1000.0)
+                            elif now >= state["cand_drop_at"]:
+                                state["candidate"] = False
+                                state["cand_drop_at"] = 0.0
+                                _log("kandidat batal setelah hangover %dms (noise/gema sesaat): rms~%.0f -> pulihkan volume bot."
+                                     % (bargein_hangover_ms, cur_rms))
+                                if ducking:
+                                    await _safe_send_text({"type": "speech_cancel"})
                         if ep.triggered and ep.active_speech_ms >= bargein_min_ms:
                             if bargein_confirm_stt:
                                 # #3b: JANGAN potong berbasis energi. Bot terus bicara
@@ -811,6 +861,7 @@ async def handle(websocket: WebSocket):
                             else:
                                 state["interrupt"] = True
                                 state["candidate"] = False
+                                state["cand_drop_at"] = 0.0
                                 state["capture"] = True  # #5c: rekam terus ucapan penyela
                                 _log("BARGE-IN dikonfirmasi: bicara %dms (>=%dms) berkelanjutan di atas ambang (frame terakhir rms~%.0f) -> POTONG audio bot; ucapan penyela direkam & akan diproses."
                                      % (ep.active_speech_ms, bargein_min_ms, cur_rms))
@@ -899,8 +950,11 @@ async def handle(websocket: WebSocket):
             if not await _safe_send_text(begin):
                 return False
             state["speaking"] = True
+            # #3c: tandai awal segmen audio bot -> dasar masa tenggang (grace).
+            state["speak_started_at"] = time.time()
             state["interrupt"] = False
             state["candidate"] = False
+            state["cand_drop_at"] = 0.0
             state["capture"] = False
             chunk = 8192
             i = 0
