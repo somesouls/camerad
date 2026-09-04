@@ -116,6 +116,19 @@ Server -> klien:
    menyela, sisa kalimat dibatalkan (send_audio mengembalikan False). Default MATI
    -> perilaku lama utuh (engine menyintesis penuh, dikirim sekali).
 
+9) PENYAMBUNG INSTAN (#3a, OPSIONAL, perbaikan 4 Sep). Bila setting
+   `stream_connector_enabled` aktif (default MATI), BEGITU ucapan penelepon
+   selesai (endpointing) bot langsung memutar frasa penyambung singkat dari
+   `stream_connector_texts` (mis. "Baik, Kak.") SELAGI engine memproses
+   STT/NLU/RAG/TTS di latar (engine.talk dijalankan sebagai future PARALEL).
+   Ini menutup jeda 'memproses' sehingga latensi TERASA jauh lebih kecil; jawaban
+   lengkap menyusul otomatis setelah penyambung selesai (audio dijaga tak tumpang
+   tindih via audio_lock -> #8). Frasa disintesis LEBIH DULU (biasanya sudah
+   tercache) supaya tak pernah ada dua sintesis TTS berjalan bersamaan dengan
+   sintesis jawaban di engine. Frasa dirotasi bergiliran agar tak monoton. Karena
+   transkrip belum tersedia saat penyambung diputar, frasa sengaja NETRAL (empati
+   untuk keluhan tetap muncul di isi jawaban). Default MATI -> perilaku lama.
+
 PENJAGA DIAM #3 & SALAM PENUTUP #4: tak berubah perilakunya.
 
 SEMUA TUNING DAPAT DIATUR DARI UI (/voicebot, panel \"Streaming (Mode B) & barge-in\";
@@ -130,6 +143,8 @@ tersedia tombol \"Reset ke rekomendasi\"). Kunci config -> (ENV lama, default):
   stream_debug(0; set 1 utk telemetri diagnosa ~1x/detik)
   tts_stream_sentences(0; #3.1 jawaban dibacakan per-kalimat -> TTFA lebih cepat)
   tts_stream_min_chars(80; jawaban lebih pendek dari ini dikirim utuh)
+  stream_connector_enabled(0; #3a penyambung instan diputar selagi memproses)
+  stream_connector_texts(frasa penyambung netral, dipisah '|', dirotasi)
 Perubahan berlaku untuk sesi streaming BERIKUTNYA (buka ulang percakapan Mode B).
 """
 from __future__ import annotations
@@ -152,7 +167,7 @@ from voicebot import config_db as cfg
 
 
 # Versi kode; dicatat di log tiap sesi dibuka supaya PASTI kode terbaru yang jalan.
-STREAM_VERSION = "2026-09-04b (streaming TTS per-kalimat #3.1 opsional + anti tumpang tindih #8)"
+STREAM_VERSION = "2026-09-04c (penyambung instan #3a opsional + streaming TTS per-kalimat #3.1 + anti tumpang tindih #8)"
 
 SAMPLE_RATE = 16000
 FRAME_MS = 30
@@ -220,6 +235,21 @@ def _cfg_bool(settings, key, env, default):
     if ev is not None and str(ev).strip() != "":
         return str(ev) not in off
     return default
+
+
+def _connector_list(settings):
+    """#3a: daftar frasa penyambung instan (dipisah '|'); [] bila kosong."""
+    raw = (settings.get("stream_connector_texts") if settings else "") or ""
+    return [t.strip() for t in raw.split("|") if t.strip()]
+
+
+def _pick_connector(texts, state):
+    """#3a: ambil frasa penyambung bergiliran (rotasi) supaya tak monoton."""
+    if not texts:
+        return ""
+    i = int(state.get("connector_idx", 0)) % len(texts)
+    state["connector_idx"] = i + 1
+    return texts[i]
 
 
 def _stream_tuning(settings):
@@ -585,6 +615,13 @@ async def handle(websocket: WebSocket):
     idle_prompt_text = vb_dialog.idle_prompt_text(settings) if idle_enabled else ""
     idle_end_text = vb_dialog.idle_end_text(settings) if idle_enabled else ""
 
+    # #3a: penyambung instan (opsional, default MATI).
+    connector_enabled = _cfg_bool(settings, "stream_connector_enabled",
+                                  "VOICEBOT_STREAM_CONNECTOR", False)
+    connector_texts = _connector_list(settings)
+    if connector_enabled and not connector_texts:
+        connector_enabled = False
+
     _log("kode stream versi: %s | debug=%s" % (STREAM_VERSION, debug))
     _log("sesi %s dibuka | bargein=%s ducking=%s speaking_rms=%d bargein_min_ms=%d vad_aggr=%d rms=%d | idle=%s | noise_adapt=%s snr=%.2f floor0=%d onset=%d vratio=%.2f | autocal=%s calib=%dms hang=%dms"
          % (session_id, bargein_on, ducking, speaking_rms, bargein_min_ms,
@@ -592,6 +629,8 @@ async def handle(websocket: WebSocket):
             tuning["noise_adapt"], tuning["snr_ratio"], tuning["noise_floor_init"],
             tuning["onset_frames"], tuning["voiced_ratio_min"],
             tuning["autocalibrate"], tuning["calib_ms"], tuning["mic_hangover_ms"]))
+    if connector_enabled:
+        _log("#3a penyambung instan AKTIF: %d frasa (dirotasi)." % len(connector_texts))
 
     try:
         await websocket.send_text(json.dumps({
@@ -619,7 +658,7 @@ async def handle(websocket: WebSocket):
              "speak_guard_until": 0.0, "capture": False,
              "calib_started": False, "calib_done": (not tuning["autocalibrate"]),
              "calib_until": 0.0, "calib_sum": 0.0, "calib_n": 0,
-             "diag_next": 0.0, "first_turn_done": False}
+             "diag_next": 0.0, "first_turn_done": False, "connector_idx": 0}
     ep = Endpointer(tuning)
     queue: asyncio.Queue = asyncio.Queue()
     # #8: kunci audio -> hanya SATU aliran audio dikirim ke klien pada satu waktu
@@ -956,11 +995,34 @@ async def handle(websocket: WebSocket):
                     except Exception:
                         stream_tts = False
                 talk_audio = state["want_audio"] and not stream_tts
+                # #3a: penyambung instan. Sintesis frasa penyambung DULU (cepat &
+                # biasanya sudah tercache) supaya TIDAK ada dua sintesis TTS
+                # berjalan bersamaan (engine.talk juga bisa menyintesis audio).
+                conn_b64 = None
+                conn_text = ""
+                if connector_enabled and state["want_audio"] and not state["closed"]:
+                    conn_text = _pick_connector(connector_texts, state)
+                    if conn_text:
+                        try:
+                            cwav, _cerr = await loop.run_in_executor(
+                                None, vb_tts.synth, conn_text)
+                        except Exception:
+                            cwav = None
+                        if cwav:
+                            conn_b64 = base64.b64encode(cwav).decode("ascii")
+                # Jalankan engine.talk sebagai future PARALEL: frasa penyambung
+                # diputar SELAGI STT/NLU/RAG/TTS berjalan di latar. Bila penyambung
+                # MATI, ini setara `await loop.run_in_executor(...)` biasa.
+                talk_future = loop.run_in_executor(
+                    None, vb_engine.talk, session_id, None, wav, "stream.wav",
+                    talk_audio, False,
+                )
+                if conn_b64 and not state["closed"]:
+                    state["interrupt"] = False  # jawaban BARU (#5d)
+                    _log("#3a penyambung instan diputar: '%s'" % conn_text)
+                    await send_audio(conn_b64)
                 try:
-                    res = await loop.run_in_executor(
-                        None, vb_engine.talk, session_id, None, wav, "stream.wav",
-                        talk_audio, False,
-                    )
+                    res = await talk_future
                 except Exception as e:  # noqa: BLE001
                     _log("proses #%d GAGAL: %s" % (state["gen"], e))
                     await _safe_send_text({"type": "error", "error": str(e)})
