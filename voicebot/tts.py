@@ -23,6 +23,15 @@ ala Avaya tanpa integrasi telephony penuh. Resample memakai audioop (pustaka
 standar) dan fail-soft: bila audioop tak ada (Python 3.13+) atau gagal, keluaran
 asli dikembalikan apa adanya. Saat setting mati, keluaran identik seperti dulu.
 
+STREAMING PER-KALIMAT (Poin 3.1, OPSIONAL): split_for_stream() / split_sentences()
+memecah jawaban panjang menjadi kalimat, dan stream_enabled() menandai apakah
+pemanggil (Mode B) sebaiknya MENYINTESIS + MENGIRIM per kalimat supaya suara
+PERTAMA terdengar lebih cepat (TTFA) -- segmen berikutnya disintesis selagi segmen
+sebelumnya diputar. Dikontrol setting `tts_stream_sentences` (default '0' = mati)
+& `tts_stream_min_chars` (default 80; teks lebih pendek dikirim utuh). Fungsi
+synth() sendiri TIDAK berubah -- helper ini murni tambahan; saat fitur mati
+split_for_stream() mengembalikan [teks] utuh (perilaku setara non-streaming).
+
 KEANDALAN SUARA (penting): synth() dirancang supaya suara SELALU diusahakan keluar.
   - Piper gagal transien (subprocess/output kosong) -> otomatis DICOBA ULANG 1x
     dengan MESIN YANG SAMA (tidak mengganti suara).
@@ -379,6 +388,85 @@ def _sanitize_for_tts(text):
     except Exception:
         pass
     return text.strip()
+
+
+# --------------------------------------------------- streaming per-kalimat (3.1)
+def stream_enabled():
+    """Apakah jawaban sebaiknya disintesis & dikirim PER-KALIMAT (Mode B) supaya
+    suara pertama terdengar lebih cepat (TTFA)? Setting `tts_stream_sentences`
+    (default '0' = mati). Fail-soft -> False bila ragu.
+    """
+    off = ("0", "false", "False", "no", "NO", "")
+    try:
+        from voicebot import config_db as _cfg
+        return str(_cfg.get_setting("tts_stream_sentences", "0")) not in off
+    except Exception:
+        return False
+
+
+def _stream_min_chars():
+    """Panjang minimum (karakter) sebuah jawaban agar layak dipecah per-kalimat.
+    Teks lebih pendek dikirim UTUH (menghindari jeda antar-segmen yang tak perlu).
+    Setting `tts_stream_min_chars` (default 80). Fail-soft.
+    """
+    try:
+        from voicebot import config_db as _cfg
+        n = int(_cfg.get_setting("tts_stream_min_chars", "80") or 80)
+        return n if n > 0 else 0
+    except Exception:
+        return 80
+
+
+# Pemecah kalimat sederhana: pisah SESUDAH tanda akhir kalimat (. ! ? ...) yang
+# diikuti spasi. Untuk TTS, pemisahan yang sesekali kurang presisi (mis. pada
+# angka desimal/singkatan) tetap aman -- tiap segmen masih wajar diucapkan.
+_SENT_SPLIT_RE = re.compile(r"(?<=[.!?\u2026])\s+")
+
+
+def split_sentences(text):
+    """Pecah teks jadi daftar kalimat. Fragmen sangat pendek (mis. '2.') digabung
+    ke kalimat sebelumnya supaya tak ada segmen kerdil. Fail-soft -> minimal [teks].
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    try:
+        parts = _SENT_SPLIT_RE.split(text)
+    except Exception:
+        return [text]
+    out = []
+    for p in parts:
+        p = (p or "").strip()
+        if not p:
+            continue
+        if out and len(p) < 15:
+            out[-1] = (out[-1] + " " + p).strip()
+        else:
+            out.append(p)
+    return out or [text]
+
+
+def split_for_stream(text):
+    """Kembalikan daftar segmen untuk streaming per-kalimat (Poin 3.1).
+
+    Bila fitur mati, teks kosong/terlalu pendek, atau hanya 1 kalimat -> kembalikan
+    [teks] (satu segmen) sehingga perilaku SETARA non-streaming. Fail-soft: selalu
+    kembalikan minimal [teks].
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    try:
+        if not stream_enabled():
+            return [text]
+        if len(text) < _stream_min_chars():
+            return [text]
+        segs = split_sentences(text)
+        if len(segs) <= 1:
+            return [text]
+        return segs
+    except Exception:
+        return [text]
 
 
 # ------------------------------------------------------------------ Piper
