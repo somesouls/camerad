@@ -49,6 +49,15 @@ Peringkas jawaban intent (2b): bila 'intent_shorten_enabled', jawaban match-inte
 dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara (cache + fail-soft;
 fakta/angka dijaga). Jalur RAG memang sudah ringkas by design.
 
+Sentimen & valensi (Poin 3.3, OPSIONAL): bila 'sentiment_enabled' aktif, transkrip
+dianalisis ringan (voicebot.sentiment) untuk menyesuaikan CARA menjawab: saat
+penelepon terdengar frustrasi, jawaban biasa diawali pengakuan empatik singkat dan
+agen ditawarkan lebih cepat (lihat _check_handoff). Default MATI -> tanpa efek.
+
+Pra-hasil jawaban (Poin 3.2, OPSIONAL): pregen_answers() menghangatkan cache shorten
++ TTS untuk frasa yang sering dipakai (salam/penutup/filler/konfirmasi/jawaban intent)
+supaya giliran awal tak menanggung waktu itu. Default MATI ('pregen_enabled').
+
 Mode streaming (reply_on_empty=False): bila STT tidak menangkap ucapan apa pun,
 talk() mengembalikan no_speech=True TANPA membalas/menyintesis apa pun, tanpa
 menaikkan fallback_streak, dan tanpa dicatat -- supaya noise/gema tidak memicu
@@ -74,6 +83,7 @@ from voicebot import stt as vb_stt
 from voicebot import tts as vb_tts
 from voicebot import rag as vb_rag
 from voicebot import dialog as vb_dialog
+from voicebot import sentiment as vb_sentiment
 
 _SESSIONS = {}
 
@@ -113,6 +123,55 @@ def _get_session(sid):
         s = create_session()
         return s["session_id"], _SESSIONS[s["session_id"]]
     return sid, _SESSIONS[sid]
+
+
+# ------------------------------------------------ input telephony 8k (Poin 2A)
+def _telephony_band_enabled(settings):
+    """Simulasikan kanal telepon 8 kHz pada INPUT STT? Setting
+    `stt_telephony_band` (default '0' = mati). Berguna menguji ketahanan STT pada
+    kualitas telephony (mis. Avaya) tanpa integrasi penuh. Fail-soft.
+    """
+    try:
+        return str((settings or {}).get("stt_telephony_band", "0")) not in (
+            "0", "false", "False", "no", "NO", "")
+    except Exception:
+        return False
+
+
+def _band_limit_8k(audio_bytes):
+    """Turunkan WAV ke 8 kHz mono lalu naikkan lagi ke 16 kHz (band-limit ala
+    telepon) untuk menguji STT pada kualitas 8 kHz. Fail-soft: kembalikan input
+    apa adanya bila audioop tak ada / bukan WAV PCM16 / gagal.
+    """
+    try:
+        import io as _io
+        import wave as _wave
+        import audioop as _audioop
+    except Exception:
+        return audio_bytes
+    try:
+        with _wave.open(_io.BytesIO(audio_bytes), "rb") as r:
+            nch = r.getnchannels()
+            sw = r.getsampwidth()
+            sr = r.getframerate()
+            frames = r.readframes(r.getnframes())
+        if sw != 2:
+            return audio_bytes
+        if nch and nch > 1:
+            frames = _audioop.tomono(frames, 2, 0.5, 0.5)
+        down, _s1 = _audioop.ratecv(frames, 2, 1, int(sr), 8000, None)
+        up, _s2 = _audioop.ratecv(down, 2, 1, 8000, int(sr), None)
+        buf = _io.BytesIO()
+        w = _wave.open(buf, "wb")
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(int(sr))
+        w.writeframes(up)
+        w.close()
+        return buf.getvalue()
+    except Exception as e:  # noqa: BLE001
+        print("[voicebot.engine] band-limit 8k gagal (pakai asli): %s" % e, flush=True)
+        return audio_bytes
 
 
 def _shorten_intent(jawaban, settings):
@@ -234,7 +293,15 @@ def _rag_answer(transkrip, sess, settings):
     return _llm_fallback(transkrip, sess, settings), "llm"
 
 
-def _check_handoff(text, sess, settings):
+def _check_handoff(text, sess, settings, senti=None):
+    """Putuskan apakah giliran ini perlu dialihkan ke agen + alasannya.
+
+    Selain pemicu lama (kata kunci eksplisit, gagal paham beruntun, kecocokan
+    intent layanan pada handoff.routing_db), kini ada jalur ADAPTIF-SENTIMEN
+    (Poin 3.3): bila sentimen aktif dan penelepon terdengar FRUSTRASI beberapa
+    giliran beruntun (>= sentiment_handoff_neg_streak), tawarkan agen lebih cepat.
+    Jalur sentimen hanya aktif bila `senti` diberikan (fitur menyala).
+    """
     tl = (text or "").lower()
     triggers = [t.strip().lower() for t in (settings.get("handoff_triggers") or "").split(",") if t.strip()]
     for t in triggers:
@@ -246,6 +313,14 @@ def _check_handoff(text, sess, settings):
         maxfb = 2
     if maxfb and sess.get("fallback_streak", 0) >= maxfb:
         return True, "gagal dipahami %d kali beruntun" % sess.get("fallback_streak", 0)
+    if senti is not None and senti.get("frustrated"):
+        try:
+            need = int(settings.get("sentiment_handoff_neg_streak") or 2)
+        except Exception:
+            need = 2
+        if need > 0 and int(sess.get("neg_streak", 0)) >= need:
+            return True, ("penelepon terdengar frustrasi %d kali beruntun"
+                          % int(sess.get("neg_streak", 0)))
     try:
         import handoff.routing_db as hrdb
         row = hrdb.match_routing(text)
@@ -281,6 +356,80 @@ def get_filler(want_audio=True, index=None):
     return {"enabled": True, "text": text, "audio_b64": audio_b64, "tts_error": tts_err}
 
 
+def pregen_answers(settings=None, want_audio=True, limit=None):
+    """Pra-hasilkan (warm-up) jawaban & audio untuk frasa yang SERING dipakai
+    supaya giliran awal tak menanggung waktu shorten/TTS (Poin 3.2).
+
+    Yang dihangatkan: salam pembuka & penutup, teks filler, kalimat
+    konfirmasi-dulu per intent, serta jawaban intent (versi ringkas bila
+    intent_shorten aktif). Memanfaatkan cache TTS + cache shorten yang sudah ada,
+    jadi aman dipanggil berulang. Semua fail-soft. Dikontrol setting
+    `pregen_enabled` (default '0' = mati). Kembalikan ringkasan hitungan.
+    """
+    settings = settings or {}
+    out = {"phrases": 0, "audio": 0, "errors": 0, "enabled": True}
+    try:
+        if str(settings.get("pregen_enabled", "0")) == "0":
+            out["enabled"] = False
+            return out
+    except Exception:
+        out["enabled"] = False
+        return out
+    tts_on = bool(want_audio) and str(settings.get("tts_enabled", "1")) != "0"
+
+    def _warm(text):
+        text = (text or "").strip()
+        if not text:
+            return
+        out["phrases"] += 1
+        if not tts_on:
+            return
+        try:
+            wav, err = vb_tts.synth(text)
+            if wav:
+                out["audio"] += 1
+            elif err:
+                out["errors"] += 1
+        except Exception:
+            out["errors"] += 1
+
+    try:
+        if vb_dialog.enabled(settings):
+            _warm(vb_dialog.greeting(settings))
+            _warm(vb_dialog.closing_reply(settings))
+            for f in (vb_dialog.fillers(settings) or []):
+                _warm(f)
+        try:
+            intents = cfg.list_intents()
+        except Exception:
+            intents = []
+        if limit:
+            try:
+                intents = intents[:int(limit)]
+            except Exception:
+                pass
+        for it in (intents or []):
+            name = it.get("name") if isinstance(it, dict) else None
+            if not name:
+                continue
+            try:
+                label = (cfg.intent_confirm_label(name) or "").strip() \
+                    or vb_dialog.auto_confirm_label(name)
+                _warm(vb_dialog.confirm_first_prompt(label, settings))
+            except Exception:
+                out["errors"] += 1
+            try:
+                raw = cfg.intent_response(name) or ""
+                if raw:
+                    _warm(_shorten_intent(raw, settings))
+            except Exception:
+                out["errors"] += 1
+    except Exception as e:  # noqa: BLE001
+        print("[voicebot.engine] pregen gagal: %s" % e, flush=True)
+    print("[voicebot.engine] pregen selesai: %r" % out, flush=True)
+    return out
+
+
 def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav",
          want_audio=True, reply_on_empty=True):
     """Satu giliran percakapan. Kembalikan dict respons (JSON-able).
@@ -304,7 +453,11 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
                 init_prompt, hotwords = vb_stt.build_bias(settings)
             except Exception:
                 init_prompt = hotwords = None
-            tr = vb_stt.transcribe_bytes(audio_bytes, audio_filename,
+            # band-limit 8 kHz opsional (Poin 2A) untuk simulasi kanal telepon.
+            stt_audio = audio_bytes
+            if _telephony_band_enabled(settings):
+                stt_audio = _band_limit_8k(audio_bytes)
+            tr = vb_stt.transcribe_bytes(stt_audio, audio_filename,
                                          lang=settings.get("stt_lang") or "id",
                                          initial_prompt=init_prompt, hotwords=hotwords)
             transkrip = tr.get("text") or ""
@@ -354,6 +507,18 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
                 "total_ms": total_ms,
             },
         }
+
+    # Sentimen/valensi ringan (Poin 3.3): sinyal murah untuk menyesuaikan CARA
+    # menjawab (empati + tawar agen lebih cepat saat frustrasi). Opsional & fail-soft:
+    # bila 'sentiment_enabled' mati, senti tetap None dan tak ada efek apa pun.
+    senti = None
+    if transkrip and vb_sentiment.enabled(settings):
+        senti = vb_sentiment.analyze(transkrip, settings)
+        sess["last_sentiment"] = senti
+        if senti.get("frustrated"):
+            sess["neg_streak"] = int(sess.get("neg_streak", 0)) + 1
+        else:
+            sess["neg_streak"] = 0
 
     try:
         threshold = float(settings.get("threshold") or 0.6)
@@ -573,12 +738,25 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
     # --- hand-off (dilewati untuk aksi dialog terminal & giliran menuntun) ---
     reason = ""
     if action in ("reply", "repeat") and not guided_turn:
-        do_handoff, reason = _check_handoff(transkrip, sess, settings)
+        do_handoff, reason = _check_handoff(transkrip, sess, settings, senti)
         if do_handoff:
             action = "handoff"
             parts = [("U: " + (h.get("user") or "")) for h in sess["history"][-3:]]
             parts.append("U: " + transkrip)
             handoff = {"reason": reason, "ringkasan": (" | ".join(parts))[:1000]}
+
+    # Empati adaptif (Poin 3.3): bila penelepon terdengar FRUSTRASI, awali jawaban
+    # biasa dengan pengakuan singkat. Hanya untuk action 'reply'/'repeat' (bukan
+    # konfirmasi/menuntun/penutup/handoff) dan tidak menimpa jawaban yang sudah
+    # meminta maaf. Opsional (sentiment_empathy_enabled, default ON saat sentimen aktif).
+    if (senti is not None and senti.get("frustrated") and jawaban
+            and action in ("reply", "repeat")
+            and str(settings.get("sentiment_empathy_enabled", "1")) != "0"):
+        pref = (settings.get("sentiment_empathy_prefix")
+                or "Mohon maaf atas ketidaknyamanannya.").strip()
+        low = jawaban.lower()
+        if pref and not (low.startswith("mohon maaf") or low.startswith("maaf")):
+            jawaban = (pref + " " + jawaban).strip()
 
     # simpan jawaban substantif utk perintah \"ulangi\"
     if sumber in ("nlu", "rag", "llm", "dialog") and jawaban and action not in ("confirm",):
@@ -622,6 +800,7 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
         "action": action,
         "resume_suggestion": resume_suggestion,
         "handoff": handoff,
+        "sentimen": senti,
         "stt_error": stt_err,
         "tts_error": tts_err,
         "elapsed_ms": total_ms,
