@@ -78,3 +78,14 @@ print("[store_rows_patch] step4/5/6/7/8 -> penyimpanan baris (row-based) aktif."
 # TANPA mengubah data/logika/format/rumus. Di-chain di sini karena helpers &
 # rowstore sudah pasti siap saat store_rows_patch dimuat.
 import pipeline.lazy_excel_patch  # noqa: E402,F401
+
+# Perbaikan Step 6: editan analis (termasuk "kosongkan") PERSIST via step_edit
+# (kunci InsertId) + kolom STATUS pd sheet Analisis Fallback. Pola sama Step 9.
+# Di-chain SETELAH lazy_excel_patch agar rowstore.save_step_edits versi lazy
+# dipakai (hapus cache -> rakit ulang saat dibuka). Membungkus step6_save &
+# step6_load; wrapper sinyal/id_trace/acuan (dipasang setelah ini di web_app)
+# tetap membungkus versi ini. FAIL-OPEN: bila gagal dimuat, app tetap jalan.
+try:
+    import pipeline.step6_rowedit_patch  # noqa: E402,F401
+except Exception as _e6:
+    print("[store_rows_patch] step6_rowedit_patch gagal dimuat (fail-open): %r" % _e6, flush=True)
