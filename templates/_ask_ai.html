@@ -1,4 +1,5 @@
-{# Kartu Tanya AI reusable: di-include di dalam kontainer konten tiap halaman setelah judul, agar judul di atas dan lebar sejajar konten. #}
+{# Kartu Tanya AI reusable: di-include di dalam kontainer konten tiap halaman setelah judul, agar judul di atas dan lebar sejajar konten. Set variabel `ask_agentic_only = true` sebelum include untuk halaman yang hanya didukung mode agentic (lintas database, read-only). #}
+{% set agentic_only = ask_agentic_only|default(false) %}
 <style>
   .ask-card{margin:0 0 22px;padding:20px 22px;border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);}
   .ask-card .ask-hd{display:flex;align-items:center;gap:12px;}
@@ -6,6 +7,10 @@
   .ask-card .ask-hd .ic svg{width:19px;height:19px;}
   .ask-card .ask-title{margin:0;font-size:16px;font-weight:700;color:var(--text-main);line-height:1.15;}
   .ask-card .ask-scope{font-size:12px;color:var(--text-muted);margin-top:1px;}
+  .ask-card .ask-mode{display:flex;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap;}
+  .ask-card .ask-toggle{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-muted);cursor:pointer;user-select:none;}
+  .ask-card .ask-toggle input{width:15px;height:15px;cursor:pointer;}
+  .ask-card .ask-badge{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;background:var(--accent);color:#fff;font-weight:600;}
   .ask-card .ask-row{display:flex;gap:10px;margin-top:14px;}
   .ask-card .ask-row input{flex:1;padding:11px 14px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base,transparent);color:var(--text-main);font-size:14px;}
   .ask-card .ask-send{border:none;border-radius:10px;padding:0 20px;background:var(--accent);color:#fff;font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap;}
@@ -26,13 +31,20 @@
   .ask-spin{display:inline-block;width:16px;height:16px;border:2px solid var(--panel-border);border-top-color:var(--accent);border-radius:50%;animation:askspin .7s linear infinite;}
   @keyframes askspin{to{transform:rotate(360deg);}}
 </style>
-<section class="ask-card" id="askCard" data-page="{{ active_page }}">
+<section class="ask-card" id="askCard" data-page="{{ active_page }}" data-agentic-only="{{ 'true' if agentic_only else 'false' }}">
   <div class="ask-hd">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 2v4M9 12h.01M15 12h.01"/></svg></div>
     <div>
       <h2 class="ask-title">Tanya AI</h2>
       <div class="ask-scope" id="askScope">Menjawab dari data halaman ini &mdash; hanya dari database internal, bukan sumber luar.</div>
     </div>
+  </div>
+  <div class="ask-mode">
+    {% if agentic_only %}
+    <span class="ask-badge">Mode agentic &middot; lintas database (read-only)</span>
+    {% else %}
+    <label class="ask-toggle"><input type="checkbox" id="askAgentic"> Mode agentic (telusuri semua database internal, read-only)</label>
+    {% endif %}
   </div>
   <div class="ask-row">
     <input id="askQ" type="text" placeholder="Tulis pertanyaan tentang halaman ini…" autocomplete="off">
@@ -46,6 +58,7 @@
   var card = document.getElementById('askCard');
   if (!card) return;
   var page = card.getAttribute('data-page') || '';
+  var agenticOnly = card.getAttribute('data-agentic-only') === 'true';
   var SCOPE = {
     glosarium: 'Menjawab dari Glosarium Istilah Pajak',
     disambiguasi: 'Menjawab dari Pustaka Disambiguasi',
@@ -67,7 +80,18 @@
     tools: ['Berapa total interaksi minggu lalu?']
   };
   var scopeEl = document.getElementById('askScope');
-  if (SCOPE[page]) scopeEl.textContent = SCOPE[page] + ' — hanya dari database internal.';
+  var agToggle = document.getElementById('askAgentic');
+  function isAgentic(){ return agenticOnly || (agToggle && agToggle.checked); }
+  function baseScope(){
+    if (SCOPE[page]) return SCOPE[page] + ' — hanya dari database internal.';
+    return 'Menjawab dari data halaman ini — hanya dari database internal, bukan sumber luar.';
+  }
+  function updateScope(){
+    if (isAgentic()) scopeEl.textContent = 'Mode agentic — menelusuri semua database internal (kecuali data pengguna), read-only. Bisa memakan beberapa langkah.';
+    else scopeEl.textContent = baseScope();
+  }
+  updateScope();
+  if (agToggle) agToggle.addEventListener('change', updateScope);
   var q = document.getElementById('askQ');
   var send = document.getElementById('askSend');
   var ansWrap = document.getElementById('askAnswer');
@@ -84,15 +108,23 @@
     return '<table><tr>' + cols.map(function(c){ return '<th>'+esc(String(c))+'</th>'; }).join('') + '</tr>' +
       rows.slice(0,15).map(function(r){ return '<tr>' + r.map(function(v){ return '<td>'+esc(String(v==null?'':v))+'</td>'; }).join('') + '</tr>'; }).join('') + '</table>';
   }
+  function dbList(dbs){
+    if (!dbs || !dbs.length) return '';
+    var names = dbs.map(function(d){ return typeof d === 'string' ? d : (d && (d.key || d.name) ? (d.key || d.name) : JSON.stringify(d)); });
+    return '<div class="ask-sql">Sumber database: '+esc(names.join(', '))+'</div>';
+  }
   function show(html){ ans.innerHTML = html; ansWrap.classList.add('show'); }
   var busy = false;
   function askNow(){
     var text = q.value.trim();
     if (!text || busy) return;
+    var agentic = isAgentic();
     busy = true; send.disabled = true;
-    show('<div class="ask-state"><span class="ask-spin"></span>Menganalisis data internal…</div>');
+    show('<div class="ask-state"><span class="ask-spin"></span>' + (agentic ? 'Menganalisis lintas database (bisa beberapa langkah)…' : 'Menganalisis data internal…') + '</div>');
     var _status = 0;
-    fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: text, page: page }) })
+    var url = agentic ? '/api/ask-agentic' : '/api/ask';
+    var payload = agentic ? { question: text } : { question: text, page: page };
+    fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) })
       .then(function(r){ _status = r.status; return r.text(); })
       .then(function(raw){
         var r;
@@ -111,6 +143,9 @@
         if (r.mode === 'data') {
           html += tbl(r.columns, r.rows);
           if (r.sql) html += '<div class="ask-sql">Query SQL: <code>'+esc(r.sql)+'</code></div>';
+        } else if (r.mode === 'agentic') {
+          html += dbList(r.databases);
+          if (r.note) html += '<div class="ask-sql">'+esc(r.note)+'</div>';
         }
         show(html);
       })
