@@ -480,7 +480,20 @@ async function ask(){
   box.innerHTML='<div class="state"><span class="spin"></span>AI sedang menganalisis database SQLite...</div>';
   const btn=el('askBtn'); btn.disabled=true;
   try{
-    const r=await (await fetch('/api/ask-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})})).json();
+    const resp=await fetch('/api/ask-data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:q})});
+    const raw=await resp.text();
+    let r;
+    try{ r=JSON.parse(raw); }
+    catch(_parseErr){
+      // Respons bukan JSON (mis. halaman HTML dari proxy/gateway saat timeout 502/504, atau halaman login). Tampilkan pesan jelas alih-alih error mentah parser.
+      let msg;
+      if(resp.status===401||resp.status===403){ msg='Sesi Anda berakhir atau akses ditolak. Muat ulang halaman lalu login kembali.'; }
+      else if(resp.status===502||resp.status===503||resp.status===504){ msg='Server AI melebihi batas waktu (gateway '+resp.status+'). Permintaan ke model butuh waktu terlalu lama. Coba lagi sebentar atau persempit pertanyaan.'; }
+      else if(!resp.ok){ msg='Server membalas status '+resp.status+' dengan format non-JSON. Coba lagi sebentar.'; }
+      else { msg='Respons server tidak dapat dibaca sebagai JSON. Kemungkinan permintaan melebihi batas waktu proxy saat menunggu jawaban AI.'; }
+      box.innerHTML='<div class="body">\u26a0 '+esc(msg)+'</div>';
+      btn.disabled=false; return;
+    }
     if(!r.ok){ 
       box.innerHTML='<div class="body">\u26a0 '+esc(r.error||'Gagal memproses kueri.')+'</div>'+(r.sql?'<div class="sqlbox">Gagal mengeksekusi SQL: <code>'+esc(r.sql)+'</code></div>':''); 
     } else {
