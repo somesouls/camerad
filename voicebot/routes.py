@@ -140,9 +140,20 @@ async def api_health(request: Request):
 
 async def api_warmup(request: Request):
     """Pra-muat mesin TTS aktif supaya sintesis PERTAMA tidak 'dingin'
-    (MMS memuat model; Piper resolve binary). Aman dipanggil berulang."""
+    (MMS memuat model; Piper resolve binary). Aman dipanggil berulang.
+
+    Bila 'pregen_enabled' aktif (Poin 3.2), warmup juga menghangatkan cache
+    shorten + TTS untuk frasa yang sering dipakai (salam/penutup/filler/
+    konfirmasi/jawaban intent). pregen_answers() self-guarded & fail-soft -> no-op
+    bila mati, jadi endpoint ini tetap aman dipanggil berulang."""
     try:
         ok, err = await run_in_threadpool(vb_tts.warmup)
+        pregen = None
+        try:
+            settings = await run_in_threadpool(cfg.get_settings)
+            pregen = await run_in_threadpool(vb_engine.pregen_answers, settings)
+        except Exception:
+            pregen = None
         diag = {}
         try:
             diag = vb_tts.diagnostics()
@@ -150,6 +161,7 @@ async def api_warmup(request: Request):
             diag = {}
         return JSONResponse({"ok": True, "tts_warm": bool(ok),
                             "tts_error": err, "tts_engine": diag.get("engine"),
+                            "pregen": pregen,
                             "tts": diag})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)})
