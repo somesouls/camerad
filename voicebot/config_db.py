@@ -239,6 +239,20 @@ DEFAULT_SETTINGS = {
     # lama). tts_stream_min_chars: jawaban lebih pendek dari ini dikirim UTUH.
     "tts_stream_sentences": "0",
     "tts_stream_min_chars": "80",
+    # --- penyambung instan / instant connector (Poin 3a, Mode B) ---
+    # Bila aktif, BEGITU ucapan penelepon selesai (endpointing) bot langsung
+    # memutar frasa penyambung singkat (mis. \"Baik, Kak.\") SELAGI engine masih
+    # memproses STT/NLU/RAG/TTS di latar. Ini menutup jeda \"memproses\" sehingga
+    # latensi TERASA jauh lebih kecil; jawaban lengkap menyusul otomatis setelah
+    # frasa penyambung selesai (audio dijaga tak tumpang tindih via audio_lock).
+    # Frasa dirotasi bergiliran dari daftar (dipisah '|') agar tak monoton. Frasa
+    # sengaja NETRAL karena transkrip belum tersedia saat penyambung diputar
+    # (empati untuk keluhan tetap muncul di isi jawaban). Default MATI ('0') ->
+    # perilaku lama (tanpa penyambung). Berlaku untuk sesi Mode B berikutnya.
+    "stream_connector_enabled": "0",
+    "stream_connector_texts": (
+        "Baik, Kak.|Baik, saya bantu ya, Kak.|Baik Kak, terkait hal tersebut."
+    ),
     # --- streaming Mode B & barge-in (#4b) — DAPAT DIATUR DARI UI KONFIGURASI ---
     # Semua ambang di bawah bisa diubah dari panel \"Streaming (Mode B) & barge-in\"
     # di halaman /voicebot tanpa menyentuh kode/ENV. Bila sebuah nilai dikosongkan,
