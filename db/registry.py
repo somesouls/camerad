@@ -14,6 +14,9 @@ Prinsip:
   (connect + SELECT saja).
 - Domain pengetahuan glossary/disambig/intentmap berbagi file yang sama dengan
   analytics (analytics.db).
+- Peraturan/SOP/Kamus memakai retrieval hybrid (FTS5 + vektor e5). Registry hanya
+  mengekspos tabel KONTEN SQL-nya; tabel *_vec (embedding BLOB) & *_fts (indeks
+  FTS) TIDAK didaftarkan dan tidak boleh di-SELECT.
 - golden.db belum punya modul koneksi di repo -> dikecualikan pada v1.
 """
 
@@ -120,6 +123,49 @@ REGISTRY: List[Dict[str, Any]] = [
             "Berbagi file dengan analytics.db."
         ),
         "shared_with": "analytics",
+    },
+    {
+        "key": "peraturan",
+        "label": "Basis data peraturan perpajakan",
+        "module": "peraturan.db",
+        "tables": ["peraturan_unit", "peraturan_relasi", "impor_log", "peraturan_meta"],
+        "schema": (
+            "peraturan_unit = unit peraturan pajak per pasal/ayat/lampiran (a.l. id, "
+            "jenis_peraturan, nomor, tahun, judul, bab, bagian, pasal, ayat, huruf, "
+            "angka, lampiran, isi, hierarchy, status ['berlaku'/'dicabut'/'diubah'], "
+            "valid_from, valid_to, topik, entitas, source_id). "
+            "peraturan_relasi = relasi antar-peraturan (from_source, to_source, "
+            "jenis_relasi ['penerus'/'pendahulu'], nomor_tujuan, judul_tujuan). "
+            "impor_log = log impor berkas. peraturan_meta = metadata (key, value). "
+            "CATATAN: pencarian teks pakai LIKE pada judul/isi; tabel peraturan_vec "
+            "(BLOB) & peraturan_fts (FTS) JANGAN di-SELECT."
+        ),
+    },
+    {
+        "key": "sop",
+        "label": "SOP & Proses Bisnis",
+        "module": "sop.db",
+        "tables": ["sop_unit", "sop_impor_log", "sop_meta"],
+        "schema": (
+            "sop_unit = bagian dokumen SOP/proses bisnis (a.l. id, dokumen_id, judul, "
+            "kategori ['SOP'/'Proses Bisnis'/'Panduan'/'Lainnya'], bagian, urutan, "
+            "isi, ringkasan, sumber_tipe, status ['aktif'], source_file, source_id). "
+            "sop_impor_log = log impor berkas. sop_meta = metadata (key, value). "
+            "CATATAN: pencarian teks pakai LIKE pada judul/isi; tabel sop_vec (BLOB) "
+            "& sop_fts (FTS) JANGAN di-SELECT."
+        ),
+    },
+    {
+        "key": "kamus",
+        "label": "Kamus sinonim/istilah (query rewriting)",
+        "module": "rag.kamus_db",
+        "tables": ["kamus_sinonim"],
+        "schema": (
+            "kamus_sinonim = pemetaan istilah baku pajak ke sinonim/variasi awam "
+            "(a.l. id, istilah, sinonim [JSON array string], kategori, catatan, "
+            "aktif [1=aktif, 0=nonaktif], created_at, updated_at). Dipakai untuk "
+            "perluasan/penulisan ulang query."
+        ),
     },
     {
         "key": "users",
