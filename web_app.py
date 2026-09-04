@@ -172,6 +172,13 @@ data_routes.register(app)
 import knowledge.routes as knowledge_routes
 knowledge_routes.register(app)
 
+# --- Menu Laporan (Opsi B / Fase 3): ruang kerja laporan AI agentic (membaca
+#     lintas database internal via db.registry, read-only, kecuali users) +
+#     simpan ke reports.db + ekspor Markdown/PDF. ADITIF & NON-BREAKING;
+#     memakai app_core.render_page & knowledge.agentic. ---
+import routes.laporan_routes as laporan_routes
+laporan_routes.register(app)
+
 # --- Rute AWE Avaya dipindah ke modul terpisah (migrasi langkah 5) ---
 # --- Pipeline studio (Dialogflow+Avaya) dipindah ke modul terpisah (migrasi langkah 6) ---
 import pipeline.routes as pipeline_routes

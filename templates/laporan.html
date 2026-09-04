@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}Laporan — Camerad Studio{% endblock %}
+{% block head %}
+<style>
+  .rp-wrap{display:grid;grid-template-columns:280px 1fr;gap:18px;max-width:1200px;margin:0 auto;padding:22px 18px 60px;}
+  @media(max-width:900px){.rp-wrap{grid-template-columns:1fr;}}
+  .rp-head h1{margin:0 0 4px;}
+  .rp-note{font-size:12px;color:var(--text-muted);margin:0 0 14px;}
+  .rp-side{border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);display:flex;flex-direction:column;max-height:74vh;}
+  .rp-side .hd{padding:12px 14px;border-bottom:1px solid var(--panel-border);font-weight:700;font-size:13px;display:flex;justify-content:space-between;align-items:center;}
+  .rp-search{padding:10px 12px;border-bottom:1px solid var(--panel-border);}
+  .rp-search input{width:100%;padding:7px 10px;border:1px solid var(--panel-border);border-radius:8px;background:var(--bg-base,transparent);color:var(--text-main);font-size:13px;}
+  .rp-list{overflow-y:auto;flex:1;}
+  .rp-item{padding:10px 14px;border-bottom:1px solid var(--panel-border);cursor:pointer;}
+  .rp-item:hover{background:var(--panel-border);}
+  .rp-item.active{background:var(--accent-glow);border-left:3px solid var(--accent);}
+  .rp-item .t{font-size:13px;font-weight:600;color:var(--text-main);word-break:break-word;}
+  .rp-item .m{font-size:11px;color:var(--text-muted);margin-top:3px;display:flex;justify-content:space-between;gap:8px;align-items:center;}
+  .rp-item .del{border:none;background:transparent;color:var(--text-muted);cursor:pointer;font-size:11px;padding:2px 4px;}
+  .rp-item .del:hover{color:var(--c-red-txt);}
+  .rp-empty{padding:16px;color:var(--text-muted);font-size:12px;font-style:italic;}
+  .rp-main{min-width:0;}
+  .rp-card{border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);padding:18px 20px;margin-bottom:16px;}
+  .rp-card .ttl-row{display:flex;gap:10px;margin-bottom:10px;}
+  .rp-card .ttl-row input{flex:1;padding:10px 12px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base,transparent);color:var(--text-main);font-size:14px;font-weight:600;}
+  .rp-card textarea{width:100%;min-height:82px;padding:11px 13px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base,transparent);color:var(--text-main);font-size:14px;resize:vertical;font-family:inherit;line-height:1.5;}
+  .rp-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;align-items:center;}
+  .rp-btn{border:1px solid var(--panel-border);border-radius:10px;padding:9px 16px;background:transparent;color:var(--text-main);font-weight:600;font-size:13px;cursor:pointer;}
+  .rp-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+  .rp-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .rp-btn.primary:hover:not(:disabled){color:#fff;opacity:.92;}
+  .rp-btn:disabled{opacity:.5;cursor:default;}
+  .rp-status{font-size:12px;color:var(--text-muted);margin-left:2px;}
+  .rp-ex{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;}
+  .rp-ex button{font-size:12px;padding:6px 12px;border:1px solid var(--panel-border);border-radius:999px;background:transparent;color:var(--text-muted);cursor:pointer;}
+  .rp-ex button:hover{border-color:var(--accent);color:var(--accent);}
+  .rp-report{border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--bg-base,rgba(127,127,127,.05));padding:22px 24px;font-size:14px;line-height:1.62;display:none;}
+  .rp-report.show{display:block;}
+  .rp-report h1{font-size:22px;margin:0 0 6px;}
+  .rp-report h2{font-size:17px;margin:18px 0 8px;}
+  .rp-report h3{font-size:14px;margin:14px 0 6px;}
+  .rp-report p{margin:0 0 10px;}
+  .rp-report ul{margin:0 0 12px 20px;}
+  .rp-report li{margin:2px 0;}
+  .rp-report code{background:var(--panel-border);padding:1px 6px;border-radius:5px;font-size:.92em;}
+  .rp-report pre{background:rgba(0,0,0,.14);border:1px solid var(--panel-border);border-radius:10px;padding:12px;overflow:auto;}
+  .rp-report pre code{background:none;padding:0;}
+  .rp-report table{border-collapse:collapse;width:100%;margin:12px 0;font-size:13px;}
+  .rp-report th,.rp-report td{border:1px solid var(--panel-border);padding:7px 11px;text-align:left;}
+  .rp-report th{background:var(--c-blue);color:var(--c-blue-txt);}
+  .rp-report hr{border:none;border-top:1px solid var(--panel-border);margin:18px 0;}
+  .rp-meta{font-size:12px;color:var(--text-muted);margin:10px 2px 0;}
+  .rp-spin{display:inline-block;width:14px;height:14px;border:2px solid var(--panel-border);border-top-color:var(--accent);border-radius:50%;animation:rpspin .7s linear infinite;vertical-align:-2px;margin-right:6px;}
+  @keyframes rpspin{to{transform:rotate(360deg);}}
+</style>
+{% endblock %}
+{% block content %}
+<div class="rp-wrap">
+  <aside class="rp-side">
+    <div class="hd"><span>Laporan Tersimpan</span><button class="rp-btn" id="rpNew" style="padding:4px 10px;font-size:12px;">+ Baru</button></div>
+    <div class="rp-search"><input id="rpSearch" type="search" placeholder="Cari judul / permintaan…" autocomplete="off"></div>
+    <div class="rp-list" id="rpList"><div class="rp-empty">Memuat…</div></div>
+  </aside>
+  <section class="rp-main">
+    <div class="rp-head">
+      <h1>Laporan</h1>
+      <p class="rp-note">AI menelusuri seluruh database internal (read-only, kecuali <code>users</code>) untuk menyusun laporan. Simpan, buka kembali, dan ekspor ke Markdown atau PDF.</p>
+    </div>
+    <div class="rp-card">
+      <div class="ttl-row"><input id="rpTitle" type="text" placeholder="Judul laporan (opsional)"></div>
+      <textarea id="rpQ" placeholder="Jelaskan laporan yang Anda inginkan… mis. 'Ringkas tren fallback 30 hari terakhir dan rekomendasikan 3 intent prioritas.' (Ctrl+Enter untuk menyusun)"></textarea>
+      <div class="rp-ex" id="rpEx"></div>
+      <div class="rp-actions">
+        <button class="rp-btn primary" id="rpGen">Susun Laporan</button>
+        <button class="rp-btn" id="rpSave" disabled>Simpan</button>
+        <button class="rp-btn" id="rpMd" disabled>Ekspor Markdown</button>
+        <button class="rp-btn" id="rpPdf" disabled>Ekspor PDF</button>
+        <span class="rp-status" id="rpStatus"></span>
+      </div>
+    </div>
+    <div class="rp-report" id="rpReport"></div>
+    <div class="rp-meta" id="rpMeta"></div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var cur = { id:null, title:"", question:"", content_md:"", databases:[], steps:[] };
+  var el = {
+    list: document.getElementById('rpList'), search: document.getElementById('rpSearch'),
+    title: document.getElementById('rpTitle'), q: document.getElementById('rpQ'),
+    gen: document.getElementById('rpGen'), save: document.getElementById('rpSave'),
+    md: document.getElementById('rpMd'), pdf: document.getElementById('rpPdf'),
+    status: document.getElementById('rpStatus'), report: document.getElementById('rpReport'),
+    meta: document.getElementById('rpMeta'), ex: document.getElementById('rpEx'), neu: document.getElementById('rpNew')
+  };
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
+  function inl(s){ s=esc(s); s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); s=s.replace(/`([^`]+)`/g,'<code>$1</code>'); return s; }
+  function mdRender(md){
+    var lines=(md||'').split('\n'), out=[], i=0, n=lines.length;
+    while(i<n){
+      var line=lines[i], st=line.trim();
+      if(st.indexOf('```')===0){ i++; var code=[]; while(i<n && lines[i].trim().indexOf('```')!==0){ code.push(lines[i]); i++; } i++; out.push('<pre><code>'+esc(code.join('\n'))+'</code></pre>'); continue; }
+      if(line.indexOf('|')>=0 && i+1<n && /^\s*\|?[\s:\-|]+\|?\s*$/.test(lines[i+1]) && lines[i+1].indexOf('-')>=0){
+        var header=st.replace(/^\||\|$/g,'').split('|').map(function(c){return c.trim();}); i+=2; var rows=[];
+        while(i<n && lines[i].indexOf('|')>=0 && lines[i].trim()){ rows.push(lines[i].trim().replace(/^\||\|$/g,'').split('|').map(function(c){return c.trim();})); i++; }
+        var h=header.map(function(c){return '<th>'+inl(c)+'</th>';}).join('');
+        var b=rows.map(function(r){return '<tr>'+r.map(function(c){return '<td>'+inl(c)+'</td>';}).join('')+'</tr>';}).join('');
+        out.push('<table><thead><tr>'+h+'</tr></thead><tbody>'+b+'</tbody></table>'); continue;
+      }
+      if(!st){ i++; continue; }
+      if(st==='---'){ out.push('<hr>'); i++; continue; }
+      var m=st.match(/^(#{1,4})\s+(.*)$/);
+      if(m){ var lv=m[1].length; out.push('<h'+lv+'>'+inl(m[2])+'</h'+lv+'>'); i++; continue; }
+      if(/^[-*]\s+/.test(st)){ var items=[]; while(i<n && /^\s*[-*]\s+/.test(lines[i])){ items.push('<li>'+inl(lines[i].replace(/^\s*[-*]\s+/,''))+'</li>'); i++; } out.push('<ul>'+items.join('')+'</ul>'); continue; }
+      out.push('<p>'+inl(st)+'</p>'); i++;
+    }
+    return out.join('\n');
+  }
+  function setStatus(t,spin){ el.status.innerHTML=(spin?'<span class="rp-spin"></span>':'')+esc(t||''); }
+  function refreshButtons(){ var has=!!cur.content_md; el.save.disabled=!has; el.md.disabled=!has; el.pdf.disabled=!has; }
+  function showReport(){
+    if(cur.content_md){ el.report.innerHTML=mdRender(cur.content_md); el.report.classList.add('show'); }
+    else { el.report.classList.remove('show'); el.report.innerHTML=''; }
+    var dbs=(cur.databases||[]).join(', ')||'-';
+    var nq=(cur.steps||[]).filter(function(s){return s.type==='query';}).length;
+    el.meta.textContent = cur.content_md ? ('Sumber data: '+dbs+' • '+nq+' query dijalankan'+(cur.id?(' • tersimpan #'+cur.id):' • belum disimpan')) : '';
+    refreshButtons();
+  }
+  function generate(){
+    var question=el.q.value.trim();
+    if(!question){ el.q.focus(); return; }
+    el.gen.disabled=true; setStatus('Menyusun laporan dari data internal… (bisa beberapa saat)',true);
+    var _s=0;
+    fetch('/api/laporan/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:question,title:el.title.value.trim()})})
+      .then(function(r){_s=r.status;return r.text();})
+      .then(function(raw){
+        var d; try{ d=JSON.parse(raw); }catch(_e){
+          var msg=(_s===401||_s===403)?'Sesi berakhir atau akses ditolak. Muat ulang lalu login.':((_s===502||_s===503||_s===504)?('Server AI melebihi batas waktu (gateway '+_s+'). Coba lagi atau persempit permintaan.'):'Respons server tidak dapat dibaca (bukan JSON).');
+          setStatus('⚠ '+msg); return;
+        }
+        if(!d.ok){ setStatus('⚠ '+(d.error||'Gagal menyusun laporan.')); return; }
+        cur={ id:null, title:d.title||'', question:question, content_md:d.content_md||'', databases:d.databases||[], steps:d.steps||[] };
+        if(d.title) el.title.value=d.title;
+        showReport(); setStatus(d.note?('Selesai — catatan: '+d.note):'Laporan siap. Klik Simpan untuk menyimpan.');
+      })
+      .catch(function(e){ setStatus('⚠ '+e.message); })
+      .then(function(){ el.gen.disabled=false; });
+  }
+  function save(cb){
+    if(!cur.content_md){ return; }
+    setStatus('Menyimpan…',true);
+    fetch('/api/laporan/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:el.title.value.trim()||cur.title,question:cur.question,content_md:cur.content_md,databases:cur.databases,steps:cur.steps})})
+      .then(function(r){return r.json();}).then(function(d){
+        if(!d.ok){ setStatus('⚠ '+(d.error||'Gagal menyimpan.')); return; }
+        cur.id=d.id; cur.title=el.title.value.trim()||cur.title; showReport(); setStatus('Tersimpan #'+d.id+'.'); loadList();
+        if(typeof cb==='function') cb();
+      }).catch(function(e){ setStatus('⚠ '+e.message); });
+  }
+  function ensureSaved(cb){ if(cur.id){ cb(); } else { save(cb); } }
+  function exportAs(fmt){ ensureSaved(function(){ window.open('/api/laporan/export?id='+encodeURIComponent(cur.id)+'&fmt='+fmt,'_blank'); }); }
+  function loadList(){
+    var q=(el.search.value||'').trim();
+    fetch('/api/laporan/list'+(q?('?q='+encodeURIComponent(q)):'')).then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ el.list.innerHTML='<div class="rp-empty">Gagal memuat.</div>'; return; }
+      if(!d.items.length){ el.list.innerHTML='<div class="rp-empty">Belum ada laporan tersimpan.</div>'; return; }
+      el.list.innerHTML=d.items.map(function(it){
+        return '<div class="rp-item'+(cur.id===it.id?' active':'')+'" data-id="'+it.id+'">'+
+          '<div class="t">'+esc(it.title)+'</div>'+
+          '<div class="m"><span>'+esc((it.created_at||'').replace('T',' '))+'</span><button class="del" data-del="'+it.id+'">Hapus</button></div></div>';
+      }).join('');
+    }).catch(function(){ el.list.innerHTML='<div class="rp-empty">Gagal memuat.</div>'; });
+  }
+  function openReport(id){
+    setStatus('Membuka…',true);
+    fetch('/api/laporan/get?id='+encodeURIComponent(id)).then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ setStatus('⚠ '+(d.error||'Gagal.')); return; }
+      var r=d.report; cur={ id:r.id, title:r.title, question:r.question||'', content_md:r.content_md||'', databases:r.databases||[], steps:r.steps||[] };
+      el.title.value=r.title||''; el.q.value=r.question||''; showReport(); setStatus('Dibuka #'+r.id+'.'); loadList();
+      window.scrollTo({top:0,behavior:'smooth'});
+    }).catch(function(e){ setStatus('⚠ '+e.message); });
+  }
+  function newReport(){ cur={ id:null,title:'',question:'',content_md:'',databases:[],steps:[] }; el.title.value=''; el.q.value=''; showReport(); setStatus(''); loadList(); el.q.focus(); }
+  var EX=['Ringkas tren fallback 30 hari terakhir + 3 intent prioritas','Bandingkan volume interaksi Dialogflow vs Sosmed bulan ini','Top 10 pertanyaan tanpa jawaban minggu lalu'];
+  EX.forEach(function(t){ var b=document.createElement('button'); b.type='button'; b.textContent=t; b.onclick=function(){ el.q.value=t; generate(); }; el.ex.appendChild(b); });
+  el.gen.onclick=generate; el.save.onclick=function(){ save(); }; el.md.onclick=function(){ exportAs('md'); }; el.pdf.onclick=function(){ exportAs('pdf'); }; el.neu.onclick=newReport;
+  el.list.addEventListener('click',function(e){
+    var del=e.target.closest('[data-del]');
+    if(del){ e.stopPropagation(); var did=parseInt(del.getAttribute('data-del'),10); if(confirm('Hapus laporan ini?')){ fetch('/api/laporan/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:did})}).then(function(r){return r.json();}).then(function(){ if(cur.id===did) newReport(); else loadList(); }); } return; }
+    var item=e.target.closest('.rp-item'); if(item){ openReport(item.getAttribute('data-id')); }
+  });
+  var stmr; el.search.addEventListener('input',function(){ clearTimeout(stmr); stmr=setTimeout(loadList,300); });
+  el.q.addEventListener('keydown',function(e){ if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)){ generate(); } });
+  showReport(); loadList();
+})();
+</script>
+{% endblock %}
