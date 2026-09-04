@@ -16,6 +16,13 @@ Dikontrol setting `tts_cache_enabled` (default '1') & `tts_cache_max` (default
 64 entri, LRU). Hanya hasil SUKSES yang disimpan. clear_cache() dipanggil saat
 konfigurasi/suara berubah. Semua fail-soft.
 
+SAMPLE-RATE KELUARAN (telephony, prototype): setting `tts_target_sample_rate`
+(default '0' = mati) bila diisi (mis. 8000) membuat keluaran WAV di-resample ke
+mono target Hz SEBELUM dikembalikan -- berguna untuk menguji suara di kanal 8 kHz
+ala Avaya tanpa integrasi telephony penuh. Resample memakai audioop (pustaka
+standar) dan fail-soft: bila audioop tak ada (Python 3.13+) atau gagal, keluaran
+asli dikembalikan apa adanya. Saat setting mati, keluaran identik seperti dulu.
+
 KEANDALAN SUARA (penting): synth() dirancang supaya suara SELALU diusahakan keluar.
   - Piper gagal transien (subprocess/output kosong) -> otomatis DICOBA ULANG 1x
     dengan MESIN YANG SAMA (tidak mengganti suara).
@@ -24,7 +31,7 @@ KEANDALAN SUARA (penting): synth() dirancang supaya suara SELALU diusahakan kelu
     Piper, suara yang keluar HANYA Piper -- tidak dicampur MMS supaya suara tidak
     berganti-ganti / tumpang tindih. Aktifkan hanya bila memang ingin fail-over.
   - Setiap kegagalan DICATAT ke log server ([voicebot.tts] ...) lengkap dengan
-    alasan + panjang teks, supaya turn yang "gagal TTS" bisa didiagnosis.
+    alasan + panjang teks, supaya turn yang \"gagal TTS\" bisa didiagnosis.
 
 SANITASI TEKS (penting untuk Piper): sebelum sintesis, teks dibersihkan lewat
 _sanitize_for_tts() supaya AMAN dan JELAS diucapkan:
@@ -106,6 +113,19 @@ def _cross_fallback_on():
         return str(_cfg.get_setting("tts_cross_fallback", "0")) not in off
     except Exception:
         return False
+
+
+def _target_sample_rate():
+    """Sample-rate keluaran TTS yang diinginkan (Hz), mis. 8000 untuk kanal
+    telephony Avaya (8 kHz). Setting `tts_target_sample_rate` (default '0' =
+    mati -> pakai sample-rate asli mesin). Fail-soft.
+    """
+    try:
+        from voicebot import config_db as _cfg
+        n = int(_cfg.get_setting("tts_target_sample_rate", "0") or 0)
+        return n if n > 0 else 0
+    except Exception:
+        return 0
 
 
 def _bin():
@@ -243,6 +263,7 @@ def diagnostics():
         "cross_fallback": _cross_fallback_on(),
         "cache_enabled": _cache_enabled(),
         "cache_size": len(_SYNTH_CACHE),
+        "target_sample_rate": _target_sample_rate(),
         # Piper
         "bin": _bin(),
         "bin_resolved": _resolve_bin(),
@@ -384,6 +405,54 @@ def _wrap_pcm16_wav(pcm_bytes, sample_rate):
     w.writeframes(pcm_bytes)
     w.close()
     return buf.getvalue()
+
+
+def _resample_wav_pcm16(wav_bytes, target_sr):
+    """Resample WAV PCM16 -> mono target_sr Hz. Fail-soft: kembalikan asli bila gagal.
+
+    Dipakai untuk menurunkan keluaran TTS ke 8 kHz (mono) supaya cocok dengan
+    kanal telephony seperti Avaya (masih prototype -- resample saja, tanpa
+    integrasi penuh). Memakai audioop dari pustaka standar; bila tak tersedia
+    (Python 3.13+ menghapusnya) atau gagal, keluaran asli dikembalikan apa adanya.
+    """
+    try:
+        import audioop
+    except Exception:
+        _log("modul audioop tak tersedia; lewati resample ke %s Hz." % target_sr)
+        return wav_bytes
+    try:
+        with wave.open(io.BytesIO(wav_bytes), "rb") as r:
+            nch = r.getnchannels()
+            sw = r.getsampwidth()
+            sr = r.getframerate()
+            frames = r.readframes(r.getnframes())
+        if sw != 2:
+            return wav_bytes  # hanya dukung PCM16
+        if nch and nch > 1:
+            frames = audioop.tomono(frames, 2, 0.5, 0.5)
+            nch = 1
+        if int(sr) == int(target_sr):
+            # sudah pada target; pastikan tetap mono & terbungkus rapi
+            return _wrap_pcm16_wav(frames, int(target_sr))
+        conv, _ = audioop.ratecv(frames, 2, 1, int(sr), int(target_sr), None)
+        return _wrap_pcm16_wav(conv, int(target_sr))
+    except Exception as e:  # noqa: BLE001
+        _log("resample ke %s Hz gagal (pakai asli): %s" % (target_sr, e))
+        return wav_bytes
+
+
+def _maybe_resample(wav_bytes):
+    """Turunkan keluaran ke `tts_target_sample_rate` bila diset (mis. 8000).
+
+    Bila setting mati (0/kosong) keluaran dikembalikan tanpa perubahan sama sekali
+    (perilaku identik seperti sebelum fitur ini ada). Fail-soft.
+    """
+    if not wav_bytes:
+        return wav_bytes
+    tsr = _target_sample_rate()
+    if not tsr:
+        return wav_bytes
+    return _resample_wav_pcm16(wav_bytes, tsr)
 
 
 def _run_piper_file(binpath, voice, text, espeak):
@@ -585,6 +654,20 @@ def _synth_mms(text):
 # ------------------------------------------------------------------ API utama
 def synth(text):
     """Kembalikan (wav_bytes, error). wav_bytes None bila sintesis gagal.
+
+    Pembungkus tipis di atas _synth_impl(): setelah audio berhasil, keluaran
+    (opsional) di-resample ke `tts_target_sample_rate` (mis. 8000 utk kanal
+    telephony). Bila setting itu mati (default), keluaran identik dengan hasil
+    _synth_impl -- jadi perilaku lama tidak berubah.
+    """
+    wav, err = _synth_impl(text)
+    if wav:
+        wav = _maybe_resample(wav)
+    return wav, err
+
+
+def _synth_impl(text):
+    """(inti) Kembalikan (wav_bytes, error). wav_bytes None bila sintesis gagal.
 
     Mesin ditentukan setting `tts_engine`. Cadangan lintas-mesin (piper<->mms)
     HANYA dipakai bila setting `tts_cross_fallback` aktif (default mati) -- jadi
