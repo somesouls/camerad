@@ -22,6 +22,46 @@ import common.llm_client as llm_client
 import common.pii_mask as pii_mask
 
 
+# =============================================================
+# TAHAP 3 — Scope presisi per-halaman (ADITIF & NON-BREAKING).
+# Registry opsional; halaman yang TIDAK terdaftar berperilaku SAMA PERSIS
+# seperti sebelumnya (tanpa tambahan scope).
+#   - ASK_DATA_SCOPES      : panduan tambahan text-to-SQL utk halaman DATA.
+#   - ASK_KNOWLEDGE_SCOPES : penajaman guardrail utk halaman PUSTAKA.
+# Tidak menyentuh analytics_db, pipeline ingest, atau halaman lain.
+# =============================================================
+ASK_DATA_SCOPES = {
+    "tools": (
+        "KONTEKS HALAMAN: 'Analisis Dialogflow' \u2014 analisis mutu & cakupan "
+        "bot Dialogflow dari tabel `interactions`. Patuhi konvensi berikut:\n"
+        "- Intent bisnis/'bersih' = is_system=0 AND is_fallback=0 AND "
+        "substr(intent_name,1,7)<>'System_' AND substr(intent_name,1,5)<>'Umum_'.\n"
+        "- Pertanyaan tak dikenali (kandidat intent baru) = is_fallback=1.\n"
+        "- Intent sistem (welcome/hubungi agent) = is_system=1 (awalan 'System_').\n"
+        "- Fallback rate = SUM(is_fallback)*100.0/COUNT(*).\n"
+        "- Jumlah percakapan = COUNT(DISTINCT session_id); interaksi = COUNT(*).\n"
+        "- Filter tanggal SELALU memakai kolom `day` (YYYY-MM-DD, Asia/Jakarta).\n"
+        "- Kolom `ts` UTC ISO; untuk analisis jam sibuk konversi ke WIB dengan "
+        "datetime(replace(substr(ts,1,19),'T',' '),'+7 hours').\n"
+        "- 'Top intent' = urut COUNT(*) DESC memakai filter intent bersih di atas.\n"
+        "Hanya query tabel `interactions`; jangan mengarang tabel/kolom lain."
+    ),
+}
+
+ASK_KNOWLEDGE_SCOPES = {
+    "intentmap": (
+        "KONTEKS HALAMAN: 'Peta Intent' berisi (a) keputusan/kebijakan analis "
+        "sebagai KUNCI JAWABAN tiap intent, dan (b) Katalog Intent (deskripsi "
+        "maksud & cakupan; sebagian masih DRAF AI yang belum diverifikasi). "
+        "Utamakan keputusan analis yang sudah terverifikasi; bila informasi "
+        "hanya tersedia dari draf katalog, sampaikan seadanya dan tandai sebagai "
+        "draf. Untuk pertanyaan 'intent untuk X', sebutkan nama intent yang tepat "
+        "beserta maksud/cakupannya sesuai peta/katalog. Jangan mengarang nama "
+        "intent yang tidak ada dalam konteks."
+    ),
+}
+
+
 def _extract_sql(raw):
     raw = (raw or "").strip()
     m = re.search(r"\{.*\}", raw, re.S)
@@ -41,8 +81,13 @@ def _extract_sql(raw):
     return raw
 
 
-def answer_data_question(question):
-    """AI tanya-jawab data: text-to-SQL read-only + rangkum jawaban natural."""
+def answer_data_question(question, page=None):
+    """AI tanya-jawab data: text-to-SQL read-only + rangkum jawaban natural.
+
+    `page` opsional (Tahap 3): bila terdaftar di ASK_DATA_SCOPES, panduan scope
+    khusus halaman ditambahkan ke prompt SQL. Bila None / tak terdaftar,
+    perilakunya identik dengan versi sebelumnya.
+    """
     conn = adb.init_db(adb.connect())
     try:
         sys1 = (
@@ -53,6 +98,9 @@ def answer_data_question(question):
             ". Untuk 'minggu lalu' gunakan rentang tanggal pada kolom day. "
             "Selalu tambahkan LIMIT yang wajar."
         )
+        _scope = ASK_DATA_SCOPES.get((page or "").strip().lower())
+        if _scope:
+            sys1 += "\n\n" + _scope
         raw = llm_client.chat([{"role": "user", "content": pii_mask.mask_text(question)}],
                               system=sys1, max_new_tokens=400, temperature=0.0)
         sql = _extract_sql(raw)
@@ -181,6 +229,10 @@ def answer_knowledge_question(page, question, lang=None):
     if ctx:
         system += ("\n\n=== KONTEKS INTERNAL HALAMAN ===\n" + ctx +
                    "\n=== AKHIR KONTEKS INTERNAL ===")
+    # Tahap 3: penajaman scope khusus halaman (aditif; kosong bila tak terdaftar).
+    _scope = ASK_KNOWLEDGE_SCOPES.get((page or "").strip().lower())
+    if _scope:
+        system += "\n\n" + _scope
     # Tambah konteks silang dari pustaka lain yang relevan (glosarium/disambig/
     # peta intent/katalog) agar jawaban tetap konsisten lintas menu.
     system += kctx.system_suffix(question)
@@ -208,7 +260,8 @@ async def api_ask(request: Request):
             return JSONResponse(await run_in_threadpool(
                 answer_knowledge_question, page, question, lang))
         # Default & halaman data: text-to-SQL read-only (sama seperti Dashboard).
-        res = await run_in_threadpool(answer_data_question, question)
+        # Tahap 3: teruskan `page` agar scope presisi (mis. 'tools') aktif bila ada.
+        res = await run_in_threadpool(answer_data_question, question, page)
         if isinstance(res, dict) and "mode" not in res:
             res["mode"] = "data"
         return JSONResponse(res)
