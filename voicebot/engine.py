@@ -40,10 +40,13 @@ tak ada ucapan). Salam penutup (closing_reply) dibacakan APA ADANYA / verbatim.
 STT prediktif / biasing (#5): sebelum STT, engine menyusun (initial_prompt, hotwords)
 domain via vb_stt.build_bias(settings) -- dari istilah manual + kamus pelafalan
 (vb_lexicon) + nama intent aktif -- lalu meneruskannya ke vb_stt.transcribe_bytes
-supaya faster-whisper condong ke kosakata domain (NPWP/EFIN/SPT/dll.). Bias NLU
-dilengkapi dengan meneruskan 'settings' ke vb_nlu.classify (lihat nlu_bias_map di
-voicebot.nlu): bila kata kunci tertentu muncul, skor intent terkait dinaikkan. Semua
-fail-soft: bila biasing gagal disusun, STT/NLU tetap jalan tanpa bias.
+supaya faster-whisper condong ke kosakata domain (NPWP/EFIN/SPT/dll.). SESUDAH STT,
+transkrip dilewatkan vb_stt_correct.correct() untuk mengembalikan istilah domain yang
+salah didengar (mis. 'Coretax') ke bentuk baku sebelum NLU/dialog (koreksi domain
+pasca-STT; fail-soft). Bias NLU dilengkapi dengan meneruskan 'settings' ke
+vb_nlu.classify (lihat nlu_bias_map di voicebot.nlu): bila kata kunci tertentu
+muncul, skor intent terkait dinaikkan. Semua fail-soft: bila biasing/koreksi gagal,
+STT/NLU tetap jalan tanpa itu.
 
 Peringkas jawaban intent (2b): bila 'intent_shorten_enabled', jawaban match-intent
 dilewatkan vb_rag.shorten() agar ikut ringkas gaya suara (cache + fail-soft;
@@ -93,6 +96,7 @@ from voicebot import tts as vb_tts
 from voicebot import rag as vb_rag
 from voicebot import dialog as vb_dialog
 from voicebot import sentiment as vb_sentiment
+from voicebot import stt_correct as vb_stt_correct
 
 _SESSIONS = {}
 
@@ -520,6 +524,18 @@ def talk(session_id=None, text=None, audio_bytes=None, audio_filename="audio.wav
             transkrip = tr.get("text") or ""
             if not tr.get("ok"):
                 stt_err = tr.get("error")
+            # Koreksi domain pasca-STT (#STT-domain): kembalikan istilah domain
+            # yang salah didengar (mis. 'Coretax') ke bentuk baku SEBELUM NLU/dialog.
+            # Hanya jalur AUDIO (teks Mode A tidak dikoreksi). Fail-soft.
+            if transkrip:
+                try:
+                    corrected = vb_stt_correct.correct(transkrip, settings)
+                    if corrected and corrected != transkrip:
+                        print("[voicebot.engine] koreksi STT domain: %r -> %r"
+                              % (transkrip, corrected), flush=True)
+                    transkrip = corrected or transkrip
+                except Exception:
+                    pass
         else:
             stt_err = "STT dimatikan di konfigurasi"
 
