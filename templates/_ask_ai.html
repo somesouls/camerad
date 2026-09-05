@@ -1,5 +1,6 @@
-{# Kartu Tanya AI reusable: di-include di dalam kontainer konten tiap halaman setelah judul, agar judul di atas dan lebar sejajar konten. Set variabel `ask_agentic_only = true` sebelum include untuk halaman yang hanya didukung mode agentic (lintas database, read-only). #}
-{% set agentic_only = ask_agentic_only|default(false) %}
+{# Kartu Tanya AI reusable: di-include di dalam kontainer konten tiap halaman setelah judul, agar judul di atas dan lebar sejajar konten. Fase 6: mode agentic-only hanya untuk halaman lab (rag_harness, voicebot_lab); halaman lain memakai TOGGLE dengan default PRESISI (1 DB terkait). Variabel `ask_agentic_only` lama diabaikan agar halaman support (yang di base.html dipaksa true) kembali punya toggle. #}
+{% set _agentic_only_pages = ['rag_harness','voicebot_lab'] %}
+{% set agentic_only = active_page in _agentic_only_pages %}
 <style>
   .ask-card{margin:0 0 22px;padding:20px 22px;border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);}
   .ask-card .ask-hd{display:flex;align-items:center;gap:12px;}
@@ -30,8 +31,13 @@
   .ask-state{display:flex;align-items:center;gap:10px;color:var(--text-muted);}
   .ask-spin{display:inline-block;width:16px;height:16px;border:2px solid var(--panel-border);border-top-color:var(--accent);border-radius:50%;animation:askspin .7s linear infinite;}
   @keyframes askspin{to{transform:rotate(360deg);}}
+  .ask-savebar{margin-top:14px;padding-top:12px;border-top:1px dashed var(--panel-border);display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .ask-save{border:1px solid var(--accent);background:transparent;color:var(--accent);border-radius:8px;padding:7px 14px;font-size:12.5px;font-weight:600;cursor:pointer;}
+  .ask-save:hover{background:var(--accent);color:#fff;}
+  .ask-save:disabled{opacity:.6;cursor:default;}
+  .ask-savenote{font-size:12px;color:var(--text-muted);}
 </style>
-<section class="ask-card" id="askCard" data-page="{{ active_page }}" data-agentic-only="{{ 'true' if agentic_only else 'false' }}">
+<section class="ask-card" id="askCard" data-page="{{ active_page }}" data-agentic-only="{{ 'true' if agentic_only else 'false' }}" data-can-report="{{ 'true' if can_dialogflow else 'false' }}">
   <div class="ask-hd">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 2v4M9 12h.01M15 12h.01"/></svg></div>
     <div>
@@ -59,6 +65,9 @@
   if (!card) return;
   var page = card.getAttribute('data-page') || '';
   var agenticOnly = card.getAttribute('data-agentic-only') === 'true';
+  var canReport = card.getAttribute('data-can-report') === 'true';
+  var PRECISION_PAGES = ['awe_dasbor','awe_coverage','awe_taksonomi','awe_sentimen','awe_percakapan','awe_pengguna','awe_penilaian','awe_telepon_dash','awe_telepon_cov','awe_telepon_tax','awe_telepon_sen','awe_telepon_detail','awe_telepon_users','sosmed_qna','sosmed_sla','sosmed_deflection','peraturan','sop','kamus'];
+  var lastQuestion = '';
   var SCOPE = {
     glosarium: 'Menjawab dari Glosarium Istilah Pajak',
     disambiguasi: 'Menjawab dari Pustaka Disambiguasi',
@@ -67,7 +76,26 @@
     data: 'Menjawab dari database interaksi (query SQL)',
     deflection: 'Menjawab dari data interaksi (query SQL)',
     lifecycle: 'Menjawab dari data interaksi (query SQL)',
-    tools: 'Menjawab dari data interaksi (query SQL)'
+    tools: 'Menjawab dari data interaksi (query SQL)',
+    awe_dasbor: 'Menjawab dari data Chat AWE (Avaya)',
+    awe_coverage: 'Menjawab dari data Chat AWE (coverage & deflection)',
+    awe_taksonomi: 'Menjawab dari data Chat AWE (taksonomi & peluang)',
+    awe_sentimen: 'Menjawab dari data Chat AWE (sentimen & agent)',
+    awe_percakapan: 'Menjawab dari detail percakapan Chat AWE',
+    awe_pengguna: 'Menjawab dari data pengguna harian Chat AWE',
+    awe_penilaian: 'Menjawab dari penilaian QA Chat AWE',
+    awe_telepon_dash: 'Menjawab dari data Telepon AWE',
+    awe_telepon_cov: 'Menjawab dari data Telepon AWE (coverage)',
+    awe_telepon_tax: 'Menjawab dari data Telepon AWE (taksonomi)',
+    awe_telepon_sen: 'Menjawab dari data Telepon AWE (sentimen)',
+    awe_telepon_detail: 'Menjawab dari detail percakapan Telepon AWE',
+    awe_telepon_users: 'Menjawab dari data penelepon Telepon AWE',
+    sosmed_qna: 'Menjawab dari data Sosmed (Q&A)',
+    sosmed_sla: 'Menjawab dari data Sosmed (SLA & analitik)',
+    sosmed_deflection: 'Menjawab dari data Sosmed (coverage & deflection)',
+    peraturan: 'Menjawab dari basis data Peraturan (query SQL)',
+    sop: 'Menjawab dari basis data SOP & Proses Bisnis',
+    kamus: 'Menjawab dari Kamus & Rewriting'
   };
   var EX = {
     glosarium: ['Apa itu EFIN?', 'Jelaskan istilah Coretax'],
@@ -77,7 +105,19 @@
     data: ['Berapa total sesi bulan ini?', 'Top 5 intent minggu lalu'],
     deflection: ['Berapa fallback rate 7 hari terakhir?'],
     lifecycle: ['Berapa intent yang tak pernah dipanggil?'],
-    tools: ['Berapa total interaksi minggu lalu?']
+    tools: ['Berapa total interaksi minggu lalu?'],
+    awe_dasbor: ['Berapa volume chat bulan ini?', 'Rata-rata durasi chat?'],
+    awe_coverage: ['Deflection gap tertinggi per topik?'],
+    awe_sentimen: ['Porsi sentimen negatif chat?'],
+    awe_pengguna: ['Berapa pengguna unik hari ini?'],
+    awe_penilaian: ['Kepatuhan softskill agent terbaru?'],
+    awe_telepon_dash: ['Volume telepon minggu ini?'],
+    awe_telepon_users: ['Penelepon berulang terbanyak?'],
+    sosmed_qna: ['Pertanyaan warga tersering?'],
+    sosmed_sla: ['Keterjawaban Sosmed 7 hari terakhir?'],
+    peraturan: ['Berapa peraturan berlaku per tahun?', 'Peraturan yang sudah dicabut?'],
+    sop: ['Berapa SOP aktif per kategori?'],
+    kamus: ['Sinonim untuk EFIN?']
   };
   var scopeEl = document.getElementById('askScope');
   var agToggle = document.getElementById('askAgentic');
@@ -132,10 +172,39 @@
       if (r.note) html += '<div class="ask-sql">'+esc(r.note)+'</div>';
     }
     show(html);
+    if (canReport) addSaveBar(r);
+  }
+  function deriveTitle(qq){ qq=(qq||'').replace(/\s+/g,' ').trim(); if(!qq) return 'Laporan'; return qq.length>70 ? qq.slice(0,70)+'…' : qq; }
+  function buildReportMd(r){
+    var qq = lastQuestion || '';
+    var dbs = (r.databases && r.databases.length) ? r.databases : (r.db ? [r.db] : []);
+    var dbtxt = dbs.map(function(d){ return typeof d === 'string' ? d : (d && (d.key || d.name) ? (d.key || d.name) : String(d)); }).join(', ') || '-';
+    var out = ['# ' + deriveTitle(qq), '', '_Sumber data: ' + dbtxt + '_', '', '**Permintaan:** ' + qq, '', (r.answer || '').trim()];
+    var qsteps = (r.steps || []).filter(function(s){ return s && s.type === 'query'; });
+    if (r.mode === 'data' && r.sql) { out.push('', '---', '', '## Lampiran - Query SQL', '', '```sql', r.sql, '```'); }
+    else if (qsteps.length) { out.push('', '---', '', '## Lampiran - Query SQL', ''); qsteps.forEach(function(s,i){ out.push('**' + (i+1) + '. ' + (s.db || '?') + '** (' + (s.ok ? 'ok' : 'gagal') + ')', '', '```sql', (s.sql || '').trim(), '```', ''); }); }
+    return out.join('\n');
+  }
+  function addSaveBar(r){
+    if (!r || !r.answer) return;
+    if (ans.querySelector('.ask-savebar')) return;
+    var bar = document.createElement('div'); bar.className = 'ask-savebar';
+    var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'ask-save'; btn.textContent = 'Simpan sebagai laporan';
+    var note = document.createElement('span'); note.className = 'ask-savenote';
+    bar.appendChild(btn); bar.appendChild(note); ans.appendChild(bar);
+    btn.onclick = function(){
+      btn.disabled = true; note.textContent = ' Menyimpan…';
+      var dbs = (r.databases && r.databases.length) ? r.databases : (r.db ? [r.db] : []);
+      fetch('/api/laporan/save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title: deriveTitle(lastQuestion), content_md: buildReportMd(r), question: lastQuestion || '', databases: dbs, steps: r.steps || [] }) })
+        .then(function(x){ return x.text(); })
+        .then(function(raw){ var s; try { s = JSON.parse(raw); } catch (_e) { s = { ok:false, error:'Respons non-JSON.' }; } if (s.ok) { note.innerHTML = ' ✓ Tersimpan. <a href="/laporan" style="color:var(--accent);">Buka Laporan</a>'; } else { btn.disabled = false; note.textContent = ' ⚠ ' + (s.error || 'Gagal menyimpan.'); } })
+        .catch(function(e){ btn.disabled = false; note.textContent = ' ⚠ ' + e.message; });
+    };
   }
   function askPrecise(text){
     var _status = 0;
-    fetch('/api/ask', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: text, page: page }) })
+    var _url = (PRECISION_PAGES.indexOf(page) >= 0) ? '/api/ask-precise' : '/api/ask';
+    fetch(_url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: text, page: page }) })
       .then(function(r){ _status = r.status; return r.text(); })
       .then(function(raw){
         var r;
@@ -187,6 +256,7 @@
   function askNow(){
     var text = q.value.trim();
     if (!text || busy) return;
+    lastQuestion = text;
     var agentic = isAgentic();
     busy = true; send.disabled = true;
     show('<div class="ask-state"><span class="ask-spin"></span>' + (agentic ? 'Menganalisis lintas database (bisa beberapa langkah)…' : 'Menganalisis data internal…') + '</div>');
