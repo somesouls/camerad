@@ -22,6 +22,198 @@ import common.llm_client as llm_client
 import common.pii_mask as pii_mask
 
 
+# =============================================================
+# TAHAP 3 — Scope presisi per-halaman (ADITIF & NON-BREAKING).
+# Registry opsional; halaman yang TIDAK terdaftar berperilaku SAMA PERSIS
+# seperti sebelumnya (tanpa tambahan scope).
+#   - ASK_DATA_SCOPES      : panduan tambahan text-to-SQL utk halaman DATA.
+#   - ASK_KNOWLEDGE_SCOPES : penajaman guardrail utk halaman PUSTAKA.
+#   - ASK_AGENTIC_SCOPES   : konteks halaman utk jalur AGENTIC (mis. Sosmed).
+# Tidak menyentuh analytics_db, pipeline ingest, atau halaman lain.
+# =============================================================
+ASK_DATA_SCOPES = {
+    "tools": (
+        "KONTEKS HALAMAN: 'Analisis Dialogflow' \u2014 analisis mutu & cakupan "
+        "bot Dialogflow dari tabel `interactions`. Patuhi konvensi berikut:\n"
+        "- Intent bisnis/'bersih' = is_system=0 AND is_fallback=0 AND "
+        "substr(intent_name,1,7)<>'System_' AND substr(intent_name,1,5)<>'Umum_'.\n"
+        "- Pertanyaan tak dikenali (kandidat intent baru) = is_fallback=1.\n"
+        "- Intent sistem (welcome/hubungi agent) = is_system=1 (awalan 'System_').\n"
+        "- Fallback rate = SUM(is_fallback)*100.0/COUNT(*).\n"
+        "- Jumlah percakapan = COUNT(DISTINCT session_id); interaksi = COUNT(*).\n"
+        "- Filter tanggal SELALU memakai kolom `day` (YYYY-MM-DD, Asia/Jakarta).\n"
+        "- Kolom `ts` UTC ISO; untuk analisis jam sibuk konversi ke WIB dengan "
+        "datetime(replace(substr(ts,1,19),'T',' '),'+7 hours').\n"
+        "- 'Top intent' = urut COUNT(*) DESC memakai filter intent bersih di atas.\n"
+        "Hanya query tabel `interactions`; jangan mengarang tabel/kolom lain."
+    ),
+}
+
+ASK_KNOWLEDGE_SCOPES = {
+    "intentmap": (
+        "KONTEKS HALAMAN: 'Peta Intent' berisi (a) keputusan/kebijakan analis "
+        "sebagai KUNCI JAWABAN tiap intent, dan (b) Katalog Intent (deskripsi "
+        "maksud & cakupan; sebagian masih DRAF AI yang belum diverifikasi). "
+        "Utamakan keputusan analis yang sudah terverifikasi; bila informasi "
+        "hanya tersedia dari draf katalog, sampaikan seadanya dan tandai sebagai "
+        "draf. Untuk pertanyaan 'intent untuk X', sebutkan nama intent yang tepat "
+        "beserta maksud/cakupannya sesuai peta/katalog. Jangan mengarang nama "
+        "intent yang tidak ada dalam konteks."
+    ),
+}
+
+ASK_AGENTIC_SCOPES = {
+    "sosmed_qna": (
+        "KONTEKS HALAMAN: 'Q&A Sosmed' \u2014 kumpulan pertanyaan warga & utas "
+        "dari media sosial (X/IG/TikTok). Untuk menjawab, UTAMAKAN database "
+        "`sosmed` (tabel `sosmed_items`; pertanyaan warga = "
+        "item_type='pertanyaan', teks pada kolom `text`, waktu pada kolom `ts`). "
+        "Untuk 'pertanyaan tersering/terbaru', agregasi/urutkan `sosmed_items`. "
+        "Jangan mencampur dengan data Dialogflow (`analytics`/`interactions`) "
+        "kecuali memang diminta."
+    ),
+    "sosmed_sla": (
+        "KONTEKS HALAMAN: 'SLA & Analitik Sosmed' \u2014 cakupan/keterjawaban & "
+        "analitik interaksi media sosial. UTAMAKAN database `sosmed` (tabel "
+        "`sosmed_items`, `sosmed_batches`). Hitung volume & keterjawaban dari "
+        "`sosmed_items` (pertanyaan = item_type='pertanyaan'); pakai kolom `ts` "
+        "untuk tren waktu. Jangan mencampur dengan data Dialogflow "
+        "(`analytics`/`interactions`)."
+    ),
+    "sosmed_deflection": (
+        "KONTEKS HALAMAN: 'Coverage & Deflection Sosmed' \u2014 klaster pertanyaan "
+        "warga yang sedang tren dan potensi gap pengetahuan bot. UTAMAKAN "
+        "database `sosmed` (tabel `sosmed_items`, pertanyaan = "
+        "item_type='pertanyaan') untuk menemukan pertanyaan berulang/tren. "
+        "Jangan mengarang klaster di luar data yang ada."
+    ),
+    "peraturan": (
+        "KONTEKS HALAMAN: 'Basis Data Peraturan' \u2014 basis data regulasi "
+        "pajak per unit (pasal/ayat/lampiran). Untuk RANGKUMAN/REKAP/CROSS-CHECK "
+        "berbasis SQL, UTAMAKAN database `peraturan` (tabel `peraturan_unit`; "
+        "kolom a.l. jenis_peraturan, nomor, tahun, judul, pasal, ayat, isi, "
+        "status['berlaku'/'dicabut'/'diubah'], topik; relasi antar-peraturan di "
+        "`peraturan_relasi`). Cocok untuk: rekap COUNT/GROUP BY "
+        "jenis_peraturan/tahun/status, cek pencabutan/perubahan via "
+        "`peraturan_relasi`, dan cross-check silang-tabel (mis. peraturan yang "
+        "belum tercakup di SOP -> bandingkan dengan database `sop`). Pencarian "
+        "isi/judul pakai LIKE (mis. judul LIKE '%PPN%'). CATATAN: pencarian "
+        "makna/kualitas jawaban regulasi ditangani mesin RAG, BUKAN jalur ini; "
+        "di sini andalkan filter SQL (LIKE/agregasi) dan akui bila cakupan teks "
+        "terbatas. Jangan SELECT tabel `peraturan_vec`/`peraturan_fts`. Jangan "
+        "mengarang nomor/pasal."
+    ),
+    "sop": (
+        "KONTEKS HALAMAN: 'SOP & Proses Bisnis'. Untuk RANGKUMAN/REKAP/CROSS-"
+        "CHECK berbasis SQL, UTAMAKAN database `sop` (tabel `sop_unit`; kolom "
+        "a.l. dokumen_id, judul, kategori['SOP'/'Proses Bisnis'/'Panduan'/"
+        "'Lainnya'], bagian, isi, status['aktif']). Cocok untuk: rekap "
+        "COUNT/GROUP BY kategori/dokumen_id, inventarisasi SOP aktif, dan "
+        "cross-check silang-tabel dengan database `peraturan` (mis. peraturan "
+        "yang belum punya SOP terkait). Pencarian pakai LIKE pada judul/isi. "
+        "CATATAN: pencarian makna/kualitas ditangani mesin RAG, BUKAN jalur ini. "
+        "Jangan SELECT tabel `sop_vec`/`sop_fts`. Jangan mengarang isi SOP di "
+        "luar data."
+    ),
+    "kamus": (
+        "KONTEKS HALAMAN: 'Kamus & Rewriting' \u2014 kamus sinonim/istilah pajak "
+        "untuk normalisasi query. UTAMAKAN database `kamus` (tabel "
+        "`kamus_sinonim`; kolom istilah, sinonim [JSON array], kategori, aktif). "
+        "Cocok untuk: rekap COUNT/GROUP BY kategori, mencari padanan/sinonim "
+        "istilah (LIKE pada kolom istilah; sinonim disimpan sebagai JSON array), "
+        "dan cek istilah aktif/nonaktif. CATATAN: gunakan untuk lookup/rekap, "
+        "bukan pencarian makna dokumen. Jangan mengarang istilah di luar data."
+    ),
+    "awe_dasbor": (
+        "KONTEKS HALAMAN: 'Dashboard AWE' (Chat Avaya). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Untuk KPI ringkas: volume = "
+        "COUNT(*); reached agent = agent_name<>''; porsi sentimen negatif = "
+        "sentiment LIKE 'neg%'; rata-rata durasi = AVG(durasi). Filter tanggal "
+        "pakai substr(tanggal,1,10). Ini data CHAT; jangan pakai "
+        "awe_phone_interactions (itu telepon)."
+    ),
+    "awe_coverage": (
+        "KONTEKS HALAMAN: 'Coverage & Deflection AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Coverage dari kolom coverage_band; "
+        "deflection gap = deflection_gap=1 ATAU behavior IN ('direct','langsung') "
+        "(langsung ke agent). Rekap per topik pakai GROUP BY topik (fallback "
+        "mapped_intent). Data CHAT, bukan telepon."
+    ),
+    "awe_taksonomi": (
+        "KONTEKS HALAMAN: 'Taksonomi & Peluang AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Taksonomi dari case_label & "
+        "jenis_layanan; peluang/topik dari topik (fallback mapped_intent). Pakai "
+        "COUNT/GROUP BY. Data CHAT."
+    ),
+    "awe_sentimen": (
+        "KONTEKS HALAMAN: 'Sentimen & Agent AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Sentimen: kolom sentiment "
+        "('positif'/'netral'/'negatif'); emosi: kolom emotion. Analisis per "
+        "agent pakai GROUP BY agent_name (abaikan agent_name kosong). Data CHAT."
+    ),
+    "awe_percakapan": (
+        "KONTEKS HALAMAN: 'Detail Percakapan AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations` (satu baris per sid). Kolom penting: "
+        "sid, tanggal, customer, agent_name, durasi, sentiment, topik, "
+        "jenis_layanan, mapped_intent. Untuk rekap JANGAN SELECT transkrip_json "
+        "yang besar. Data CHAT."
+    ),
+    "awe_pengguna": (
+        "KONTEKS HALAMAN: 'Pengguna Harian AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Identitas pengguna: kolom nik "
+        "(NIK/NPWP) lalu customer (nama); 'langsung ke agent' = behavior IN "
+        "('direct','langsung') ATAU deflection_gap=1. Pengguna unik pakai "
+        "COUNT(DISTINCT nik) atau nama. Data CHAT (tidak ada ANI/telepon)."
+    ),
+    "awe_penilaian": (
+        "KONTEKS HALAMAN: 'Penilaian QA AWE' (Chat). UTAMAKAN database `avaya`, "
+        "tabel `awe_conversations`. Softskill agent tersimpan pada kolom biner "
+        "(1/0): ss_salam_pembuka, ss_menanyakan_nama, ss_menyapa_customer, "
+        "ss_menawarkan_bantuan, ss_hold, ss_salam_penutup, ss_lengkap "
+        "(ss_lengkap=1 bila semua wajib lolos). is_poro=1 = percakapan PORO; "
+        "jenis_layanan = kategori layanan. Rekap kepatuhan pakai AVG/SUM kolom "
+        "ss_*. Data CHAT."
+    ),
+    "awe_telepon_dash": (
+        "KONTEKS HALAMAN: 'Dashboard AWE Telepon'. UTAMAKAN database `avaya`, "
+        "tabel `awe_phone_interactions`. KPI: volume = COUNT(*); rata-rata durasi "
+        "= AVG(durasi); reached agent = agent_name<>''. Filter tanggal pakai "
+        "substr(tanggal,1,10) atau kolom day. Ini data TELEPON; jangan pakai "
+        "awe_conversations (itu chat)."
+    ),
+    "awe_telepon_cov": (
+        "KONTEKS HALAMAN: 'Coverage & Deflection AWE Telepon'. UTAMAKAN database "
+        "`avaya`, tabel `awe_phone_interactions`. Rekap per topik/jenis_layanan "
+        "pakai GROUP BY; volume per hari pakai kolom day atau "
+        "substr(tanggal,1,10). Data TELEPON."
+    ),
+    "awe_telepon_tax": (
+        "KONTEKS HALAMAN: 'Taksonomi & Peluang AWE Telepon'. UTAMAKAN database "
+        "`avaya`, tabel `awe_phone_interactions`. Taksonomi dari topik & "
+        "jenis_layanan; pakai COUNT/GROUP BY. Data TELEPON."
+    ),
+    "awe_telepon_sen": (
+        "KONTEKS HALAMAN: 'Sentimen & Agent AWE Telepon'. UTAMAKAN database "
+        "`avaya`, tabel `awe_phone_interactions`. Sentimen: kolom sentiment; "
+        "emosi: emotion; resolusi: resolusi; indikasi frustrasi: frustrasi. "
+        "Analisis per agent pakai GROUP BY agent_name. Data TELEPON."
+    ),
+    "awe_telepon_detail": (
+        "KONTEKS HALAMAN: 'Detail Percakapan AWE Telepon'. UTAMAKAN database "
+        "`avaya`, tabel `awe_phone_interactions` (satu baris per sid). Kolom "
+        "penting: sid, tanggal, ani, agent_name, durasi, sentiment, topik, "
+        "jenis_layanan, resolusi, ringkasan. Untuk rekap JANGAN SELECT "
+        "stt_text/*_json yang besar. Data TELEPON."
+    ),
+    "awe_telepon_users": (
+        "KONTEKS HALAMAN: 'Pengguna AWE Telepon'. UTAMAKAN database `avaya`, "
+        "tabel `awe_phone_interactions`. Penelepon diidentifikasi dari kolom ani "
+        "(nomor telepon); pengguna unik pakai COUNT(DISTINCT ani); penelepon "
+        "berulang pakai GROUP BY ani HAVING COUNT(*)>1. Data TELEPON."
+    ),
+}
+
+
 def _extract_sql(raw):
     raw = (raw or "").strip()
     m = re.search(r"\{.*\}", raw, re.S)
@@ -41,8 +233,13 @@ def _extract_sql(raw):
     return raw
 
 
-def answer_data_question(question):
-    """AI tanya-jawab data: text-to-SQL read-only + rangkum jawaban natural."""
+def answer_data_question(question, page=None):
+    """AI tanya-jawab data: text-to-SQL read-only + rangkum jawaban natural.
+
+    `page` opsional (Tahap 3): bila terdaftar di ASK_DATA_SCOPES, panduan scope
+    khusus halaman ditambahkan ke prompt SQL. Bila None / tak terdaftar,
+    perilakunya identik dengan versi sebelumnya.
+    """
     conn = adb.init_db(adb.connect())
     try:
         sys1 = (
@@ -53,6 +250,9 @@ def answer_data_question(question):
             ". Untuk 'minggu lalu' gunakan rentang tanggal pada kolom day. "
             "Selalu tambahkan LIMIT yang wajar."
         )
+        _scope = ASK_DATA_SCOPES.get((page or "").strip().lower())
+        if _scope:
+            sys1 += "\n\n" + _scope
         raw = llm_client.chat([{"role": "user", "content": pii_mask.mask_text(question)}],
                               system=sys1, max_new_tokens=400, temperature=0.0)
         sql = _extract_sql(raw)
@@ -181,6 +381,10 @@ def answer_knowledge_question(page, question, lang=None):
     if ctx:
         system += ("\n\n=== KONTEKS INTERNAL HALAMAN ===\n" + ctx +
                    "\n=== AKHIR KONTEKS INTERNAL ===")
+    # Tahap 3: penajaman scope khusus halaman (aditif; kosong bila tak terdaftar).
+    _scope = ASK_KNOWLEDGE_SCOPES.get((page or "").strip().lower())
+    if _scope:
+        system += "\n\n" + _scope
     # Tambah konteks silang dari pustaka lain yang relevan (glosarium/disambig/
     # peta intent/katalog) agar jawaban tetap konsisten lintas menu.
     system += kctx.system_suffix(question)
@@ -208,7 +412,8 @@ async def api_ask(request: Request):
             return JSONResponse(await run_in_threadpool(
                 answer_knowledge_question, page, question, lang))
         # Default & halaman data: text-to-SQL read-only (sama seperti Dashboard).
-        res = await run_in_threadpool(answer_data_question, question)
+        # Tahap 3: teruskan `page` agar scope presisi (mis. 'tools') aktif bila ada.
+        res = await run_in_threadpool(answer_data_question, question, page)
         if isinstance(res, dict) and "mode" not in res:
             res["mode"] = "data"
         return JSONResponse(res)
@@ -219,8 +424,11 @@ async def api_ask(request: Request):
 async def api_ask_agentic(request: Request):
     """Tanya AI 'agentic' (Fase 2): loop read-only lintas database via registry.
 
-    Body: {question, lang?, max_iters?}. Non-breaking: endpoint terpisah;
-    /api/ask dan /api/ask-data tidak terpengaruh.
+    Body: {question, lang?, max_iters?, page?}. Non-breaking: endpoint terpisah;
+    /api/ask dan /api/ask-data tidak terpengaruh. Tahap 3: bila `page` terdaftar
+    di ASK_AGENTIC_SCOPES, konteks halaman ditambahkan sebagai PENGARAH
+    penelusuran (mis. menu Sosmed -> database `sosmed`). Engine agentic TIDAK
+    diubah; scope hanya menambah konteks pada pertanyaan, halaman lain identik.
     """
     try:
         body = await request.json()
@@ -230,6 +438,7 @@ async def api_ask_agentic(request: Request):
         body = {}
     question = (body.get("question") or "").strip()
     lang = body.get("lang") or None
+    page = (body.get("page") or "").strip().lower()
     if not question:
         return JSONResponse({"ok": False, "error": "question kosong."})
     try:
@@ -237,9 +446,14 @@ async def api_ask_agentic(request: Request):
     except Exception:
         max_iters = agentic.MAX_ITERS
     max_iters = max(1, min(max_iters, agentic.MAX_ITERS))
+    _scope = ASK_AGENTIC_SCOPES.get(page)
+    q_in = question
+    if _scope:
+        q_in = ("[KONTEKS HALAMAN untuk mengarahkan penelusuran]\n" + _scope +
+                "\n\n[PERTANYAAN PENGGUNA]\n" + question)
     try:
         return JSONResponse(await run_in_threadpool(
-            agentic.answer_agentic, question, lang, max_iters))
+            agentic.answer_agentic, q_in, lang, max_iters))
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
