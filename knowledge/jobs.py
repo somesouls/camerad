@@ -14,6 +14,9 @@ SIFAT: ADITIF & NON-BREAKING.
 - Engine agentic (knowledge/agentic.py) TIDAK diubah.
 
 Status job: queued -> running -> done | error | canceled.
+
+Fase 5: saat job terminal, jejaknya dicatat ke audit persisten (PII di-mask)
+lewat knowledge.guardrails.record — best-effort, tak pernah menggagalkan job.
 """
 import os
 import json
@@ -147,6 +150,41 @@ def _status_of(conn, job_id):
     return r["status"] if r else None
 
 
+def _audit_job(conn, job_id, status, result=None, error=None):
+    """Fase 5: catat audit persisten (PII di-mask) saat job terminal.
+
+    Best-effort total: guardrails di-import lazily & semua kegagalan ditelan
+    agar TIDAK pernah mengganggu penyelesaian job.
+    """
+    try:
+        from knowledge import guardrails as _guardrails
+    except Exception:
+        return
+    try:
+        r = conn.execute(
+            "SELECT question, page, created_by, created_at, started_at, "
+            "finished_at FROM agentic_jobs WHERE id=?", (job_id,)).fetchone()
+        if not r:
+            return
+        dur = None
+        try:
+            t0 = r["started_at"] or r["created_at"]
+            t1 = r["finished_at"] or _now()
+            if t0 and t1:
+                dur = int((_dt.datetime.fromisoformat(t1) -
+                           _dt.datetime.fromisoformat(t0)).total_seconds() * 1000)
+        except Exception:
+            dur = None
+        steps = (result or {}).get("steps") or []
+        dbs = (result or {}).get("databases") or []
+        _guardrails.record(
+            job_id=job_id, created_by=r["created_by"], page=r["page"],
+            status=status, question=r["question"], databases=dbs,
+            steps=steps, error=error, duration_ms=dur)
+    except Exception:
+        pass
+
+
 def _run(job_id, q_in, lang, max_iters):
     # Hormati pembatalan sebelum mulai.
     conn = connect()
@@ -178,6 +216,10 @@ def _run(job_id, q_in, lang, max_iters):
                     steps_done=len(steps),
                     databases=json.dumps(dbs, ensure_ascii=False),
                     finished_at=_now())
+        # Fase 5: audit persisten (best-effort, PII di-mask).
+        _audit_job(conn, job_id,
+                   status=("error" if err is not None else "done"),
+                   result=result, error=err)
     finally:
         conn.close()
 
