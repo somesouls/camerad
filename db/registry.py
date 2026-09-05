@@ -85,16 +85,36 @@ REGISTRY: List[Dict[str, Any]] = [
     },
     {
         "key": "avaya",
-        "label": "Percakapan Avaya (AWE)",
+        "label": "Percakapan Avaya (AWE Chat & Telepon)",
         "module": "avaya.db",
         "tables": [
-            "awe_conversations", "awe_runs", "awe_staging", "awe_day_coverage",
-            "awe_stage_batches", "awe_stage_coverage", "awe_meta",
+            "awe_conversations", "awe_phone_interactions", "awe_runs",
+            "awe_staging", "awe_day_coverage", "awe_stage_batches",
+            "awe_stage_coverage", "awe_meta",
         ],
         "schema": (
-            "awe_conversations = percakapan hasil olah. awe_runs = riwayat proses. "
-            "awe_meta = metadata (key, value). awe_day_coverage/awe_staging/"
-            "awe_stage_batches/awe_stage_coverage = tabel staging & cakupan harian."
+            "DB AWE Avaya berisi DUA sumber terpisah: (1) CHAT live-chat dan "
+            "(2) TELEPON. Kolom tanggal bertipe TEXT; untuk filter/rekap harian "
+            "pakai substr(tanggal,1,10). "
+            "awe_conversations = percakapan CHAT per-sid (a.l. run_id, sid, "
+            "tanggal, customer, nik, agent_name, durasi, behavior "
+            "['direct'/'langsung' = langsung ke agent], is_returning, "
+            "mapped_intent, coverage_band, case_label, sentiment "
+            "['positif'/'netral'/'negatif'], emotion, topik, jenis_layanan, "
+            "deflection_gap [1=ke agent walau ada intent mirip], is_poro, "
+            "non_npwp, serta skor softskill ss_salam_pembuka/ss_menanyakan_nama/"
+            "ss_menyapa_customer/ss_menawarkan_bantuan/ss_hold/ss_salam_penutup/"
+            "ss_lengkap [1/0]). 'reached agent' = agent_name tidak kosong. "
+            "awe_phone_interactions = interaksi TELEPON per-sid (a.l. sid, day, "
+            "tanggal, ani [nomor penelepon], dnis, call_id, durasi, hold_time_sec, "
+            "has_audio, customer, agent_name, ringkasan, topik, jenis_layanan, "
+            "sentiment, emotion, resolusi, frustrasi, analyzed_at). "
+            "awe_runs = riwayat proses analisis chat. awe_meta = metadata "
+            "(key, value). awe_staging/awe_day_coverage/awe_stage_batches/"
+            "awe_stage_coverage = tabel staging & cakupan harian (jarang dipakai "
+            "untuk analisis). CATATAN: kolom *_json (transkrip_json, analisis_json, "
+            "dll) & stt_text berisi teks besar; untuk rekap pakai agregasi kolom "
+            "terstruktur dan hindari SELECT kolom JSON besar tanpa alasan."
         ),
     },
     {
