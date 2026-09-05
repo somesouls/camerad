@@ -162,7 +162,7 @@ def _route_action(method, path):
 
 
 def _route_area(path):
-    # Menu "Webhook Chatbot" (Dialogflow ES) = khusus admin. Endpoint publik
+    # Menu \"Webhook Chatbot\" (Dialogflow ES) = khusus admin. Endpoint publik
     # /api/df/webhook (fulfillment) sudah ada di _PUBLIC_PATHS; halaman + API
     # konfigurasi (/df-webhook, /api/df/webhook/...) diperlakukan 'peraturan'.
     if path == "/df-webhook" or path.startswith("/api/df/webhook/"):
@@ -274,7 +274,7 @@ async def _auth_middleware(request: Request, call_next):
 
     # Panggilan klien luar ke mesin Voicebot (APK Android / widget web / IVR)
     # memakai header X-API-Key, sama pola dengan /api/avaya-*. Ini yang membuat
-    # engine "API-first" bisa dipanggil aplikasi lain tanpa cookie sesi. Akses
+    # engine \"API-first\" bisa dipanggil aplikasi lain tanpa cookie sesi. Akses
     # via browser yang sudah login tetap jalan lewat gerbang sesi di bawah.
     if path.startswith("/api/voicebot/"):
         _vb_key = request.headers.get("x-api-key")
@@ -318,3 +318,22 @@ try:
     print("[VOICEBOT] route terpasang (/voicebot, /voicebot/lab, /api/voicebot/*).", flush=True)
 except Exception as _voicebot_exc:
     print("[VOICEBOT] registrasi route dilewati:", _voicebot_exc, flush=True)
+
+
+# =============================================================
+# Fase 4 — Tanya AI AGENTIC ASINKRON (anti-timeout): start + polling
+# =============================================================
+# Endpoint /api/ask-agentic/{start,status,cancel} menjalankan loop agentic
+# sebagai background job (thread pool) dengan status di SQLite (reports.db,
+# tabel agentic_jobs), supaya analisis multi-langkah tidak kena batas waktu
+# gateway/proxy (akar bug \"Unexpected token '<'\" saat proxy balas HTML 504).
+# Didaftarkan DI SINI karena app_core memegang objek `app`. Fail-soft: bila
+# modul bermasalah, route lain tetap boot. Endpoint sinkron /api/ask-agentic
+# (di knowledge.routes) TETAP ADA dan tidak diubah. Path diawali \"/api/ask\"
+# sehingga otomatis area 'common' action 'read' di middleware (sama /api/ask).
+try:
+    import knowledge.jobs_routes as _agentic_jobs_routes
+    _agentic_jobs_routes.register(app)
+    print("[AGENTIC-JOBS] route async terpasang (/api/ask-agentic/start|status|cancel).", flush=True)
+except Exception as _agentic_jobs_exc:
+    print("[AGENTIC-JOBS] registrasi route dilewati:", _agentic_jobs_exc, flush=True)
