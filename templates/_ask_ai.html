@@ -1,4 +1,4 @@
-{# Kartu Tanya AI reusable: di-include di dalam kontainer konten tiap halaman setelah judul, agar judul di atas dan lebar sejajar konten. Fase 6: mode agentic-only hanya untuk halaman lab (rag_harness, voicebot_lab); halaman lain memakai TOGGLE dengan default PRESISI (1 DB terkait). Variabel `ask_agentic_only` lama diabaikan agar halaman support (yang di base.html dipaksa true) kembali punya toggle. #}
+{# Kartu Tanya AI reusable: di-include di dalam kontainer konten tiap halaman setelah judul, agar judul di atas dan lebar sejajar konten. Fase 6: mode agentic-only hanya untuk halaman lab (rag_harness, voicebot_lab); halaman lain memakai TOGGLE dengan default PRESISI (1 DB terkait). Variabel `ask_agentic_only` lama diabaikan agar halaman support (yang di base.html dipaksa true) kembali punya toggle. Tombol Simpan sebagai laporan kini tersedia di SEMUA menu (data-can-report selalu true; endpoint /api/laporan/save di area 'common'). #}
 {% set _agentic_only_pages = ['rag_harness','voicebot_lab'] %}
 {% set agentic_only = active_page in _agentic_only_pages %}
 <style>
@@ -37,7 +37,7 @@
   .ask-save:disabled{opacity:.6;cursor:default;}
   .ask-savenote{font-size:12px;color:var(--text-muted);}
 </style>
-<section class="ask-card" id="askCard" data-page="{{ active_page }}" data-agentic-only="{{ 'true' if agentic_only else 'false' }}" data-can-report="{{ 'true' if can_dialogflow else 'false' }}">
+<section class="ask-card" id="askCard" data-page="{{ active_page }}" data-agentic-only="{{ 'true' if agentic_only else 'false' }}" data-can-report="true">
   <div class="ask-hd">
     <div class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M12 2v4M9 12h.01M15 12h.01"/></svg></div>
     <div>

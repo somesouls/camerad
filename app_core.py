@@ -156,6 +156,11 @@ def _route_action(method, path):
     # Menu SOP/Proses Bisnis: impor folder, reindex, dan audit = 'ingest'.
     if path in ("/api/sop/batch", "/api/sop/reindex", "/api/sop/audit"):
         return "ingest"
+    # Fase 6: simpan/kelola laporan dari Tanya AI diperlakukan 'read' agar setiap
+    # peran yang bisa menjalankan Tanya AI juga bisa menyimpan hasilnya sebagai
+    # laporan; penghapusan (/api/laporan/delete) tetap 'edit' di aturan generik.
+    if path.startswith("/api/laporan") and not path.endswith("/delete"):
+        return "read"
     if path.endswith("/save") or path.endswith("/delete"):
         return "edit"
     return "read"
@@ -234,6 +239,11 @@ def _route_area(path):
     # peran 'agent' bisa mengaksesnya; sisa API generik tetap 'common'.
     if path == "/" or path == "/studio" or path.startswith("/api/studio"):
         return "chat"
+    # Fase 6: Menu Laporan (Accordion Umum) + tombol Simpan sebagai laporan dari
+    # Tanya AI di SEMUA menu = area 'common' (sama seperti /api/ask*) agar setiap
+    # peran yang bisa menjalankan Tanya AI dapat menyimpan & membuka laporannya.
+    if path == "/laporan" or path.startswith("/api/laporan"):
+        return "common"
     if (path.startswith("/api/ask") or path.startswith("/api/config")
             or path.startswith("/api/chat")):
         return "common"
