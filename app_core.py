@@ -156,6 +156,11 @@ def _route_action(method, path):
     # Menu SOP/Proses Bisnis: impor folder, reindex, dan audit = 'ingest'.
     if path in ("/api/sop/batch", "/api/sop/reindex", "/api/sop/audit"):
         return "ingest"
+    # Fase 6: simpan/kelola laporan dari Tanya AI diperlakukan 'read' agar setiap
+    # peran yang bisa menjalankan Tanya AI juga bisa menyimpan hasilnya sebagai
+    # laporan; penghapusan (/api/laporan/delete) tetap 'edit' di aturan generik.
+    if path.startswith("/api/laporan") and not path.endswith("/delete"):
+        return "read"
     if path.endswith("/save") or path.endswith("/delete"):
         return "edit"
     return "read"
@@ -234,6 +239,11 @@ def _route_area(path):
     # peran 'agent' bisa mengaksesnya; sisa API generik tetap 'common'.
     if path == "/" or path == "/studio" or path.startswith("/api/studio"):
         return "chat"
+    # Fase 6: Menu Laporan (Accordion Umum) + tombol Simpan sebagai laporan dari
+    # Tanya AI di SEMUA menu = area 'common' (sama seperti /api/ask*) agar setiap
+    # peran yang bisa menjalankan Tanya AI dapat menyimpan & membuka laporannya.
+    if path == "/laporan" or path.startswith("/api/laporan"):
+        return "common"
     if (path.startswith("/api/ask") or path.startswith("/api/config")
             or path.startswith("/api/chat")):
         return "common"
@@ -337,3 +347,43 @@ try:
     print("[AGENTIC-JOBS] route async terpasang (/api/ask-agentic/start|status|cancel).", flush=True)
 except Exception as _agentic_jobs_exc:
     print("[AGENTIC-JOBS] registrasi route dilewati:", _agentic_jobs_exc, flush=True)
+
+
+# =============================================================
+# Fase 6 — Tanya AI PRESISI single-DB + perpanjang loop agentic (env)
+# =============================================================
+# 1) Endpoint /api/ask-precise: text-to-SQL read-only pada SATU database
+#    terdaftar (db.registry) sesuai halaman (AWE/Sosmed/Peraturan/SOP/Kamus),
+#    supaya mode default (tak centang) hanya mencari di DB terkait, bukan
+#    menelusuri semua DB seperti agentic. Path diawali \"/api/ask\" sehingga
+#    otomatis area 'common' action 'read' di middleware (sama /api/ask).
+# 2) Batas loop agentic bisa diperpanjang lewat environment untuk laporan yang
+#    lebih komprehensif, TANPA menyentuh file engine knowledge/agentic.py:
+#    konstanta modul di-set ulang di sini saat boot (default = nilai lama,
+#    jadi perilaku analis identik kecuali env di-set eksplisit).
+# Fail-soft: bila modul bermasalah, route lain tetap boot.
+try:
+    import knowledge.ask_precise_routes as _ask_precise_routes
+    _ask_precise_routes.register(app)
+    print("[ASK-PRECISE] route presisi single-DB terpasang (/api/ask-precise).", flush=True)
+except Exception as _ask_precise_exc:
+    print("[ASK-PRECISE] registrasi route dilewati:", _ask_precise_exc, flush=True)
+
+try:
+    import knowledge.agentic as _agentic_mod
+
+    def _agentic_envint(_name, _default):
+        try:
+            _v = int((os.environ.get(_name) or "").strip())
+            return _v if _v > 0 else _default
+        except Exception:
+            return _default
+
+    _agentic_mod.MAX_ITERS = _agentic_envint("AGENTIC_MAX_ITERS", _agentic_mod.MAX_ITERS)
+    _agentic_mod.MAX_QUERY_STEPS = _agentic_envint("AGENTIC_MAX_QUERY_STEPS", _agentic_mod.MAX_QUERY_STEPS)
+    _agentic_mod.MAX_ROWS = _agentic_envint("AGENTIC_MAX_ROWS", _agentic_mod.MAX_ROWS)
+    _agentic_mod.MAX_ROWS_TO_LLM = _agentic_envint("AGENTIC_MAX_ROWS_TO_LLM", _agentic_mod.MAX_ROWS_TO_LLM)
+    _agentic_mod.MAX_RESULT_CHARS = _agentic_envint("AGENTIC_MAX_RESULT_CHARS", _agentic_mod.MAX_RESULT_CHARS)
+    print("[AGENTIC-LIMITS] batas loop: iters=%s query=%s rows=%s rows_llm=%s chars=%s" % (_agentic_mod.MAX_ITERS, _agentic_mod.MAX_QUERY_STEPS, _agentic_mod.MAX_ROWS, _agentic_mod.MAX_ROWS_TO_LLM, _agentic_mod.MAX_RESULT_CHARS), flush=True)
+except Exception as _agentic_limits_exc:
+    print("[AGENTIC-LIMITS] penyetelan batas dilewati:", _agentic_limits_exc, flush=True)
