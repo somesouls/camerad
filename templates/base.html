@@ -509,6 +509,8 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
       {% block main %}
       <div class="content-area">
         <div class="content-inner">
+          {% set _ask_ai_pages = ['awe_dasbor','awe_coverage','awe_taksonomi','awe_sentimen','awe_percakapan','awe_pengguna','awe_penilaian','awe_telepon_dash','awe_telepon_cov','awe_telepon_tax','awe_telepon_sen','awe_telepon_detail','awe_telepon_users','sosmed_qna','sosmed_sla','sosmed_deflection','peraturan','sop','kamus','rag_harness','voicebot_lab'] %}
+          {% if active_page in _ask_ai_pages %}{% set ask_agentic_only = true %}{% include "_ask_ai.html" %}{% endif %}
           {% block content %}{% endblock %}
         </div>
       </div>
