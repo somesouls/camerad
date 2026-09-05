@@ -124,6 +124,93 @@ ASK_AGENTIC_SCOPES = {
         "dan cek istilah aktif/nonaktif. CATATAN: gunakan untuk lookup/rekap, "
         "bukan pencarian makna dokumen. Jangan mengarang istilah di luar data."
     ),
+    "awe_dasbor": (
+        "KONTEKS HALAMAN: 'Dashboard AWE' (Chat Avaya). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Untuk KPI ringkas: volume = "
+        "COUNT(*); reached agent = agent_name<>''; porsi sentimen negatif = "
+        "sentiment LIKE 'neg%'; rata-rata durasi = AVG(durasi). Filter tanggal "
+        "pakai substr(tanggal,1,10). Ini data CHAT; jangan pakai "
+        "awe_phone_interactions (itu telepon)."
+    ),
+    "awe_coverage": (
+        "KONTEKS HALAMAN: 'Coverage & Deflection AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Coverage dari kolom coverage_band; "
+        "deflection gap = deflection_gap=1 ATAU behavior IN ('direct','langsung') "
+        "(langsung ke agent). Rekap per topik pakai GROUP BY topik (fallback "
+        "mapped_intent). Data CHAT, bukan telepon."
+    ),
+    "awe_taksonomi": (
+        "KONTEKS HALAMAN: 'Taksonomi & Peluang AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Taksonomi dari case_label & "
+        "jenis_layanan; peluang/topik dari topik (fallback mapped_intent). Pakai "
+        "COUNT/GROUP BY. Data CHAT."
+    ),
+    "awe_sentimen": (
+        "KONTEKS HALAMAN: 'Sentimen & Agent AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Sentimen: kolom sentiment "
+        "('positif'/'netral'/'negatif'); emosi: kolom emotion. Analisis per "
+        "agent pakai GROUP BY agent_name (abaikan agent_name kosong). Data CHAT."
+    ),
+    "awe_percakapan": (
+        "KONTEKS HALAMAN: 'Detail Percakapan AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations` (satu baris per sid). Kolom penting: "
+        "sid, tanggal, customer, agent_name, durasi, sentiment, topik, "
+        "jenis_layanan, mapped_intent. Untuk rekap JANGAN SELECT transkrip_json "
+        "yang besar. Data CHAT."
+    ),
+    "awe_pengguna": (
+        "KONTEKS HALAMAN: 'Pengguna Harian AWE' (Chat). UTAMAKAN database "
+        "`avaya`, tabel `awe_conversations`. Identitas pengguna: kolom nik "
+        "(NIK/NPWP) lalu customer (nama); 'langsung ke agent' = behavior IN "
+        "('direct','langsung') ATAU deflection_gap=1. Pengguna unik pakai "
+        "COUNT(DISTINCT nik) atau nama. Data CHAT (tidak ada ANI/telepon)."
+    ),
+    "awe_penilaian": (
+        "KONTEKS HALAMAN: 'Penilaian QA AWE' (Chat). UTAMAKAN database `avaya`, "
+        "tabel `awe_conversations`. Softskill agent tersimpan pada kolom biner "
+        "(1/0): ss_salam_pembuka, ss_menanyakan_nama, ss_menyapa_customer, "
+        "ss_menawarkan_bantuan, ss_hold, ss_salam_penutup, ss_lengkap "
+        "(ss_lengkap=1 bila semua wajib lolos). is_poro=1 = percakapan PORO; "
+        "jenis_layanan = kategori layanan. Rekap kepatuhan pakai AVG/SUM kolom "
+        "ss_*. Data CHAT."
+    ),
+    "awe_telepon_dash": (
+        "KONTEKS HALAMAN: 'Dashboard AWE Telepon'. UTAMAKAN database `avaya`, "
+        "tabel `awe_phone_interactions`. KPI: volume = COUNT(*); rata-rata durasi "
+        "= AVG(durasi); reached agent = agent_name<>''. Filter tanggal pakai "
+        "substr(tanggal,1,10) atau kolom day. Ini data TELEPON; jangan pakai "
+        "awe_conversations (itu chat)."
+    ),
+    "awe_telepon_cov": (
+        "KONTEKS HALAMAN: 'Coverage & Deflection AWE Telepon'. UTAMAKAN database "
+        "`avaya`, tabel `awe_phone_interactions`. Rekap per topik/jenis_layanan "
+        "pakai GROUP BY; volume per hari pakai kolom day atau "
+        "substr(tanggal,1,10). Data TELEPON."
+    ),
+    "awe_telepon_tax": (
+        "KONTEKS HALAMAN: 'Taksonomi & Peluang AWE Telepon'. UTAMAKAN database "
+        "`avaya`, tabel `awe_phone_interactions`. Taksonomi dari topik & "
+        "jenis_layanan; pakai COUNT/GROUP BY. Data TELEPON."
+    ),
+    "awe_telepon_sen": (
+        "KONTEKS HALAMAN: 'Sentimen & Agent AWE Telepon'. UTAMAKAN database "
+        "`avaya`, tabel `awe_phone_interactions`. Sentimen: kolom sentiment; "
+        "emosi: emotion; resolusi: resolusi; indikasi frustrasi: frustrasi. "
+        "Analisis per agent pakai GROUP BY agent_name. Data TELEPON."
+    ),
+    "awe_telepon_detail": (
+        "KONTEKS HALAMAN: 'Detail Percakapan AWE Telepon'. UTAMAKAN database "
+        "`avaya`, tabel `awe_phone_interactions` (satu baris per sid). Kolom "
+        "penting: sid, tanggal, ani, agent_name, durasi, sentiment, topik, "
+        "jenis_layanan, resolusi, ringkasan. Untuk rekap JANGAN SELECT "
+        "stt_text/*_json yang besar. Data TELEPON."
+    ),
+    "awe_telepon_users": (
+        "KONTEKS HALAMAN: 'Pengguna AWE Telepon'. UTAMAKAN database `avaya`, "
+        "tabel `awe_phone_interactions`. Penelepon diidentifikasi dari kolom ani "
+        "(nomor telepon); pengguna unik pakai COUNT(DISTINCT ani); penelepon "
+        "berulang pakai GROUP BY ani HAVING COUNT(*)>1. Data TELEPON."
+    ),
 }
 
 
