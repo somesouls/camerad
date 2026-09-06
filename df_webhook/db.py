@@ -13,14 +13,15 @@ Menyimpan pengaturan endpoint fulfillment Dialogflow ES secara permanen:
   - riwayat_turn : jumlah giliran terakhir yang diingat
   - updated_at
 
-Env: PIPELINE_DF_WEBHOOK_DB_FILE atau 'df_webhook.db'.
+Env: PIPELINE_DF_WEBHOOK_DB_FILE (default 'df_webhook.db' di ROOT repo, di-anchor via __file__).
 """
 import os
 import secrets
 import sqlite3
 import time
 
-DB_FILE = os.environ.get("PIPELINE_DF_WEBHOOK_DB_FILE") or "df_webhook.db"
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket df_webhook/ -> root repo
+DB_FILE = os.environ.get("PIPELINE_DF_WEBHOOK_DB_FILE") or os.path.join(_BASE_DIR, "df_webhook.db")
 
 FALLBACK_DEFAULT = (
     "Mohon maaf, saat ini sistem sedang memproses pertanyaan Anda dan "
