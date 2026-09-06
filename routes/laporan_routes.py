@@ -574,4 +574,11 @@ def register(app):
     app.add_api_route("/api/laporan/generate", api_laporan_generate, methods=["POST"])
     app.add_api_route("/api/laporan/save", api_laporan_save, methods=["POST"])
     app.add_api_route("/api/laporan/list", api_laporan_list, methods=["GET"])
-    app.add_api_route("/api/laporan/get
+    app.add_api_route("/api/laporan/get", api_laporan_get, methods=["GET"])
+    app.add_api_route("/api/laporan/delete", api_laporan_delete, methods=["POST"])
+    app.add_api_route("/api/laporan/export", api_laporan_export, methods=["GET"])
+    app.add_api_route("/api/laporan/update", api_laporan_update, methods=["POST"])
+    app.add_api_route("/api/laporan/ai-update", api_laporan_ai_update, methods=["POST"])
+    app.add_api_route("/api/laporan/versions", api_laporan_versions, methods=["GET"])
+    app.add_api_route("/api/laporan/version", api_laporan_version, methods=["GET"])
+    app.add_api_route("/api/laporan/restore", api_laporan_restore, methods=["POST"])
