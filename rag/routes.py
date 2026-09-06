@@ -4,7 +4,7 @@
 Rute:
   GET  /rag                  -> ChatBot Pajak untuk Wajib Pajak (profil 'chatbot')
   POST /api/rag/chat         -> jawab chat produksi
-  POST /api/rag/lab          -> backend uji on-demand — dipakai form "Uji Cepat"
+  POST /api/rag/lab          -> backend uji on-demand — dipakai form \"Uji Cepat\"
                                 di /rag-chatbot & /rag-agent (halaman /rag-lab
                                 sendiri sudah DIHAPUS v22)
   GET  /api/rag/profiles     -> daftar profil (admin)
@@ -29,6 +29,7 @@ from app_core import render_page
 
 import rag.engine as rag_engine
 import rag.config_db as rcfg
+import rag.status_routes as rag_status_routes
 
 
 async def _body(request: Request):
@@ -83,7 +84,7 @@ async def api_rag_lab(request: Request):
     if not isinstance(sumber, list):
         sumber = None
     history = body.get("history") if isinstance(body.get("history"), list) else []
-    # Opsi "mode produksi": jalankan uji mengikuti mode NYATA profil (mis.
+    # Opsi \"mode produksi\": jalankan uji mengikuti mode NYATA profil (mis.
     # chatbot = cepat/tanpa loop verifikasi) alih-alih memaksa pipeline penuh.
     prod_mode = bool(body.get("prod_mode"))
     try:
@@ -166,7 +167,7 @@ def _warmup_intent_semantic():
                 pass
         # Pramuat model embedding korpus (bge-m3): request RAG pertama memicu
         # lazy-load yang bisa puluhan detik; bila klien lewat proxy bertimeout,
-        # request diputus sebelum jawaban terkirim (UI: "Gagal terhubung").
+        # request diputus sebelum jawaban terkirim (UI: \"Gagal terhubung\").
         # Muat model + satu embed pemanasan di sini agar request pertama cepat.
         try:
             import peraturan.semantic as psem
@@ -216,10 +217,12 @@ def register(app):
     app.add_api_route("/rag", page_rag, methods=["GET"])
     app.add_api_route("/api/rag/chat", api_rag_chat, methods=["POST"])
     # Catatan v22: halaman /rag-lab DIHAPUS. API /api/rag/lab DIPERTAHANKAN —
-    # ia adalah backend form "Uji Cepat" di /rag-chatbot & /rag-agent.
+    # ia adalah backend form \"Uji Cepat\" di /rag-chatbot & /rag-agent.
     app.add_api_route("/api/rag/lab", api_rag_lab, methods=["POST"])
     app.add_api_route("/api/rag/profiles", api_profiles, methods=["GET"])
     app.add_api_route("/api/rag/profile", api_profile_get, methods=["POST"])
     app.add_api_route("/api/rag/profile/save", api_profile_save, methods=["POST"])
+    # Endpoint status mesin (read-only, admin) untuk kartu Status di halaman ini.
+    rag_status_routes.register(app)
     # Warm-up semua artefak berat (model + matriks vektor) saat didaftarkan.
     _warmup_intent_semantic()
