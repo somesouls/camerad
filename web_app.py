@@ -289,6 +289,18 @@ import handoff.routing_patch as handoff_routing_patch  # noqa: F401  (menerapkan
 #     versi terakhir masing-masing sumber. ---
 import rag.sources_patch as rag_sources_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- PR D (rerank global lintas-sumber + chunking peraturan saat kueri):
+#     monkey-patch rag_engine._assemble agar SEMUA blok kandidat dari sumber
+#     yang diizinkan (intent/awe/sosmed/peraturan/sop) dikumpulkan, blok panjang
+#     (mis. pasal peraturan) DIPECAH per-ayat SAAT KUERI, lalu di-RERANK GLOBAL
+#     dengan cross-encoder & dipilih di bawah budget token — bukan sekadar
+#     disambung urut router lalu dipotong mentah di 6500 char. Mengatasi
+#     \"sumber yang dilempar ke LLM sebagian kurang tepat\": chunk paling relevan
+#     lintas-sumber yang masuk konteks; yang lemah dibuang. Fail-open ke perilaku
+#     lama bila reranker tak tersedia (RAG_GLOBAL_RERANK=0 untuk mematikan).
+#     WAJIB setelah rag_sources_patch agar _retrieve_one memakai sumber terpatch. ---
+import rag.global_rerank_patch as rag_global_rerank_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 # --- Fase 5 (Q2Q): indeks PERTANYAAN historis Sosmed/AWE sebagai vektor
 #     (kemiripan pertanyaan, bukan jawaban), lalu tautkan rujukan peraturan
 #     yang terdeteksi di jawaban historis ke basis peraturan yang rapi.
