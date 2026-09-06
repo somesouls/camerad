@@ -205,14 +205,17 @@ def _safe_filename(name):
 
 def _md_to_html(md):
     """Konversi Markdown ringkas -> HTML untuk tampilan cetak (server-side).
-    Mendukung: heading, tebal, kode inline, blok kode, daftar, tabel pipa, garis."""
+    Mendukung: heading, tebal, miring, garis bawah, kode, blok kode, daftar
+    (butir & nomor), kutipan, tabel pipa, garis."""
     def esc(s):
         return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
     def inline(s):
         s = esc(s)
         s = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", s)
+        s = re.sub(r"(^|[^*])\*([^*]+)\*", r"\1<em>\2</em>", s)
         s = re.sub(r"`([^`]+)`", r"<code>\1</code>", s)
+        s = s.replace("&lt;u&gt;", "<u>").replace("&lt;/u&gt;", "</u>")
         return s
 
     lines = (md or "").split("\n")
@@ -259,12 +262,21 @@ def _md_to_html(md):
             html.append("<h%d>%s</h%d>" % (lvl, inline(m.group(2)), lvl))
             i += 1
             continue
-        if re.match(r"^[-*]\s+", st):
-            items = []
-            while i < n and re.match(r"^\s*[-*]\s+", lines[i]):
-                items.append("<li>" + inline(re.sub(r"^\s*[-*]\s+", "", lines[i])) + "</li>")
+        if st.startswith(">"):
+            qs = []
+            while i < n and lines[i].strip().startswith(">"):
+                qs.append(re.sub(r"^>\s?", "", lines[i].strip()))
                 i += 1
-            html.append("<ul>" + "".join(items) + "</ul>")
+            html.append("<blockquote>" + _md_to_html("\n".join(qs)) + "</blockquote>")
+            continue
+        if re.match(r"^\s*([-*]|\d+[.)])\s+", line):
+            ordered = bool(re.match(r"^\s*\d+[.)]\s+", line))
+            tag = "ol" if ordered else "ul"
+            items = []
+            while i < n and re.match(r"^\s*([-*]|\d+[.)])\s+", lines[i]):
+                items.append("<li>" + inline(re.sub(r"^\s*([-*]|\d+[.)])\s+", "", lines[i])) + "</li>")
+                i += 1
+            html.append("<" + tag + ">" + "".join(items) + "</" + tag + ">")
             continue
         html.append("<p>" + inline(st) + "</p>")
         i += 1
@@ -276,7 +288,10 @@ _PRINT_CSS = (
     "max-width:820px;margin:32px auto;padding:0 24px;line-height:1.55;}"
     "h1{font-size:24px;margin:0 0 4px;}h2{font-size:18px;margin:22px 0 8px;}"
     "h3{font-size:15px;margin:16px 0 6px;}p{margin:0 0 10px;}"
-    "ul{margin:0 0 12px 22px;}li{margin:2px 0;}"
+    "ul,ol{margin:0 0 12px 22px;}li{margin:2px 0;}"
+    "em{font-style:italic;}u{text-decoration:underline;}strong{font-weight:700;}"
+    "blockquote{margin:12px 0;padding:6px 14px;border-left:3px solid #2563eb;"
+    "color:#475569;background:#f8fafc;border-radius:0 8px 8px 0;}"
     "code{background:#f2f2f2;padding:1px 5px;border-radius:4px;"
     "font-family:Consolas,monospace;font-size:.92em;}"
     "pre{background:#f6f8fa;border:1px solid #e2e8f0;border-radius:8px;"
