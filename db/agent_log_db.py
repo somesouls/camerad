@@ -9,12 +9,15 @@ token) per target:
   - 'agent'   : chat profil Agent Kring Pajak (login peran agent)
   - 'chatbot' : ChatBot Dialogflow (Wajib Pajak)
 
-DB file: env PIPELINE_AGENT_LOG_DB_FILE (default agent_log.db).
+DB file: env PIPELINE_AGENT_LOG_DB_FILE (default agent_log.db di ROOT repo,
+di-anchor via __file__ agar tidak tergantung current working directory).
 """
 import os
 import json
 import sqlite3
 from datetime import datetime, timezone, timedelta
+
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket db/ -> root repo
 
 DEFAULT_MAKS_TANYA = 100
 _TARGETS = ("agent", "chatbot")
@@ -36,7 +39,7 @@ def _today_range_utc():
 
 
 def connect(db_path=None):
-    path = db_path or os.environ.get("PIPELINE_AGENT_LOG_DB_FILE", "agent_log.db")
+    path = db_path or os.environ.get("PIPELINE_AGENT_LOG_DB_FILE") or os.path.join(_BASE_DIR, "agent_log.db")
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     try:

@@ -31,6 +31,8 @@ import sqlite3
 import argparse
 import datetime as _dt
 
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket rag/ -> root repo
+
 
 # Profil RAG yang dikenal panel.
 PROFILES = ("agent", "chatbot")
@@ -75,7 +77,7 @@ _FALSE = ("0", "false", "no", "off", "tidak", "nonaktif")
 
 
 def _db_path():
-    return os.environ.get("PIPELINE_KNOB_DB_FILE") or "knob.db"
+    return os.environ.get("PIPELINE_KNOB_DB_FILE") or os.path.join(_BASE_DIR, "knob.db")
 
 
 def connect():
