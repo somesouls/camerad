@@ -212,6 +212,15 @@ import pipeline.step9_signals_patch as step9_signals_patch  # noqa: F401  (idemp
 import pipeline.step6_idtrace_patch as step6_idtrace_patch  # noqa: F401  (id_trace tombol mata Step 6)
 import pipeline.intents_patch as intents_patch  # noqa: F401  (aksi 'intents' pencarian intent Step 6/9)
 
+# --- Tahap 1 (Router soft-prior): monkey-patch rag_router.route agar Router v2
+#     TIDAK meng-hard-cut sumber untuk kueri peraturan-jelas, melainkan
+#     mendemosikan sumber 'tunda' (mis. intent/awe) ke prioritas TERENDAH
+#     (soft-prior) sehingga sumber lintas-kategori yang relevan tidak hilang.
+#     Env RAG_ROUTER_SOFTPRIOR=1 (default); set 0 untuk kembali ke hard-cut.
+#     Fail-open bila modul router tak tersedia. Router berjalan sebelum
+#     retrieval, jadi aman diimpor di sini (independen dari patch _ctx_*). ---
+import rag.router_softprior_patch as rag_router_softprior_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 # --- Poin #1 arsitektur RAG final — \"successor-tracing\" peraturan:
 #     monkey-patch rag_engine._ctx_peraturan agar bila kandidat termirip
 #     berstatus dicabut/diubah, mesin menelusuri peraturan pengganti yang
@@ -296,6 +305,15 @@ import rag.sources_patch as rag_sources_patch  # noqa: F401  (menerapkan patch s
 #     utas yang sama (conv_id). Fail-soft bila qa.db belum dibangun
 #     (python phase5_qa_build.py). WAJIB setelah rag_sources_patch. ---
 import rag.qa_patch as rag_qa_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
+# --- PR A (sitasi inline + filter sumber dipakai): monkey-patch rag_engine agar
+#     (a) daftar {{sumber}} untuk LLM DINOMORI, (b) system prompt menuntut
+#     penanda [n], (c) answer (lapis TERLUAR) menyaring res["sources"] hanya ke
+#     nomor yang BENAR-BENAR dikutip pada jawaban. Gagal-anggun & di-gate env
+#     RAG_CITATION_FILTER (default 1). WAJIB PALING AKHIR di antara pembungkus
+#     answer (setelah grounding_patch & handoff_routing_patch) agar jadi lapis
+#     terluar dan melihat jawaban+sumber final. ---
+import rag.citation_filter_patch as rag_citation_filter_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
 # --- PR B (rujukan livechat klikable): tambahkan URL transkrip AWE ke tiap
 #     sumber \"Percakapan AWE\" (agar kartu sumber di Chat Baru bisa diklik →
