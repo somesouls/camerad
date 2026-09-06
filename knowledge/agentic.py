@@ -10,6 +10,13 @@ Loop agentic READ-ONLY di atas DB Registry (db/registry.py):
   read-only (SELECT/WITH saja), satu statement (tanpa ';'), LIMIT dipaksa,
   DDL/ATTACH ditolak, dan database `users` DIKECUALIKAN total.
 
+v2 (retrieval basis pengetahuan): loop kini juga dapat menelusuri sumber
+TEKSTUAL (peraturan, SOP, media sosial, percakapan AWE, intent) lewat aksi
+'rag_search' yang membungkus mesin retrieval RAG (rag/kb_search.py) TANPA LLM
+sintesis. Tetap READ-ONLY. Opsional & gagal-anggun: bila modul retrieval tak
+tersedia, aksi 'rag_search' tidak ditawarkan dan loop database berjalan seperti
+semula.
+
 Sifat: ADITIF & NON-BREAKING. Modul & endpoint baru; /api/ask dan
 /api/ask-data lama tidak diubah perilakunya.
 """
@@ -26,12 +33,19 @@ try:
 except Exception:  # pragma: no cover - kctx opsional
     kctx = None
 
+try:
+    import rag.kb_search as rag_kb  # retrieval basis pengetahuan (opsional)
+except Exception:  # pragma: no cover - retrieval KB opsional
+    rag_kb = None
+
 # --- Batasan aman (guardrail operasional) --------------------------------
 MAX_ITERS = 6            # total giliran model (schema/query/final) per permintaan
 MAX_QUERY_STEPS = 6      # batas langkah query aktual
 MAX_ROWS = 200           # baris maksimum per query (diteruskan ke run_select)
 MAX_ROWS_TO_LLM = 50     # baris yang diumpankan balik ke LLM per observasi
 MAX_RESULT_CHARS = 3500  # batas ukuran teks observasi yang diumpan balik
+MAX_RAG_STEPS = 4        # batas langkah pencarian basis pengetahuan (rag_search)
+MAX_RAG_CHARS = 3500     # batas panjang konteks RAG yang diumpan balik ke LLM
 
 
 def _now():
@@ -54,6 +68,16 @@ def _catalog_text():
 
 
 def _system_prompt():
+    rag_line = ""
+    if rag_kb is not None:
+        rag_line = (
+            "- Telusuri BASIS PENGETAHUAN tekstual (peraturan, SOP, media sosial, "
+            "percakapan AWE, intent) bila butuh dasar hukum/prosedur/narasi yang "
+            "tidak ada di database terstruktur: "
+            "{\"action\":\"rag_search\",\"query\":\"kata kunci\",\"sources\":[\"peraturan\",\"sop\"]}.\n"
+            "  * 'sources' opsional (subset: intent, awe, sosmed, peraturan, sop); "
+            "kosongkan untuk mencari semua sumber. READ-ONLY.\n"
+        )
     return (
         "Kamu asisten data internal Camerad untuk tim analis DJP. Kamu menjawab "
         "pertanyaan dengan MENELUSURI beberapa database internal (READ-ONLY).\n\n"
@@ -63,6 +87,7 @@ def _system_prompt():
         "{\"action\":\"schema\",\"db\":\"<key>\"}.\n"
         "- Ambil data: {\"action\":\"query\",\"db\":\"<key>\",\"sql\":\"SELECT ...\"}.\n"
         "  * Hanya SELECT/WITH (read-only). Satu statement, tanpa ';'. Sertakan LIMIT wajar.\n"
+        + rag_line +
         "- Bila sudah cukup untuk menjawab: {\"action\":\"final\",\"answer\":\"...\"}.\n"
         "  * 'answer' Bahasa Indonesia, ringkas, jelas, boleh Markdown, sebutkan angka penting.\n"
         "  * Jangan mengarang data di luar hasil query.\n\n"
@@ -130,6 +155,7 @@ def answer_agentic(question, lang=None, max_iters=MAX_ITERS):
     trace = []
     used_dbs = []
     query_steps = 0
+    rag_steps = 0
 
     turns = max(1, int(max_iters))
     for _ in range(turns):
@@ -185,6 +211,44 @@ def answer_agentic(question, lang=None, max_iters=MAX_ITERS):
                              "content": _clip("OBSERVASI (query):\n" + obs)})
             continue
 
+        if action == "rag_search":
+            if rag_kb is None:
+                messages.append({"role": "user", "content":
+                    "Aksi 'rag_search' tidak tersedia. Gunakan 'schema'/'query'/'final'."})
+                continue
+            if rag_steps >= MAX_RAG_STEPS:
+                messages.append({"role": "user", "content":
+                    "Batas langkah rag_search tercapai. Lanjutkan dengan 'query' atau 'final'."})
+                continue
+            rag_steps += 1
+            rq = (act.get("query") or act.get("q") or q).strip()
+            rsrc = act.get("sources")
+            if not isinstance(rsrc, list):
+                rsrc = None
+            try:
+                rr = rag_kb.retrieve_context(rq, sources=rsrc, max_chars=MAX_RAG_CHARS)
+            except Exception as e:
+                rr = {"ok": False, "error": str(e), "context": "", "sources": [], "used": []}
+            ok = bool(rr.get("ok")) and bool((rr.get("context") or "").strip())
+            trace.append({
+                "type": "rag_search",
+                "db": (",".join(rr.get("used") or []) or None),
+                "ok": ok, "error": (None if rr.get("ok") else rr.get("error")),
+                "rows": len(rr.get("sources") or [])})
+            if ok:
+                obs = json.dumps({
+                    "query": rq, "used": rr.get("used"),
+                    "context": rr.get("context"),
+                    "sources": rr.get("sources")}, ensure_ascii=False)
+            else:
+                obs = json.dumps({
+                    "query": rq,
+                    "error": (rr.get("error") or "tidak ada hasil relevan"),
+                    "used": rr.get("used")}, ensure_ascii=False)
+            messages.append({"role": "user",
+                             "content": _clip("OBSERVASI (rag_search):\n" + obs)})
+            continue
+
         # aksi tak dikenal / balasan tanpa action -> jika ada 'answer', pakai;
         # kalau tidak, minta model menutup dengan JSON yang benar.
         if act.get("answer"):
@@ -224,4 +288,6 @@ if __name__ == "__main__":
     assert a2.get("action") == "final", a2
     a3 = _parse_action("jawaban biasa tanpa json")
     assert a3.get("action") == "final", a3
+    a4 = _parse_action('{"action":"rag_search","query":"efin","sources":["peraturan"]}')
+    assert a4.get("action") == "rag_search" and a4.get("query") == "efin", a4
     print("AGENTIC_SMOKE_OK")
