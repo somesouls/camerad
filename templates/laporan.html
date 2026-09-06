@@ -52,6 +52,20 @@
   .rp-meta{font-size:12px;color:var(--text-muted);margin:10px 2px 0;}
   .rp-spin{display:inline-block;width:14px;height:14px;border:2px solid var(--panel-border);border-top-color:var(--accent);border-radius:50%;animation:rpspin .7s linear infinite;vertical-align:-2px;margin-right:6px;}
   @keyframes rpspin{to{transform:rotate(360deg);}}
+  .rp-panel{display:none;border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);padding:16px 18px;margin-bottom:16px;}
+  .rp-panel.show{display:block;}
+  .rp-panel-hd{font-weight:700;font-size:13px;margin-bottom:10px;}
+  .rp-panel textarea{width:100%;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base,transparent);color:var(--text-main);font-size:13px;line-height:1.55;padding:12px 13px;resize:vertical;}
+  #rpEditorTa{min-height:340px;font-family:ui-monospace,Consolas,monospace;}
+  #rpAiInstr{min-height:78px;font-family:inherit;}
+  .rp-ai-mode{font-size:12.5px;color:var(--text-muted);display:inline-flex;align-items:center;gap:5px;cursor:pointer;margin-right:6px;}
+  .rp-hist-list{display:flex;flex-direction:column;gap:8px;}
+  .rp-hist-item{padding:9px 11px;border:1px solid var(--panel-border);border-radius:8px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .rp-hist-item .meta{color:var(--text-muted);margin-top:3px;}
+  .rp-hist-item .acts{display:flex;gap:6px;flex-shrink:0;}
+  .rp-hist-item .acts button{font-size:11.5px;padding:4px 9px;border:1px solid var(--panel-border);border-radius:7px;background:transparent;color:var(--text-main);cursor:pointer;}
+  .rp-hist-item .acts button:hover{border-color:var(--accent);color:var(--accent);}
+  .rp-empty2{color:var(--text-muted);font-size:12px;font-style:italic;padding:6px 2px;}
 </style>
 {% endblock %}
 {% block content %}
@@ -64,7 +78,7 @@
   <section class="rp-main">
     <div class="rp-head">
       <h1>Laporan</h1>
-      <p class="rp-note">AI menelusuri seluruh database internal (read-only, kecuali <code>users</code>) untuk menyusun laporan. Simpan, buka kembali, dan ekspor ke Markdown atau PDF.</p>
+      <p class="rp-note">AI menelusuri seluruh database internal (read-only, kecuali <code>users</code>) untuk menyusun laporan. Simpan, buka kembali, edit, perbarui dengan AI, lihat riwayat versi, dan ekspor ke Markdown atau PDF.</p>
     </div>
     <div class="rp-card">
       <div class="ttl-row"><input id="rpTitle" type="text" placeholder="Judul laporan (opsional)"></div>
@@ -73,6 +87,9 @@
       <div class="rp-actions">
         <button class="rp-btn primary" id="rpGen">Susun Laporan</button>
         <button class="rp-btn" id="rpSave" disabled>Simpan</button>
+        <button class="rp-btn" id="rpEdit" disabled>Edit</button>
+        <button class="rp-btn" id="rpAiToggle" disabled>Perbarui dengan AI</button>
+        <button class="rp-btn" id="rpHist" disabled>Riwayat</button>
         <button class="rp-btn" id="rpMd" disabled>Ekspor Markdown</button>
         <button class="rp-btn" id="rpPdf" disabled>Ekspor PDF</button>
         <span class="rp-status" id="rpStatus"></span>
@@ -80,6 +97,30 @@
     </div>
     <div class="rp-report" id="rpReport"></div>
     <div class="rp-meta" id="rpMeta"></div>
+    <div class="rp-panel" id="rpEditor">
+      <div class="rp-panel-hd">Edit Laporan (Markdown)</div>
+      <textarea id="rpEditorTa" spellcheck="false" placeholder="Isi laporan dalam Markdown…"></textarea>
+      <div class="rp-actions">
+        <button class="rp-btn primary" id="rpEditSave">Simpan Perubahan</button>
+        <button class="rp-btn" id="rpEditCancel">Batal</button>
+        <span class="rp-status" id="rpEditStatus"></span>
+      </div>
+    </div>
+    <div class="rp-panel" id="rpAi">
+      <div class="rp-panel-hd">Perbarui dengan AI</div>
+      <textarea id="rpAiInstr" placeholder="Mis. 'Tambahkan analisis tren 7 hari terakhir' atau 'Perbarui semua angka dengan data terbaru'"></textarea>
+      <div class="rp-actions">
+        <label class="rp-ai-mode"><input type="radio" name="rpAiMode" value="append" checked> Tambah bagian</label>
+        <label class="rp-ai-mode"><input type="radio" name="rpAiMode" value="revise"> Revisi menyeluruh</label>
+        <button class="rp-btn primary" id="rpAiGo">Jalankan AI</button>
+        <button class="rp-btn" id="rpAiCancel">Tutup</button>
+        <span class="rp-status" id="rpAiStatus"></span>
+      </div>
+    </div>
+    <div class="rp-panel" id="rpHistPanel">
+      <div class="rp-panel-hd">Riwayat Versi</div>
+      <div class="rp-hist-list" id="rpHistList"></div>
+    </div>
   </section>
 </div>
 {% endblock %}
@@ -93,7 +134,11 @@
     gen: document.getElementById('rpGen'), save: document.getElementById('rpSave'),
     md: document.getElementById('rpMd'), pdf: document.getElementById('rpPdf'),
     status: document.getElementById('rpStatus'), report: document.getElementById('rpReport'),
-    meta: document.getElementById('rpMeta'), ex: document.getElementById('rpEx'), neu: document.getElementById('rpNew')
+    meta: document.getElementById('rpMeta'), ex: document.getElementById('rpEx'), neu: document.getElementById('rpNew'),
+    edit: document.getElementById('rpEdit'), aiToggle: document.getElementById('rpAiToggle'), histBtn: document.getElementById('rpHist'),
+    editor: document.getElementById('rpEditor'), editorTa: document.getElementById('rpEditorTa'), editSave: document.getElementById('rpEditSave'), editCancel: document.getElementById('rpEditCancel'), editStatus: document.getElementById('rpEditStatus'),
+    ai: document.getElementById('rpAi'), aiInstr: document.getElementById('rpAiInstr'), aiGo: document.getElementById('rpAiGo'), aiCancel: document.getElementById('rpAiCancel'), aiStatus: document.getElementById('rpAiStatus'),
+    histPanel: document.getElementById('rpHistPanel'), histList: document.getElementById('rpHistList')
   };
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];}); }
   function inl(s){ s=esc(s); s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>'); s=s.replace(/`([^`]+)`/g,'<code>$1</code>'); return s; }
@@ -119,7 +164,7 @@
     return out.join('\n');
   }
   function setStatus(t,spin){ el.status.innerHTML=(spin?'<span class="rp-spin"></span>':'')+esc(t||''); }
-  function refreshButtons(){ var has=!!cur.content_md; el.save.disabled=!has; el.md.disabled=!has; el.pdf.disabled=!has; }
+  function refreshButtons(){ var has=!!cur.content_md; el.save.disabled=!has; el.md.disabled=!has; el.pdf.disabled=!has; el.edit.disabled=!has; el.aiToggle.disabled=!has; el.histBtn.disabled=!has; }
   function showReport(){
     if(cur.content_md){ el.report.innerHTML=mdRender(cur.content_md); el.report.classList.add('show'); }
     else { el.report.classList.remove('show'); el.report.innerHTML=''; }
@@ -131,6 +176,7 @@
   function generate(){
     var question=el.q.value.trim();
     if(!question){ el.q.focus(); return; }
+    closePanels();
     el.gen.disabled=true; setStatus('Menyusun laporan dari data internal… (bisa beberapa saat)',true);
     var _s=0;
     fetch('/api/laporan/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:question,title:el.title.value.trim()})})
@@ -177,14 +223,67 @@
     fetch('/api/laporan/get?id='+encodeURIComponent(id)).then(function(r){return r.json();}).then(function(d){
       if(!d.ok){ setStatus('⚠ '+(d.error||'Gagal.')); return; }
       var r=d.report; cur={ id:r.id, title:r.title, question:r.question||'', content_md:r.content_md||'', databases:r.databases||[], steps:r.steps||[] };
-      el.title.value=r.title||''; el.q.value=r.question||''; showReport(); setStatus('Dibuka #'+r.id+'.'); loadList();
+      el.title.value=r.title||''; el.q.value=r.question||''; closePanels(); showReport(); setStatus('Dibuka #'+r.id+'.'); loadList();
       window.scrollTo({top:0,behavior:'smooth'});
     }).catch(function(e){ setStatus('⚠ '+e.message); });
   }
-  function newReport(){ cur={ id:null,title:'',question:'',content_md:'',databases:[],steps:[] }; el.title.value=''; el.q.value=''; showReport(); setStatus(''); loadList(); el.q.focus(); }
+  function newReport(){ cur={ id:null,title:'',question:'',content_md:'',databases:[],steps:[] }; el.title.value=''; el.q.value=''; closePanels(); showReport(); setStatus(''); loadList(); el.q.focus(); }
+  function adopt(r){ return { id:r.id, title:r.title||'', question:r.question||'', content_md:r.content_md||'', databases:r.databases||[], steps:r.steps||[] }; }
+  function closePanels(except){ [['editor',el.editor],['ai',el.ai],['hist',el.histPanel]].forEach(function(p){ if(p[0]!==except) p[1].classList.remove('show'); }); }
+  function toggleEdit(){ if(!cur.content_md) return; if(el.editor.classList.contains('show')){ el.editor.classList.remove('show'); return; } closePanels('editor'); el.editorTa.value=cur.content_md; el.editStatus.textContent=''; el.editor.classList.add('show'); el.editorTa.focus(); }
+  function editSave(){
+    var md=el.editorTa.value;
+    if(!md.trim()){ el.editStatus.textContent='Isi tidak boleh kosong.'; return; }
+    cur.content_md=md; showReport();
+    if(cur.id){
+      el.editStatus.innerHTML='<span class="rp-spin"></span>Menyimpan…';
+      fetch('/api/laporan/update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:cur.id,content_md:md,title:(el.title.value.trim()||cur.title),note:'Edit manual'})})
+        .then(function(r){return r.json();}).then(function(d){
+          if(!d.ok){ el.editStatus.textContent='⚠ '+(d.error||'Gagal.'); return; }
+          cur=adopt(d.report); el.editor.classList.remove('show'); showReport(); setStatus('Perubahan tersimpan #'+cur.id+'.'); loadList();
+        }).catch(function(e){ el.editStatus.textContent='⚠ '+e.message; });
+    } else {
+      el.editor.classList.remove('show'); setStatus('Perubahan diterapkan. Menyimpan sebagai laporan baru…'); save();
+    }
+  }
+  function toggleAi(){ if(!cur.content_md) return; if(el.ai.classList.contains('show')){ el.ai.classList.remove('show'); return; } closePanels('ai'); el.aiStatus.textContent=''; el.ai.classList.add('show'); el.aiInstr.focus(); }
+  function aiGo(){
+    var instr=el.aiInstr.value.trim();
+    if(!instr){ el.aiInstr.focus(); return; }
+    var mo=document.querySelector('input[name=rpAiMode]:checked'); var mode=mo?mo.value:'append';
+    ensureSaved(function(){
+      el.aiGo.disabled=true; el.aiStatus.innerHTML='<span class="rp-spin"></span>AI memperbarui laporan… (bisa beberapa saat)';
+      var _s=0;
+      fetch('/api/laporan/ai-update',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:cur.id,instruction:instr,mode:mode})})
+        .then(function(r){_s=r.status;return r.text();}).then(function(raw){
+          var d; try{ d=JSON.parse(raw); }catch(_e){ var msg=(_s===502||_s===503||_s===504)?('Server AI melebihi batas waktu (gateway '+_s+'). Coba lagi atau persempit instruksi.'):'Respons server tidak dapat dibaca.'; el.aiStatus.textContent='⚠ '+msg; return; }
+          if(!d.ok){ el.aiStatus.textContent='⚠ '+(d.error||'Gagal.'); return; }
+          cur=adopt(d.report); showReport(); el.ai.classList.remove('show'); el.aiInstr.value='';
+          setStatus('Laporan diperbarui AI ('+(d.mode==='revise'?'revisi menyeluruh':'tambah bagian')+').'+(d.note?(' Catatan: '+d.note):'')); loadList();
+        }).catch(function(e){ el.aiStatus.textContent='⚠ '+e.message; }).then(function(){ el.aiGo.disabled=false; });
+    });
+  }
+  function toggleHist(){ if(!cur.content_md) return; if(el.histPanel.classList.contains('show')){ el.histPanel.classList.remove('show'); return; } ensureSaved(function(){ closePanels('hist'); el.histPanel.classList.add('show'); loadVersions(); }); }
+  function loadVersions(){
+    el.histList.innerHTML='<div class="rp-empty2">Memuat…</div>';
+    fetch('/api/laporan/versions?id='+encodeURIComponent(cur.id)).then(function(r){return r.json();}).then(function(d){
+      if(!d.ok){ el.histList.innerHTML='<div class="rp-empty2">Gagal memuat.</div>'; return; }
+      if(!d.items.length){ el.histList.innerHTML='<div class="rp-empty2">Belum ada versi. Versi dibuat otomatis tiap kali laporan diedit atau diperbarui AI.</div>'; return; }
+      var SRC={edit:'Edit manual',ai:'Pembaruan AI',restore:'Pemulihan'};
+      el.histList.innerHTML=d.items.map(function(v){ var s=SRC[v.source]||v.source||'—'; return '<div class="rp-hist-item"><div><b>#'+v.id+'</b> · '+esc(s)+'<div class="meta">'+esc((v.created_at||'').replace('T',' '))+(v.editor?(' · '+esc(v.editor)):'')+(v.note?(' · '+esc(v.note)):'')+'</div></div><div class="acts"><button data-vview="'+v.id+'">Lihat</button><button data-vrestore="'+v.id+'">Pulihkan</button></div></div>'; }).join('');
+    }).catch(function(){ el.histList.innerHTML='<div class="rp-empty2">Gagal memuat.</div>'; });
+  }
+  el.histList.addEventListener('click',function(e){
+    var vv=e.target.closest('[data-vview]'); var vr=e.target.closest('[data-vrestore]');
+    if(vv){ var vid=vv.getAttribute('data-vview'); fetch('/api/laporan/version?vid='+encodeURIComponent(vid)).then(function(r){return r.json();}).then(function(d){ if(!d.ok){ setStatus('⚠ '+(d.error||'Gagal.')); return; } el.report.innerHTML=mdRender((d.version&&d.version.content_md)||''); el.report.classList.add('show'); window.scrollTo({top:0,behavior:'smooth'}); setStatus('Pratinjau versi #'+vid+' (belum diterapkan). Klik Pulihkan untuk menerapkan, atau buka ulang laporan untuk kembali.'); }).catch(function(ex){ setStatus('⚠ '+ex.message); }); return; }
+    if(vr){ var rid=vr.getAttribute('data-vrestore'); if(!confirm('Pulihkan laporan ke versi #'+rid+'? Versi saat ini akan tersimpan lebih dulu di riwayat.')) return; fetch('/api/laporan/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:cur.id,vid:parseInt(rid,10)})}).then(function(r){return r.json();}).then(function(d){ if(!d.ok){ setStatus('⚠ '+(d.error||'Gagal.')); return; } cur=adopt(d.report); showReport(); setStatus('Dipulihkan ke versi #'+rid+'.'); loadVersions(); loadList(); }).catch(function(ex){ setStatus('⚠ '+ex.message); }); return; }
+  });
   var EX=['Ringkas tren fallback 30 hari terakhir + 3 intent prioritas','Bandingkan volume interaksi Dialogflow vs Sosmed bulan ini','Top 10 pertanyaan tanpa jawaban minggu lalu'];
   EX.forEach(function(t){ var b=document.createElement('button'); b.type='button'; b.textContent=t; b.onclick=function(){ el.q.value=t; generate(); }; el.ex.appendChild(b); });
   el.gen.onclick=generate; el.save.onclick=function(){ save(); }; el.md.onclick=function(){ exportAs('md'); }; el.pdf.onclick=function(){ exportAs('pdf'); }; el.neu.onclick=newReport;
+  el.edit.onclick=toggleEdit; el.editSave.onclick=editSave; el.editCancel.onclick=function(){ el.editor.classList.remove('show'); };
+  el.aiToggle.onclick=toggleAi; el.aiGo.onclick=aiGo; el.aiCancel.onclick=function(){ el.ai.classList.remove('show'); };
+  el.histBtn.onclick=toggleHist;
   el.list.addEventListener('click',function(e){
     var del=e.target.closest('[data-del]');
     if(del){ e.stopPropagation(); var did=parseInt(del.getAttribute('data-del'),10); if(confirm('Hapus laporan ini?')){ fetch('/api/laporan/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:did})}).then(function(r){return r.json();}).then(function(){ if(cur.id===did) newReport(); else loadList(); }); } return; }
