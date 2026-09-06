@@ -12,15 +12,16 @@ SIFAT: ADITIF & NON-BREAKING — file & tabel baru; tidak menyentuh DB lain.
 Ini SATU-SATUNYA tempat TULIS untuk fitur Laporan; database sumber tetap
 read-only (dibaca lewat db.registry -> db.analytics_db.run_select).
 
-Lokasi file: env PIPELINE_REPORTS_DB_FILE, default 'reports.db' (relatif CWD,
-sejajar file .db lain di folder kerja aplikasi).
+Lokasi file: env PIPELINE_REPORTS_DB_FILE, default 'reports.db' di ROOT repo
+(di-anchor via __file__ agar tidak tergantung current working directory).
 """
 import os
 import json
 import sqlite3
 import datetime as _dt
 
-DB_FILE = os.environ.get("PIPELINE_REPORTS_DB_FILE") or "reports.db"
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket db/ -> root repo
+DB_FILE = os.environ.get("PIPELINE_REPORTS_DB_FILE") or os.path.join(_BASE_DIR, "reports.db")
 
 
 def connect(db_path=None):
