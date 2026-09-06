@@ -34,12 +34,19 @@
       <span class="vbl-pill" id="pillStream">Streaming: mati</span>
     </div>
     <p style="color:var(--text-muted);font-size:12.5px;margin:8px 0 12px;">
-      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. Di awal sesi ada <b>auto-kalibrasi noise</b> ~1 detik (diamkan sebentar) agar ambang menyesuaikan lingkungan otomatis. <b>Barge-in via mic</b> (centang) dirancang tahan-gema untuk <b>loudspeaker</b>: browser memakai AEC/noise-suppression + gerbang noise, dan server hanya memotong bila terdeteksi bicara <b>berkelanjutan</b> DAN energinya melewati ambang <b>speaking_rms</b> (bukan blip/gema/ketikan). Saat memverifikasi kandidat suara, volume bot <b>dikecilkan sementara (ducking)</b> lalu dipulihkan bila ternyata noise. Bila centang <b>dimatikan</b>, mode <b>half-duplex sejati</b>: mic benar-benar dibisukan selama bot bicara (mustahil dipotong noise); tombol <b>✋ Potong</b> tetap bisa. Semua ambang bisa diatur di <b>Konfigurasi → Streaming (Mode B)</b>, dan ada tombol <b>↺ Reset ke rekomendasi</b> bila setelan sudah terlanjur kacau. Level deteksi (rms vs ambang) dicatat di log di bawah.
+      Percakapan langsung lewat WebSocket: mikrofon streaming → VAD deteksi akhir ucapan otomatis → jawaban suara. Di awal sesi ada <b>auto-kalibrasi noise</b> ~1 detik (diamkan sebentar) agar ambang menyesuaikan lingkungan otomatis. <b>Barge-in via mic</b> (centang) dirancang tahan-gema untuk <b>loudspeaker</b>: browser memakai AEC/noise-suppression + gerbang noise, dan server hanya memotong bila terdeteksi bicara <b>berkelanjutan</b> DAN energinya melewati ambang <b>speaking_rms</b> (bukan blip/gema/ketikan). Saat memverifikasi kandidat suara, volume bot <b>dikecilkan sementara (ducking)</b> lalu dipulihkan bila ternyata noise. Bila centang <b>dimatikan</b>, mode <b>half-duplex sejati</b>: mic benar-benar dibisukan selama bot bicara (mustahil dipotong noise); tombol <b>✋ Potong</b> tetap bisa. <b>Profil audio</b> menyesuaikan setelan barge-in dengan perangkat dengar: <b>Loudspeaker</b> (default, seperti sekarang), <b>Gagang/earpiece</b> & <b>Headset</b> (lebih responsif karena tak ada gema bot). Semua ambang bisa diatur di <b>Konfigurasi → Streaming (Mode B)</b>, dan ada tombol <b>↺ Reset ke rekomendasi</b> bila setelan sudah terlanjur kacau. Level deteksi (rms vs ambang) dicatat di log di bawah.
     </p>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
       <button id="btnStream" class="vbl-btnp">🔴 Mulai percakapan langsung</button>
       <button id="btnBarge" class="vbl-btns">✋ Potong (barge-in)</button>
       <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-muted);cursor:pointer;"><input type="checkbox" id="chkAutoBarge" checked> Barge-in via mic (loudspeaker OK)</label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-muted);">🎧 Profil audio:
+        <select id="selProfile" class="vbl-inp" style="padding:6px 8px;">
+          <option value="loudspeaker" selected>🔊 Loudspeaker (default)</option>
+          <option value="handset">📞 Gagang / earpiece</option>
+          <option value="headset">🎧 Headset / earphone</option>
+        </select>
+      </label>
       <span id="streamMsg" style="font-size:13px;color:var(--text-muted);">—</span>
     </div>
     <div id="slog" style="margin-top:12px;"></div>
@@ -240,6 +247,9 @@
 
   function perfnow(){ return (window.performance&&performance.now)?performance.now():Date.now(); }
   function autoBarge(){ var c=$('chkAutoBarge'); return !!(c&&c.checked); }
+  // #12: profil akustik dipilih di UI; dikirim ke server sebagai query param ?profile=
+  // saat membuka WebSocket. Kosong/loudspeaker -> server pakai setelan default (tak diubah).
+  function selProfile(){ var s=$('selProfile'); return (s&&s.value)?s.value:''; }
   // Beritahu server bahwa klien SEDANG / berhenti memutar audio bot (jendela 'bot bicara').
   function sendPlaying(on){ if(ws&&ws.readyState===1){try{ws.send(JSON.stringify({type:'playing',on:!!on}));}catch(e){}} }
   // Kirim status centang 'barge-in via mic' ke server (server jadi otoritas).
@@ -252,7 +262,7 @@
     var t=document.createElement('div'); t.className='vbl-turn';
     t.innerHTML='<b>'+who+'</b> '+esc(txt||''); $('slog').insertBefore(t,$('slog').firstChild);
   }
-  function wsUrl(){return (location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/api/voicebot/stream';}
+  function wsUrl(){ var base=(location.protocol==='https:'?'wss:':'ws:')+'//'+location.host+'/api/voicebot/stream'; var p=selProfile(); return p?(base+'?profile='+encodeURIComponent(p)):base; }
 
   function downsample(f32,inRate,outRate){
     if(outRate>=inRate){
@@ -336,6 +346,7 @@
           try{ws.send(pcm.buffer);}catch(err){}
         };
         streaming=true; setBusy(false); $('btnStream').textContent='⏹️ Stop percakapan'; $('pillStream').textContent='Streaming: aktif'; sStat('Tersambung — menyapa…');
+        var _sp=$('selProfile'); if(_sp)_sp.disabled=true;
       };
       ws.onmessage=function(ev){
         if(typeof ev.data!=='string'){ audioParts.push(ev.data); return; }
@@ -351,7 +362,8 @@
           calibEnd=autoCalib?(perfnow()+calibMs):0; calibMax=0;
           sendBargein();
           if(m.greeting){sAdd('🤖',m.greeting);}
-          sStat('Siap'+(autoCalib?' — mengalibrasi noise ~'+Math.round(calibMs/100)/10+'s (diamkan sebentar)…':' — silakan bicara…')+' (barge-in via mic '+(autoBarge()?'aktif':'mati')+')');
+          if(m.profile){ sAdd('🎧','Profil audio aktif: '+esc(m.profile)+(m.profile==='loudspeaker'?' (default — setelan barge-in seperti sekarang, tak diubah).':' (barge-in lebih responsif untuk perangkat isolasi).')); }
+          sStat('Siap'+(autoCalib?' — mengalibrasi noise ~'+Math.round(calibMs/100)/10+'s (diamkan sebentar)…':' — silakan bicara…')+' (barge-in via mic '+(autoBarge()?'aktif':'mati')+(m.profile?', profil '+esc(m.profile):'')+')');
         }
         else if(m.type==='speech_start'){ var _rs=(m.rms!=null?(' (rms '+m.rms+' ≥ '+m.speaking_rms+')'):''); sStat('🎙️ Anda bicara…'+_rs); if(m.rms!=null){ sAdd('🎙️','Barge-in dikonfirmasi — level suara rms '+m.rms+' ≥ ambang speaking_rms '+m.speaking_rms+'.'); } stopAudio(); }
         else if(m.type==='speech_candidate'){ if(duckEnabled&&curAudio){try{curAudio.volume=duckGain;}catch(e){}} var _rc=(m.rms!=null?(' · rms '+m.rms+' / ambang '+m.speaking_rms):''); sStat('🔎 Memeriksa suara…'+_rc+' (volume bot dikecilkan sementara)'); if(m.rms!=null){ sAdd('🔎','Kandidat suara saat bot bicara — rms '+m.rms+' vs ambang speaking_rms '+m.speaking_rms+' → ducking.'); } }
@@ -391,6 +403,7 @@
 
   function stopStream(fromClose){
     streaming=false; clearBusyTimer(); setBusy(false); botPlaying=false; playOffAt=0; $('btnStream').textContent='🔴 Mulai percakapan langsung'; $('pillStream').textContent='Streaming: mati';
+    var _sp=$('selProfile'); if(_sp)_sp.disabled=false;
     try{if(procNode){procNode.onaudioprocess=null;procNode.disconnect();}}catch(e){}
     try{if(srcNode)srcNode.disconnect();}catch(e){}
     try{if(muteNode)muteNode.disconnect();}catch(e){}
