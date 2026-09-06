@@ -156,6 +156,16 @@ Server -> klien:
       TIDAK mengubah syarat konfirmasi barge-in (>= bargein_min_ms) maupun jalur
       konfirmasi-STT (#3b).
 
+12) PROFIL AKUSTIK (client), perbaikan 6 Sep. Setelan barge-in dibedakan menurut
+   PERANGKAT DENGAR penelepon; dipilih klien via query param WS '?profile=handset'
+   (fallback ke config 'stream_profile'). Profil HANYA menimpa subset knob barge-in
+   (speaking_rms, bargein_min_ms, bargein_grace_ms, bargein_hangover_ms) -- tak ada
+   algoritma baru. 'loudspeaker' = DEFAULT & SENGAJA TANPA perubahan (byte-for-byte
+   seperti sebelum fitur ini -> nol regresi utk skenario loudspeaker yg sudah teruji
+   di ruang hening). 'handset' (gagang dekat telinga) & 'headset' lebih responsif
+   (ambang lebih rendah) karena tak ada gema bot yg bisa memicu barge-in palsu.
+   Lihat voicebot/acoustic_profiles.py. Berlaku untuk sesi Mode B berikutnya.
+
 PENJAGA DIAM #3 & SALAM PENUTUP #4: tak berubah perilakunya.
 
 SEMUA TUNING DAPAT DIATUR DARI UI (/voicebot, panel \"Streaming (Mode B) & barge-in\";
@@ -174,6 +184,8 @@ tersedia tombol \"Reset ke rekomendasi\"). Kunci config -> (ENV lama, default):
   stream_bargein_confirm_stt(0; #3b energi tak langsung memotong -> tunggu konfirmasi STT)
   stream_bargein_grace_ms(300; #3c abaikan kandidat barge-in di awal tiap segmen audio bot)
   stream_bargein_hangover_ms(250; #3c tahan kandidat sesaat sebelum batal supaya ducking tak berkedip)
+  stream_profile(loudspeaker; #12 profil akustik default bila klien tak kirim ?profile=)
+  stream_profiles_json(kosong; #12 override nilai preset per-profil, opsional -- JSON)
 Perubahan berlaku untuk sesi streaming BERIKUTNYA (buka ulang percakapan Mode B).
 """
 from __future__ import annotations
@@ -193,10 +205,11 @@ from voicebot import engine as vb_engine
 from voicebot import tts as vb_tts
 from voicebot import dialog as vb_dialog
 from voicebot import config_db as cfg
+from voicebot import acoustic_profiles as vb_profiles
 
 
 # Versi kode; dicatat di log tiap sesi dibuka supaya PASTI kode terbaru yang jalan.
-STREAM_VERSION = "2026-09-04e (#3c barge-in grace/hangover + #3b konfirmasi-STT opsional + tunggu salam penutup selesai + penyambung instan #3a + streaming TTS per-kalimat #3.1 + anti tumpang tindih #8)"
+STREAM_VERSION = "2026-09-06a (#12 profil akustik loudspeaker/handset/headset via ?profile= + #3c barge-in grace/hangover + #3b konfirmasi-STT opsional + tunggu salam penutup selesai + penyambung instan #3a + streaming TTS per-kalimat #3.1 + anti tumpang tindih #8)"
 
 SAMPLE_RATE = 16000
 FRAME_MS = 30
@@ -622,6 +635,22 @@ async def handle(websocket: WebSocket):
         settings = {}
     tuning = _stream_tuning(settings)
 
+    # --- PROFIL AKUSTIK (#12, client): pilih preset barge-in sesuai perangkat dengar.
+    # Sumber: query param WS '?profile=...' (klien) -> fallback config 'stream_profile'.
+    # loudspeaker/default/tak dikenal -> tuning TIDAK disentuh (nol regresi). Hanya
+    # menimpa subset knob barge-in (lihat voicebot/acoustic_profiles.py). Fail-soft.
+    try:
+        _qp_profile = websocket.query_params.get("profile")
+    except Exception:
+        _qp_profile = None
+    _profile_req = _qp_profile if (_qp_profile and str(_qp_profile).strip()) else (
+        settings.get("stream_profile") if settings else "")
+    try:
+        active_profile, profile_changes = vb_profiles.apply_to(
+            tuning, _profile_req, settings)
+    except Exception:
+        active_profile, profile_changes = "", {}
+
     try:
         sess = await loop.run_in_executor(None, vb_engine.create_session)
     except Exception as e:  # noqa: BLE001
@@ -664,6 +693,13 @@ async def handle(websocket: WebSocket):
             tuning["noise_adapt"], tuning["snr_ratio"], tuning["noise_floor_init"],
             tuning["onset_frames"], tuning["voiced_ratio_min"],
             tuning["autocalibrate"], tuning["calib_ms"], tuning["mic_hangover_ms"]))
+    if active_profile:
+        _chg = ", ".join("%s %s->%s" % (k, ov[0], ov[1])
+                         for k, ov in profile_changes.items()) or "(tak ada perubahan)"
+        _log("#12 profil akustik AKTIF: %s | override barge-in: %s (knob lain & default loudspeaker tak diubah)."
+             % (active_profile, _chg))
+    else:
+        _log("#12 profil akustik: loudspeaker/default -> tuning barge-in TIDAK diubah (perilaku sekarang).")
     if connector_enabled:
         _log("#3a penyambung instan AKTIF: %d frasa (dirotasi)." % len(connector_texts))
     if bargein_confirm_stt:
@@ -685,6 +721,7 @@ async def handle(websocket: WebSocket):
             "autocalibrate": tuning["autocalibrate"],
             "calib_ms": tuning["calib_ms"],
             "mic_hangover_ms": tuning["mic_hangover_ms"],
+            "profile": active_profile or "loudspeaker",
             "idle_watchdog": idle_enabled,
         }))
     except Exception:
