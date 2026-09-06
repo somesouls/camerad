@@ -297,6 +297,15 @@ import rag.sources_patch as rag_sources_patch  # noqa: F401  (menerapkan patch s
 #     (python phase5_qa_build.py). WAJIB setelah rag_sources_patch. ---
 import rag.qa_patch as rag_qa_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- PR A (sitasi inline + filter sumber dipakai): monkey-patch rag_engine agar
+#     (a) daftar {{sumber}} untuk LLM DINOMORI, (b) system prompt menuntut
+#     penanda [n], (c) answer (lapis TERLUAR) menyaring res["sources"] hanya ke
+#     nomor yang BENAR-BENAR dikutip pada jawaban. Gagal-anggun & di-gate env
+#     RAG_CITATION_FILTER (default 1). WAJIB PALING AKHIR di antara pembungkus
+#     answer (setelah grounding_patch & handoff_routing_patch) agar jadi lapis
+#     terluar dan melihat jawaban+sumber final. ---
+import rag.citation_filter_patch as rag_citation_filter_patch  # noqa: F401  (menerapkan patch saat diimpor)
+
 import awe.routes as awe_routes
 awe_routes.register(
     app,
