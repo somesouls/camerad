@@ -9,6 +9,10 @@ token) per target:
   - 'agent'   : chat profil Agent Kring Pajak (login peran agent)
   - 'chatbot' : ChatBot Dialogflow (Wajib Pajak)
 
+PR C: setiap interaksi kini bisa ditautkan ke satu percakapan (conv_id) dan
+percakapan disimpan permanen di tabel rag_conversation, sehingga "Chat Baru"
+punya identitas server-side dan bisa ditampilkan ulang (transkrip).
+
 DB file: env PIPELINE_AGENT_LOG_DB_FILE (default agent_log.db).
 """
 import os
@@ -63,6 +67,26 @@ def init_db(conn):
         " feedback_at TEXT DEFAULT '')"
     )
     conn.execute("CREATE INDEX IF NOT EXISTS idx_log_user_ts ON rag_chat_log(username, ts)")
+    # PR C: kolom conv_id (migrasi aman utk DB lama) + indeks pengelompokan turn.
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(rag_chat_log)").fetchall()]
+        if "conv_id" not in cols:
+            conn.execute("ALTER TABLE rag_chat_log ADD COLUMN conv_id TEXT DEFAULT ''")
+    except Exception:
+        pass
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_log_conv ON rag_chat_log(conv_id, id)")
+    # PR C: tabel percakapan (identitas server-side "Chat Baru").
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS rag_conversation ("
+        " conv_id TEXT PRIMARY KEY,"
+        " username TEXT DEFAULT '',"
+        " profil TEXT DEFAULT '',"
+        " title TEXT DEFAULT '',"
+        " created_at TEXT,"
+        " updated_at TEXT,"
+        " turns INTEGER DEFAULT 0)"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_conv_user ON rag_conversation(username, updated_at)")
     conn.execute(
         "CREATE TABLE IF NOT EXISTS rag_quota ("
         " target TEXT PRIMARY KEY,"
@@ -88,19 +112,23 @@ def _c():
     return init_db(connect())
 
 
-def log_chat(username, role, profil, question, answer, sources, grounded, domain):
-    """Catat satu interaksi. Kembalikan log_id (int) atau None bila gagal."""
+def log_chat(username, role, profil, question, answer, sources, grounded, domain,
+             conv_id=""):
+    """Catat satu interaksi. Kembalikan log_id (int) atau None bila gagal.
+
+    conv_id (PR C): opsional; menautkan interaksi ke satu percakapan.
+    """
     try:
         c = _c()
         try:
             cur = c.execute(
                 "INSERT INTO rag_chat_log (ts, username, role, profil, question, answer,"
-                " sources_json, grounded, domain, feedback, feedback_at)"
-                " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " sources_json, grounded, domain, feedback, feedback_at, conv_id)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (_now(), username or "", role or "", profil or "",
                  question or "", answer or "",
                  json.dumps(sources or [], ensure_ascii=False),
-                 1 if grounded else 0, domain or "", "", ""),
+                 1 if grounded else 0, domain or "", "", "", conv_id or ""),
             )
             c.commit()
             return int(cur.lastrowid)
@@ -206,6 +234,118 @@ def set_quota(target, maks_tanya=None, maks_token=None, updated_by=""):
 
 
 # ---------------------------------------------------------------------------
+# Percakapan (PR C): kelompokkan turn "Chat Baru" dalam satu conv_id + persist.
+# ---------------------------------------------------------------------------
+def upsert_conversation(conv_id, username, profil="agent", title=""):
+    """Buat/segarkan satu percakapan. Judul hanya ditetapkan saat pembuatan.
+    Setiap panggilan menaikkan penghitung `turns`. Fail-soft (kembalikan None).
+    """
+    conv_id = (conv_id or "").strip()
+    if not conv_id:
+        return None
+    try:
+        c = _c()
+        try:
+            now = _now()
+            row = c.execute("SELECT conv_id FROM rag_conversation WHERE conv_id=?",
+                            (conv_id,)).fetchone()
+            if row:
+                c.execute(
+                    "UPDATE rag_conversation SET updated_at=?, turns=turns+1,"
+                    " title=CASE WHEN COALESCE(title,'')='' THEN ? ELSE title END"
+                    " WHERE conv_id=?",
+                    (now, (title or "")[:200], conv_id),
+                )
+            else:
+                c.execute(
+                    "INSERT INTO rag_conversation (conv_id, username, profil, title,"
+                    " created_at, updated_at, turns) VALUES (?,?,?,?,?,?,1)",
+                    (conv_id, username or "", profil or "", (title or "")[:200], now, now),
+                )
+            c.commit()
+            return conv_id
+        finally:
+            c.close()
+    except Exception:
+        return None
+
+
+def get_conversation(conv_id):
+    conv_id = (conv_id or "").strip()
+    if not conv_id:
+        return None
+    try:
+        c = _c()
+        try:
+            r = c.execute(
+                "SELECT conv_id, username, profil, title, created_at, updated_at, turns"
+                " FROM rag_conversation WHERE conv_id=?", (conv_id,)).fetchone()
+            return dict(r) if r else None
+        finally:
+            c.close()
+    except Exception:
+        return None
+
+
+def list_conversations(username="", profil="agent", limit=100):
+    try:
+        lim = max(1, min(int(limit or 100), 1000))
+    except Exception:
+        lim = 100
+    try:
+        c = _c()
+        try:
+            where = ["1=1"]
+            params = []
+            if username:
+                where.append("username=?"); params.append(username)
+            if profil:
+                where.append("profil=?"); params.append(profil)
+            rows = c.execute(
+                "SELECT conv_id, username, profil, title, created_at, updated_at, turns"
+                " FROM rag_conversation WHERE " + " AND ".join(where) +
+                " ORDER BY updated_at DESC LIMIT ?", params + [lim]).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            c.close()
+    except Exception:
+        return []
+
+
+def get_conversation_messages(conv_id, limit=500):
+    """Kembalikan daftar interaksi (urut naik) milik satu percakapan."""
+    conv_id = (conv_id or "").strip()
+    if not conv_id:
+        return []
+    try:
+        lim = max(1, min(int(limit or 500), 5000))
+    except Exception:
+        lim = 500
+    try:
+        c = _c()
+        try:
+            rows = c.execute(
+                "SELECT id, ts, username, role, question, answer, sources_json,"
+                " grounded, domain, feedback FROM rag_chat_log"
+                " WHERE conv_id=? ORDER BY id ASC LIMIT ?", (conv_id, lim)).fetchall()
+            out = []
+            for r in rows:
+                d = dict(r)
+                try:
+                    d["sources"] = json.loads(d.pop("sources_json") or "[]")
+                except Exception:
+                    d.pop("sources_json", None)
+                    d["sources"] = []
+                d["grounded"] = bool(d.get("grounded"))
+                out.append(d)
+            return out
+        finally:
+            c.close()
+    except Exception:
+        return []
+
+
+# ---------------------------------------------------------------------------
 # Review feedback: daftar log chat RAG (filter nama / jempol / grounded / dst.)
 # ---------------------------------------------------------------------------
 def _fmt_dt(dt):
@@ -308,7 +448,7 @@ def list_logs(username="", feedback="", grounded="", domain="", profil="agent",
         try:
             rows = c.execute(
                 "SELECT id,ts,username,role,profil,question,answer,sources_json,"
-                "grounded,domain,feedback,feedback_at FROM rag_chat_log WHERE "
+                "grounded,domain,feedback,feedback_at,conv_id FROM rag_chat_log WHERE "
                 + w + " ORDER BY id DESC LIMIT ?", params + [lim]).fetchall()
             logs = []
             for r in rows:
