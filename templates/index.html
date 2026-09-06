@@ -36,6 +36,10 @@ a.ss-card:hover { border-color:var(--accent); transform:translateY(-1px); box-sh
 .ss-card.preview { opacity:.75; }
 @media (min-width:1024px){ .msg .src-wrap { display:none; } }
 @media (max-width:1023px){ .source-side { display:none; } }
+.cite-chip { display:inline-block; font-size:11px; font-weight:700; line-height:1; color:var(--accent); border:1px solid var(--panel-border); border-radius:6px; padding:1px 5px; margin:0 1px; text-decoration:none; vertical-align:baseline; cursor:pointer; }
+a.cite-chip:hover { border-color:var(--accent); background:var(--c-purple); color:var(--c-purple-txt); }
+.ss-card.flash { animation:citeflash 1.25s ease; }
+@keyframes citeflash { 0%,100%{ box-shadow:none; } 25%{ box-shadow:0 0 0 2px var(--accent); } }
 </style>
 {% endblock %}
 {% block main %}
@@ -91,7 +95,20 @@ a.ss-card:hover { border-color:var(--accent); transform:translateY(-1px); box-sh
   }
 
   function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-  function mdLite(src){
+  function citeChips(t, sources){
+    if(!sources || !sources.length) return t;
+    return t.replace(/\[(\d{1,3})\]/g, function(m, n){
+      var num=parseInt(n,10), idx=-1;
+      for(var i=0;i<sources.length;i++){ if(sources[i] && sources[i].cite_no && parseInt(sources[i].cite_no,10)===num){ idx=i; break; } }
+      if(idx<0 && num>=1 && num<=sources.length) idx=num-1;
+      if(idx<0) return m;
+      var sc=sources[idx]||{};
+      var tip=esc((sc.sumber||'Sumber')+': '+(sc.judul||''));
+      if(sc.url){ return '<a class="cite-chip" href="'+esc(sc.url)+'" target="_blank" rel="noopener" title="'+tip+'">['+num+']</a>'; }
+      return '<a class="cite-chip" href="#" data-src="'+idx+'" title="'+tip+'">['+num+']</a>';
+    });
+  }
+  function mdLite(src, sources){
     const blocks=[];
     let t=(src||'').replace(/```(\w*)\n?([\s\S]*?)```/g,(m,lang,code)=>{ blocks.push('<pre><code>'+esc(code.replace(/\n$/,''))+'</code></pre>'); return '\u0000'+(blocks.length-1)+'\u0000'; });
     t=esc(t);
@@ -99,6 +116,7 @@ a.ss-card:hover { border-color:var(--accent); transform:translateY(-1px); box-sh
     t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
     t=t.replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<em>$2</em>');
     t=t.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+    t=citeChips(t, sources);
     t=t.replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>');
     t='<p>'+t+'</p>';
     t=t.replace(/\u0000(\d+)\u0000/g,(m,i)=>blocks[+i]);
@@ -214,7 +232,7 @@ a.ss-card:hover { border-color:var(--accent); transform:translateY(-1px); box-sh
     const name=role==='user'?'Anda':'Asisten Kring Pajak';
     var extra='';
     if(role==='assistant'){ extra = srcChipsHtml(m.sources) + fbHtml(m, idx); }
-    row.innerHTML=av+'<div class="bubble"><div class="role">'+name+'</div><div class="body">'+mdLite(m.content)+'</div>'+extra+'</div>';
+    row.innerHTML=av+'<div class="bubble"><div class="role">'+name+'</div><div class="body">'+mdLite(m.content, m.sources)+'</div>'+extra+'</div>';
     return row;
   }
 
@@ -289,7 +307,7 @@ a.ss-card:hover { border-color:var(--accent); transform:translateY(-1px); box-sh
       const r = await fetch('/api/rag/agent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: text, history: history })
+        body: JSON.stringify({ question: text, history: history, conv_id: s.id })
       });
       let data;
       try {
@@ -346,6 +364,8 @@ a.ss-card:hover { border-color:var(--accent); transform:translateY(-1px); box-sh
   el('menuBtn').onclick=openSide;
   el('backdrop').onclick=closeSide;
   el('streamInner').addEventListener('click', function(ev){
+    var cc = ev.target.closest ? ev.target.closest('.cite-chip[data-src]') : null;
+    if(cc){ ev.preventDefault(); var ci=parseInt(cc.getAttribute('data-src'),10); var cards=document.querySelectorAll('#ssBody .ss-card'); if(cards[ci]){ cards[ci].scrollIntoView({behavior:'smooth',block:'center'}); cards[ci].classList.remove('flash'); void cards[ci].offsetWidth; cards[ci].classList.add('flash'); } return; }
     var b = ev.target.closest ? ev.target.closest('.fb-btn') : null;
     if(b){ sendFeedback(parseInt(b.getAttribute('data-idx'),10), b.getAttribute('data-rating')); }
   });
