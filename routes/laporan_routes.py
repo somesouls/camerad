@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""laporan_routes.py — Menu Laporan (Opsi B / Fase 3).
+"""laporan_routes.py — Menu Laporan (Opsi B / Fase 3+7).
 
 Ruang kerja laporan internal: pengguna menulis permintaan, AI *agentic*
 (knowledge.agentic) menelusuri database internal (READ-ONLY, kecuali `users`)
@@ -11,6 +11,11 @@ tersentuh. Satu-satunya TULIS = ke reports.db; database sumber tetap read-only.
 
 Ekspor PDF memakai tampilan cetak browser (Simpan sebagai PDF) agar tanpa
 dependency baru; ekspor Markdown mengunduh berkas .md.
+
+Fase 7 (aditif): laporan bisa diedit manual & diperbarui oleh AI (mode append /
+revise) plus riwayat versi (lihat & pulihkan). Endpoint baru: /api/laporan/update,
+/api/laporan/ai-update, /api/laporan/versions, /api/laporan/version,
+/api/laporan/restore.
 
 Daftarkan dengan:
     import routes.laporan_routes as laporan_routes; laporan_routes.register(app)
@@ -326,6 +331,240 @@ async def api_laporan_export(request: Request):
     return HTMLResponse(content=doc)
 
 
+# ---------------- Fase 7: edit manual + pembaruan AI + riwayat versi ----------
+def _append_update(old_md, instruction, answer, databases, steps):
+    """Tambahkan hasil pembaruan AI sebagai bagian baru di akhir laporan."""
+    dbs = ", ".join(databases or []) or "-"
+    add = [
+        "", "", "---", "",
+        "## Pembaruan AI \u2014 " + _now_jkt(),
+        "", "_Sumber data: " + dbs + "_",
+        "", "**Instruksi:** " + (instruction or ""),
+        "", (answer or "").strip(),
+    ]
+    q_steps = [s for s in (steps or []) if s.get("type") == "query"]
+    if q_steps:
+        add += ["", "### Query SQL (pembaruan)", ""]
+        for i, s in enumerate(q_steps, 1):
+            status = "ok" if s.get("ok") else ("gagal: " + str(s.get("error") or ""))
+            add += [
+                "**%d. %s** (%s)" % (i, s.get("db", "?"), status),
+                "", "```sql", (s.get("sql") or "").strip(), "```", "",
+            ]
+    return (old_md or "").rstrip() + "\n" + "\n".join(add)
+
+
+def _merge_report(old_md, instruction, answer):
+    """Revisi menyeluruh: minta LLM mengintegrasikan temuan baru ke dokumen.
+
+    Kembalikan dokumen final, atau None bila LLM tak tersedia/gagal (pemanggil
+    fallback ke _append_update). Isi laporan TIDAK di-mask (keluaran analis
+    internal).
+    """
+    try:
+        import common.llm_client as llm_client
+    except Exception:
+        return None
+    system = (
+        "Kamu editor laporan internal Camerad. Perbarui DOKUMEN MARKDOWN yang "
+        "ada dengan mengintegrasikan TEMUAN BARU sesuai INSTRUKSI. Pertahankan "
+        "struktur, judul, dan isi lama yang masih relevan; jangan menghapus data "
+        "penting. Jangan mengarang data di luar dokumen lama & temuan baru. Balas "
+        "HANYA dokumen Markdown final yang utuh, tanpa penjelasan atau pembungkus "
+        "kode."
+    )
+    user = (
+        "=== DOKUMEN LAMA ===\n" + (old_md or "")[:12000] +
+        "\n\n=== INSTRUKSI PEMBARUAN ===\n" + (instruction or "") +
+        "\n\n=== TEMUAN BARU (hasil penelusuran data internal) ===\n" +
+        (answer or "")
+    )
+    try:
+        out = llm_client.chat(
+            [{"role": "user", "content": user}], system=system,
+            max_new_tokens=2200, temperature=0.2)
+        out = (out or "").strip()
+        m = re.match(r"^```(?:markdown|md)?\s*(.+?)\s*```$", out, re.S)
+        if m:
+            out = m.group(1).strip()
+        return out or None
+    except Exception:
+        return None
+
+
+def _ai_update(rid, instruction, mode, lang, editor):
+    conn = reports_db.init_db(reports_db.connect())
+    try:
+        rep = reports_db.get_report(conn, rid)
+        if not rep:
+            return {"ok": False, "error": "Laporan tidak ditemukan."}
+        seeded = (
+            "[KONTEKS LAPORAN SAAT INI \u2014 untuk diperbarui]\n" +
+            (rep.get("content_md") or "")[:4000] +
+            "\n\n[INSTRUKSI PEMBARUAN DARI PENGGUNA]\n" + instruction
+        )
+        res = agentic.answer_agentic(seeded, lang)
+        if not res.get("ok"):
+            return {"ok": False,
+                    "error": res.get("error", "Gagal memperbarui laporan.")}
+        answer = (res.get("answer") or "").strip()
+        new_dbs = res.get("databases") or []
+        steps = res.get("steps") or []
+        old_md = rep.get("content_md") or ""
+        new_md = None
+        if mode == "revise":
+            new_md = _merge_report(old_md, instruction, answer)
+        if not new_md:
+            mode = "append"
+            new_md = _append_update(old_md, instruction, answer, new_dbs, steps)
+        merged_dbs = sorted(set((rep.get("databases") or []) + list(new_dbs)))
+        reports_db.update_report(
+            conn, rid, content_md=new_md, databases=merged_dbs, editor=editor,
+            note="Pembaruan AI (%s): %s" % (mode, (instruction or "")[:120]),
+            source="ai")
+        rep2 = reports_db.get_report(conn, rid)
+        return {"ok": True, "mode": mode, "report": rep2, "answer": answer,
+                "databases": new_dbs, "steps": steps, "note": res.get("note")}
+    finally:
+        conn.close()
+
+
+async def api_laporan_update(request: Request):
+    """Edit manual: simpan perubahan judul/isi laporan tersimpan (Fase 7)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    rid = body.get("id")
+    content_md = body.get("content_md")
+    title = body.get("title")
+    question = body.get("question")
+    note = (body.get("note") or "Edit manual").strip()
+    if not rid:
+        return JSONResponse({"ok": False, "error": "id laporan kosong."})
+    has_content = isinstance(content_md, str) and content_md.strip() != ""
+    has_title = isinstance(title, str) and title.strip() != ""
+    if not has_content and not has_title:
+        return JSONResponse({"ok": False, "error": "Tidak ada perubahan untuk disimpan."})
+    who = _user(request)
+
+    def _run():
+        conn = reports_db.init_db(reports_db.connect())
+        try:
+            ok = reports_db.update_report(
+                conn, rid,
+                title=(title.strip() if has_title else None),
+                content_md=(content_md if has_content else None),
+                question=(question.strip() if isinstance(question, str) else None),
+                editor=who, note=note, source="edit")
+            if not ok:
+                return {"ok": False, "error": "Laporan tidak ditemukan."}
+            return {"ok": True, "report": reports_db.get_report(conn, rid)}
+        finally:
+            conn.close()
+    try:
+        return JSONResponse(await run_in_threadpool(_run))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_laporan_ai_update(request: Request):
+    """Pembaruan oleh AI: telusur ulang data lalu tambah/revisi laporan (Fase 7)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    rid = body.get("id")
+    instruction = (body.get("instruction") or "").strip()
+    mode = (body.get("mode") or "append").strip().lower()
+    lang = body.get("lang") or None
+    if not rid:
+        return JSONResponse({"ok": False, "error": "id laporan kosong."})
+    if not instruction:
+        return JSONResponse({"ok": False, "error": "Instruksi pembaruan kosong."})
+    if mode not in ("append", "revise"):
+        mode = "append"
+    who = _user(request)
+    try:
+        return JSONResponse(await run_in_threadpool(
+            _ai_update, rid, instruction, mode, lang, who))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_laporan_versions(request: Request):
+    rid = request.query_params.get("id")
+    if not rid:
+        return JSONResponse({"ok": False, "error": "id laporan kosong."})
+
+    def _run():
+        conn = reports_db.init_db(reports_db.connect())
+        try:
+            return {"ok": True, "items": reports_db.list_versions(conn, rid)}
+        finally:
+            conn.close()
+    try:
+        return JSONResponse(await run_in_threadpool(_run))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_laporan_version(request: Request):
+    vid = request.query_params.get("vid")
+
+    def _run():
+        conn = reports_db.init_db(reports_db.connect())
+        try:
+            return reports_db.get_version(conn, vid)
+        finally:
+            conn.close()
+    try:
+        v = await run_in_threadpool(_run)
+        if not v:
+            return JSONResponse({"ok": False, "error": "Versi tidak ditemukan."})
+        return JSONResponse({"ok": True, "version": v})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+async def api_laporan_restore(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    rid = body.get("id")
+    vid = body.get("vid")
+    if not rid or not vid:
+        return JSONResponse({"ok": False, "error": "id / vid kosong."})
+    who = _user(request)
+
+    def _run():
+        conn = reports_db.init_db(reports_db.connect())
+        try:
+            v = reports_db.get_version(conn, vid)
+            if not v or str(v.get("report_id")) != str(rid):
+                return {"ok": False, "error": "Versi tidak cocok dengan laporan."}
+            ok = reports_db.update_report(
+                conn, rid, title=v.get("title"), content_md=v.get("content_md"),
+                question=v.get("question"), editor=who,
+                note="Pulihkan versi #%s" % vid, source="restore")
+            if not ok:
+                return {"ok": False, "error": "Laporan tidak ditemukan."}
+            return {"ok": True, "report": reports_db.get_report(conn, rid)}
+        finally:
+            conn.close()
+    try:
+        return JSONResponse(await run_in_threadpool(_run))
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
 async def laporan_page(request: Request):
     return render_page(request, "laporan.html", "laporan")
 
@@ -335,6 +574,4 @@ def register(app):
     app.add_api_route("/api/laporan/generate", api_laporan_generate, methods=["POST"])
     app.add_api_route("/api/laporan/save", api_laporan_save, methods=["POST"])
     app.add_api_route("/api/laporan/list", api_laporan_list, methods=["GET"])
-    app.add_api_route("/api/laporan/get", api_laporan_get, methods=["GET"])
-    app.add_api_route("/api/laporan/delete", api_laporan_delete, methods=["POST"])
-    app.add_api_route("/api/laporan/export", api_laporan_export, methods=["GET"])
+    app.add_api_route("/api/laporan/get

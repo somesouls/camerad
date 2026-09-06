@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
-"""reports_db.py — Penyimpanan laporan (Menu Laporan, Opsi B / Fase 3).
+"""reports_db.py — Penyimpanan laporan (Menu Laporan, Opsi B / Fase 3+7).
 
 DB internal TERPISAH (reports.db) untuk menyimpan laporan hasil AI agentic:
 judul, permintaan, isi Markdown, daftar database sumber, dan jejak langkah.
+
+Fase 7 (aditif): laporan bisa DIEDIT manual & DIPERBARUI oleh AI; setiap
+perubahan menyimpan snapshot isi lama ke tabel `report_versions` sehingga
+riwayat versi bisa dilihat & dipulihkan.
 
 SIFAT: ADITIF & NON-BREAKING — file & tabel baru; tidak menyentuh DB lain.
 Ini SATU-SATUNYA tempat TULIS untuk fitur Laporan; database sumber tetap
@@ -40,6 +44,26 @@ def init_db(conn):
             updated_at TEXT
         )
         """
+    )
+    # Fase 7: riwayat versi — snapshot isi laporan SEBELUM tiap perubahan.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS report_versions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            report_id INTEGER NOT NULL,
+            title TEXT,
+            question TEXT,
+            content_md TEXT,
+            source TEXT,
+            note TEXT,
+            editor TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS ix_report_versions_report "
+        "ON report_versions(report_id)"
     )
     conn.commit()
     return conn
@@ -114,11 +138,108 @@ def get_report(conn, rid):
     return _row_to_dict(r, with_content=True) if r else None
 
 
+def snapshot_version(conn, rid, source="edit", note="", editor=""):
+    """Simpan snapshot isi laporan SAAT INI ke report_versions (Fase 7).
+
+    Dipanggil sebelum update_report menimpa isi, agar versi lama tersimpan.
+    Return id versi baru, atau None bila laporan tak ditemukan.
+    """
+    try:
+        rid = int(rid)
+    except Exception:
+        return None
+    r = conn.execute("SELECT * FROM reports WHERE id=?", (rid,)).fetchone()
+    if not r:
+        return None
+    cur = conn.execute(
+        "INSERT INTO report_versions (report_id, title, question, content_md, "
+        "source, note, editor, created_at) VALUES (?,?,?,?,?,?,?,?)",
+        (rid, r["title"], r["question"], r["content_md"], source or "edit",
+         (note or "")[:300], editor or "", _now()),
+    )
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def update_report(conn, rid, title=None, content_md=None, question=None,
+                  databases=None, editor="", note="", source="edit",
+                  snapshot=True):
+    """Perbarui laporan (Fase 7). Field bernilai None dibiarkan apa adanya.
+
+    Bila snapshot=True, isi lama disimpan dulu ke report_versions.
+    Return True bila laporan ditemukan & diperbarui.
+    """
+    try:
+        rid = int(rid)
+    except Exception:
+        return False
+    r = conn.execute("SELECT * FROM reports WHERE id=?", (rid,)).fetchone()
+    if not r:
+        return False
+    if snapshot:
+        snapshot_version(conn, rid, source=source, note=note, editor=editor)
+    sets = []
+    vals = []
+    if title is not None:
+        sets.append("title=?")
+        vals.append((title or "Laporan").strip()[:300])
+    if content_md is not None:
+        sets.append("content_md=?")
+        vals.append(content_md or "")
+    if question is not None:
+        sets.append("question=?")
+        vals.append(question or "")
+    if databases is not None:
+        sets.append("databases=?")
+        vals.append(_dumps(databases or []))
+    sets.append("updated_at=?")
+    vals.append(_now())
+    vals.append(rid)
+    conn.execute("UPDATE reports SET " + ", ".join(sets) + " WHERE id=?", vals)
+    conn.commit()
+    return True
+
+
+def list_versions(conn, rid, limit=100):
+    try:
+        rid = int(rid)
+    except Exception:
+        return []
+    limit = max(1, min(int(limit or 100), 500))
+    rows = conn.execute(
+        "SELECT id, report_id, title, source, note, editor, created_at, "
+        "length(content_md) AS size FROM report_versions WHERE report_id=? "
+        "ORDER BY id DESC LIMIT ?", (rid, limit),
+    ).fetchall()
+    return [{
+        "id": r["id"], "report_id": r["report_id"], "title": r["title"],
+        "source": r["source"], "note": r["note"], "editor": r["editor"],
+        "created_at": r["created_at"], "size": r["size"] or 0,
+    } for r in rows]
+
+
+def get_version(conn, vid):
+    try:
+        vid = int(vid)
+    except Exception:
+        return None
+    r = conn.execute("SELECT * FROM report_versions WHERE id=?", (vid,)).fetchone()
+    if not r:
+        return None
+    return {
+        "id": r["id"], "report_id": r["report_id"], "title": r["title"],
+        "question": r["question"], "content_md": r["content_md"],
+        "source": r["source"], "note": r["note"], "editor": r["editor"],
+        "created_at": r["created_at"],
+    }
+
+
 def delete_report(conn, rid):
     try:
         rid = int(rid)
     except Exception:
         return False
+    conn.execute("DELETE FROM report_versions WHERE report_id=?", (rid,))
     cur = conn.execute("DELETE FROM reports WHERE id=?", (rid,))
     conn.commit()
     return cur.rowcount > 0
@@ -131,6 +252,20 @@ if __name__ == "__main__":
                       steps=[{"type": "query", "db": "analytics", "ok": True}])
     assert get_report(c, i)["title"] == "Uji", "get_report gagal"
     assert list_reports(c)[0]["id"] == i, "list_reports gagal"
+    # Fase 7: update manual + snapshot versi.
+    assert update_report(c, i, content_md="# Uji\n\nIsi baru.",
+                         note="edit manual", editor="tester") is True, "update gagal"
+    assert get_report(c, i)["content_md"].endswith("Isi baru."), "isi tak terupdate"
+    vs = list_versions(c, i)
+    assert len(vs) == 1, "harus ada 1 versi snapshot"
+    v = get_version(c, vs[0]["id"])
+    assert v and v["content_md"].endswith("Isi."), "isi versi lama salah"
+    # Pulihkan versi lama.
+    assert update_report(c, i, content_md=v["content_md"], source="restore",
+                         note="pulihkan") is True, "restore gagal"
+    assert get_report(c, i)["content_md"].endswith("Isi."), "restore tak berlaku"
+    assert len(list_versions(c, i)) == 2, "restore juga harus snapshot"
     assert delete_report(c, i) is True, "delete_report gagal"
     assert get_report(c, i) is None, "laporan seharusnya sudah terhapus"
+    assert list_versions(c, i) == [], "versi harus ikut terhapus"
     print("REPORTS_DB_SMOKE_OK")
