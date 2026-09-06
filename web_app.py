@@ -297,6 +297,15 @@ import rag.sources_patch as rag_sources_patch  # noqa: F401  (menerapkan patch s
 #     (python phase5_qa_build.py). WAJIB setelah rag_sources_patch. ---
 import rag.qa_patch as rag_qa_patch  # noqa: F401  (menerapkan patch saat diimpor)
 
+# --- PR B (rujukan livechat klikable): tambahkan URL transkrip AWE ke tiap
+#     sumber \"Percakapan AWE\" (agar kartu sumber di Chat Baru bisa diklik →
+#     buka transkrip bubble di tab baru) + daftarkan rute transkrip
+#     /api/rag/agent/transkrip/{sid} (area 'chat', bisa diakses peran agent).
+#     Fail-open & di-gate env RAG_AWE_LINK (default 1). WAJIB setelah
+#     rag.sources_patch (yang memasang _ctx_awe_v2) agar membungkus versi
+#     terakhir sumber AWE. ---
+import rag.awe_link_patch as rag_awe_link_patch  # noqa: F401  (menerapkan patch + daftar rute saat diimpor)
+
 import awe.routes as awe_routes
 awe_routes.register(
     app,
