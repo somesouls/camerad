@@ -27,6 +27,12 @@ SESI & KREDENSIAL (dibaca dari environment; JANGAN commit):
   SOSMED_X_EXPAND_THREADS: 1 (default) buka tiap utas -> sadap TweetDetail (induk + balasan resmi)
   SOSMED_X_MAX_SCROLLS   : batas scroll timeline pencarian (default 40)
   SOSMED_X_MAX_THREADS   : batas utas yang di-expand per-hari (default 60)
+  SOSMED_X_USER_DATA_DIR : path folder "User Data" Chrome utk memakai PROFIL yang
+                           SUDAH ADA (cookie/login ikut terpakai; tak perlu login
+                           ulang). Chrome dgn profil itu HARUS DITUTUP dulu.
+  SOSMED_X_PROFILE_DIR   : nama subfolder profil (default "Default"; mis. "Profile 1")
+  SOSMED_X_CHANNEL       : channel browser terpasang (mis. "chrome"/"msedge");
+                           default Chromium bawaan Playwright bila kosong
 
 CLI:
   python -m sosmed.x_collector            # smoke test offline (parsing)
@@ -295,19 +301,63 @@ def _sleep(base):
 # ===========================================================================
 # Bagian browser (Playwright) — import LAZY
 # ===========================================================================
-def _new_context(browser):
-    sf = state_file()
+def _context_kwargs():
     kw = dict(user_agent=(os.environ.get("SOSMED_X_UA") or _DEFAULT_UA),
               locale="id-ID", viewport={"width": 1280, "height": 2200})
     tz = _tz_name()
     if tz:
         kw["timezone_id"] = tz
+    return kw
+
+
+def _persistent_dir():
+    return (os.environ.get("SOSMED_X_USER_DATA_DIR") or "").strip()
+
+
+def _launch(pw, headless):
+    """Kembalikan (browser, ctx, persistent).
+
+    Bila SOSMED_X_USER_DATA_DIR diset -> pakai PROFIL Chrome yang SUDAH ADA via
+    launch_persistent_context, sehingga cookie/login akun ikut terpakai (tak perlu
+    login ulang & jauh lebih jarang kena anti-bot dibanding profil kosong). Chrome
+    dengan profil tsb HARUS ditutup dulu (kalau tidak akan error 'profile in use').
+    Bila tidak diset -> Chromium bawaan + storage_state (perilaku lama)."""
+    args = ["--no-sandbox", "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled"]
+    channel = (os.environ.get("SOSMED_X_CHANNEL") or "").strip()
+    udd = _persistent_dir()
+    if udd:
+        prof = (os.environ.get("SOSMED_X_PROFILE_DIR") or "Default").strip()
+        if prof:
+            args.append("--profile-directory=%s" % prof)
+        launch_kw = dict(headless=headless, args=args, channel=(channel or "chrome"))
+        launch_kw.update(_context_kwargs())
+        ctx = pw.chromium.launch_persistent_context(udd, **launch_kw)
+        return None, ctx, True
+    launch_kw = dict(headless=headless, args=args)
+    if channel:
+        launch_kw["channel"] = channel
+    browser = pw.chromium.launch(**launch_kw)
+    sf = state_file()
+    kw = _context_kwargs()
     if os.path.exists(sf):
         try:
-            return browser.new_context(storage_state=sf, **kw)
+            return browser, browser.new_context(storage_state=sf, **kw), False
         except Exception:
             pass
-    return browser.new_context(**kw)
+    return browser, browser.new_context(**kw), False
+
+
+def _close(browser, ctx):
+    try:
+        ctx.close()
+    except Exception:
+        pass
+    try:
+        if browser is not None:
+            browser.close()
+    except Exception:
+        pass
 
 
 def _click_text(page, labels):
@@ -415,9 +465,7 @@ def save_login_state():
         return {"ok": False, "need_playwright": True}
     headless = _flag("SOSMED_X_HEADLESS", "1")
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=headless,
-                                     args=["--no-sandbox", "--disable-dev-shm-usage"])
-        ctx = _new_context(browser)
+        browser, ctx, persistent = _launch(pw, headless)
         page = ctx.new_page()
         err = ""
         ok = _is_logged_in(page)
@@ -442,19 +490,19 @@ def save_login_state():
             print("Terdeteksi seperti login tetapi cookie auth_token tidak ada; "
                   "kemungkinan belum benar-benar login. Sesi TIDAK disimpan.")
         if ok:
-            try:
-                ctx.storage_state(path=state_file())
-                print("Sesi tersimpan ke", state_file())
-            except Exception as e:
-                print("Gagal menyimpan sesi:", e)
+            if persistent:
+                print("Login diambil dari profil Chrome yang ada; tersimpan di profil itu.")
+            else:
+                try:
+                    ctx.storage_state(path=state_file())
+                    print("Sesi tersimpan ke", state_file())
+                except Exception as e:
+                    print("Gagal menyimpan sesi:", e)
         else:
             print("Gagal login; sesi tidak tersimpan.")
-        try:
-            ctx.close()
-            browser.close()
-        except Exception:
-            pass
-        return {"ok": ok, "logged_in": bool(has_cookie), "state_file": state_file()}
+        _close(browser, ctx)
+        return {"ok": ok, "logged_in": bool(has_cookie),
+                "persistent": persistent, "state_file": state_file()}
 
 
 def diag_session():
@@ -466,18 +514,13 @@ def diag_session():
         return {"ok": False, "need_playwright": True, "error": str(e)}
     headless = _flag("SOSMED_X_HEADLESS", "1")
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=headless,
-                                     args=["--no-sandbox", "--disable-dev-shm-usage"])
-        ctx = _new_context(browser)
+        browser, ctx, persistent = _launch(pw, headless)
         page = ctx.new_page()
         li = _is_logged_in(page)
         cookie = _has_auth_cookie(ctx)
-        try:
-            ctx.close()
-            browser.close()
-        except Exception:
-            pass
+        _close(browser, ctx)
         return {"ok": True, "logged_in": bool(li), "auth_cookie": bool(cookie),
+                "persistent": persistent, "profile": _persistent_dir() or None,
                 "state_file": state_file(), "state_exists": os.path.exists(state_file())}
 
 
@@ -513,9 +556,7 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             pass
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=headless,
-                                     args=["--no-sandbox", "--disable-dev-shm-usage"])
-        ctx = _new_context(browser)
+        browser, ctx, persistent = _launch(pw, headless)
         _diag = {"graphql": 0, "search": 0}
 
         def _on_response(resp):
@@ -545,16 +586,13 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
         if not _is_logged_in(page):
             ok, err = _auto_login(ctx)
             if not ok:
+                _close(browser, ctx)
+                return [], {"ok": False, "need_login": True, "error": err, "url": url}
+            if not persistent:
                 try:
-                    ctx.close()
-                    browser.close()
+                    ctx.storage_state(path=state_file())
                 except Exception:
                     pass
-                return [], {"ok": False, "need_login": True, "error": err, "url": url}
-            try:
-                ctx.storage_state(path=state_file())
-            except Exception:
-                pass
         logged_in = _has_auth_cookie(ctx)
 
         try:
@@ -598,15 +636,12 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                     pass
                 _sleep(1.6)
 
-        try:
-            ctx.storage_state(path=state_file())
-        except Exception:
-            pass
-        try:
-            ctx.close()
-            browser.close()
-        except Exception:
-            pass
+        if not persistent:
+            try:
+                ctx.storage_state(path=state_file())
+            except Exception:
+                pass
+        _close(browser, ctx)
 
     items = list(by_id.values())
     info = {"ok": True, "count": len(items),
@@ -617,7 +652,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
     if len(items) == 0:
         if not logged_in:
             info["note"] = ("0 hasil & sesi TIDAK terautentikasi (cookie auth_token "
-                            "tidak ada). Buat sesi login dulu: SOSMED_X_HEADLESS=0 "
+                            "tidak ada). Pakai PROFIL Chrome yang sudah login lewat "
+                            "SOSMED_X_USER_DATA_DIR, atau buat sesi: SOSMED_X_HEADLESS=0 "
                             "python -m sosmed.x_collector login")
         elif _diag["search"] == 0:
             info["note"] = ("0 hasil: halaman pencarian tidak mengembalikan SearchTimeline "
