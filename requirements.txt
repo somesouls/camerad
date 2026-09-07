@@ -96,3 +96,12 @@ pdf2image>=1.17          # butuh Poppler terpasang di sistem (pdftoppm) untuk OC
 # presidio-analyzer>=2.2
 # presidio-anonymizer>=2.2
 # spacy>=3.7
+
+# --- Sosmed Auto-pull X (Fase 1): browser headless server-side (pengganti ekstensi) ---
+# Penarikan X otomatis H-1 (sosmed/x_collector.py) memakai Playwright (Chromium
+# headless) yang login sebagai AKUN KEDUA & menyadap JSON GraphQL X. OPSIONAL &
+# fail-soft: modul tetap bisa di-import tanpa Playwright; penjadwal default MATI
+# (SOSMED_X_SCHEDULER=0). Aktifkan HANYA setelah memasang paket + browser:
+#   pip install playwright
+#   python -m playwright install chromium
+# playwright>=1.40
