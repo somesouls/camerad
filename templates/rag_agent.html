@@ -101,7 +101,7 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
             <option value="full">Pipeline penuh — AI rewrite + loop verifikasi (paling teliti, paling lambat)</option>
             <option value="tanpa_llm">Tanpa LLM — cuplikan retrieval mentah (instan, tanpa sintesis)</option>
           </select>
-          <div class="hint">Untuk pemakaian harian agen, "Hemat LLM" biasanya cukup: jawaban tetap tersintesis rapi, tanpa rewrite &amp; loop verifikasi. Tersimpan per profil; langsung berlaku untuk chat produksi setelah disimpan (tanpa restart).</div>
+          <div class="hint">Untuk pemakaian harian agen, \"Hemat LLM\" biasanya cukup: jawaban tetap tersintesis rapi, tanpa rewrite &amp; loop verifikasi. Tersimpan per profil; langsung berlaku untuk chat produksi setelah disimpan (tanpa restart).</div>
         </div>
         <div class="field">
           <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
@@ -139,6 +139,12 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
           <span class="hint" id="tMsg" style="margin-top:0;"></span>
         </div>
         <div id="tResult" style="margin-top:12px;"><div class="empty-r">Belum ada hasil.</div></div>
+      </div>
+
+      <div class="card">
+        <h3>🩺 Status Mesin &amp; Model</h3>
+        <div class="sub">Status runtime reranker, embedding korpus, indeks pencarian, jumlah unit peraturan, dan router. Berguna memverifikasi apakah GPU &amp; model benar-benar aktif.</div>
+        <div id="statusBox"><div class="empty-r">Memuat…</div></div>
       </div>
     </div>
   </div>
@@ -256,6 +262,28 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
     fetch('/api/rag/lab',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json();}).then(function(j){el('btnTest').disabled=false; el('tMsg').textContent=''; renderTest(j);}).catch(function(){el('btnTest').disabled=false; el('tMsg').textContent=''; el('tResult').innerHTML='<div class="empty-r" style="color:var(--c-red-txt)">Gagal terhubung.</div>';});
   }
 
+  function badgeBool(v, okTxt, noTxt){
+    return v ? '<span class="badge g">'+esc(okTxt||'aktif')+'</span>' : '<span class="badge f">'+esc(noTxt||'nonaktif')+'</span>';
+  }
+  function renderStatus(d){
+    var box=el('statusBox');
+    if(!d||!d.ok){ box.innerHTML='<div class="empty-r" style="color:var(--c-red-txt)">Gagal memuat status.</div>'; return; }
+    var rr=d.reranker||{}, em=d.embedding||{}, pr=d.peraturan||{}, ro=d.router||{};
+    var gpu=rr.cuda_available;
+    var rows=[];
+    rows.push(['Reranker (cross-encoder)', badgeBool(rr.available)+' <span class="mono" style="display:inline;padding:2px 6px">'+esc(rr.model||'-')+'</span>']);
+    rows.push(['Perangkat reranker', esc(rr.device||'-')+' · GPU '+badgeBool(!!gpu,'terdeteksi','tidak')+(rr.torch?(' · torch '+esc(rr.torch)+(rr.cuda_build?(' /cu'+esc(rr.cuda_build)):' (CPU build)')):'')]);
+    rows.push(['Embedding korpus', badgeBool(em.available)+' <span class="mono" style="display:inline;padding:2px 6px">'+esc(em.model||'-')+'</span> · dim '+esc(String(em.dim||'-'))]);
+    rows.push(['Indeks FTS peraturan', 'v'+esc(String(pr.fts_version||'-'))+' / target v'+esc(String(pr.target||'-'))+' · '+esc(String(pr.fts_rows||0))+' baris'+(pr.stemming?' · stemming':'')]);
+    rows.push(['Unit peraturan', esc(String(pr.total_unit||0))+' unit · '+esc(String(pr.total_vec||0))+' vektor · '+esc(String(pr.total_pasal||0))+' pasal']);
+    rows.push(['Router', 'v2 '+badgeBool(ro.router2)+' · soft-prior '+badgeBool(ro.softprior)+' · min sinyal '+esc(String(ro.min_reg||'-'))]);
+    box.innerHTML='<div class="tbl-scroll"><table class="rv" style="min-width:0"><tbody>'+rows.map(function(r){return '<tr><td style="white-space:nowrap;color:var(--text-muted);font-weight:600">'+r[0]+'</td><td>'+r[1]+'</td></tr>';}).join('')+'</tbody></table></div>'+(gpu===false?'<div class="hint" style="color:var(--c-orange-txt)">GPU tidak terdeteksi oleh reranker — bila PC ber-GPU, kemungkinan torch build CPU-only (lihat requirements.txt / setup CUDA).</div>':'');
+  }
+  function loadStatus(){
+    el('statusBox').innerHTML='<div class="empty-r">Memuat…</div>';
+    fetch('/api/rag/status').then(function(r){return r.json();}).then(renderStatus).catch(function(){ el('statusBox').innerHTML='<div class="empty-r" style="color:var(--c-red-txt)">Gagal terhubung.</div>'; });
+  }
+
   function tsWIB(ts){
     if(!ts) return '';
     try{ var d=new Date(ts.replace(' ','T')+'Z');
@@ -330,7 +358,7 @@ table.rv td.q{ max-width:230px; } table.rv td.a{ max-width:300px; color:var(--te
   el('fFb').onchange=loadLogs; el('fGr').onchange=loadLogs; el('fDom').onchange=loadLogs; el('fRange').onchange=loadLogs;
   var t=null; el('fName').addEventListener('input',function(){ clearTimeout(t); t=setTimeout(loadLogs,350); });
 
-  renderChips(); loadProfile(); loadQuota(); loadLogs();
+  renderChips(); loadProfile(); loadQuota(); loadLogs(); loadStatus();
 })();
 </script>
 {% endblock %}

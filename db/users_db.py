@@ -7,6 +7,8 @@ import hashlib
 import secrets
 from datetime import datetime, timezone
 
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket db/ -> root repo
+
 PBKDF2_ITERATIONS = 200000
 
 _CAP = {
@@ -27,7 +29,7 @@ def _norm_username(u):
 
 
 def connect(db_path=None):
-    path = db_path or os.environ.get("PIPELINE_USERS_DB_FILE", "users.db")
+    path = db_path or os.environ.get("PIPELINE_USERS_DB_FILE") or os.path.join(_BASE_DIR, "users.db")
     conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn

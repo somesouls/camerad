@@ -30,14 +30,15 @@ peraturan pengubah (induk) sebagai caveat dasar hukum, serta larangan
 menampilkan nomor/pasal yang tak hadir di konteks. Migrasi lunak: agent hanya
 di-upgrade bila prompt tersimpan masih PERSIS bawaan lama (belum dikustom admin).
 
-Env: PIPELINE_RAG_DB_FILE atau 'rag.db'.
+Env: PIPELINE_RAG_DB_FILE (default 'rag.db' di ROOT repo, di-anchor via __file__).
 """
 import os
 import json
 import sqlite3
 import time
 
-DB_FILE = os.environ.get("PIPELINE_RAG_DB_FILE") or "rag.db"
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket rag/ -> root repo
+DB_FILE = os.environ.get("PIPELINE_RAG_DB_FILE") or os.path.join(_BASE_DIR, "rag.db")
 
 SUMBER_VALID = ("intent", "awe", "sosmed", "peraturan", "sop")
 SUMBER_LABEL = {

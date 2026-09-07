@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """voicebot/config_db.py -- penyimpanan konfigurasi, intent, kamus, & log turn.
 
-SQLite tunggal (env VOICEBOT_DB_FILE, default 'voicebot.db'). Tabel:
+SQLite tunggal (env VOICEBOT_DB_FILE, default 'voicebot.db' di ROOT repo,
+di-anchor via __file__). Tabel:
   vb_settings(key, value)                 -- konfigurasi mesin (ambang, prompt, dst.)
   vb_intents(id, name, phrases, response, confirm_label) -- intent + training phrase (NLU lokal)
   vb_lexicon(id, pattern, replacement...) -- kamus pelafalan (dipakai TTS)
@@ -19,7 +20,8 @@ import re
 import json
 import sqlite3
 
-DB_FILE = os.environ.get("VOICEBOT_DB_FILE") or "voicebot.db"
+_BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # paket voicebot/ -> root repo
+DB_FILE = os.environ.get("VOICEBOT_DB_FILE") or os.path.join(_BASE_DIR, "voicebot.db")
 
 DEFAULT_SETTINGS = {
     "threshold": "0.6",
