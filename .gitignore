@@ -1,4 +1,5 @@
 .venv/
+.venv-asr/
 __pycache__/
 .env
 service-account.json
@@ -16,3 +17,7 @@ camerad-service-account.json
 *.bak
 *.bak_*
 *.pyc
+
+*.wav
+*.onnx
+*.onnx.json
