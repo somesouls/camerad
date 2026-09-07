@@ -1,0 +1,152 @@
+{% extends "base.html" %}
+{% block title %}Voicebot · Intent &amp; Knowledge · Camerad Studio{% endblock %}
+{% block content %}
+<div style="max-width:1050px;margin:0 auto;padding:24px 28px 60px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+    <h1 style="margin:0;font-size:22px;font-weight:800;">🗂️ Voicebot · Intent &amp; Knowledge</h1>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <a href="/voicebot" class="vb-btns" style="text-decoration:none;">← Konfigurasi</a>
+      <a href="/voicebot/lab" class="vb-btnp" style="text-decoration:none;">🧪 Buka Lab</a>
+    </div>
+  </div>
+  <p style="color:var(--text-muted);margin:8px 0 20px;font-size:14px;">
+    Kelola basis pengetahuan voicebot: impor intent tersibuk dari Dialogflow, lalu tambah/ubah intent + training phrase &amp; respons. Daftar intent kini memakai <b>paginasi</b>. Setelan mesin, streaming, dialog, kamus pelafalan &amp; log ada di <a href="/voicebot" style="color:var(--accent,#2563eb);">Konfigurasi Voicebot</a>.
+  </p>
+
+  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
+    <span class="vb-kpi" id="kpiIntent">Intent: —</span>
+  </div>
+
+  <section class="vb-pnl">
+    <h2 class="vb-ph">📥 Impor intent dari Dialogflow</h2>
+    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
+      Ambil intent <b>tersibuk</b> (paling sering dipanggil) beserta training phrase &amp; respons perwakilan dari data analitik Dialogflow (<code>analytics.db</code>), lalu masukkan ke daftar intent voicebot di bawah. <b>Pratinjau</b> dulu sebelum impor. Intent sistem/fallback (System_/Umum_) otomatis dikecualikan.
+    </p>
+    <div class="vb-grid2">
+      <label>Jumlah intent teratas<input id="dfLimit" class="vb-inp" type="number" min="1" value="20"></label>
+      <label>Maks training phrase / intent<input id="dfMaxPhr" class="vb-inp" type="number" min="1" value="40"></label>
+      <label>Tanggal mulai (opsional)<input id="dfStart" class="vb-inp" type="date"></label>
+      <label>Tanggal akhir (opsional)<input id="dfEnd" class="vb-inp" type="date"></label>
+      <label>Intent yang sudah ada<select id="dfSkip" class="vb-inp"><option value="0">Segarkan (timpa)</option><option value="1">Lewati</option></select></label>
+      <label>Aktifkan hasil impor<select id="dfAkt" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+    </div>
+    <div style="margin-top:12px;">
+      <button id="btnDfPrev" class="vb-btns">🔎 Pratinjau</button>
+      <button id="btnDfImp" class="vb-btnp">📥 Impor sekarang</button>
+      <span id="dfMsg" style="font-size:13px;color:var(--text-muted);"></span>
+    </div>
+    <div id="dfPrev" style="margin-top:12px;overflow-x:auto;"></div>
+  </section>
+
+  <section class="vb-pnl" style="margin-top:22px;">
+    <h2 class="vb-ph">🗂️ Intent &amp; Training Phrase</h2>
+    <div class="vb-grid2">
+      <label>Nama intent<input id="iName" class="vb-inp"></label>
+      <label>Aktif<select id="iAktif" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
+    </div>
+    <label style="display:block;margin-top:10px;">Training phrase (pisahkan koma / baris)<textarea id="iPhr" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
+    <label style="display:block;margin-top:10px;">Respons (dibacakan bila intent cocok)<textarea id="iResp" rows="2" class="vb-inp" style="width:100%;"></textarea></label>
+    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;">Untuk <b>jawaban menuntun (#2)</b>, tulis langkah-langkah di Respons ini memakai <b>baris baru</b> atau <b>penomoran</b> (1. 2. 3.) — nanti otomatis disampaikan bertahap.</p>
+    <label style="display:block;margin-top:10px;">Kalimat konfirmasi cepat #1 (opsional; kosong = otomatis dari nama intent)<input id="iConf" class="vb-inp" style="width:100%;" placeholder="apakah Kakak Lupa EFIN?"></label>
+    <input type="hidden" id="iId">
+    <div style="margin-top:12px;"><button id="btnSaveInt" class="vb-btnp">Simpan intent</button> <button id="btnResetInt" class="vb-btns">Bersihkan</button> <span id="intMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
+    <div style="display:flex;gap:10px;margin-top:16px;align-items:center;flex-wrap:wrap;"><input id="q" class="vb-inp" style="flex:1;min-width:180px;" placeholder="Cari intent / frasa…"><button id="btnCari" class="vb-btns">Cari</button><label style="display:flex;flex-direction:row;align-items:center;gap:6px;font-size:13px;color:var(--text-muted);">Per halaman<select id="psize" class="vb-inp"><option value="10">10</option><option value="20" selected>20</option><option value="50">50</option><option value="100">100</option></select></label></div>
+    <div id="tabel" style="margin-top:12px;overflow-x:auto;"></div>
+    <div id="pg" style="display:flex;gap:10px;align-items:center;justify-content:center;margin-top:14px;flex-wrap:wrap;"></div>
+  </section>
+</div>
+<style>
+.vb-kpi{background:var(--panel-bg,#fff);border:1px solid var(--panel-border,#e5e7eb);border-radius:12px;padding:8px 14px;font-size:13px;}
+.vb-pnl{background:var(--panel-bg,#fff);border:1px solid var(--panel-border,#e5e7eb);border-radius:14px;padding:18px 20px;}
+.vb-ph{margin:0 0 14px;font-size:16px;}
+.vb-grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+.vb-grid2 label,.vb-pnl>label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:var(--text-muted,#6b7280);}
+.vb-inp{padding:9px 12px;border-radius:10px;border:1px solid var(--panel-border,#e5e7eb);background:var(--bg-base,#fff);color:var(--text-main,#111);font-size:14px;font-family:inherit;}
+.vb-btnp{padding:9px 16px;border-radius:10px;border:none;background:var(--accent,#2563eb);color:#fff;font-weight:600;cursor:pointer;}
+.vb-btns{padding:9px 14px;border-radius:10px;border:1px solid var(--panel-border,#e5e7eb);background:transparent;color:var(--text-main,#111);cursor:pointer;}
+.vb-btns:disabled{opacity:.45;cursor:not-allowed;}
+.vb-tab{width:100%;border-collapse:collapse;font-size:13px;} .vb-tab th,.vb-tab td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--panel-border,#e5e7eb);vertical-align:top;} .vb-tab th{color:var(--text-muted,#6b7280);}
+.vb-chip{display:inline-block;background:rgba(59,130,246,0.12);border-radius:6px;padding:1px 7px;margin:1px 3px 1px 0;font-size:12px;}
+.vb-link{border:none;background:transparent;color:var(--accent,#2563eb);cursor:pointer;font-size:12.5px;} .vb-link.del{color:#dc2626;}
+@media(max-width:720px){.vb-grid2{grid-template-columns:1fr;}}
+</style>
+{% endblock %}
+{% block scripts %}
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  var esc=function(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});};
+  function post(u,b){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(function(r){return r.json();});}
+
+  function dfBody(){
+    return {limit:$('dfLimit').value||20,max_phrases:$('dfMaxPhr').value||40,
+      start:$('dfStart').value||null,end:$('dfEnd').value||null,
+      skip_existing:$('dfSkip').value==='1',activate:$('dfAkt').value};
+  }
+  $('btnDfPrev').onclick=function(){
+    $('dfMsg').textContent='Memuat pratinjau…';
+    post('/api/voicebot/intents/df-preview',dfBody()).then(function(d){
+      if(!d.ok){$('dfMsg').textContent=d.error||'Gagal.';$('dfPrev').innerHTML='';return;}
+      if(!d.rows.length){$('dfMsg').textContent='';$('dfPrev').innerHTML='<p style="color:var(--text-muted);">Tidak ada intent ditemukan di analytics.db. Tarik data Dialogflow dulu lewat menu <b>Kelola Data</b>.</p>';return;}
+      $('dfMsg').textContent=d.total+' intent teratas (belum diimpor):';
+      var h='<table class="vb-tab"><thead><tr><th>#</th><th>Intent</th><th>Jumlah panggilan</th></tr></thead><tbody>';
+      d.rows.forEach(function(r,i){h+='<tr><td>'+(i+1)+'</td><td><b>'+esc(r.intent)+'</b></td><td>'+r.count+'</td></tr>';});
+      h+='</tbody></table>';$('dfPrev').innerHTML=h;
+    });
+  };
+  $('btnDfImp').onclick=function(){
+    if(!confirm('Impor intent tersibuk Dialogflow ke voicebot sekarang?'))return;
+    $('dfMsg').textContent='Mengimpor… (bisa beberapa detik)';
+    post('/api/voicebot/intents/df-import',dfBody()).then(function(d){
+      if(!d.ok){$('dfMsg').textContent=d.error||'Gagal.';return;}
+      $('dfMsg').textContent='Selesai: '+d.imported+' baru, '+d.updated+' diperbarui, '+d.skipped+' dilewati ('+d.phrases+' training phrase).';
+      pg=1;loadInt();loadKpi();
+    });
+  };
+
+  function resetInt(){$('iId').value='';$('iName').value='';$('iPhr').value='';$('iResp').value='';$('iConf').value='';$('iAktif').value='1';$('intMsg').textContent='';}
+  $('btnResetInt').onclick=resetInt;
+  $('btnSaveInt').onclick=function(){
+    var b={id:$('iId').value||null,name:$('iName').value.trim(),phrases:$('iPhr').value,response:$('iResp').value.trim(),confirm_label:$('iConf').value.trim(),aktif:$('iAktif').value};
+    if(!b.name){$('intMsg').textContent='Nama intent wajib.';return;}
+    $('intMsg').textContent='Menyimpan…';
+    post('/api/voicebot/intents/save',b).then(function(d){if(d.ok){resetInt();loadInt();loadKpi();$('intMsg').textContent='Tersimpan.';}else{$('intMsg').textContent=d.error||'Gagal.';}});
+  };
+  function isi(r){$('iId').value=r.id||'';$('iName').value=r.name||'';$('iPhr').value=(r.phrases_list||[]).join(', ');$('iResp').value=r.response||'';$('iConf').value=r.confirm_label||'';$('iAktif').value=String(r.aktif==null?1:r.aktif);window.scrollTo({top:0,behavior:'smooth'});}
+
+  var pg=1, psize=20;
+  function renderPg(d){
+    var el=$('pg'); if(!el)return;
+    var total=d.total||0, pages=d.pages||1, page=d.page||1;
+    pg=page;
+    el.innerHTML='<button class="vb-btns" id="pgPrev"'+(page<=1?' disabled':'')+'>‹ Sebelumnya</button>'
+      +'<span style="font-size:13px;color:var(--text-muted);">Halaman '+page+' / '+pages+' · '+total+' intent</span>'
+      +'<button class="vb-btns" id="pgNext"'+(page>=pages?' disabled':'')+'>Berikutnya ›</button>';
+    var p=$('pgPrev'), n=$('pgNext');
+    if(p)p.onclick=function(){if(pg>1){pg--;loadInt();}};
+    if(n)n.onclick=function(){if(pg<pages){pg++;loadInt();}};
+  }
+  function loadInt(){
+    post('/api/voicebot/intents/list',{q:($('q').value||'').trim(),page:pg,page_size:psize}).then(function(d){
+      var box=$('tabel'); if(!d.ok){box.innerHTML='<p style="color:#dc2626;">'+esc(d.error||'Gagal')+'</p>';renderPg({});return;}
+      if(!d.rows.length){box.innerHTML='<p style="color:var(--text-muted);">'+((d.total||0)>0?'Tidak ada hasil di halaman ini.':'Belum ada intent.')+'</p>';renderPg(d);return;}
+      var h='<table class="vb-tab"><thead><tr><th>Intent</th><th>Training phrase</th><th>Respons</th><th>Konfirmasi #1</th><th>Aktif</th><th></th></tr></thead><tbody>';
+      d.rows.forEach(function(r){
+        var chips=(r.phrases_list||[]).map(function(s){return '<span class="vb-chip">'+esc(s)+'</span>';}).join('')||'—';
+        h+='<tr><td><b>'+esc(r.name)+'</b></td><td>'+chips+'</td><td>'+esc(r.response||'')+'</td><td>'+esc(r.confirm_label||'')+'</td><td>'+(r.aktif?'✅':'—')+'</td><td style="white-space:nowrap;"><button class="vb-link" data-ed=\''+esc(JSON.stringify(r))+'\'>Ubah</button> <button class="vb-link del" data-del="'+r.id+'">Hapus</button></td></tr>';
+      });
+      h+='</tbody></table>'; box.innerHTML=h;
+      box.querySelectorAll('[data-ed]').forEach(function(b){b.onclick=function(){try{isi(JSON.parse(b.getAttribute('data-ed')));}catch(e){}};});
+      box.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){if(!confirm('Hapus intent ini?'))return;post('/api/voicebot/intents/delete',{id:b.getAttribute('data-del')}).then(function(){loadInt();loadKpi();});};});
+      renderPg(d);
+    });
+  }
+  $('btnCari').onclick=function(){pg=1;loadInt();}; $('q').addEventListener('keydown',function(e){if(e.key==='Enter'){pg=1;loadInt();}});
+  $('psize').onchange=function(){psize=parseInt(this.value,10)||20;pg=1;loadInt();};
+
+  function loadKpi(){post('/api/voicebot/intents/list',{page:1,page_size:1}).then(function(d){if(d.ok)$('kpiIntent').textContent='Intent: '+(d.total||0);});}
+
+  loadInt();loadKpi();
+})();
+</script>
+{% endblock %}
