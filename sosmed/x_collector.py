@@ -31,6 +31,7 @@ SESI & KREDENSIAL (dibaca dari environment; JANGAN commit):
 CLI:
   python -m sosmed.x_collector            # smoke test offline (parsing)
   SOSMED_X_HEADLESS=0 python -m sosmed.x_collector login   # buat sesi semi-manual
+  python -m sosmed.x_collector diag       # cek sesi tersimpan benar-benar login?
   python -m sosmed.x_collector collect 2026-09-06 2026-09-06
 """
 import os
@@ -328,6 +329,18 @@ def _click_text(page, labels):
     return False
 
 
+def _has_auth_cookie(context):
+    """True bila context memiliki cookie 'auth_token' X terisi — sinyal PALING
+    andal bahwa sesi benar-benar login (bukan sekadar halaman yang termuat)."""
+    try:
+        for c in context.cookies():
+            if c.get("name") == "auth_token" and (c.get("value") or "").strip():
+                return True
+    except Exception:
+        pass
+    return False
+
+
 def _is_logged_in(page):
     try:
         page.goto("https://x.com/home", wait_until="domcontentloaded", timeout=45000)
@@ -335,20 +348,24 @@ def _is_logged_in(page):
         pass
     _sleep(2.5)
     url = (page.url or "").lower()
-    if "login" in url or "/i/flow/" in url:
+    if "login" in url or "/i/flow/" in url or "/logout" in url:
         return False
+    # Sinyal paling andal: cookie auth_token (hindari false-positive halaman publik).
+    try:
+        if _has_auth_cookie(page.context):
+            return True
+    except Exception:
+        pass
+    # Cadangan: elemen khusus akun (hanya tampil saat login).
     try:
         if page.locator("a[data-testid='SideNav_NewTweet_Button'], "
+                        "[data-testid='SideNav_AccountSwitcher_Button'], "
+                        "[data-testid='AppTabBar_Profile_Link'], "
                         "a[href='/compose/post'], a[href='/compose/tweet']").count() > 0:
             return True
     except Exception:
         pass
-    try:
-        if page.locator("[data-testid='primaryColumn']").count() > 0:
-            return True
-    except Exception:
-        pass
-    return "login" not in url
+    return False
 
 
 def _auto_login(context):
@@ -402,6 +419,7 @@ def save_login_state():
                                      args=["--no-sandbox", "--disable-dev-shm-usage"])
         ctx = _new_context(browser)
         page = ctx.new_page()
+        err = ""
         ok = _is_logged_in(page)
         if not ok:
             ok, err = _auto_login(ctx)
@@ -412,6 +430,17 @@ def save_login_state():
                     if _is_logged_in(page):
                         ok = True
                         break
+            if not ok and headless:
+                print("Login otomatis gagal:", err)
+                print("Buat sesi SEMI-MANUAL (PowerShell):")
+                print('  $env:SOSMED_X_HEADLESS="0"; python -m sosmed.x_collector login')
+        # Verifikasi keras: hanya simpan bila cookie auth_token benar-benar ada,
+        # supaya sesi ANONIM tidak pernah tersimpan sebagai "ok".
+        has_cookie = _has_auth_cookie(ctx)
+        if ok and not has_cookie:
+            ok = False
+            print("Terdeteksi seperti login tetapi cookie auth_token tidak ada; "
+                  "kemungkinan belum benar-benar login. Sesi TIDAK disimpan.")
         if ok:
             try:
                 ctx.storage_state(path=state_file())
@@ -425,7 +454,31 @@ def save_login_state():
             browser.close()
         except Exception:
             pass
-        return {"ok": ok, "state_file": state_file()}
+        return {"ok": ok, "logged_in": bool(has_cookie), "state_file": state_file()}
+
+
+def diag_session():
+    """Cek cepat apakah sesi tersimpan benar-benar login (punya cookie auth_token).
+    Pakai: python -m sosmed.x_collector diag"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except Exception as e:
+        return {"ok": False, "need_playwright": True, "error": str(e)}
+    headless = _flag("SOSMED_X_HEADLESS", "1")
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=headless,
+                                     args=["--no-sandbox", "--disable-dev-shm-usage"])
+        ctx = _new_context(browser)
+        page = ctx.new_page()
+        li = _is_logged_in(page)
+        cookie = _has_auth_cookie(ctx)
+        try:
+            ctx.close()
+            browser.close()
+        except Exception:
+            pass
+        return {"ok": True, "logged_in": bool(li), "auth_cookie": bool(cookie),
+                "state_file": state_file(), "state_exists": os.path.exists(state_file())}
 
 
 def collect_range(date_from=None, date_to=None, official_handles=None,
@@ -463,12 +516,16 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
         browser = pw.chromium.launch(headless=headless,
                                      args=["--no-sandbox", "--disable-dev-shm-usage"])
         ctx = _new_context(browser)
+        _diag = {"graphql": 0, "search": 0}
 
         def _on_response(resp):
             try:
                 u = resp.url or ""
                 if "graphql" not in u:
                     return
+                _diag["graphql"] += 1
+                if "SearchTimeline" in u:
+                    _diag["search"] += 1
                 data = None
                 try:
                     data = resp.json()
@@ -498,6 +555,7 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 ctx.storage_state(path=state_file())
             except Exception:
                 pass
+        logged_in = _has_auth_cookie(ctx)
 
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -551,9 +609,23 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             pass
 
     items = list(by_id.values())
-    return items, {"ok": True, "count": len(items),
-                   "range": "%s s/d %s" % (date_from, date_to),
-                   "url": url, "expanded": bool(expand_threads)}
+    info = {"ok": True, "count": len(items),
+            "range": "%s s/d %s" % (date_from, date_to),
+            "url": url, "expanded": bool(expand_threads),
+            "logged_in": bool(logged_in),
+            "graphql_seen": _diag["graphql"], "search_seen": _diag["search"]}
+    if len(items) == 0:
+        if not logged_in:
+            info["note"] = ("0 hasil & sesi TIDAK terautentikasi (cookie auth_token "
+                            "tidak ada). Buat sesi login dulu: SOSMED_X_HEADLESS=0 "
+                            "python -m sosmed.x_collector login")
+        elif _diag["search"] == 0:
+            info["note"] = ("0 hasil: halaman pencarian tidak mengembalikan SearchTimeline "
+                            "(mungkin rate-limit/anti-bot atau layout berubah). Coba "
+                            "SOSMED_X_HEADLESS=0 untuk melihat, atau ulangi nanti.")
+        else:
+            info["note"] = "0 hasil: X tidak mengembalikan mention pada rentang ini."
+    return items, info
 
 
 # ===========================================================================
@@ -599,8 +671,10 @@ def _smoke():
     assert q["created_at"] == "2026-08-05T10:00:00.000Z", q["created_at"]
     a = by["1002"]
     assert a["is_official"] is True and a["in_reply_to_id"] == "1001", a
+    # dedup: payload ulang tidak menambah
     items2 = extract_tweets([payload, payload], official=["kring_pajak"])
     assert len({it["tweet_id"] for it in items2}) == 2, len(items2)
+    # URL advanced-search (until +1 default)
     os.environ["SOSMED_X_UNTIL_PLUS1"] = "1"
     u = build_search_url("2026-09-06", "2026-09-06", target="kring_pajak")
     assert "since%3A2026-09-06" in u and "until%3A2026-09-07" in u and "f=live" in u, u
@@ -615,6 +689,8 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "login":
         print(json.dumps(save_login_state(), ensure_ascii=False))
+    elif cmd in ("diag", "whoami", "status"):
+        print(json.dumps(diag_session(), ensure_ascii=False))
     elif cmd == "collect":
         df = sys.argv[2] if len(sys.argv) > 2 else _yesterday()
         dt = sys.argv[3] if len(sys.argv) > 3 else df
