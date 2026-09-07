@@ -455,6 +455,10 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <div class="ic c-blue"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg></div>
           <b>Konfigurasi Voicebot</b>
         </a>
+        <a class="tool-side{% if active_page == 'voicebot_intents' %} active{% endif %}" href="/voicebot/intents">
+          <div class="ic c-purple"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/><path d="M9 7h7M9 11h5"/></svg></div>
+          <b>Kelola Intent</b>
+        </a>
         <a class="tool-side{% if active_page == 'voicebot_lab' %} active{% endif %}" href="/voicebot/lab">
           <div class="ic c-green"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6"/><path d="M10 3v6l-4.5 8A2 2 0 0 0 7.3 20h9.4a2 2 0 0 0 1.8-3L14 9V3"/><line x1="7" y1="14" x2="17" y2="14"/></svg></div>
           <b>Lab Uji Voicebot</b>
