@@ -2,8 +2,9 @@
 """voicebot/routes.py -- halaman & API Voicebot (config, lab, engine).
 
 Halaman:
-  GET /voicebot        -> konfigurasi mesin + kelola intent + kamus + log terbaru
-  GET /voicebot/lab    -> lab uji suara/teks end-to-end
+  GET /voicebot         -> konfigurasi mesin + streaming + dialog + kamus + log terbaru
+  GET /voicebot/intents -> kelola intent/knowledge (impor Dialogflow + editor + paginasi)
+  GET /voicebot/lab     -> lab uji suara/teks end-to-end
 
 API engine (Mode A):
   POST /api/voicebot/session  -> buat sesi (+ salam pembuka bila dialog aktif)
@@ -23,7 +24,7 @@ API kelola:
   POST /api/voicebot/config/save         -> simpan konfigurasi
   GET  /api/voicebot/config/export       -> unduh cadangan konfigurasi (JSON)
   POST /api/voicebot/config/import       -> terapkan cadangan konfigurasi (JSON)
-  POST /api/voicebot/intents/list        -> daftar intent (+cari)
+  POST /api/voicebot/intents/list        -> daftar intent (+cari, +paginasi page/page_size)
   POST /api/voicebot/intents/save        -> tambah/ubah intent
   POST /api/voicebot/intents/delete      -> hapus intent
   POST /api/voicebot/intents/df-preview  -> pratinjau intent tersibuk Dialogflow
@@ -74,6 +75,18 @@ async def page_voicebot(request: Request):
     except Exception:
         pass
     return render_page(request, "voicebot.html", "voicebot", extra)
+
+
+async def page_voicebot_intents(request: Request):
+    """Halaman terpisah utk kelola intent/knowledge (impor Dialogflow + editor
+    + daftar intent berpaginasi). Dipisah dari halaman Konfigurasi agar ringan.
+    """
+    extra = {"n_intent": 0}
+    try:
+        extra["n_intent"] = len(cfg.list_intents())
+    except Exception:
+        pass
+    return render_page(request, "voicebot_intents.html", "voicebot", extra)
 
 
 async def page_voicebot_lab(request: Request):
@@ -295,10 +308,38 @@ async def api_config_import(request: Request):
 
 # ---------------------------------------------------------------- intents API
 async def api_intents_list(request: Request):
+    """Daftar intent (+ pencarian q) dengan paginasi opsional.
+
+    Body: {q, page, page_size}. Bila page_size<=0 -> kembalikan semua (tanpa
+    paginasi, kompatibel dengan pemanggil lama). 'total' selalu jumlah penuh
+    hasil (setelah filter q) sehingga KPI/hitungan tetap akurat.
+    """
     b = await _json_body(request)
     try:
         rows = await run_in_threadpool(cfg.list_intents, (b.get("q") or "").strip())
-        return JSONResponse({"ok": True, "rows": rows, "total": len(rows)})
+        total = len(rows)
+        try:
+            page = int(b.get("page") or 1)
+        except Exception:
+            page = 1
+        try:
+            page_size = int(20 if b.get("page_size") is None else b.get("page_size"))
+        except Exception:
+            page_size = 20
+        if page < 1:
+            page = 1
+        if page_size and page_size > 0:
+            pages = max(1, (total + page_size - 1) // page_size)
+            if page > pages:
+                page = pages
+            start = (page - 1) * page_size
+            page_rows = rows[start:start + page_size]
+        else:
+            pages = 1
+            page = 1
+            page_rows = rows
+        return JSONResponse({"ok": True, "rows": page_rows, "total": total,
+                            "page": page, "page_size": page_size, "pages": pages})
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "error": str(e)})
 
@@ -434,6 +475,7 @@ async def api_logs(request: Request):
 
 def register(app):
     app.add_api_route("/voicebot", page_voicebot, methods=["GET"])
+    app.add_api_route("/voicebot/intents", page_voicebot_intents, methods=["GET"])
     app.add_api_route("/voicebot/lab", page_voicebot_lab, methods=["GET"])
     app.add_api_route("/api/voicebot/session", api_session, methods=["POST"])
     app.add_api_route("/api/voicebot/talk", api_talk, methods=["POST"])
