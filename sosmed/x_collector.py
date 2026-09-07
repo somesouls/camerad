@@ -31,6 +31,10 @@ SESI & KREDENSIAL (dibaca dari environment; JANGAN commit):
                            berasal dari hasil pencarian to:<target> (buang tweet
                            rekomendasi "Discover more"/"More Tweets" di halaman utas
                            yang TIDAK terkait mention). Set 0 utk menonaktifkan.
+  SOSMED_X_THREAD_SCROLL : 0 (default) saat expand utas JANGAN scroll (meniru
+                           ekstensi: cukup sadap TweetDetail pertama = induk+balasan).
+                           Scroll memicu X memuat modul "Discover more" berisi tweet
+                           asing tak terkait. Set 1 utk mengaktifkan scroll utas.
   SOSMED_X_USER_DATA_DIR : path folder "User Data" Chrome utk memakai PROFIL yang
                            SUDAH ADA (cookie/login ikut terpakai; tak perlu login
                            ulang). Chrome dgn profil itu HARUS DITUTUP dulu.
@@ -691,13 +695,25 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             _sleep(2.2)
 
         if expand_threads:
+            # Hanya buka utas yang conversation_id-nya BENAR-BENAR hasil pencarian
+            # to:<target> (search_conv_ids). Meniru ekstensi: antrean utas dibangun
+            # dari hasil pencarian, BUKAN dari sembarang tweet yang terlanjur tersadap.
+            # Fallback ke seluruh by_id bila SearchTimeline tak tersadap.
+            base_ids = (list(search_conv_ids) if search_conv_ids else
+                        [str(it.get("conversation_id")) for it in by_id.values()
+                         if it.get("conversation_id")])
             conv_ids = []
             seen_c = set()
-            for it in list(by_id.values()):
-                cid = it.get("conversation_id")
+            for cid in base_ids:
                 if cid and cid not in seen_c:
                     seen_c.add(cid)
                     conv_ids.append(cid)
+            # Meniru ekstensi (content_main.js + "ghost tab" background.js): buka
+            # halaman utas, sadap respons TweetDetail PERTAMA (induk + balasan), lalu
+            # LANJUT tanpa scroll. Scroll memicu X memuat modul "Discover more" /
+            # "More Tweets" (rekomendasi tak terkait) sehingga tweet asing ikut
+            # tersadap. Default TIDAK scroll (SOSMED_X_THREAD_SCROLL=0).
+            thread_scroll = _flag("SOSMED_X_THREAD_SCROLL", "0")
             for cid in conv_ids[:max_threads]:
                 try:
                     page.goto("https://x.com/i/status/%s" % cid,
@@ -705,11 +721,12 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 except Exception:
                     continue
                 _sleep(2.2)
-                try:
-                    page.mouse.wheel(0, 2400)
-                except Exception:
-                    pass
-                _sleep(1.6)
+                if thread_scroll:
+                    try:
+                        page.mouse.wheel(0, 2400)
+                    except Exception:
+                        pass
+                    _sleep(1.6)
 
         if not persistent:
             try:
