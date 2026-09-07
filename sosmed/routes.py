@@ -577,3 +577,13 @@ def register(app):
     # kompat: endpoint FAQ lama -> knowledge-gap
     app.add_api_route("/api/sosmed/faq", api_knowledge_gap, methods=["GET"])
     app.add_api_route("/api/sosmed/stats", api_stats, methods=["GET"])
+
+    # --- Auto-pull X harian (Fase 1): tarik mention H-1 otomatis tanpa ekstensi.
+    #     Rute /api/sosmed/pull-x-auto/* + penjadwal (default MATI: SOSMED_X_SCHEDULER=0).
+    #     Fail-soft: bila modul/dependensi bermasalah, rute lain tetap boot. ---
+    try:
+        import sosmed.autopull as _sosmed_autopull
+        _sosmed_autopull.register_app(app)
+        _sosmed_autopull.maybe_start_scheduler()
+    except Exception as _autopull_exc:
+        print("[sosmed-autopull] registrasi dilewati:", _autopull_exc, flush=True)
