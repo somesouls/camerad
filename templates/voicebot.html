@@ -4,11 +4,14 @@
 <div style="max-width:1050px;margin:0 auto;padding:24px 28px 60px;">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
     <h1 style="margin:0;font-size:22px;font-weight:800;">🎙️ Voicebot · Konfigurasi</h1>
-    <a href="/voicebot/lab" class="vb-btnp" style="text-decoration:none;">🧪 Buka Lab</a>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <a href="/voicebot/intents" class="vb-btns" style="text-decoration:none;">🗂️ Kelola Intent</a>
+      <a href="/voicebot/lab" class="vb-btnp" style="text-decoration:none;">🧪 Buka Lab</a>
+    </div>
   </div>
   <p style="color:var(--text-muted);margin:8px 0 20px;font-size:14px;">
     Mesin suara lokal (STT faster-whisper → NLU embedding → RAG/LLM → TTS Piper).
-    Atur ambang, prompt, aturan hand-off, intent + training phrase, dan kamus pelafalan di sini. Semua diproses on-prem.
+    Atur ambang, prompt, aturan hand-off, streaming/barge-in, dialog manager, dan kamus pelafalan di sini. Pengelolaan <b>intent &amp; knowledge</b> (impor Dialogflow + editor + pencarian) kini ada di halaman terpisah <a href="/voicebot/intents" style="color:var(--accent,#2563eb);">Intent &amp; Knowledge</a>. Semua diproses on-prem.
   </p>
 
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;">
@@ -161,43 +164,6 @@
   </section>
 
   <section class="vb-pnl" style="margin-top:22px;">
-    <h2 class="vb-ph">📥 Impor intent dari Dialogflow</h2>
-    <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
-      Ambil intent <b>tersibuk</b> (paling sering dipanggil) beserta training phrase &amp; respons perwakilan dari data analitik Dialogflow (<code>analytics.db</code>), lalu masukkan ke daftar intent voicebot di bawah. <b>Pratinjau</b> dulu sebelum impor. Intent sistem/fallback (System_/Umum_) otomatis dikecualikan.
-    </p>
-    <div class="vb-grid2">
-      <label>Jumlah intent teratas<input id="dfLimit" class="vb-inp" type="number" min="1" value="20"></label>
-      <label>Maks training phrase / intent<input id="dfMaxPhr" class="vb-inp" type="number" min="1" value="40"></label>
-      <label>Tanggal mulai (opsional)<input id="dfStart" class="vb-inp" type="date"></label>
-      <label>Tanggal akhir (opsional)<input id="dfEnd" class="vb-inp" type="date"></label>
-      <label>Intent yang sudah ada<select id="dfSkip" class="vb-inp"><option value="0">Segarkan (timpa)</option><option value="1">Lewati</option></select></label>
-      <label>Aktifkan hasil impor<select id="dfAkt" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
-    </div>
-    <div style="margin-top:12px;">
-      <button id="btnDfPrev" class="vb-btns">🔎 Pratinjau</button>
-      <button id="btnDfImp" class="vb-btnp">📥 Impor sekarang</button>
-      <span id="dfMsg" style="font-size:13px;color:var(--text-muted);"></span>
-    </div>
-    <div id="dfPrev" style="margin-top:12px;overflow-x:auto;"></div>
-  </section>
-
-  <section class="vb-pnl" style="margin-top:22px;">
-    <h2 class="vb-ph">🗂️ Intent &amp; Training Phrase</h2>
-    <div class="vb-grid2">
-      <label>Nama intent<input id="iName" class="vb-inp"></label>
-      <label>Aktif<select id="iAktif" class="vb-inp"><option value="1">Ya</option><option value="0">Tidak</option></select></label>
-    </div>
-    <label style="display:block;margin-top:10px;">Training phrase (pisahkan koma / baris)<textarea id="iPhr" rows="3" class="vb-inp" style="width:100%;"></textarea></label>
-    <label style="display:block;margin-top:10px;">Respons (dibacakan bila intent cocok)<textarea id="iResp" rows="2" class="vb-inp" style="width:100%;"></textarea></label>
-    <p style="color:var(--text-muted);font-size:11.5px;margin:6px 0 0;">Untuk <b>jawaban menuntun (#2)</b>, tulis langkah-langkah di Respons ini memakai <b>baris baru</b> atau <b>penomoran</b> (1. 2. 3.) — nanti otomatis disampaikan bertahap.</p>
-    <label style="display:block;margin-top:10px;">Kalimat konfirmasi cepat #1 (opsional; kosong = otomatis dari nama intent)<input id="iConf" class="vb-inp" style="width:100%;" placeholder="apakah Kakak Lupa EFIN?"></label>
-    <input type="hidden" id="iId">
-    <div style="margin-top:12px;"><button id="btnSaveInt" class="vb-btnp">Simpan intent</button> <button id="btnResetInt" class="vb-btns">Bersihkan</button> <span id="intMsg" style="font-size:13px;color:var(--text-muted);"></span></div>
-    <div style="display:flex;gap:10px;margin-top:16px;"><input id="q" class="vb-inp" style="flex:1;" placeholder="Cari intent / frasa…"><button id="btnCari" class="vb-btns">Cari</button></div>
-    <div id="tabel" style="margin-top:12px;overflow-x:auto;"></div>
-  </section>
-
-  <section class="vb-pnl" style="margin-top:22px;">
     <h2 class="vb-ph">🗣️ Kamus pelafalan (TTS)</h2>
     <p style="color:var(--text-muted);font-size:12.5px;margin:0 0 12px;">
       Petakan singkatan/istilah ke bentuk lisannya sebelum dibacakan: <b>dieja</b> (NPWP → "en pe we pe") atau <b>dibaca sebagai kata</b> (EFIN → "efin"). Angka panjang otomatis dibaca per digit sesuai ambang di Konfigurasi. Perubahan langsung dipakai TTS.
@@ -328,7 +294,7 @@
       post('/api/voicebot/config/import',{data:data,mode:mode}).then(function(d){
         if(!d.ok){$('impMsg').textContent=d.error||'Gagal.';return;}
         $('impMsg').textContent='Selesai: '+(d.settings||0)+' setelan, '+(d.intents||0)+' intent, '+(d.lexicon||0)+' istilah dipulihkan.';
-        loadCfg();loadInt();loadKpi();loadLex();
+        loadCfg();loadKpi();loadLex();
       });
     };
     rd.onerror=function(){$('impMsg').textContent='Gagal membaca berkas.';};
@@ -404,57 +370,6 @@
     });
   };
 
-  function dfBody(){
-    return {limit:$('dfLimit').value||20,max_phrases:$('dfMaxPhr').value||40,
-      start:$('dfStart').value||null,end:$('dfEnd').value||null,
-      skip_existing:$('dfSkip').value==='1',activate:$('dfAkt').value};
-  }
-  $('btnDfPrev').onclick=function(){
-    $('dfMsg').textContent='Memuat pratinjau…';
-    post('/api/voicebot/intents/df-preview',dfBody()).then(function(d){
-      if(!d.ok){$('dfMsg').textContent=d.error||'Gagal.';$('dfPrev').innerHTML='';return;}
-      if(!d.rows.length){$('dfMsg').textContent='';$('dfPrev').innerHTML='<p style="color:var(--text-muted);">Tidak ada intent ditemukan di analytics.db. Tarik data Dialogflow dulu lewat menu <b>Kelola Data</b>.</p>';return;}
-      $('dfMsg').textContent=d.total+' intent teratas (belum diimpor):';
-      var h='<table class="vb-tab"><thead><tr><th>#</th><th>Intent</th><th>Jumlah panggilan</th></tr></thead><tbody>';
-      d.rows.forEach(function(r,i){h+='<tr><td>'+(i+1)+'</td><td><b>'+esc(r.intent)+'</b></td><td>'+r.count+'</td></tr>';});
-      h+='</tbody></table>';$('dfPrev').innerHTML=h;
-    });
-  };
-  $('btnDfImp').onclick=function(){
-    if(!confirm('Impor intent tersibuk Dialogflow ke voicebot sekarang?'))return;
-    $('dfMsg').textContent='Mengimpor… (bisa beberapa detik)';
-    post('/api/voicebot/intents/df-import',dfBody()).then(function(d){
-      if(!d.ok){$('dfMsg').textContent=d.error||'Gagal.';return;}
-      $('dfMsg').textContent='Selesai: '+d.imported+' baru, '+d.updated+' diperbarui, '+d.skipped+' dilewati ('+d.phrases+' training phrase).';
-      loadInt();loadKpi();
-    });
-  };
-
-  function resetInt(){$('iId').value='';$('iName').value='';$('iPhr').value='';$('iResp').value='';$('iConf').value='';$('iAktif').value='1';$('intMsg').textContent='';}
-  $('btnResetInt').onclick=resetInt;
-  $('btnSaveInt').onclick=function(){
-    var b={id:$('iId').value||null,name:$('iName').value.trim(),phrases:$('iPhr').value,response:$('iResp').value.trim(),confirm_label:$('iConf').value.trim(),aktif:$('iAktif').value};
-    if(!b.name){$('intMsg').textContent='Nama intent wajib.';return;}
-    $('intMsg').textContent='Menyimpan…';
-    post('/api/voicebot/intents/save',b).then(function(d){if(d.ok){resetInt();loadInt();loadKpi();$('intMsg').textContent='Tersimpan.';}else{$('intMsg').textContent=d.error||'Gagal.';}});
-  };
-  function isi(r){$('iId').value=r.id||'';$('iName').value=r.name||'';$('iPhr').value=(r.phrases_list||[]).join(', ');$('iResp').value=r.response||'';$('iConf').value=r.confirm_label||'';$('iAktif').value=String(r.aktif==null?1:r.aktif);window.scrollTo({top:0,behavior:'smooth'});}
-  function loadInt(){
-    post('/api/voicebot/intents/list',{q:($('q').value||'').trim()}).then(function(d){
-      var box=$('tabel'); if(!d.ok){box.innerHTML='<p style="color:#dc2626;">'+esc(d.error||'Gagal')+'</p>';return;}
-      if(!d.rows.length){box.innerHTML='<p style="color:var(--text-muted);">Belum ada intent.</p>';return;}
-      var h='<table class="vb-tab"><thead><tr><th>Intent</th><th>Training phrase</th><th>Respons</th><th>Konfirmasi #1</th><th>Aktif</th><th></th></tr></thead><tbody>';
-      d.rows.forEach(function(r){
-        var chips=(r.phrases_list||[]).map(function(s){return '<span class="vb-chip">'+esc(s)+'</span>';}).join('')||'—';
-        h+='<tr><td><b>'+esc(r.name)+'</b></td><td>'+chips+'</td><td>'+esc(r.response||'')+'</td><td>'+esc(r.confirm_label||'')+'</td><td>'+(r.aktif?'✅':'—')+'</td><td style="white-space:nowrap;"><button class="vb-link" data-ed=\''+esc(JSON.stringify(r))+'\'>Ubah</button> <button class="vb-link del" data-del="'+r.id+'">Hapus</button></td></tr>';
-      });
-      h+='</tbody></table>'; box.innerHTML=h;
-      box.querySelectorAll('[data-ed]').forEach(function(b){b.onclick=function(){try{isi(JSON.parse(b.getAttribute('data-ed')));}catch(e){}};});
-      box.querySelectorAll('[data-del]').forEach(function(b){b.onclick=function(){if(!confirm('Hapus intent ini?'))return;post('/api/voicebot/intents/delete',{id:b.getAttribute('data-del')}).then(function(){loadInt();loadKpi();});};});
-    });
-  }
-  $('btnCari').onclick=loadInt; $('q').addEventListener('keydown',function(e){if(e.key==='Enter')loadInt();});
-
   function resetLex(){$('lId').value='';$('lPat').value='';$('lRep').value='';$('lMode').value='eja';$('lAktif').value='1';$('lexMsg').textContent='';}
   $('btnResetLex').onclick=resetLex;
   $('btnSaveLex').onclick=function(){
@@ -497,7 +412,7 @@
     });
   }
 
-  loadCfg();loadInt();loadKpi();loadLex();loadLogs();
+  loadCfg();loadKpi();loadLex();loadLogs();
 })();
 </script>
 {% endblock %}
