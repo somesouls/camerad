@@ -43,6 +43,7 @@ CLI:
   SOSMED_X_HEADLESS=0 python -m sosmed.x_collector login   # buat sesi semi-manual
   python -m sosmed.x_collector diag       # cek sesi tersimpan benar-benar login?
   python -m sosmed.x_collector collect 2026-09-06 2026-09-06
+  python -m sosmed.x_collector dump 2026-09-06 2026-09-06 hasil.csv  # CSV verifikasi per-tweet
 """
 import os
 import json
@@ -234,6 +235,52 @@ def filter_by_conversations(items, conv_ids, strict=True):
     if not cset:
         return list(items)
     return [it for it in items if str(it.get("conversation_id") or "") in cset]
+
+
+def _write_dump(path, raw_items, conv_ids, target=None):
+    """Tulis SEMUA tweet mentah (sebelum filter) ke CSV utf-8-sig (ramah Excel)
+    utk verifikasi manual. Tiap baris diberi anotasi:
+      in_search_conv  : YES bila conversation_id-nya muncul di hasil pencarian
+                        to:<target> (== yang DIPERTAHANKAN filter strict).
+      mentions_target : YES bila teks tweet memuat @<target>.
+    Sehingga mudah disaring di Excel: mention asli = mentions_target=YES; cek
+    apakah ada baris mentions_target=YES tapi in_search_conv=NO (itulah mention
+    yang akan dibuang strict -> pertanda filter kelewat ketat)."""
+    import csv as _csv
+    cset = set(str(c) for c in (conv_ids or set()) if c)
+    tgt = "@" + (target or target_handle()).lstrip("@").lower()
+    cols = ["tweet_id", "author_handle", "author_name", "is_official",
+            "conversation_id", "in_reply_to_id", "in_search_conv",
+            "mentions_target", "created_at", "lang", "like_count",
+            "reply_count", "repost_count", "permalink", "text"]
+    try:
+        with open(path, "w", encoding="utf-8-sig", newline="") as f:
+            w = _csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
+            w.writeheader()
+            for it in (raw_items or []):
+                cid = str(it.get("conversation_id") or "")
+                txt = (it.get("text") or "")
+                w.writerow({
+                    "tweet_id": it.get("tweet_id", ""),
+                    "author_handle": it.get("author_handle", ""),
+                    "author_name": it.get("author_name", ""),
+                    "is_official": "YES" if it.get("is_official") else "NO",
+                    "conversation_id": cid,
+                    "in_reply_to_id": it.get("in_reply_to_id") or "",
+                    "in_search_conv": "YES" if cid in cset else "NO",
+                    "mentions_target": "YES" if tgt in txt.lower() else "NO",
+                    "created_at": it.get("created_at", ""),
+                    "lang": it.get("lang", ""),
+                    "like_count": it.get("like_count", 0),
+                    "reply_count": it.get("reply_count", 0),
+                    "repost_count": it.get("repost_count", 0),
+                    "permalink": it.get("permalink", ""),
+                    "text": txt.replace("\r", " ").replace("\n", " "),
+                })
+        return True
+    except Exception as e:
+        print("Gagal menulis dump:", e)
+        return False
 
 
 # ===========================================================================
@@ -545,7 +592,8 @@ def diag_session():
 
 
 def collect_range(date_from=None, date_to=None, official_handles=None,
-                  target=None, expand_threads=None, trigger="manual"):
+                  target=None, expand_threads=None, trigger="manual",
+                  dump_path=None):
     """Tarik tweet mention X utk rentang tanggal via browser headless.
     Kembalikan (items, info). items = list dict siap sosmed.db.ingest_items."""
     date_from = date_from or _yesterday()
@@ -672,6 +720,20 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
 
     raw_items = list(by_id.values())
     items = filter_by_conversations(raw_items, search_conv_ids, strict_conv)
+    # Statistik verifikasi: berapa tweet yang teksnya BENAR-BENAR memuat @target,
+    # & berapa yang akan dibuang bila filter strict diterapkan. Bila
+    # mentions_target_dropped_by_strict == 0, filter strict AMAN (tak membuang
+    # mention asli), hanya membuang tweet rekomendasi "Discover more".
+    _tgt = "@" + (target or target_handle()).lstrip("@").lower()
+
+    def _mentions(it):
+        return _tgt in ((it.get("text") or "").lower())
+    _strict_kept = filter_by_conversations(raw_items, search_conv_ids, True)
+    _raw_ment = sum(1 for it in raw_items if _mentions(it))
+    _kept_ment = sum(1 for it in _strict_kept if _mentions(it))
+    dumped = False
+    if dump_path:
+        dumped = _write_dump(dump_path, raw_items, search_conv_ids, target)
     info = {"ok": True, "count": len(items),
             "range": "%s s/d %s" % (date_from, date_to),
             "url": url, "expanded": bool(expand_threads),
@@ -680,7 +742,13 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             "collected_raw": len(raw_items),
             "dropped_discover": len(raw_items) - len(items),
             "search_conversations": len(search_conv_ids),
+            "mentions_target_raw": _raw_ment,
+            "mentions_target_kept_strict": _kept_ment,
+            "mentions_target_dropped_by_strict": _raw_ment - _kept_ment,
             "graphql_seen": _diag["graphql"], "search_seen": _diag["search"]}
+    if dump_path:
+        info["dump_path"] = dump_path
+        info["dumped"] = bool(dumped)
     if len(items) == 0:
         if not logged_in:
             info["note"] = ("0 hasil & sesi TIDAK terautentikasi (cookie auth_token "
@@ -769,6 +837,19 @@ def _smoke():
     assert len(filter_by_conversations(dets, set(), strict=True)) == 3
     # strict=False -> tidak menyaring
     assert len(filter_by_conversations(dets, {"1001"}, strict=False)) == 3
+    # dump CSV: tulis & baca balik, pastikan anotasi baris benar
+    import tempfile as _tf, csv as _csv2
+    _p = os.path.join(_tf.gettempdir(), "x_dump_smoke.csv")
+    assert _write_dump(_p, dets, {"1001"}, target="kring_pajak"), "dump gagal ditulis"
+    with open(_p, "r", encoding="utf-8-sig", newline="") as _f:
+        drows = {r["tweet_id"]: r for r in _csv2.DictReader(_f)}
+    assert drows["1001"]["in_search_conv"] == "YES" and drows["1001"]["mentions_target"] == "YES", drows["1001"]
+    assert drows["1003"]["in_search_conv"] == "YES" and drows["1003"]["mentions_target"] == "NO", drows["1003"]
+    assert drows["9990"]["in_search_conv"] == "NO" and drows["9990"]["mentions_target"] == "NO", drows["9990"]
+    try:
+        os.remove(_p)
+    except Exception:
+        pass
     print("SOSMED_X_COLLECTOR_SMOKE_OK")
 
 
@@ -783,6 +864,13 @@ if __name__ == "__main__":
         df = sys.argv[2] if len(sys.argv) > 2 else _yesterday()
         dt = sys.argv[3] if len(sys.argv) > 3 else df
         its, info = collect_range(df, dt, official_handles=[target_handle()])
+        print(json.dumps({"info": info, "n": len(its)}, ensure_ascii=False))
+    elif cmd == "dump":
+        df = sys.argv[2] if len(sys.argv) > 2 else _yesterday()
+        dt = sys.argv[3] if len(sys.argv) > 3 else df
+        out = sys.argv[4] if len(sys.argv) > 4 else ("x_dump_%s_%s.csv" % (df, dt))
+        its, info = collect_range(df, dt, official_handles=[target_handle()],
+                                  dump_path=out)
         print(json.dumps({"info": info, "n": len(its)}, ensure_ascii=False))
     else:
         _smoke()
