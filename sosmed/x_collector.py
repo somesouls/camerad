@@ -27,6 +27,10 @@ SESI & KREDENSIAL (dibaca dari environment; JANGAN commit):
   SOSMED_X_EXPAND_THREADS: 1 (default) buka tiap utas -> sadap TweetDetail (induk + balasan resmi)
   SOSMED_X_MAX_SCROLLS   : batas scroll timeline pencarian (default 40)
   SOSMED_X_MAX_THREADS   : batas utas yang di-expand per-hari (default 60)
+  SOSMED_X_STRICT_CONV   : 1 (default) HANYA simpan tweet yang conversation_id-nya
+                           berasal dari hasil pencarian to:<target> (buang tweet
+                           rekomendasi "Discover more"/"More Tweets" di halaman utas
+                           yang TIDAK terkait mention). Set 0 utk menonaktifkan.
   SOSMED_X_USER_DATA_DIR : path folder "User Data" Chrome utk memakai PROFIL yang
                            SUDAH ADA (cookie/login ikut terpakai; tak perlu login
                            ulang). Chrome dgn profil itu HARUS DITUTUP dulu.
@@ -214,6 +218,22 @@ def extract_tweets(obj, official=None, results=None, seen=None, depth=0):
             if isinstance(v, (dict, list)):
                 extract_tweets(v, off, results, seen, depth + 1)
     return results
+
+
+def filter_by_conversations(items, conv_ids, strict=True):
+    """Saring hasil agar HANYA berisi tweet yang conversation_id-nya berasal dari
+    hasil pencarian to:<target>. Ini membuang tweet rekomendasi "Discover more" /
+    "More Tweets" yang X sisipkan di halaman TweetDetail dan TIDAK terkait mention
+    (conversation_id-nya berbeda dari utas mana pun yang cocok pencarian).
+    Balasan resmi & tweet INDUK tetap disimpan karena berbagi conversation_id yang
+    sama dengan reply hasil pencarian. FAIL-SOFT: bila strict=False atau conv_ids
+    kosong (mis. SearchTimeline tak tersadap), kembalikan apa adanya."""
+    if not strict:
+        return list(items)
+    cset = set(str(c) for c in (conv_ids or set()) if c)
+    if not cset:
+        return list(items)
+    return [it for it in items if str(it.get("conversation_id") or "") in cset]
 
 
 # ===========================================================================
@@ -545,13 +565,19 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
     headless = _flag("SOSMED_X_HEADLESS", "1")
     max_scrolls = _int_env("SOSMED_X_MAX_SCROLLS", 40)
     max_threads = _int_env("SOSMED_X_MAX_THREADS", 60)
+    strict_conv = _flag("SOSMED_X_STRICT_CONV", "1")
     by_id = {}
+    search_conv_ids = set()
     url = build_search_url(date_from, date_to, target)
 
-    def _absorb(data):
+    def _absorb(data, from_search=False):
         try:
             for it in extract_tweets(data, off):
                 by_id[it["tweet_id"]] = it
+                if from_search:
+                    cid = it.get("conversation_id")
+                    if cid:
+                        search_conv_ids.add(str(cid))
         except Exception:
             pass
 
@@ -565,7 +591,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 if "graphql" not in u:
                     return
                 _diag["graphql"] += 1
-                if "SearchTimeline" in u:
+                is_search = "SearchTimeline" in u
+                if is_search:
                     _diag["search"] += 1
                 data = None
                 try:
@@ -576,7 +603,7 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                     except Exception:
                         data = None
                 if data is not None:
-                    _absorb(data)
+                    _absorb(data, from_search=is_search)
             except Exception:
                 pass
 
@@ -643,11 +670,16 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 pass
         _close(browser, ctx)
 
-    items = list(by_id.values())
+    raw_items = list(by_id.values())
+    items = filter_by_conversations(raw_items, search_conv_ids, strict_conv)
     info = {"ok": True, "count": len(items),
             "range": "%s s/d %s" % (date_from, date_to),
             "url": url, "expanded": bool(expand_threads),
             "logged_in": bool(logged_in),
+            "strict_conv": bool(strict_conv),
+            "collected_raw": len(raw_items),
+            "dropped_discover": len(raw_items) - len(items),
+            "search_conversations": len(search_conv_ids),
             "graphql_seen": _diag["graphql"], "search_seen": _diag["search"]}
     if len(items) == 0:
         if not logged_in:
@@ -659,6 +691,12 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             info["note"] = ("0 hasil: halaman pencarian tidak mengembalikan SearchTimeline "
                             "(mungkin rate-limit/anti-bot atau layout berubah). Coba "
                             "SOSMED_X_HEADLESS=0 untuk melihat, atau ulangi nanti.")
+        elif len(raw_items) > 0:
+            info["note"] = ("0 hasil setelah filter conversation: %d tweet terkumpul "
+                            "tapi tak satupun conversation_id-nya cocok hasil pencarian "
+                            "(kemungkinan SearchTimeline tak tersadap). Set "
+                            "SOSMED_X_STRICT_CONV=0 untuk menonaktifkan filter sementara."
+                            % len(raw_items))
         else:
             info["note"] = "0 hasil: X tidak mengembalikan mention pada rentang ini."
     return items, info
@@ -717,6 +755,20 @@ def _smoke():
     os.environ["SOSMED_X_UNTIL_PLUS1"] = "0"
     u2 = build_search_url("2026-09-06", "2026-09-06", target="kring_pajak")
     assert "until%3A2026-09-06" in u2, u2
+    # filter conversation: buang tweet "Discover more" (conv beda) dari TweetDetail
+    detail = [
+        _mk("1001", "wpbingung", "WP Bingung", "@kring_pajak lupa EFIN dong min", "1001"),
+        _mk("1003", "kring_pajak", "Kring Pajak", "Kakak sudah kami bantu ya", "1001", irt="1001"),
+        _mk("9990", "randomacct", "Random", "promo diskon gede khusus hari ini", "9990"),
+    ]
+    dets = extract_tweets(detail, official=["kring_pajak"])
+    kept_ids = {it["tweet_id"] for it in filter_by_conversations(dets, {"1001"}, strict=True)}
+    assert kept_ids == {"1001", "1003"}, kept_ids
+    assert "9990" not in kept_ids, "tweet Discover-more seharusnya dibuang"
+    # fail-soft: conv_ids kosong -> tidak menyaring apapun
+    assert len(filter_by_conversations(dets, set(), strict=True)) == 3
+    # strict=False -> tidak menyaring
+    assert len(filter_by_conversations(dets, {"1001"}, strict=False)) == 3
     print("SOSMED_X_COLLECTOR_SMOKE_OK")
 
 
