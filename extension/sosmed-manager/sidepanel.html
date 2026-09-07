@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <title>Social Manager Pro</title>
+  <link rel="stylesheet" href="sidepanel.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-title">
+        <h3><i class="fa-solid fa-comments" style="color:#2563eb;"></i> Social Ops</h3>
+        <small>Total: <b id="totalRawBadge">0</b> | Filter: <b id="shownBadge" style="color:var(--primary);">0</b></small>
+    </div>
+    <div class="header-actions">
+
+      <button id="btnLoadAll" class="btn-icon" title="🤖 Robot Scroll">
+        <i class="fa-solid fa-robot"></i>
+      </button>
+      <button id="btnRefresh" class="btn-icon" title="🔄 Ambil Data">
+        <i class="fa-solid fa-sync"></i>
+      </button>
+      <button id="btnExport" class="btn-icon" title="📊 Download Excel">
+        <i class="fa-solid fa-file-csv" style="color:#16a34a;"></i>
+      </button>
+    </div>
+  </div>
+
+  <div class="workflow-panel">
+    
+    <div class="date-controls">
+      <div class="input-group">
+        <label>Dari Tgl:</label>
+        <input type="date" id="startDate">
+      </div>
+      <div class="input-group">
+        <label>Sampai Tgl:</label>
+        <input type="date" id="endDate">
+      </div>
+    </div>
+
+    <div class="agent-controls" style="margin-top: 8px;">
+      <div class="input-group" style="flex:1;">
+        <label>Total Agent:</label>
+        <input type="number" id="totalAgents" value="3" min="1" max="20">
+      </div>
+      <div class="input-group" style="flex:2;">
+        <label>Filter Agent:</label>
+        <select id="agentSelect">
+          <option value="raw">📂 Lihat Semua (Validasi)</option>
+          <option value="cycle_all">📅 Filter Tanggal Saja</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <input type="text" id="searchInput" placeholder="🔍 Cari username/isi...">
+    <select id="sortSelect">
+      <option value="original">📂 Urutan Asli</option>
+      <option value="oldest">⏳ Waktu: Terlama</option>
+      <option value="newest">🕒 Waktu: Terbaru</option>
+      <option value="most_likes">❤️ Paling Disukai (Likes)</option>
+      <option value="most_replies">💬 Paling Ramai (Replies)</option>
+    </select>
+  </div>
+
+  <div id="platform-indicator" class="platform-badge hidden">READY</div>
+  <div id="statusMsg" class="status-bar hidden"></div>
+
+  <div id="commentsList" class="comments-container">
+    <div class="empty-state">
+      <div class="tutorial-card">
+        <h4 style="margin:0 0 10px 0;">Cara Pakai Baru:</h4>
+        <div class="tutorial-step">
+          <i class="fa-solid fa-calendar-days"></i>
+          <span><b>Atur Tanggal</b> (Dari - Sampai) di atas.</span>
+        </div>
+        <div class="tutorial-step">
+          <i class="fa-solid fa-robot"></i>
+          <span>Klik <b>Robot</b> untuk scroll data.</span>
+        </div>
+        <div class="tutorial-step">
+          <i class="fa-solid fa-users"></i>
+          <span>Pilih <b>Agent</b> untuk membagi tugas.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="sidepanel.js"></script>
+</body>
+</html>

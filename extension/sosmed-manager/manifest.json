@@ -1,0 +1,48 @@
+{
+  "manifest_version": 3,
+  "name": "Social Manager Pro",
+  "version": "1.6",
+  "description": "Scrape & Manage Comments + Reply Threads (IG parent-id grouping/TikTok)",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "sidePanel"
+  ],
+  "host_permissions": [
+    "https://*.tiktok.com/*",
+    "https://*.instagram.com/*"
+  ],
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.tiktok.com/*",
+        "https://*.instagram.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_end"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "interceptor.js"
+      ],
+      "matches": [
+        "https://*.tiktok.com/*"
+      ]
+    }
+  ],
+  "icons": {
+    "16": "icon.ico",
+    "48": "icon.ico",
+    "128": "icon.ico"
+  }
+}
