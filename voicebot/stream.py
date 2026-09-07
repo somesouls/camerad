@@ -166,6 +166,20 @@ Server -> klien:
    (ambang lebih rendah) karena tak ada gema bot yg bisa memicu barge-in palsu.
    Lihat voicebot/acoustic_profiles.py. Berlaku untuk sesi Mode B berikutnya.
 
+13) WATCHDOG DIAM SADAR-DURASI (perbaikan 7 Sep). Dulu penghitung diam (watchdog)
+   hanya menganggap 'bot sedang bicara' saat server MENGIRIM byte (state.speaking),
+   saat memproses (processing), atau saat klien melapor client_playing lewat pesan
+   {"type":"playing",on:true}. Klien Web (Lab) mengirim sinyal itu, TETAPI aplikasi
+   APK Android (dibuat dari prompt Google AI Studio) TIDAK -> untuk jawaban PANJANG,
+   server selesai mengirim byte dalam ~1 dtk lalu menghitung diam sejak saat itu,
+   sehingga ~idle_prompt_ms (default 8 dtk) kemudian watchdog menyela di TENGAH
+   pemutaran dengan 'halo, apakah masih terhubung?'. Kini send_audio menghitung
+   DURASI WAV yang dikirim dan menetapkan state.playback_until = sekarang + durasi +
+   margin; watchdog menahan (tidak menyapa/mengakhiri) selama waktu itu. HANYA
+   watchdog yang memakai playback_until -- jalur barge-in, jendela penjaga-gema,
+   dan latensi TIDAK berubah sama sekali. Klien yang MENGIRIM {"type":"playing",
+   on:false} langsung menimpa playback_until -> nol regresi utk klien Web.
+
 PENJAGA DIAM #3 & SALAM PENUTUP #4: tak berubah perilakunya.
 
 SEMUA TUNING DAPAT DIATUR DARI UI (/voicebot, panel \"Streaming (Mode B) & barge-in\";
@@ -209,7 +223,7 @@ from voicebot import acoustic_profiles as vb_profiles
 
 
 # Versi kode; dicatat di log tiap sesi dibuka supaya PASTI kode terbaru yang jalan.
-STREAM_VERSION = "2026-09-06a (#12 profil akustik loudspeaker/handset/headset via ?profile= + #3c barge-in grace/hangover + #3b konfirmasi-STT opsional + tunggu salam penutup selesai + penyambung instan #3a + streaming TTS per-kalimat #3.1 + anti tumpang tindih #8)"
+STREAM_VERSION = "2026-09-07a (#13 watchdog diam tahan selama estimasi durasi pemutaran audio bot -> jawaban panjang tak lagi dipotong 'masih terhubung?' pada klien tanpa sinyal playing + #12 profil akustik loudspeaker/handset/headset via ?profile= + #3c barge-in grace/hangover + #3b konfirmasi-STT opsional + tunggu salam penutup selesai + penyambung instan #3a + streaming TTS per-kalimat #3.1 + anti tumpang tindih #8)"
 
 SAMPLE_RATE = 16000
 FRAME_MS = 30
@@ -229,6 +243,11 @@ SILENT_FRAME_RMS = 5.0
 # Jeda-aman setelah bot selesai mengirim audio, menutup celah sampai klien
 # mengirim {"type":"playing",on:true}. Detik.
 SPEAK_GUARD_SEC = 0.8
+# #13 (perbaikan 7 Sep): margin (detik) di atas estimasi durasi pemutaran audio
+# bot. Dipakai HANYA oleh watchdog diam supaya tidak menyela jawaban panjang pada
+# klien yang tak mengirim {"type":"playing",on:...} (mis. APK Android). Tidak
+# memengaruhi barge-in maupun latensi.
+PLAYBACK_MARGIN_SEC = 2.0
 # #8 anti tumpang tindih: batas waktu (detik) menunggu klien selesai memutar audio
 # sebelumnya sebelum mengirim audio jawaban berikutnya. Pengaman agar tak
 # menggantung selamanya bila klien tak pernah mengirim {"type":"playing",on:false}.
@@ -736,7 +755,8 @@ async def handle(websocket: WebSocket):
              "calib_started": False, "calib_done": (not tuning["autocalibrate"]),
              "calib_until": 0.0, "calib_sum": 0.0, "calib_n": 0,
              "diag_next": 0.0, "first_turn_done": False, "connector_idx": 0,
-             "speak_started_at": 0.0, "cand_drop_at": 0.0}
+             "speak_started_at": 0.0, "cand_drop_at": 0.0,
+             "playback_until": 0.0}
     ep = Endpointer(tuning)
     queue: asyncio.Queue = asyncio.Queue()
     # #8: kunci audio -> hanya SATU aliran audio dikirim ke klien pada satu waktu
@@ -934,6 +954,7 @@ async def handle(websocket: WebSocket):
                                  % (on, "MULAI" if on else "SELESAI"))
                         if not on:
                             state["speak_guard_until"] = 0.0
+                            state["playback_until"] = 0.0
                             state["candidate"] = False
                             # #5c: jangan buang buffer bila sedang merekam ucapan penyela.
                             if not state["capture"]:
@@ -968,6 +989,15 @@ async def handle(websocket: WebSocket):
             raw = base64.b64decode(b64)
         except Exception:
             return False
+        # #13: estimasi durasi pemutaran WAV ini (detik) utk menahan watchdog diam
+        # pada klien yang tak mengirim {"type":"playing",on:...} (mis. APK Android).
+        _play_dur = 0.0
+        try:
+            with wave.open(io.BytesIO(raw), "rb") as _wdur:
+                _fr = _wdur.getframerate() or SAMPLE_RATE
+                _play_dur = _wdur.getnframes() / float(_fr)
+        except Exception:
+            _play_dur = 0.0
         # #8: satu aliran audio pada satu waktu + tunggu pemutaran sebelumnya selesai.
         async with audio_lock:
             # Tunggu klien selesai memutar audio sebelumnya (salam / jawaban lalu)
@@ -1011,11 +1041,17 @@ async def handle(websocket: WebSocket):
                 state["candidate"] = False
                 # jeda-aman menutup celah sampai klien mengirim playing:true
                 state["speak_guard_until"] = time.time() + SPEAK_GUARD_SEC
+                # #13: tahan watchdog diam selama estimasi durasi pemutaran + margin,
+                # supaya klien yang tak mengirim {"type":"playing",on:...} (mis. APK
+                # Android) tidak disela di tengah jawaban panjang.
+                if _play_dur > 0:
+                    state["playback_until"] = time.time() + _play_dur + PLAYBACK_MARGIN_SEC
                 state["last_activity"] = time.time()
             if state["interrupt"]:
                 # #5c/#5d: user sedang bicara -> buka mic segera (tanpa jeda-aman)
                 # dan BERSIHKAN flag supaya jawaban berikutnya tetap dibacakan.
                 state["speak_guard_until"] = 0.0
+                state["playback_until"] = 0.0
                 await _safe_send_text({"type": "interrupted",
                                        "rms": round(state.get("last_rms", 0.0)),
                                        "speaking_rms": speaking_rms})
@@ -1239,7 +1275,8 @@ async def handle(websocket: WebSocket):
             await asyncio.sleep(0.5)
             if state["closed"]:
                 break
-            if state["speaking"] or state["processing"] or state["client_playing"]:
+            if (state["speaking"] or state["processing"] or state["client_playing"]
+                    or time.time() < state["playback_until"]):
                 if not state["idle_prompted"]:
                     state["last_activity"] = time.time()
                 continue
