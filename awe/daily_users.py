@@ -45,6 +45,29 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
+try:
+    from awe.botfilter import wants_exclude, exclude_bot_sql
+except Exception:  # fallback ringan bila modul tak tersedia
+    _OFF_VALUES = ("0", "false", "no", "off", "tidak")
+
+    def wants_exclude(query_params):
+        try:
+            v = query_params.get("exclude_bot")
+        except Exception:
+            v = None
+        if v is None:
+            return True
+        return str(v).strip().lower() not in _OFF_VALUES
+
+    def exclude_bot_sql(col="agent_name"):
+        c = "LOWER(COALESCE(%s,''))" % col
+        return (
+            "(" + c + " NOT LIKE '%chatbot%' AND "
+            + c + " NOT LIKE '%ccai%' AND "
+            + c + " NOT LIKE '%virtual assistant%' AND "
+            + c + " NOT LIKE '%google%')"
+        )
+
 
 def _jkt_today():
     try:
@@ -198,12 +221,14 @@ def _norm_sent(s):
     return "Tidak diketahui"
 
 
-def daily_users(conn, start=None, end=None, limit_users=2000):
+def daily_users(conn, start=None, end=None, limit_users=2000, exclude_bot=True):
     where, params = [], []
     if start:
         where.append("substr(tanggal,1,10) >= ?"); params.append(start[:10])
     if end:
         where.append("substr(tanggal,1,10) <= ?"); params.append(end[:10])
+    if exclude_bot:
+        where.append(exclude_bot_sql("agent_name"))
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         "SELECT sid,tanggal,customer,nik,agent_name,agent_id,durasi,behavior,"
@@ -534,7 +559,7 @@ def daily_users(conn, start=None, end=None, limit_users=2000):
     }
 
 
-def user_conversations(conn, start=None, end=None, taxid="", name="", sid="", limit=800):
+def user_conversations(conn, start=None, end=None, taxid="", name="", sid="", limit=800, exclude_bot=True):
     """Daftar percakapan untuk SATU identitas pengguna (lazy-load modal).
 
     Prioritas filter identitas: taxid (nik) > name (customer) > sid.
@@ -558,6 +583,8 @@ def user_conversations(conn, start=None, end=None, taxid="", name="", sid="", li
         where.append("sid = ?"); params.append(sid)
     else:
         return ([], False)
+    if exclude_bot:
+        where.append(exclude_bot_sql("agent_name"))
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         "SELECT sid,tanggal,agent_name,behavior,deflection_gap,jenis_layanan,"
@@ -594,12 +621,13 @@ def register(app, *, render_page):
         except Exception:
             limit = 2000
         limit = max(1, min(limit, 20000))
+        exclude_bot = wants_exclude(q)
 
         def _run():
             conn = avdb.init_db(avdb.connect())
             try:
                 s, e = resolve_range(preset, start, end)
-                data = daily_users(conn, s, e, limit_users=limit)
+                data = daily_users(conn, s, e, limit_users=limit, exclude_bot=exclude_bot)
                 data["bounds"] = data_bounds(conn)
                 data["preset"] = preset
                 return data
@@ -623,13 +651,15 @@ def register(app, *, render_page):
         except Exception:
             limit = 800
         limit = max(1, min(limit, 5000))
+        exclude_bot = wants_exclude(q)
 
         def _run():
             conn = avdb.init_db(avdb.connect())
             try:
                 s, e = resolve_range(preset, start, end)
                 convs, truncated = user_conversations(
-                    conn, s, e, taxid=taxid, name=name, sid=sid, limit=limit)
+                    conn, s, e, taxid=taxid, name=name, sid=sid, limit=limit,
+                    exclude_bot=exclude_bot)
                 return {"ok": True, "conversations": convs, "truncated": truncated}
             finally:
                 conn.close()
