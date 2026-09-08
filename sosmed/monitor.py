@@ -12,6 +12,14 @@ DETEKSI "UTAMA" (independen dari item_type inti db.py, sesuai arahan SPV):
                terdekat (mis. tweet D "menambahkan info" atas tweet C).
   - RESMI    : semua item akun resmi (kandidat jawaban).
 
+NIMBRUNG (deteksi ringan, NON-DESTRUKTIF terhadap SLA):
+  Sebuah TAMBAHAN yang penulisnya BERBEDA dari penulis UTAMA-nya dianggap
+  "nimbrung" (warga lain yang menyela di utas warga lain). Ini HANYA ditandai
+  (flag/badge + hitungan), TIDAK otomatis menjadi baris "belum dijawab" dan
+  TIDAK mengubah SLA — SLA IG/TikTok tetap dihitung dari komentar UTAMA. SPV bisa
+  memutuskan tindak lanjut secara manual. Deteksi murni dari data yang sudah ada
+  (author_handle + relasi in_reply_to), jadi mudah & aman.
+
 JAWABAN sebuah utama = balasan RESMI paling awal yang "menuruni" utama tsb
 (mendaki in_reply_to dari tiap balasan resmi sampai bertemu utama/tambahannya).
 Tanggal jawab & selisih (jam+menit) dihitung otomatis dari sini.
@@ -30,6 +38,8 @@ Catatan penting: agar akun resmi tiap platform dikenali (mis. IG
 Deteksi resmi di modul ini memakai kolom is_official ATAU pencocokan handle live,
 sehingga cukup set env + restart tanpa perlu impor ulang.
 """
+import re as _re
+
 import sosmed.db as sdb
 
 # (nama_kolom, tipe_sqlite)
@@ -89,6 +99,10 @@ def _is_off(row, off):
         return True
     h = (row.get("author_handle") or "").strip().lstrip("@").lower()
     return bool(h and h in off)
+
+
+def _handle(row):
+    return (row.get("author_handle") or "").strip().lstrip("@").lower()
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +181,16 @@ def _classify_conv(rows, off):
     return role, main_of, officials_of
 
 
+def _is_nimbrung(row, ext_main, by_ext):
+    """True bila TAMBAHAN ini ditulis warga yang BERBEDA dari penulis UTAMA-nya."""
+    main_row = by_ext.get(ext_main)
+    if not main_row:
+        return False
+    ah = _handle(row)
+    mh = _handle(main_row)
+    return bool(ah and mh and ah != mh)
+
+
 def _eff_status(row, auto_answered):
     """Status jawab EFEKTIF: override manual SPV menang atas deteksi otomatis.
     Kembalikan salah satu dari 'ya' / 'belum' / 'itd'."""
@@ -174,6 +198,29 @@ def _eff_status(row, auto_answered):
     if spv in _ANSWER_CHOICES:
         return spv
     return "ya" if auto_answered else "belum"
+
+
+def _post_url(plat, conv, rows):
+    """URL representatif POSTINGAN (bukan komentar), diturunkan dari permalink item.
+
+    - IG   : permalink komentar berbentuk .../p/<code>/c/<pk>/ -> ambil .../p/<code>/
+    - TikTok: permalink sudah berupa URL video (.../video/<id>) -> pakai apa adanya.
+    - X/lainnya: pakai permalink item paling awal (tautan tweet perwakilan).
+    """
+    plat = (plat or "").lower()
+    perms = [(r.get("permalink") or "") for r in rows if r.get("permalink")]
+    if plat == "ig":
+        for p in perms:
+            m = _re.search(r"(https?://[^/]*instagram\.com/(?:p|reel|tv)/[^/]+/)", p)
+            if m:
+                return m.group(1)
+        return ""
+    if plat == "tiktok":
+        for p in perms:
+            if "/video/" in p or "/photo/" in p:
+                return p.split("?")[0]
+        return ""
+    return (perms[0].split("?")[0] if perms else "")
 
 
 def _candidate_convs(conn, norm_plat, s, e, q):
@@ -225,6 +272,7 @@ def monitor_list(conn, platform="", range_="all", start="", end="",
         if not rows:
             continue
         role, main_of, officials_of = _classify_conv(rows, off)
+        by_ext = {r["external_id"]: r for r in rows if r.get("external_id")}
         for r in rows:
             ext = r.get("external_id")
             if role.get(ext) != "main":
@@ -257,9 +305,14 @@ def monitor_list(conn, platform="", range_="all", start="", end="",
                     gap = sdb._resp_seconds(r.get("created_at"), eff_at)
                 except Exception:
                     gap = None
-            n_add = sum(1 for x in rows
-                        if role.get(x.get("external_id")) == "addition"
-                        and main_of.get(x.get("external_id")) == ext)
+            n_add = 0
+            n_nimbrung = 0
+            for x in rows:
+                xe = x.get("external_id")
+                if role.get(xe) == "addition" and main_of.get(xe) == ext:
+                    n_add += 1
+                    if _is_nimbrung(x, ext, by_ext):
+                        n_nimbrung += 1
             if want in _ANSWER_CHOICES and eff != want:
                 continue
             out.append({
@@ -285,6 +338,7 @@ def monitor_list(conn, platform="", range_="all", start="", end="",
                 "eff_answered_at": eff_at,
                 "eff_gap_s": gap,
                 "n_additions": n_add,
+                "n_nimbrung": n_nimbrung,
                 "n_official": len(offs),
             })
     out.sort(key=lambda x: (x.get("created_at") or ""), reverse=True)
@@ -296,6 +350,157 @@ def monitor_list(conn, platform="", range_="all", start="", end="",
     except Exception:
         platforms = []
     return {"ok": True, "items": out, "total": len(out), "platforms": platforms}
+
+
+def monitor_posts(conn, platform="", range_="all", start="", end="", q="",
+                  limit=300):
+    """Ringkasan PER POSTINGAN (conversation) untuk verifikasi data tarikan.
+
+    Tiap postingan membawa hitungan: total komentar ditarik, jumlah utama,
+    tambahan, resmi, nimbrung, serta status jawab utama (belum/sudah/itd) dan
+    tautan postingan. Berguna untuk membandingkan jumlah komentar yang tampil
+    dengan yang ada di platform (IG/TikTok menarik data per postingan).
+    """
+    ensure_review_columns(conn)
+    off = _off_set()
+    norm_plat = sdb._norm_platform(platform) if platform else ""
+    rng = (range_ or "all").lower()
+    if rng == "custom":
+        s, e = (start or None), (end or start or None)
+    else:
+        s, e = sdb.resolve_range(rng)
+    convs = _candidate_convs(conn, norm_plat, s, e, q)
+    out = []
+    for (plat, conv) in convs:
+        rows = [dict(x) for x in conn.execute(
+            "SELECT * FROM sosmed_items WHERE platform=? AND conversation_id=? "
+            "ORDER BY datetime(created_at) ASC, id ASC", (plat, conv)).fetchall()]
+        if not rows:
+            continue
+        role, main_of, officials_of = _classify_conv(rows, off)
+        by_ext = {r["external_id"]: r for r in rows if r.get("external_id")}
+        n_main = n_add = n_off = n_nimbrung = 0
+        n_ya = n_belum = n_itd = 0
+        times = [r.get("created_at") or "" for r in rows if r.get("created_at")]
+        for r in rows:
+            ext = r.get("external_id")
+            rl = role.get(ext)
+            if rl == "official":
+                n_off += 1
+            elif rl == "addition":
+                n_add += 1
+                if _is_nimbrung(r, main_of.get(ext), by_ext):
+                    n_nimbrung += 1
+            elif rl == "main":
+                n_main += 1
+                eff = _eff_status(r, bool(officials_of.get(ext)))
+                if eff == "ya":
+                    n_ya += 1
+                elif eff == "itd":
+                    n_itd += 1
+                else:
+                    n_belum += 1
+        times.sort()
+        out.append({
+            "platform": plat,
+            "conversation_id": conv,
+            "post_url": _post_url(plat, conv, rows),
+            "n_items": len(rows),
+            "n_main": n_main,
+            "n_addition": n_add,
+            "n_official": n_off,
+            "n_nimbrung": n_nimbrung,
+            "n_answered": n_ya,
+            "n_unanswered": n_belum,
+            "n_itd": n_itd,
+            "first_at": times[0] if times else "",
+            "last_at": times[-1] if times else "",
+        })
+    out.sort(key=lambda x: (x.get("last_at") or ""), reverse=True)
+    out = out[:int(limit)]
+    try:
+        platforms = [x[0] for x in conn.execute(
+            "SELECT DISTINCT platform FROM sosmed_items WHERE platform!='' "
+            "ORDER BY platform").fetchall()]
+    except Exception:
+        platforms = []
+    return {"ok": True, "posts": out, "total": len(out), "platforms": platforms}
+
+
+def monitor_post(conn, platform, conversation_id):
+    """SEMUA komentar satu postingan (verifikasi), diurutkan ala thread:
+    tiap UTAMA diikuti tambahan + jawaban resmi terkaitnya. Tiap item membawa
+    role, is_official, is_nimbrung, depth, dan main_external_id. Dirender penuh
+    di halaman agar bisa dicari (Ctrl+F).
+    """
+    ensure_review_columns(conn)
+    off = _off_set()
+    plat = sdb._norm_platform(platform) if platform else ""
+    rows = [dict(x) for x in conn.execute(
+        "SELECT * FROM sosmed_items WHERE platform=? AND conversation_id=? "
+        "ORDER BY datetime(created_at) ASC, id ASC",
+        (plat, conversation_id)).fetchall()]
+    if not rows:
+        return {"ok": False, "error": "Postingan tidak ditemukan."}
+    role, main_of, officials_of = _classify_conv(rows, off)
+    by_ext = {r["external_id"]: r for r in rows if r.get("external_id")}
+
+    def _mk(r, depth, main_ext):
+        e = r.get("external_id")
+        is_off = 1 if _is_off(r, off) else 0
+        nb = 0
+        if role.get(e) == "addition" and _is_nimbrung(r, main_ext, by_ext):
+            nb = 1
+        return {
+            "id": r.get("id"),
+            "external_id": e,
+            "is_official": is_off,
+            "role": role.get(e),
+            "is_nimbrung": nb,
+            "author_handle": r.get("author_handle"),
+            "author_name": r.get("author_name"),
+            "created_at": r.get("created_at"),
+            "text": r.get("text"),
+            "permalink": r.get("permalink"),
+            "depth": depth,
+            "main_external_id": main_ext,
+        }
+
+    used = set()
+    items = []
+    mains = [r for r in rows if role.get(r.get("external_id")) == "main"]
+    mains.sort(key=lambda x: (x.get("created_at") or "", x.get("id") or 0))
+    for m in mains:
+        me = m.get("external_id")
+        if me in used:
+            continue
+        used.add(me)
+        items.append(_mk(m, 0, me))
+        members = []
+        off_ids = {x.get("id") for x in officials_of.get(me, [])}
+        for r in rows:
+            e = r.get("external_id")
+            if e == me:
+                continue
+            if (role.get(e) == "addition" and main_of.get(e) == me) \
+                    or r.get("id") in off_ids:
+                members.append(r)
+        members.sort(key=lambda x: (x.get("created_at") or "", x.get("id") or 0))
+        for r in members:
+            e = r.get("external_id")
+            if e in used:
+                continue
+            used.add(e)
+            items.append(_mk(r, 1, me))
+    # sisa (yatim / tak terpetakan) supaya verifikasi benar-benar lengkap.
+    for r in rows:
+        e = r.get("external_id")
+        if e and e not in used:
+            used.add(e)
+            items.append(_mk(r, 0, None))
+    return {"ok": True, "platform": plat, "conversation_id": conversation_id,
+            "post_url": _post_url(plat, conversation_id, rows),
+            "n_items": len(rows), "items": items}
 
 
 def monitor_thread(conn, item_id):
@@ -353,11 +558,15 @@ def monitor_thread(conn, item_id):
     cluster = []
     for r in members:
         e = r.get("external_id")
+        nb = 0
+        if role.get(e) == "addition" and _is_nimbrung(r, ext, by_ext):
+            nb = 1
         cluster.append({
             "id": r.get("id"),
             "external_id": e,
             "is_official": 1 if _is_off(r, off) else 0,
             "role": role.get(e),
+            "is_nimbrung": nb,
             "author_handle": r.get("author_handle"),
             "author_name": r.get("author_name"),
             "created_at": r.get("created_at"),

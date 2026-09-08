@@ -523,6 +523,45 @@ async def api_monitor_thread(request: Request):
     return JSONResponse(r, status_code=code)
 
 
+async def api_monitor_posts(request: Request):
+    """Ringkasan PER POSTINGAN (untuk verifikasi jumlah data tarikan per post)."""
+    q = request.query_params
+    try:
+        limit = int(q.get("limit") or 300)
+    except Exception:
+        limit = 300
+
+    def _do():
+        c = _conn()
+        try:
+            return smon.monitor_posts(
+                c, platform=_qp(request, "platform"),
+                range_=_qp(request, "range", "all"),
+                start=_qp(request, "start"), end=_qp(request, "end"),
+                q=_qp(request, "q"), limit=limit)
+        finally:
+            c.close()
+    return JSONResponse(await run_in_threadpool(_do))
+
+
+async def api_monitor_post(request: Request):
+    """SEMUA komentar satu postingan (verifikasi lengkap, bisa dicari Ctrl+F)."""
+    platform = _qp(request, "platform")
+    conv = _qp(request, "conversation_id") or _qp(request, "conv")
+    if not conv:
+        return JSONResponse({"ok": False, "error": "conversation_id wajib."}, status_code=400)
+
+    def _do():
+        c = _conn()
+        try:
+            return smon.monitor_post(c, platform, conv)
+        finally:
+            c.close()
+    r = await run_in_threadpool(_do)
+    code = 200 if r.get("ok") else 404
+    return JSONResponse(r, status_code=code)
+
+
 # ---------------------------------------------------------------------------
 # SLA & Analitik (gabungan Coverage & SLA + Analitik)
 # ---------------------------------------------------------------------------
@@ -656,6 +695,8 @@ def register(app):
     app.add_api_route("/api/sosmed/monitor", api_monitor, methods=["GET"])
     app.add_api_route("/api/sosmed/review", api_review, methods=["POST"])
     app.add_api_route("/api/sosmed/monitor-thread", api_monitor_thread, methods=["GET"])
+    app.add_api_route("/api/sosmed/monitor-posts", api_monitor_posts, methods=["GET"])
+    app.add_api_route("/api/sosmed/monitor-post", api_monitor_post, methods=["GET"])
     # SLA & Analitik
     app.add_api_route("/api/sosmed/coverage", api_coverage, methods=["GET"])
     app.add_api_route("/api/sosmed/analytics", api_analytics, methods=["GET"])
