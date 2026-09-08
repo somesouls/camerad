@@ -549,37 +549,70 @@ _SCROLL_JS = """
 
 def _click_all(page, rx, limit=40):
     """Klik semua elemen yang teksnya cocok regex rx (mis. 'lihat balasan').
-    Kembalikan jumlah klik sukses. Best-effort (fail-soft)."""
+    Gabungkan lokator role=button + get_by_text, lalu klik biasa -> force.
+    Dedup posisi agar tidak dobel. Kembalikan jumlah klik sukses (fail-soft)."""
+    cands = []
     try:
-        els = page.get_by_text(rx).all()
+        cands.extend(page.get_by_role("button", name=rx).all())
     except Exception:
-        els = []
+        pass
+    try:
+        cands.extend(page.get_by_text(rx).all())
+    except Exception:
+        pass
     n = 0
-    for b in els[:limit]:
+    seen = set()
+    for b in cands:
+        if n >= limit:
+            break
+        box = None
+        try:
+            box = b.bounding_box()
+        except Exception:
+            box = None
+        key = (round(box["x"]), round(box["y"])) if box else None
+        if key is not None and key in seen:
+            continue
         try:
             b.scroll_into_view_if_needed(timeout=800)
         except Exception:
             pass
+        ok = False
         try:
             b.click(timeout=1200)
-            n += 1
+            ok = True
         except Exception:
-            pass
+            try:
+                b.click(timeout=1500, force=True)
+                ok = True
+            except Exception:
+                ok = False
+        if ok:
+            n += 1
+            if key is not None:
+                seen.add(key)
     return n
 
 
-def _load_comments(page, max_scrolls):
-    """Muat komentar + BALASAN berjenjang: klik 'muat komentar', lalu buka SEMUA
-    toggle 'lihat balasan' (child comments dimuat lewat graphql & ikut disadap),
-    scroll kontainer komentar via JS, ulangi. Best-effort (fail-soft)."""
+def _load_comments(page, max_scrolls, diag=None):
+    """Muat komentar + BALASAN berjenjang: beri waktu komentar awal termuat,
+    scroll kontainer komentar, klik 'muat komentar', lalu buka SEMUA toggle
+    'lihat balasan' (child comments dimuat lewat graphql & ikut disadap),
+    ulangi. Menghitung klik ke diag['more_comments']/['more_replies']."""
+    if diag is None:
+        diag = {}
+    _sleep(2.0)  # beri waktu komentar awal termuat sebelum diproses
     for _ in range(max(1, int(max_scrolls or 1))):
-        _click_all(page, _MORE_COMMENTS_RE, limit=8)
+        diag["more_comments"] = diag.get("more_comments", 0) + \
+            _click_all(page, _MORE_COMMENTS_RE, limit=8)
         # Buka balasan berjenjang: ulang beberapa kali karena toggle baru
         # bermunculan setelah yang sebelumnya diklik.
-        for _r in range(3):
-            if not _click_all(page, _MORE_REPLIES_RE, limit=40):
+        for _r in range(4):
+            c = _click_all(page, _MORE_REPLIES_RE, limit=40)
+            diag["more_replies"] = diag.get("more_replies", 0) + c
+            if not c:
                 break
-            _sleep(0.8)
+            _sleep(0.9)
         try:
             page.evaluate(_SCROLL_JS)
         except Exception:
@@ -588,12 +621,15 @@ def _load_comments(page, max_scrolls):
             page.mouse.wheel(0, 2400)
         except Exception:
             pass
-        _sleep(1.5)
+        _sleep(1.6)
     # Sapuan akhir: pastikan seluruh balasan sudah diperluas.
-    for _r in range(5):
-        if not _click_all(page, _MORE_REPLIES_RE, limit=60):
+    for _r in range(6):
+        c = _click_all(page, _MORE_REPLIES_RE, limit=60)
+        diag["more_replies"] = diag.get("more_replies", 0) + c
+        if not c:
             break
         _sleep(1.0)
+    return diag
 
 
 def collect_range(date_from=None, date_to=None, official_handles=None,
@@ -621,7 +657,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
     max_scrolls = _int_env("SOSMED_IG_MAX_SCROLLS", 8)
     by_id = {}
     media_codes = {}
-    _diag = {"comments": 0, "feed": 0, "json": 0}
+    _diag = {"comments": 0, "feed": 0, "json": 0,
+             "more_comments": 0, "more_replies": 0}
     _debug = _flag("SOSMED_IG_DEBUG", "0")
     _trace = []
 
@@ -718,8 +755,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             except Exception:
                 continue
             _sleep(2.6)
-            # Scroll panel komentar (JS) + klik \"muat lebih / lihat balasan\".
-            _load_comments(page, max_scrolls)
+            # Scroll panel komentar (JS) + klik "muat lebih / lihat balasan".
+            _load_comments(page, max_scrolls, _diag)
 
         if not persistent:
             try:
@@ -737,7 +774,9 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             "target": tgt, "logged_in": bool(logged_in),
             "posts_opened": len(codes), "media_seen": len(media_codes),
             "comments_seen": _diag["comments"], "feed_seen": _diag["feed"],
-            "json_seen": _diag["json"]}
+            "json_seen": _diag["json"],
+            "more_comments_clicked": _diag["more_comments"],
+            "more_replies_clicked": _diag["more_replies"]}
     if _debug:
         info["trace"] = _trace[:80]
     if dump_path:
