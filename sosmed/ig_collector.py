@@ -529,8 +529,8 @@ _MORE_COMMENTS_RE = re.compile(
     r"(view\s+(more|all|previous)?\s*comments?|"
     r"(lihat|muat)\s+komentar(\s+(lain|lainnya|sebelumnya))?)", re.I)
 _MORE_REPLIES_RE = re.compile(
-    r"(view\s+(all\s+)?(\d[\d.,]*\s+)?repl(y|ies)|"
-    r"(lihat|muat)\s+(\d[\d.,]*\s+)?balasan(\s+lainnya)?|"
+    r"(view\s+(all\s+)?(\d[\d.,]*\s+)?(more\s+)?repl(y|ies)|"
+    r"(lihat|muat|tampilkan)\s+(semua\s+)?(\d[\d.,]*\s+)?(lagi\s+)?balasan(\s+lainnya)?|"
     r"balas(an)?\s+lainnya)", re.I)
 
 _SCROLL_JS = """
@@ -631,8 +631,9 @@ _CLICK_MATCHING_JS = """
   }
   let n = 0;
   for (const el of picks) {
-    try { el.scrollIntoView({block: 'center'}); } catch (e) {}
-    try { el.click(); n++; } catch (e) {}
+    const tgt = el.closest('[role="button"]') || el;
+    try { tgt.scrollIntoView({block: 'center'}); } catch (e) {}
+    try { tgt.click(); n++; } catch (e) {}
   }
   return n;
 }
@@ -644,7 +645,7 @@ _MORE_COMMENTS_SRC = (
     r"(lihat|muat|tampilkan)\s+(\d[\d.,]*\s+)?komentar(\s+(lain|lainnya|sebelumnya))?)")
 _MORE_REPLIES_SRC = (
     r"(view\s+(all\s+)?(\d[\d.,]*\s+)?(more\s+)?repl(y|ies)|"
-    r"(lihat|muat|tampilkan)\s+(\d[\d.,]*\s+)?balasan(\s+lainnya)?|"
+    r"(lihat|muat|tampilkan)\s+(semua\s+)?(\d[\d.,]*\s+)?(lagi\s+)?balasan(\s+lainnya)?|"
     r"balas(an)?\s+lainnya)")
 
 # Diagnostik: kumpulkan teks pendek unik dari elemen yang bisa diklik & mungkin
