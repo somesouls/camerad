@@ -552,28 +552,30 @@ _SCROLL_JS = """
 }
 """
 
-# Scroll kontainer komentar terbaik sejauh `delta` px (bertahap, TIDAK melompat
-# ke dasar) + lapor posisi utk deteksi dasar. Bertahap penting agar tiap toggle
-# 'Lihat balasan' sempat ter-render & terklik sebelum IG membuangnya dari DOM.
+# Scroll SEMUA kontainer yang berpotensi memuat komentar sejauh `delta` px
+# (bertahap, TIDAK melompat ke dasar) + lapor tinggi konten & apakah scroll
+# benar-benar bergerak. Menghindari salah-pilih satu 'kontainer terbaik' yang
+# rawan bikin loop berhenti dini. Bertahap penting agar tiap toggle 'Lihat
+# balasan' sempat ter-render & terklik sebelum IG membuangnya dari DOM.
 _SCROLL_STEP_JS = """
 (delta) => {
-  const els = Array.from(document.querySelectorAll('div,ul,section'));
-  let best = null, bestH = 0;
-  for (const el of els) {
+  const cands = [document.scrollingElement];
+  document.querySelectorAll('div,ul,section,main,article').forEach(el => cands.push(el));
+  let moved = false, h = 0, top = 0, hit = 0;
+  for (const el of cands) {
+    if (!el) continue;
     const over = el.scrollHeight - el.clientHeight;
-    if (over > 200 && el.clientHeight > 150) {
-      const oy = getComputedStyle(el).overflowY;
-      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > bestH) {
-        best = el; bestH = el.scrollHeight;
-      }
-    }
-  }
-  if (best) {
-    best.scrollTop = Math.min(best.scrollHeight, best.scrollTop + delta);
-    return {top: best.scrollTop, h: best.scrollHeight, c: best.clientHeight, win: false};
+    if (over < 300 || el.clientHeight < 200) continue;
+    const oy = getComputedStyle(el).overflowY;
+    if (!(oy === 'auto' || oy === 'scroll' || el === document.scrollingElement)) continue;
+    const before = el.scrollTop;
+    el.scrollTop = Math.min(el.scrollHeight, el.scrollTop + delta);
+    if (el.scrollTop > before + 2) moved = true;
+    hit += 1;
+    if (el.scrollHeight > h) { h = el.scrollHeight; top = el.scrollTop + el.clientHeight; }
   }
   window.scrollBy(0, delta);
-  return {top: window.scrollY, h: document.body.scrollHeight, c: window.innerHeight, win: true};
+  return {moved: moved, h: h, top: top, hit: hit};
 }
 """
 
@@ -645,6 +647,24 @@ _MORE_REPLIES_SRC = (
     r"(lihat|muat|tampilkan)\s+(\d[\d.,]*\s+)?balasan(\s+lainnya)?|"
     r"balas(an)?\s+lainnya)")
 
+# Diagnostik: kumpulkan teks pendek unik dari elemen yang bisa diklik & mungkin
+# terkait balasan/muat-lebih. Dipakai saat DEBUG utk mengetahui WORDING tombol
+# 'Lihat balasan' versi IG/locale user bila belum ada balasan terpanen.
+_CANDIDATE_TEXTS_JS = """
+() => {
+  const rx = /(balas|repl|lihat|view|muat|tampilkan|selengkapnya|more|hide|sembunyi|show)/i;
+  const out = {};
+  const all = document.querySelectorAll('span,button,div[role=button],a[role=button]');
+  for (const el of all) {
+    const t = (el.textContent || '').trim();
+    if (!t || t.length > 50) continue;
+    if (!rx.test(t)) continue;
+    out[t] = (out[t] || 0) + 1;
+  }
+  return Object.keys(out).slice(0, 40).map(k => k + ' x' + out[k]);
+}
+"""
+
 
 def _click_js(page, src):
     """Klik semua kontrol (innermost, dedup posisi) yang teksnya cocok `src` via
@@ -657,7 +677,7 @@ def _click_js(page, src):
 
 def _scroll_step(page, delta):
     """Scroll kontainer komentar (atau window) sejauh `delta` px; kembalikan
-    posisi {top,h,c} utk deteksi dasar."""
+    {moved,h,top} utk deteksi stagnasi."""
     try:
         return page.evaluate(_SCROLL_STEP_JS, delta) or {}
     except Exception:
@@ -719,50 +739,66 @@ def _load_comments(page, max_scrolls, diag=None):
     disadap _on_response) SETELAH toggle diklik. Karena scroll-ke-bawah membuang
     komentar atas dari DOM, kita menelusuri BERTAHAP dari ATAS ke BAWAH sambil
     mengklik tiap toggle saat masih ter-render, lalu ULANGI dari atas beberapa
-    kali (multi-pass) agar semua balasan terbuka. Menghitung klik ke
-    diag['more_comments']/['more_replies']."""
+    kali (multi-pass) agar semua balasan terbuka. Berhenti berdasarkan STAGNASI
+    (tinggi konten tak bertambah & scroll tak bergerak), BUKAN geometri dasar
+    yang rawan salah-picu. Menghitung klik ke diag['more_comments']/['more_replies']
+    & mengumpulkan diag['reply_candidates'] (wording tombol) utk diagnosa."""
     if diag is None:
         diag = {}
     _sleep(2.0)  # beri waktu komentar awal termuat
-    passes = max(2, min(int(max_scrolls or 1), 5))
+    passes = max(2, min(int(max_scrolls or 1), 4))
     for _p in range(passes):
         # Mulai tiap pass dari ATAS agar toggle di komentar teratas ikut terklik.
         try:
             page.evaluate(_SCROLL_TOP_JS)
         except Exception:
             pass
-        _sleep(0.8)
-        pass_clicks = 0
-        reached_bottom = False
-        for _s in range(60):
+        _sleep(0.7)
+        last_h = 0
+        stagnant = 0
+        for _s in range(80):
             mc = _click_js(page, _MORE_COMMENTS_SRC)
             rc = _click_js(page, _MORE_REPLIES_SRC)
             diag["more_comments"] = diag.get("more_comments", 0) + mc
             diag["more_replies"] = diag.get("more_replies", 0) + rc
-            pass_clicks += mc + rc
             if rc:
                 _sleep(0.9)  # tunggu child_comments (graphql) termuat & tersadap
-            st = _scroll_step(page, 850)
+            st = _scroll_step(page, 1200)
             _sleep(0.8)
             try:
-                if st and (st.get("top", 0) + st.get("c", 0)) >= (st.get("h", 0) - 6):
-                    reached_bottom = True
+                h = int(st.get("h", 0) or 0)
             except Exception:
-                pass
-            if reached_bottom:
-                diag["more_comments"] = diag.get("more_comments", 0) + _click_js(page, _MORE_COMMENTS_SRC)
-                diag["more_replies"] = diag.get("more_replies", 0) + _click_js(page, _MORE_REPLIES_SRC)
-                break
-        # Berhenti bila pass ini tak menghasilkan klik apa pun (semua terbuka).
-        if pass_clicks == 0 and _p >= 1:
-            break
+                h = 0
+            moved = bool(st.get("moved"))
+            if h <= last_h and not moved and mc == 0 and rc == 0:
+                stagnant += 1
+                if stagnant >= 4:
+                    break
+            else:
+                stagnant = 0
+            if h > last_h:
+                last_h = h
+        # Sapuan di dasar pass ini.
+        diag["more_comments"] = diag.get("more_comments", 0) + _click_js(page, _MORE_COMMENTS_SRC)
+        diag["more_replies"] = diag.get("more_replies", 0) + _click_js(page, _MORE_REPLIES_SRC)
     # Sapuan akhir Playwright (jaring pengaman) utk sisa toggle balasan.
     for _r in range(4):
-        c = _click_all(page, _MORE_REPLIES_RE, limit=60)
+        c = _click_all(page, _MORE_REPLIES_RE, limit=80)
         diag["more_replies"] = diag.get("more_replies", 0) + c
         if not c:
             break
         _sleep(1.0)
+    # Diagnostik wording tombol (dipakai saat DEBUG bila balasan masih 0).
+    try:
+        cand = page.evaluate(_CANDIDATE_TEXTS_JS) or []
+        if cand:
+            seen = diag.setdefault("reply_candidates", [])
+            for t in cand:
+                if t not in seen:
+                    seen.append(t)
+            diag["reply_candidates"] = seen[:40]
+    except Exception:
+        pass
     return diag
 
 
@@ -913,6 +949,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             "more_replies_clicked": _diag["more_replies"]}
     if _debug:
         info["trace"] = _trace[:80]
+        if _diag.get("reply_candidates"):
+            info["reply_candidates"] = _diag["reply_candidates"][:40]
     if dump_path:
         info["dump_path"] = dump_path
         info["dumped"] = bool(dumped)
