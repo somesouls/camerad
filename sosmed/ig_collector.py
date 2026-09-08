@@ -106,7 +106,16 @@ def _mk_ig_item(n, media_id, code, off):
     handle, name, uid = _ig_user(n.get("user"))
     parent = n.get("parent_comment_id")
     parent = str(parent).split("_")[0] if parent else None
-    conv = str(media_id or n.get("media_id") or pk).split("_")[0]
+    # conversation_id = id/kode POSTINGAN, bukan pk komentar. IG 2026 mengirim
+    # komentar via /graphql TANPA media-id, jadi shortcode postingan (code) jadi
+    # kunci utama & konsisten antar-tarik; media pk & pk komentar hanya cadangan.
+    # Shortcode TIDAK di-split '_' karena boleh memuat '_' / '-'.
+    if code:
+        conv = str(code)
+    elif media_id or n.get("media_id"):
+        conv = str(media_id or n.get("media_id")).split("_")[0]
+    else:
+        conv = pk
     text = str(n.get("text") or "")
     permalink = ("https://www.instagram.com/p/%s/c/%s/" % (code, pk)) if code else ""
     def _i(*keys):
@@ -828,6 +837,9 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
     max_scrolls = _int_env("SOSMED_IG_MAX_SCROLLS", 8)
     by_id = {}
     media_codes = {}
+    # Shortcode postingan yang SEDANG dibuka; dipakai menautkan komentar (yang
+    # datang lewat /graphql tanpa media-id di URL) ke postingan yang benar.
+    _cur = {"code": None}
     _diag = {"comments": 0, "feed": 0, "json": 0,
              "more_comments": 0, "more_replies": 0}
     _debug = _flag("SOSMED_IG_DEBUG", "0")
@@ -858,6 +870,12 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                     m = _MEDIA_RE.search(u)
                     mid = m.group(1) if m else None
                     code = (media_codes.get(str(mid)) or {}).get("code") if mid else None
+                    # IG 2026 mengirim komentar lewat /graphql TANPA media-id di
+                    # URL -> tautkan ke shortcode postingan yang SEDANG dibuka
+                    # (_cur) agar conversation_id = postingan yg benar, bukan pk
+                    # komentar masing-masing.
+                    if not code:
+                        code = _cur.get("code")
                     before = len(by_id)
                     for it in extract_ig_comments(data, mid, code, off):
                         by_id[it["external_id"]] = it
@@ -920,6 +938,9 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
         if max_posts and max_posts > 0:
             codes = codes[:max_posts]  # 0 / negatif = SEMUA postingan target
         for code in codes:
+            # Tandai postingan yang sedang dibuka -> _on_response menautkan
+            # komentar ke shortcode ini (conversation_id postingan yang benar).
+            _cur["code"] = code
             try:
                 page.goto("https://www.instagram.com/p/%s/" % code,
                           wait_until="domcontentloaded", timeout=45000)
@@ -991,12 +1012,21 @@ def _smoke():
     assert len(by) == 3, items
     q = by["111"]
     assert q["author_handle"] == "wargapajak" and q["is_official"] is False, q
-    assert q["conversation_id"] == "555" and q["in_reply_to_id"] is None, q
+    assert q["conversation_id"] == "ABCcode" and q["in_reply_to_id"] is None, q
     assert q["created_at"] == "2025-09-06T00:00:00.000Z", q["created_at"]
     assert q["permalink"] == "https://www.instagram.com/p/ABCcode/c/111/", q["permalink"]
     a = by["112"]
     assert a["is_official"] is True and a["in_reply_to_id"] == "111", a
-    assert a["conversation_id"] == "555", a
+    assert a["conversation_id"] == "ABCcode", a
+    # REGRESI (bug id-postingan): tanpa media_id (kasus /graphql IG 2026), semua
+    # komentar 1 postingan HARUS memakai conversation_id = shortcode postingan,
+    # BUKAN pk komentar masing-masing; permalink pun terisi.
+    only_code = extract_ig_comments(payload, media_id=None, code="Dc-kZ1DJHpH",
+                                    official=["kring_pajak"])
+    assert only_code and all(it["conversation_id"] == "Dc-kZ1DJHpH"
+                             for it in only_code), only_code
+    assert all(it["permalink"].startswith(
+        "https://www.instagram.com/p/Dc-kZ1DJHpH/c/") for it in only_code), only_code
     # dedup
     items2 = extract_ig_comments([payload, payload], media_id="555", official=["kring_pajak"])
     assert len({it["external_id"] for it in items2}) == 3, len(items2)
