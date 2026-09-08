@@ -415,6 +415,10 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
           <div class="ic c-blue"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
           <b>Q&amp;A</b>
         </a>
+        <a class="tool-side{% if active_page == 'sosmed_monitor' %} active{% endif %}" href="/sosmed/monitor">
+          <div class="ic c-red"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/></svg></div>
+          <b>Pengawasan SPV</b>
+        </a>
         {% if can_sosmed_manage %}
         <a class="tool-side{% if active_page == 'sosmed_kelola' %} active{% endif %}" href="/sosmed/kelola">
           <div class="ic c-green"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.66 3.58 3 8 3s8-1.34 8-3V5"/><path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3"/></svg></div>
