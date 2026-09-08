@@ -24,7 +24,8 @@ ENV (JANGAN commit kredensial):
   SOSMED_IG_TARGET       : @handle akun RESMI yang dipantau (default dari
                            SOSMED_X_TARGET, atau 'kring_pajak')
   SOSMED_IG_HEADLESS     : 1 (default) headless; 0 utk login manual tampak jendela
-  SOSMED_IG_MAX_POSTS    : jumlah postingan terbaru yang dibuka (default 12)
+  SOSMED_IG_MAX_POSTS    : jumlah postingan terbaru yang dibuka (default 12;
+                           set 0 = SEMUA postingan target, 1 = hanya terbaru, dst.)
   SOSMED_IG_MAX_SCROLLS  : batas scroll komentar per-postingan (default 8)
   SOSMED_IG_DEBUG        : 1 utk mencetak trace URL/keys respons (diagnosa)
   SOSMED_IG_TZ           : zona acuan H-1 (default Asia/Jakarta)
@@ -188,17 +189,60 @@ def extract_media_codes(obj, out=None, depth=0):
     return out
 
 
+def _thread_sort(items):
+    """Urutkan komentar ala thread: komentar UTAMA lalu BALASAN-nya (berjenjang),
+    dikelompokkan per postingan (conversation_id) & urut waktu. Memudahkan dibaca
+    di CSV: utama | balasan | balasan ..."""
+    by_id = {}
+    for it in (items or []):
+        cid = it.get("comment_id") or it.get("external_id")
+        if cid:
+            by_id[cid] = it
+    children = {}
+    roots = []
+    for it in (items or []):
+        p = it.get("in_reply_to_id")
+        if p and p in by_id:
+            children.setdefault(p, []).append(it)
+        else:
+            roots.append(it)
+    def _ck(x):
+        return x.get("created_at") or ""
+    roots.sort(key=lambda x: ((x.get("conversation_id") or ""), _ck(x)))
+    out, seen = [], set()
+    def _emit(it, level):
+        cid = it.get("comment_id") or it.get("external_id")
+        if not cid or cid in seen:
+            return
+        seen.add(cid)
+        it["_level"] = level
+        out.append(it)
+        for ch in sorted(children.get(cid, []), key=_ck):
+            _emit(ch, level + 1)
+    for r in roots:
+        _emit(r, 0)
+    for it in (items or []):
+        cid = it.get("comment_id") or it.get("external_id")
+        if cid and cid not in seen:
+            it["_level"] = 0
+            out.append(it)
+            seen.add(cid)
+    return out
+
+
 def _write_dump(path, items, target=None):
     import csv as _csv
-    cols = ["comment_id", "author_handle", "author_name", "is_official",
-            "conversation_id", "in_reply_to_id", "created_at", "like_count",
-            "reply_count", "permalink", "text"]
+    cols = ["tipe", "level", "comment_id", "author_handle", "author_name",
+            "is_official", "conversation_id", "in_reply_to_id", "created_at",
+            "like_count", "reply_count", "permalink", "text"]
     try:
         with open(path, "w", encoding="utf-8-sig", newline="") as f:
             w = _csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
             w.writeheader()
-            for it in (items or []):
+            for it in _thread_sort(items):
                 w.writerow({
+                    "tipe": "balasan" if it.get("in_reply_to_id") else "utama",
+                    "level": int(it.get("_level") or 0),
                     "comment_id": it.get("external_id", ""),
                     "author_handle": it.get("author_handle", ""),
                     "author_name": it.get("author_name", ""),
@@ -475,10 +519,13 @@ def diag_session():
                 "state_file": state_file(), "state_exists": os.path.exists(state_file())}
 
 
-_MORE_LABELS = ("View more comments", "Load more comments", "View all comments",
-                "Lihat komentar lainnya", "Muat komentar lainnya",
-                "View replies", "Lihat balasan", "View more replies",
-                "Lihat balasan lainnya")
+_MORE_COMMENTS_RE = re.compile(
+    r"(view\s+(more|all|previous)?\s*comments?|"
+    r"(lihat|muat)\s+komentar(\s+(lain|lainnya|sebelumnya))?)", re.I)
+_MORE_REPLIES_RE = re.compile(
+    r"(view\s+(all\s+)?(\d[\d.,]*\s+)?repl(y|ies)|"
+    r"(lihat|muat)\s+(\d[\d.,]*\s+)?balasan(\s+lainnya)?|"
+    r"balas(an)?\s+lainnya)", re.I)
 
 _SCROLL_JS = """
 () => {
@@ -500,20 +547,39 @@ _SCROLL_JS = """
 """
 
 
+def _click_all(page, rx, limit=40):
+    """Klik semua elemen yang teksnya cocok regex rx (mis. 'lihat balasan').
+    Kembalikan jumlah klik sukses. Best-effort (fail-soft)."""
+    try:
+        els = page.get_by_text(rx).all()
+    except Exception:
+        els = []
+    n = 0
+    for b in els[:limit]:
+        try:
+            b.scroll_into_view_if_needed(timeout=800)
+        except Exception:
+            pass
+        try:
+            b.click(timeout=1200)
+            n += 1
+        except Exception:
+            pass
+    return n
+
+
 def _load_comments(page, max_scrolls):
-    """Picu pemuatan komentar: klik tombol 'muat lebih/lihat balasan' lalu
-    scroll kontainer komentar via JS. Best-effort (fail-soft)."""
+    """Muat komentar + BALASAN berjenjang: klik 'muat komentar', lalu buka SEMUA
+    toggle 'lihat balasan' (child comments dimuat lewat graphql & ikut disadap),
+    scroll kontainer komentar via JS, ulangi. Best-effort (fail-soft)."""
     for _ in range(max(1, int(max_scrolls or 1))):
-        for lab in _MORE_LABELS:
-            try:
-                els = page.get_by_text(lab, exact=False).all()
-            except Exception:
-                els = []
-            for b in els[:6]:
-                try:
-                    b.click(timeout=1200)
-                except Exception:
-                    pass
+        _click_all(page, _MORE_COMMENTS_RE, limit=8)
+        # Buka balasan berjenjang: ulang beberapa kali karena toggle baru
+        # bermunculan setelah yang sebelumnya diklik.
+        for _r in range(3):
+            if not _click_all(page, _MORE_REPLIES_RE, limit=40):
+                break
+            _sleep(0.8)
         try:
             page.evaluate(_SCROLL_JS)
         except Exception:
@@ -523,6 +589,11 @@ def _load_comments(page, max_scrolls):
         except Exception:
             pass
         _sleep(1.5)
+    # Sapuan akhir: pastikan seluruh balasan sudah diperluas.
+    for _r in range(5):
+        if not _click_all(page, _MORE_REPLIES_RE, limit=60):
+            break
+        _sleep(1.0)
 
 
 def collect_range(date_from=None, date_to=None, official_handles=None,
@@ -638,7 +709,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                                        or d.get("owner") == _tgt_l)]
         if not codes:
             codes = [d["code"] for d in _codes_all if d.get("code")]
-        codes = codes[:max_posts]
+        if max_posts and max_posts > 0:
+            codes = codes[:max_posts]  # 0 / negatif = SEMUA postingan target
         for code in codes:
             try:
                 page.goto("https://www.instagram.com/p/%s/" % code,
@@ -646,7 +718,7 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             except Exception:
                 continue
             _sleep(2.6)
-            # Scroll panel komentar (JS) + klik "muat lebih / lihat balasan".
+            # Scroll panel komentar (JS) + klik \"muat lebih / lihat balasan\".
             _load_comments(page, max_scrolls)
 
         if not persistent:
@@ -721,6 +793,11 @@ def _smoke():
                        "media_type": 1, "caption": {"text": "promo"}}]}
     mc = extract_media_codes(feed)
     assert mc.get("555", {}).get("code") == "ABCcode", mc
+    # threaded sort: komentar UTAMA (111) sebelum BALASAN-nya (112, level 1)
+    ts = _thread_sort(items)
+    _order = [it["external_id"] for it in ts]
+    assert _order.index("111") < _order.index("112"), _order
+    assert ts[_order.index("112")].get("_level") == 1, ts
     # ingest end-to-end (pairing Q&A): 111 terjawab oleh 112
     try:
         import sqlite3, tempfile
