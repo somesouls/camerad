@@ -16,6 +16,23 @@ try:
 except Exception:  # pragma: no cover - hanya untuk lingkungan uji terisolasi
     avdb = None
 
+try:
+    from awe.botfilter import wants_exclude, exclude_bot_sql
+except Exception:  # pragma: no cover
+    def wants_exclude(query_params):
+        try:
+            v = query_params.get("exclude_bot")
+        except Exception:
+            v = None
+        if v is None:
+            return True
+        return str(v).strip().lower() not in ("0", "false", "no", "off", "tidak")
+
+    def exclude_bot_sql(col="agent_name"):
+        c = "LOWER(COALESCE(%s,''))" % col
+        return ("(" + c + " NOT LIKE '%chatbot%' AND " + c + " NOT LIKE '%ccai%' AND "
+                + c + " NOT LIKE '%virtual assistant%' AND " + c + " NOT LIKE '%google%')")
+
 
 def _pct(n, d):
     return round(1000.0 * n / d) / 10.0 if d else 0.0
@@ -53,7 +70,7 @@ def _fmt_dur(sec):
     return "%ds" % s
 
 
-def overview(conn, start=None, end=None, channel=None):
+def overview(conn, start=None, end=None, channel=None, exclude_bot=True):
     """Hitung KPI ikhtisar untuk rentang [start,end] (tanggal ISO, opsional)."""
     where, params = [], []
     if start:
@@ -62,6 +79,8 @@ def overview(conn, start=None, end=None, channel=None):
     if end:
         where.append("substr(tanggal,1,10) <= ?")
         params.append(str(end)[:10])
+    if exclude_bot:
+        where.append(exclude_bot_sql("agent_name"))
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         "SELECT tanggal, agent_name, durasi, behavior, sentiment, emotion, "
@@ -230,12 +249,13 @@ def register(app, *, render_page):
         start = q.get("start")
         end = q.get("end")
         channel = q.get("channel")
+        exclude_bot = wants_exclude(q)
 
         def _run():
             conn = avdb.init_db(avdb.connect())
             try:
                 s, e = _resolve_range(preset, start, end)
-                data = overview(conn, s, e, channel)
+                data = overview(conn, s, e, channel, exclude_bot=exclude_bot)
                 data["preset"] = preset
                 data["bounds"] = _bounds(conn)
                 return data

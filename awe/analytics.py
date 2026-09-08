@@ -16,6 +16,7 @@ import datetime as _dt
 from collections import Counter, defaultdict
 
 import avaya.db as avdb
+from awe.botfilter import wants_exclude, exclude_bot_sql
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
@@ -71,12 +72,14 @@ def _truthy(v):
     return str(v).strip().lower() in ("1", "true", "ya", "yes", "y")
 
 
-def analytics(conn, start=None, end=None, limit_conv=500):
+def analytics(conn, start=None, end=None, limit_conv=500, exclude_bot=True):
     where, params = [], []
     if start:
         where.append("substr(tanggal,1,10) >= ?"); params.append(start[:10])
     if end:
         where.append("substr(tanggal,1,10) <= ?"); params.append(end[:10])
+    if exclude_bot:
+        where.append(exclude_bot_sql("agent_name"))
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
     rows = conn.execute(
         "SELECT * FROM awe_conversations" + wsql + " ORDER BY tanggal", params
@@ -249,12 +252,13 @@ def register(app, *, render_page):
         q = request.query_params
         preset = q.get("range") or "7d"
         start = q.get("start"); end = q.get("end")
+        exclude_bot = wants_exclude(q)
 
         def _run():
             conn = avdb.init_db(avdb.connect())
             try:
                 s, e = resolve_range(preset, start, end)
-                data = analytics(conn, s, e)
+                data = analytics(conn, s, e, exclude_bot=exclude_bot)
                 data["bounds"] = data_bounds(conn)
                 data["preset"] = preset
                 return data

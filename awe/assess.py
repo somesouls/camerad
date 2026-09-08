@@ -6,6 +6,7 @@ Endpoint:
   GET /api/awe/assess/list?range=&agent=&poro=&jenis=&ss_lengkap=...  -> daftar percakapan.
 """
 import avaya.db as avdb
+from awe.botfilter import wants_exclude, is_bot_name
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
@@ -60,6 +61,7 @@ def register(app):
     #   jenis      : nama jenis layanan tepat (opsional)
     #   ss_lengkap : ya|tidak|"" (opsional)
     #   ss_<attr>  : ya|tidak (opsional, per atribut softskill)
+    #   exclude_bot: 1|0 (opsional, default 1 -> sembunyikan percakapan bot only)
     #   limit      : integer, default 200
     # ------------------------------------------------------------------
     async def api_awe_assess_list(request: Request):
@@ -72,6 +74,10 @@ def register(app):
         jenis      = (q.get("jenis")     or "").strip()
         ss_lengkap = (q.get("ss_lengkap") or "").strip()
         limit      = min(int(q.get("limit") or 200), 1000)
+        exclude_bot = wants_exclude(q)
+        # Bila mengecualikan bot only, ambil lebih banyak baris lalu saring &
+        # potong kembali ke `limit` agar daftar tidak menyusut drastis.
+        fetch_limit = min(limit * 3, 1000) if exclude_bot else limit
 
         _SS_ATTRS = ["salam_pembuka", "menanyakan_nama", "menyapa_customer",
                      "menawarkan_bantuan", "hold", "salam_penutup"]
@@ -87,7 +93,7 @@ def register(app):
                 return avdb.list_for_assess(
                     conn, range_=range_, start=start, end=end,
                     agent=agent, poro=poro, jenis=jenis,
-                    ss_lengkap=ss_lengkap, ss_attrs=ss_attrs, limit=limit,
+                    ss_lengkap=ss_lengkap, ss_attrs=ss_attrs, limit=fetch_limit,
                 )
             finally:
                 conn.close()
@@ -96,6 +102,18 @@ def register(app):
             res = await run_in_threadpool(_run)
         except Exception as ex:
             return JSONResponse({"ok": False, "error": str(ex)}, status_code=500)
+
+        # Kecualikan percakapan "bot only" (mis. "Chatbot, Google") dari daftar
+        # maupun dropdown agent bila checkbox aktif (default).
+        if exclude_bot and isinstance(res, dict):
+            convs = res.get("conversations")
+            if isinstance(convs, list):
+                convs = [c for c in convs
+                         if not is_bot_name((c or {}).get("agent_name"))]
+                res["conversations"] = convs[:limit]
+            ags = res.get("agents")
+            if isinstance(ags, list):
+                res["agents"] = [a for a in ags if not is_bot_name(a)]
 
         res["ok"] = True
         return JSONResponse(res)
