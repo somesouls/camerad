@@ -52,6 +52,43 @@ import datetime as _dt
 _DEFAULT_UA = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
                "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
 
+# Tambahkan import stealth di bagian atas file
+try:
+    from playwright_stealth import stealth_sync
+except ImportError:
+    stealth_sync = None
+
+def _human_sleep(minimum=1.5, maximum=3.5):
+    """Jeda waktu acak agar terlihat seperti manusia membaca."""
+    time.sleep(_random.uniform(minimum, maximum))
+
+def _check_and_wait_captcha(page):
+    """Mendeteksi apakah TikTok memunculkan Slider Captcha. Jika ada, tunggu manusia menyelesaikannya."""
+    try:
+        # Berdasarkan HTML Anda: <div class="TUXModal captcha-verify-container"...>
+        captcha_locator = page.locator(".captcha-verify-container, #captcha-verify-container")
+        if captcha_locator.count() > 0 and captcha_locator.is_visible():
+            print("\n[!] CAPTCHA TERDETEKSI! Silakan geser puzzle di browser secara manual...")
+            # Tunggu sampai elemen captcha hilang (manusia selesai menggeser)
+            captcha_locator.wait_for(state="hidden", timeout=120000) # Tunggu maksimal 2 menit
+            print("[+] Captcha berhasil dilewati, melanjutkan proses...\n")
+            _human_sleep(2, 4)
+    except Exception:
+        pass
+
+def _human_scroll(page, scrolls=3):
+    """Scroll seperti manusia sungguhan, naik turun sedikit."""
+    for _ in range(scrolls):
+        _check_and_wait_captcha(page)
+        # Scroll jarak acak
+        scroll_y = _random.randint(400, 900)
+        page.mouse.wheel(0, scroll_y)
+        _human_sleep(0.5, 1.5)
+        # Kadang manusia scroll ke atas sedikit
+        if _random.random() > 0.7:
+            page.mouse.wheel(0, -_random.randint(100, 300))
+            _human_sleep(0.5, 1.0)
+
 
 # ===========================================================================
 # Helper ekstraksi (MURNI, tanpa Playwright) — bisa diuji offline.
@@ -337,8 +374,12 @@ def _sleep(base):
 # Bagian browser (Playwright) — import LAZY
 # ===========================================================================
 def _context_kwargs():
-    kw = dict(user_agent=(os.environ.get("SOSMED_TT_UA") or _DEFAULT_UA),
-              locale="id-ID", viewport={"width": 1280, "height": 2200})
+    """Mengatur konteks browser, memaksa resolusi besar agar Captcha tidak terpotong."""
+    kw = dict(
+        user_agent=(os.environ.get("SOSMED_TT_UA") or _DEFAULT_UA),
+        locale="id-ID", 
+        viewport={"width": 1280, "height": 768} # PERBAIKAN: Perbesar resolusi agar slider captcha terlihat
+    )
     tz = _tz_name()
     if tz:
         kw["timezone_id"] = tz
@@ -350,31 +391,50 @@ def _persistent_dir():
 
 
 def _launch(pw, headless):
-    args = ["--no-sandbox", "--disable-dev-shm-usage",
-            "--disable-blink-features=AutomationControlled"]
-    channel = (os.environ.get("SOSMED_TT_CHANNEL") or "").strip()
+    """Memulai browser dengan Stealth Mode dan resolusi penuh."""
+    args = [
+        "--no-sandbox", 
+        "--disable-dev-shm-usage",
+        "--disable-blink-features=AutomationControlled",
+        "--disable-infobars",
+        "--window-size=1920,1080" # PERBAIKAN: Paksa ukuran jendela Windows
+    ]
+    
+    # PERBAIKAN: Gunakan Chrome asli yang terinstal di komputer, bukan Chromium
+    channel = (os.environ.get("SOSMED_TT_CHANNEL") or "chrome").strip()
     udd = _persistent_dir()
+    
     if udd:
         prof = (os.environ.get("SOSMED_TT_PROFILE_DIR") or "Default").strip()
         if prof:
             args.append("--profile-directory=%s" % prof)
-        launch_kw = dict(headless=headless, args=args, channel=(channel or "chrome"))
-        launch_kw.update(_context_kwargs())
+        launch_kw = dict(headless=headless, args=args, channel=channel)
+        
+        # Jangan gunakan context kwargs viewport terpisah jika menggunakan persistent context 
+        # agar window tidak terpotong (bergantung pada --window-size di args)
+        launch_kw["viewport"] = {"width": 1920, "height": 1080} 
+        
         ctx = pw.chromium.launch_persistent_context(udd, **launch_kw)
+        if stealth_sync:
+            ctx.on("page", lambda page: stealth_sync(page))
         return None, ctx, True
-    launch_kw = dict(headless=headless, args=args)
-    if channel:
-        launch_kw["channel"] = channel
+        
+    launch_kw = dict(headless=headless, args=args, channel=channel)
     browser = pw.chromium.launch(**launch_kw)
     sf = state_file()
     kw = _context_kwargs()
+    
     if os.path.exists(sf):
         try:
-            return browser, browser.new_context(storage_state=sf, **kw), False
+            ctx = browser.new_context(storage_state=sf, **kw)
+            if stealth_sync: ctx.on("page", lambda page: stealth_sync(page))
+            return browser, ctx, False
         except Exception:
             pass
-    return browser, browser.new_context(**kw), False
-
+            
+    ctx = browser.new_context(**kw)
+    if stealth_sync: ctx.on("page", lambda page: stealth_sync(page))
+    return browser, ctx, False
 
 def _close(browser, ctx):
     try:
@@ -588,155 +648,229 @@ def _click_all(page, rx, limit=40):
     return n
 
 
+def _scroll_comment_section(page):
+    """Scroll khusus di dalam panel komentar TikTok agar API memuat data baru."""
+    _check_and_wait_captcha(page)
+    
+    # Paksa scroll element via JS (jauh lebih cepat dan pasti mengenai target)
+    try:
+        page.evaluate("""() => {
+            // Cari container komentar TikTok berdasarkan atribut spesifiknya
+            const panel = document.querySelector('[data-e2e="search-comment-container"]') || 
+                          document.querySelector('div[class*="DivCommentListContainer"]');
+            if(panel) { 
+                panel.scrollBy(0, 1500); 
+            } else {
+                window.scrollBy(0, 1000);
+            }
+        }""")
+    except Exception:
+        pass
+    _human_sleep(1.0, 2.0)
+
+
+def _click_replies(page):
+    """Klik semua tombol 'View X replies' / 'View X more' secara instan menggunakan JavaScript."""
+    try:
+        clicked = page.evaluate("""() => {
+            let count = 0;
+            // Ambil semua elemen view-more (balasan komentar)
+            const btns = document.querySelectorAll('[data-e2e^="view-more-"]');
+            for (let b of btns) {
+                // Pastikan tombol terlihat (tidak disembunyikan CSS)
+                const style = window.getComputedStyle(b);
+                if (style.display !== 'none' && style.visibility !== 'hidden' && b.offsetHeight > 0) {
+                    b.click();
+                    count++;
+                    if (count >= 15) break; // Batasi klik agar browser tidak crash
+                }
+            }
+            return count;
+        }""")
+        return clicked or 0
+    except Exception:
+        return 0
+
 def _load_comments(page, max_scrolls, diag=None):
-    """Muat komentar + BALASAN berjenjang di TikTok: beri waktu komentar awal
-    termuat, scroll panel komentar, klik 'lihat komentar lainnya', lalu buka
-    SEMUA toggle 'lihat N balasan' (memicu /api/comment/list/reply/ yang ikut
-    disadap), ulangi. Menghitung klik ke diag['more_comments']/['more_replies']."""
+    """Memuat komentar dan balasan dengan log responsif dan tidak macet."""
     if diag is None:
         diag = {}
-    _sleep(2.0)  # beri waktu komentar awal termuat sebelum diproses
-    for _ in range(max(1, int(max_scrolls or 1))):
-        diag["more_comments"] = diag.get("more_comments", 0) + \
-            _click_all(page, _MORE_COMMENTS_RE, limit=8)
-        # Buka balasan berjenjang: ulang beberapa kali karena toggle baru
-        # bermunculan setelah yang sebelumnya diklik.
-        for _r in range(4):
-            c = _click_all(page, _MORE_REPLIES_RE, limit=40)
+    
+    _human_sleep(3, 5) # Beri waktu render komentar awal
+    _check_and_wait_captcha(page)
+    
+    for i in range(max(1, int(max_scrolls or 1))):
+        print(f"      - Scroll & memuat balasan ({i+1}/{max_scrolls})...")
+        
+        # 1. Buka balasan berjenjang (Klik via JS sangat cepat & anti-macet)
+        for _r in range(3):
+            c = _click_replies(page)
             diag["more_replies"] = diag.get("more_replies", 0) + c
             if not c:
                 break
-            _sleep(0.9)
-        try:
-            page.evaluate(_SCROLL_JS)
-        except Exception:
-            pass
-        try:
-            page.mouse.wheel(0, 2400)
-        except Exception:
-            pass
-        _sleep(1.6)
-    # Sapuan akhir: pastikan seluruh balasan sudah diperluas.
-    for _r in range(6):
-        c = _click_all(page, _MORE_REPLIES_RE, limit=60)
-        diag["more_replies"] = diag.get("more_replies", 0) + c
-        if not c:
-            break
-        _sleep(1.0)
+            _human_sleep(1.0, 1.5)
+            
+        # 2. Scroll panel komentar ke bawah untuk memicu lazy load (Komentar baru)
+        _scroll_comment_section(page)
+        
     return diag
-
 
 def collect_range(date_from=None, date_to=None, official_handles=None,
                   target=None, trigger="manual", dump_path=None, **_kw):
-    """Tarik komentar pada N video terbaru akun resmi TikTok via browser.
-    Kembalikan (items, info). Lihat catatan tanggal di docstring modul."""
+    """
+    1. Buka profil target
+    2. Parsing DOM HTML untuk mengambil link /video/ atau /photo/
+    3. Buka link tersebut satu per satu dan load komentar
+    """
     date_from = date_from or _yesterday()
     date_to = date_to or date_from
     off = set((h or "").lower().lstrip("@") for h in (official_handles or []))
     tgt = (target or target_handle()).lstrip("@")
     off.add(tgt.lower())
     url = profile_url(tgt)
+    
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
-        return [], {"ok": False, "need_playwright": True,
-                    "error": ("Playwright belum terpasang. Jalankan: pip install "
-                              "playwright && python -m playwright install chromium. (%s)" % e)}
-    headless = _flag("SOSMED_TT_HEADLESS", "1")
+        return [], {"ok": False, "need_playwright": True, "error": str(e)}
+        
+    headless = _flag("SOSMED_TT_HEADLESS", "1") # Set 0 saat pertama kali untuk selesaikan captcha
     max_videos = _int_env("SOSMED_TT_MAX_VIDEOS", 10)
     max_scrolls = _int_env("SOSMED_TT_MAX_SCROLLS", 8)
+    
     by_id = {}
-    awemes = {}
-    _diag = {"comments": 0, "items": 0, "json": 0,
-             "more_comments": 0, "more_replies": 0}
+    awemes = {} # Untuk simpan API data jika lewat
+    _diag = {"comments": 0, "items": 0, "json": 0, "more_comments": 0, "more_replies": 0}
     _debug = _flag("SOSMED_TT_DEBUG", "0")
     _trace = []
 
     with sync_playwright() as pw:
         browser, ctx, persistent = _launch(pw, headless)
 
+        # Tetap pasang penyadap API (karena komentar HANYA bisa diambil utuh via JSON respon)
         def _on_response(resp):
             try:
                 u = resp.url or ""
-                if "tiktok.com" not in u:
-                    return
-                is_cmt = "/api/comment/list" in u   # mencakup /list/ & /list/reply/
+                if "tiktok.com" not in u: return
+                is_cmt = "/api/comment/list" in u 
                 is_item = ("/api/post/item_list" in u or "/api/user/detail" in u)
-                if not (is_cmt or is_item):
-                    return
-                try:
-                    data = resp.json()
-                except Exception:
-                    return
+                if not (is_cmt or is_item): return
+                
+                try: data = resp.json()
+                except Exception: return
+                
                 _diag["json"] += 1
-                got = 0
                 if is_cmt:
                     before = len(by_id)
                     for it in extract_tt_comments(data, off):
                         by_id[it["external_id"]] = it
                     got = len(by_id) - before
-                    if got:
-                        _diag["comments"] += 1
+                    if got: _diag["comments"] += 1
                 if is_item:
                     extract_aweme_ids(data, awemes)
                     _diag["items"] += 1
-                if _debug:
-                    _trace.append({
-                        "url": u[:200],
-                        "keys": (list(data.keys())[:14]
-                                 if isinstance(data, dict) else "list"),
-                        "new_comments": got,
-                    })
             except Exception:
                 pass
 
         ctx.on("response", _on_response)
         page = ctx.new_page()
 
+        # Cek Login
         if not _is_logged_in(page):
             ok, err = _auto_login(ctx)
             if not ok:
                 _close(browser, ctx)
                 return [], {"ok": False, "need_login": True, "error": err, "url": url}
-            if not persistent:
-                try:
-                    ctx.storage_state(path=state_file())
-                except Exception:
-                    pass
-        logged_in = _has_auth_cookie(ctx)
 
+        print(f"[*] Membuka profil: {url}")
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
         except Exception:
             pass
-        _sleep(4)
-        for _ in range(4):
-            try:
-                page.mouse.wheel(0, 2600)
-            except Exception:
-                pass
-            _sleep(2.0)
+            
+        _human_sleep(4, 6)
+        _check_and_wait_captcha(page)
 
-        # Urutkan video terbaru (create_time desc); hanya video milik target
-        # (owner cocok / tak diketahui), buang video sugesti dari akun lain.
-        _tgt_l = tgt.lower()
-        _vids_all = sorted(awemes.items(),
-                           key=lambda kv: kv[1].get("create_time") or 0, reverse=True)
-        vids = [aid for aid, d in _vids_all
-                if not d.get("owner") or d.get("owner") == _tgt_l]
-        if not vids:
-            vids = [aid for aid, _ in _vids_all]
+        # LANGKAH 2: Scroll profil dan Kumpulkan Link dari HTML (DOM)
+        print("[*] Menscroll halaman profil untuk memuat link video/photo...")
+        _human_scroll(page, scrolls=4)
+        _human_sleep(2, 3)
+
+        # Ekstrak href menggunakan JavaScript DOM selector
+        print("[*] Mengekstrak link postingan...")
+        hrefs = page.evaluate("""() => {
+            const links = Array.from(document.querySelectorAll('a[href]'));
+            return links.map(a => a.href);
+        }""")
+
+        # Filter hanya link video atau photo milik target
+        valid_links = []
+        target_pattern_video = f"/@{tgt}/video/"
+        target_pattern_photo = f"/@{tgt}/photo/"
+        
+        for href in hrefs:
+            if target_pattern_video in href or target_pattern_photo in href:
+                # Bersihkan URL dari parameter query (misal ?is_from_webapp=1)
+                clean_url = href.split("?")[0]
+                if clean_url not in valid_links:
+                    valid_links.append(clean_url)
+
+        print(f"[+] Ditemukan {len(valid_links)} link postingan di DOM.")
+
+        # Batasi jumlah video yang akan diproses
         if max_videos and max_videos > 0:
-            vids = vids[:max_videos]  # 0 / negatif = SEMUA video target
-        for aid in vids:
+            valid_links = valid_links[:max_videos]
+
+        # LANGKAH 3 & 4: Buka satu per satu dan kumpulkan
+# LANGKAH 3 & 4: Buka satu per satu dengan klik elemen (seperti manusia)
+        for idx, post_url in enumerate(valid_links):
+            print(f"[*] Memproses ({idx+1}/{len(valid_links)}): {post_url}")
             try:
-                page.goto("https://www.tiktok.com/@%s/video/%s" % (tgt, aid),
-                          wait_until="domcontentloaded", timeout=45000)
-            except Exception:
+                # Ekstrak ID postingan dari URL untuk mencari elemen <a> di halaman
+                post_id = post_url.rstrip("/").split("/")[-1].split("?")[0]
+                video_el = page.locator(f'a[href*="{post_id}"]').first
+                
+                if video_el.count() > 0:
+                    print("    -> Mengklik thumbnail di profil...")
+                    video_el.scroll_into_view_if_needed()
+                    _human_sleep(1, 2)
+                    video_el.click()
+                else:
+                    print("    -> Navigasi direct URL (Fallback)...")
+                    page.goto(post_url, referer=url, wait_until="domcontentloaded", timeout=45000)
+                    
+            except Exception as e:
+                print(f"[-] Gagal membuka postingan {post_url}: {e}")
                 continue
-            _sleep(2.8)
-            # Scroll panel komentar (JS) + klik 'muat lebih / lihat balasan'.
+                
+            # Tunggu overlay video dan kolom komentar dimuat penuh
+            _human_sleep(4, 6)
+            _check_and_wait_captcha(page)
+            
+            # Scroll panel komentar dan ekspansi balasan
+            print("    -> Memuat komentar...")
             _load_comments(page, max_scrolls, _diag)
+            
+            # Berikan waktu API merespon dan menyimpan JSON
+            _human_sleep(2, 3)
+            
+            # Tutup overlay (kembali ke profil) atau go back
+            try:
+                # Cari tombol "Close" (X) dari overlay TikTok: <button data-e2e="browse-close">
+                close_btn = page.locator('[data-e2e="browse-close"]').first
+                if close_btn.count() > 0 and close_btn.is_visible():
+                    print("    -> Menutup overlay video...")
+                    close_btn.click()
+                    _human_sleep(1.5, 2.5)
+                else:
+                    # Jika tidak ada tombol close (mungkin ter-reload), go back ke profil
+                    print("    -> Kembali ke profil...")
+                    page.go_back(wait_until="domcontentloaded")
+                    _human_sleep(2, 4)
+            except Exception:
+                # Fallback paling aman jika navigasi error
+                page.goto(url, wait_until="domcontentloaded")
+                _human_sleep(2, 4)
 
         if not persistent:
             try:
@@ -745,42 +879,29 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 pass
         _close(browser, ctx)
 
-    # Lengkapi permalink & conversation_id yang kosong (mis. balasan tanpa aweme_id
-    # eksplisit) memakai video yang sedang dibuka bila memungkinkan.
+    # Parsing hasil akhir
     items = list(by_id.values())
     for it in items:
+        # Jika API komentar tidak membawa permalink, bentuk manual
         if it.get("conversation_id") and not it.get("permalink"):
             it["permalink"] = "https://www.tiktok.com/@%s/video/%s" % (tgt, it["conversation_id"])
+            
     dumped = False
     if dump_path:
         dumped = _write_dump(dump_path, items, tgt)
-    info = {"ok": True, "count": len(items),
-            "range": "%s s/d %s" % (date_from, date_to), "url": url,
-            "target": tgt, "logged_in": bool(logged_in),
-            "videos_opened": len(vids), "videos_seen": len(awemes),
-            "comments_seen": _diag["comments"], "items_seen": _diag["items"],
-            "json_seen": _diag["json"],
-            "more_comments_clicked": _diag["more_comments"],
-            "more_replies_clicked": _diag["more_replies"]}
-    if _debug:
-        info["trace"] = _trace[:80]
-    if dump_path:
-        info["dump_path"] = dump_path
-        info["dumped"] = bool(dumped)
+        
+    info = {
+        "ok": True, "count": len(items),
+        "target": tgt, "logged_in": True,
+        "videos_opened": len(valid_links),
+        "comments_seen": _diag["comments"], 
+        "more_replies_clicked": _diag["more_replies"]
+    }
+    
     if len(items) == 0:
-        if not logged_in:
-            info["note"] = ("0 hasil & sesi TIDAK terautentikasi (cookie sessionid "
-                            "tidak ada). Pakai profil Chrome yg sudah login lewat "
-                            "SOSMED_TT_USER_DATA_DIR, atau: SOSMED_TT_HEADLESS=0 "
-                            "python -m sosmed.tiktok_collector login")
-        elif _diag["comments"] == 0:
-            info["note"] = ("0 hasil: TikTok tidak mengembalikan respons komentar "
-                            "(mungkin captcha/rate-limit atau layout berubah). "
-                            "Coba SOSMED_TT_HEADLESS=0 untuk melihat.")
-        else:
-            info["note"] = "0 hasil: tidak ada komentar terpanen pada video terbaru."
+        info["note"] = "0 hasil: Captcha mungkin menghalangi, atau elemen tidak ditemukan. Gunakan SOSMED_TT_HEADLESS=0 untuk inspeksi visual."
+        
     return items, info
-
 
 # ===========================================================================
 # Smoke test offline (parsing) — python -m sosmed.tiktok_collector
