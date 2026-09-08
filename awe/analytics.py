@@ -81,8 +81,14 @@ def analytics(conn, start=None, end=None, limit_conv=500, exclude_bot=True):
     if exclude_bot:
         where.append(exclude_bot_sql("agent_name"))
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
+    # Optimasi: ambil HANYA kolom yang dipakai agregasi. Hindari "SELECT *"
+    # yang ikut menarik blob transkrip_json (besar) untuk setiap baris ->
+    # sangat mengurangi I/O saat rentang lebar / "semua".
     rows = conn.execute(
-        "SELECT * FROM awe_conversations" + wsql + " ORDER BY tanggal", params
+        "SELECT sid, tanggal, customer, agent_name, durasi, behavior, "
+        "is_returning, mapped_intent, coverage_band, case_label, sentiment, "
+        "emotion, topik, deflection_gap "
+        "FROM awe_conversations" + wsql + " ORDER BY tanggal", params
     ).fetchall()
 
     total = len(rows)
@@ -239,6 +245,28 @@ _PAGES = [
 
 def register(app, *, render_page):
     """Pasang 5 halaman submenu + API analitik ke FastAPI app."""
+    # Optimasi (sekali di startup): pastikan index pada awe_conversations agar
+    # filter tanggal & agent tidak memindai SELURUH tabel setiap request.
+    # Index bersifat ADITIF (tidak mengubah/menghapus data) & idempoten
+    # (IF NOT EXISTS), dibangun sekali atas data yang sudah ada.
+    try:
+        _c = avdb.init_db(avdb.connect())
+        try:
+            _c.executescript(
+                "CREATE INDEX IF NOT EXISTS idx_awe_conv_tgl "
+                "ON awe_conversations(substr(tanggal,1,10));"
+                "CREATE INDEX IF NOT EXISTS idx_awe_conv_agent "
+                "ON awe_conversations(agent_name);"
+                "CREATE INDEX IF NOT EXISTS idx_awe_conv_nik "
+                "ON awe_conversations(nik);"
+            )
+            _c.commit()
+        finally:
+            _c.close()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+
     def _mk(active, title, section):
         async def _page(request: Request):
             return render_page(request, "awe_analytics.html", active,
