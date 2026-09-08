@@ -13,6 +13,11 @@ Seperti IG, TikTok tak punya pencarian per-tanggal publik; v1 memanen komentar p
 N video TERBARU akun resmi. Penjadwal harian + dedup + pull_log menjaga komentar
 baru terkumpul tiap hari tanpa dobel.
 
+BALASAN BERJENJANG: berbeda dgn IG (balasan ikut lewat graphql saat scroll), TikTok
+HANYA mengirim balasan (`/api/comment/list/reply/`) setelah tombol \"Lihat N balasan\"
+DIKLIK. Karena itu _load_comments membuka SEMUA toggle balasan (role+text, force)
+spersis mekanisme yang terbukti di ig_collector, lalu balasan tersadap otomatis.
+
 FAIL-SOFT: import Playwright LAZY; fungsi murni extract_tt_comments teruji offline.
 
 ENV:
@@ -21,8 +26,9 @@ ENV:
   SOSMED_TT_PASSWORD     : password akun kedua
   SOSMED_TT_TARGET       : @handle akun RESMI dipantau (default SOSMED_X_TARGET / 'kring_pajak')
   SOSMED_TT_HEADLESS     : 1 (default) headless; 0 utk login manual
-  SOSMED_TT_MAX_VIDEOS   : jumlah video terbaru dibuka (default 10)
+  SOSMED_TT_MAX_VIDEOS   : jumlah video terbaru dibuka (default 10; 0 = SEMUA video target)
   SOSMED_TT_MAX_SCROLLS  : batas scroll komentar per-video (default 8)
+  SOSMED_TT_DEBUG        : 1 utk mencetak trace URL/keys respons (diagnosa)
   SOSMED_TT_TZ           : zona acuan H-1 (default Asia/Jakarta)
   SOSMED_TT_USER_DATA_DIR: folder \"User Data\" Chrome utk profil yg sudah login
   SOSMED_TT_PROFILE_DIR  : subfolder profil (default 'Default')
@@ -34,8 +40,10 @@ CLI:
   python -m sosmed.tiktok_collector diag
   python -m sosmed.tiktok_collector collect 2026-09-06 2026-09-06
   python -m sosmed.tiktok_collector dump 2026-09-06 2026-09-06 hasil_tt.csv
+  python -m sosmed.tiktok_collector dump --out hasil_tt.csv
 """
 import os
+import re
 import json
 import time
 import random as _random
@@ -156,8 +164,8 @@ def extract_tt_comments(obj, official=None, results=None, seen=None, depth=0):
 
 
 def extract_aweme_ids(obj, out=None, depth=0):
-    """Panen daftar {aweme_id -> create_time} dari payload item_list utk memilih
-    video terbaru yang akan dibuka."""
+    """Panen daftar {aweme_id -> {create_time, owner}} dari payload item_list utk
+    memilih video terbaru milik target yang akan dibuka."""
     if out is None:
         out = {}
     if depth > 40 or not isinstance(obj, (dict, list)):
@@ -170,7 +178,10 @@ def extract_aweme_ids(obj, out=None, depth=0):
                 ct = int(obj.get("create_time") or obj.get("createTime") or 0)
             except Exception:
                 ct = 0
-            out[str(aid)] = {"create_time": ct}
+            _au = obj.get("author") or obj.get("author_user_info") or {}
+            _oh = (str(_au.get("unique_id") or _au.get("uniqueId") or "").lstrip("@").lower()
+                   if isinstance(_au, dict) else "")
+            out[str(aid)] = {"create_time": ct, "owner": _oh}
         for v in obj.values():
             if isinstance(v, (dict, list)):
                 extract_aweme_ids(v, out, depth + 1)
@@ -181,17 +192,60 @@ def extract_aweme_ids(obj, out=None, depth=0):
     return out
 
 
+def _thread_sort(items):
+    """Urutkan komentar ala thread: komentar UTAMA lalu BALASAN-nya (berjenjang),
+    dikelompokkan per video (conversation_id) & urut waktu. Memudahkan dibaca di
+    CSV: utama | balasan | balasan ..."""
+    by_id = {}
+    for it in (items or []):
+        cid = it.get("comment_id") or it.get("external_id")
+        if cid:
+            by_id[cid] = it
+    children = {}
+    roots = []
+    for it in (items or []):
+        p = it.get("in_reply_to_id")
+        if p and p in by_id:
+            children.setdefault(p, []).append(it)
+        else:
+            roots.append(it)
+    def _ck(x):
+        return x.get("created_at") or ""
+    roots.sort(key=lambda x: ((x.get("conversation_id") or ""), _ck(x)))
+    out, seen = [], set()
+    def _emit(it, level):
+        cid = it.get("comment_id") or it.get("external_id")
+        if not cid or cid in seen:
+            return
+        seen.add(cid)
+        it["_level"] = level
+        out.append(it)
+        for ch in sorted(children.get(cid, []), key=_ck):
+            _emit(ch, level + 1)
+    for r in roots:
+        _emit(r, 0)
+    for it in (items or []):
+        cid = it.get("comment_id") or it.get("external_id")
+        if cid and cid not in seen:
+            it["_level"] = 0
+            out.append(it)
+            seen.add(cid)
+    return out
+
+
 def _write_dump(path, items, target=None):
     import csv as _csv
-    cols = ["comment_id", "author_handle", "author_name", "is_official",
-            "conversation_id", "in_reply_to_id", "created_at", "like_count",
-            "reply_count", "permalink", "text"]
+    cols = ["tipe", "level", "comment_id", "author_handle", "author_name",
+            "is_official", "conversation_id", "in_reply_to_id", "created_at",
+            "like_count", "reply_count", "permalink", "text"]
     try:
         with open(path, "w", encoding="utf-8-sig", newline="") as f:
             w = _csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")
             w.writeheader()
-            for it in (items or []):
+            for it in _thread_sort(items):
                 w.writerow({
+                    "tipe": "balasan" if it.get("in_reply_to_id") else "utama",
+                    "level": int(it.get("_level") or 0),
                     "comment_id": it.get("external_id", ""),
                     "author_handle": it.get("author_handle", ""),
                     "author_name": it.get("author_name", ""),
@@ -459,6 +513,119 @@ def diag_session():
                 "state_file": state_file(), "state_exists": os.path.exists(state_file())}
 
 
+_MORE_COMMENTS_RE = re.compile(
+    r"(view\s+(more|all)?\s*comments?|"
+    r"(lihat|muat)\s+komentar(\s+(lain|lainnya|sebelumnya))?)", re.I)
+_MORE_REPLIES_RE = re.compile(
+    r"(view\s+(all\s+)?(\d[\d.,]*\s+)?(more\s+)?repl(y|ies)|"
+    r"(lihat|muat)\s+(\d[\d.,]*\s+)?balasan(\s+lainnya)?|"
+    r"balas(an)?\s+lainnya)", re.I)
+
+_SCROLL_JS = """
+() => {
+  const els = Array.from(document.querySelectorAll('div,ul,section'));
+  let best = null, bestH = 0;
+  for (const el of els) {
+    const over = el.scrollHeight - el.clientHeight;
+    if (over > 200 && el.clientHeight > 150) {
+      const oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > bestH) {
+        best = el; bestH = el.scrollHeight;
+      }
+    }
+  }
+  if (best) { best.scrollTop = best.scrollHeight; return best.scrollHeight; }
+  window.scrollTo(0, document.body.scrollHeight);
+  return 0;
+}
+"""
+
+
+def _click_all(page, rx, limit=40):
+    """Klik semua elemen yang teksnya cocok regex rx (mis. 'lihat balasan').
+    Gabungkan lokator role=button + get_by_text, lalu klik biasa -> force.
+    Dedup posisi agar tidak dobel. Kembalikan jumlah klik sukses (fail-soft)."""
+    cands = []
+    try:
+        cands.extend(page.get_by_role("button", name=rx).all())
+    except Exception:
+        pass
+    try:
+        cands.extend(page.get_by_text(rx).all())
+    except Exception:
+        pass
+    n = 0
+    seen = set()
+    for b in cands:
+        if n >= limit:
+            break
+        box = None
+        try:
+            box = b.bounding_box()
+        except Exception:
+            box = None
+        key = (round(box["x"]), round(box["y"])) if box else None
+        if key is not None and key in seen:
+            continue
+        try:
+            b.scroll_into_view_if_needed(timeout=800)
+        except Exception:
+            pass
+        ok = False
+        try:
+            b.click(timeout=1200)
+            ok = True
+        except Exception:
+            try:
+                b.click(timeout=1500, force=True)
+                ok = True
+            except Exception:
+                ok = False
+        if ok:
+            n += 1
+            if key is not None:
+                seen.add(key)
+    return n
+
+
+def _load_comments(page, max_scrolls, diag=None):
+    """Muat komentar + BALASAN berjenjang di TikTok: beri waktu komentar awal
+    termuat, scroll panel komentar, klik 'lihat komentar lainnya', lalu buka
+    SEMUA toggle 'lihat N balasan' (memicu /api/comment/list/reply/ yang ikut
+    disadap), ulangi. Menghitung klik ke diag['more_comments']/['more_replies']."""
+    if diag is None:
+        diag = {}
+    _sleep(2.0)  # beri waktu komentar awal termuat sebelum diproses
+    for _ in range(max(1, int(max_scrolls or 1))):
+        diag["more_comments"] = diag.get("more_comments", 0) + \
+            _click_all(page, _MORE_COMMENTS_RE, limit=8)
+        # Buka balasan berjenjang: ulang beberapa kali karena toggle baru
+        # bermunculan setelah yang sebelumnya diklik.
+        for _r in range(4):
+            c = _click_all(page, _MORE_REPLIES_RE, limit=40)
+            diag["more_replies"] = diag.get("more_replies", 0) + c
+            if not c:
+                break
+            _sleep(0.9)
+        try:
+            page.evaluate(_SCROLL_JS)
+        except Exception:
+            pass
+        try:
+            page.mouse.wheel(0, 2400)
+        except Exception:
+            pass
+        _sleep(1.6)
+    # Sapuan akhir: pastikan seluruh balasan sudah diperluas.
+    for _r in range(6):
+        c = _click_all(page, _MORE_REPLIES_RE, limit=60)
+        diag["more_replies"] = diag.get("more_replies", 0) + c
+        if not c:
+            break
+        _sleep(1.0)
+    return diag
+
+
 def collect_range(date_from=None, date_to=None, official_handles=None,
                   target=None, trigger="manual", dump_path=None, **_kw):
     """Tarik komentar pada N video terbaru akun resmi TikTok via browser.
@@ -480,7 +647,10 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
     max_scrolls = _int_env("SOSMED_TT_MAX_SCROLLS", 8)
     by_id = {}
     awemes = {}
-    _diag = {"comments": 0, "items": 0}
+    _diag = {"comments": 0, "items": 0, "json": 0,
+             "more_comments": 0, "more_replies": 0}
+    _debug = _flag("SOSMED_TT_DEBUG", "0")
+    _trace = []
 
     with sync_playwright() as pw:
         browser, ctx, persistent = _launch(pw, headless)
@@ -490,21 +660,33 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 u = resp.url or ""
                 if "tiktok.com" not in u:
                     return
-                if "/api/comment/list" in u:
-                    try:
-                        data = resp.json()
-                    except Exception:
-                        return
-                    _diag["comments"] += 1
+                is_cmt = "/api/comment/list" in u   # mencakup /list/ & /list/reply/
+                is_item = ("/api/post/item_list" in u or "/api/user/detail" in u)
+                if not (is_cmt or is_item):
+                    return
+                try:
+                    data = resp.json()
+                except Exception:
+                    return
+                _diag["json"] += 1
+                got = 0
+                if is_cmt:
+                    before = len(by_id)
                     for it in extract_tt_comments(data, off):
                         by_id[it["external_id"]] = it
-                elif "/api/post/item_list" in u or "/api/user/detail" in u:
-                    try:
-                        data = resp.json()
-                    except Exception:
-                        return
-                    _diag["items"] += 1
+                    got = len(by_id) - before
+                    if got:
+                        _diag["comments"] += 1
+                if is_item:
                     extract_aweme_ids(data, awemes)
+                    _diag["items"] += 1
+                if _debug:
+                    _trace.append({
+                        "url": u[:200],
+                        "keys": (list(data.keys())[:14]
+                                 if isinstance(data, dict) else "list"),
+                        "new_comments": got,
+                    })
             except Exception:
                 pass
 
@@ -535,9 +717,17 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 pass
             _sleep(2.0)
 
-        vids = sorted(awemes.items(), key=lambda kv: kv[1].get("create_time") or 0,
-                      reverse=True)
-        vids = [aid for aid, _ in vids][:max_videos]
+        # Urutkan video terbaru (create_time desc); hanya video milik target
+        # (owner cocok / tak diketahui), buang video sugesti dari akun lain.
+        _tgt_l = tgt.lower()
+        _vids_all = sorted(awemes.items(),
+                           key=lambda kv: kv[1].get("create_time") or 0, reverse=True)
+        vids = [aid for aid, d in _vids_all
+                if not d.get("owner") or d.get("owner") == _tgt_l]
+        if not vids:
+            vids = [aid for aid, _ in _vids_all]
+        if max_videos and max_videos > 0:
+            vids = vids[:max_videos]  # 0 / negatif = SEMUA video target
         for aid in vids:
             try:
                 page.goto("https://www.tiktok.com/@%s/video/%s" % (tgt, aid),
@@ -545,19 +735,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             except Exception:
                 continue
             _sleep(2.8)
-            stagnant = 0
-            last = -1
-            for _ in range(max_scrolls):
-                n = len(by_id)
-                stagnant = stagnant + 1 if n == last else 0
-                last = n
-                if stagnant >= 3:
-                    break
-                try:
-                    page.mouse.wheel(0, 2200)
-                except Exception:
-                    pass
-                _sleep(1.6)
+            # Scroll panel komentar (JS) + klik 'muat lebih / lihat balasan'.
+            _load_comments(page, max_scrolls, _diag)
 
         if not persistent:
             try:
@@ -579,7 +758,12 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             "range": "%s s/d %s" % (date_from, date_to), "url": url,
             "target": tgt, "logged_in": bool(logged_in),
             "videos_opened": len(vids), "videos_seen": len(awemes),
-            "comments_seen": _diag["comments"], "items_seen": _diag["items"]}
+            "comments_seen": _diag["comments"], "items_seen": _diag["items"],
+            "json_seen": _diag["json"],
+            "more_comments_clicked": _diag["more_comments"],
+            "more_replies_clicked": _diag["more_replies"]}
+    if _debug:
+        info["trace"] = _trace[:80]
     if dump_path:
         info["dump_path"] = dump_path
         info["dumped"] = bool(dumped)
@@ -628,10 +812,16 @@ def _smoke():
     # dedup
     items2 = extract_tt_comments([payload, payload], official=["kring_pajak"])
     assert len({it["external_id"] for it in items2}) == 3, len(items2)
-    # aweme ids
-    il = {"itemList": [{"id": "vid9", "desc": "info pajak", "createTime": 1757100000}]}
+    # aweme ids + owner
+    il = {"itemList": [{"id": "vid9", "desc": "info pajak", "createTime": 1757100000,
+                        "author": {"uniqueId": "kring_pajak"}}]}
     aw = extract_aweme_ids(il)
-    assert "vid9" in aw, aw
+    assert "vid9" in aw and aw["vid9"]["owner"] == "kring_pajak", aw
+    # threaded sort: komentar UTAMA (c1) sebelum BALASAN-nya (c2, level 1)
+    ts = _thread_sort(items)
+    _order = [it["external_id"] for it in ts]
+    assert _order.index("c1") < _order.index("c2"), _order
+    assert ts[_order.index("c2")].get("_level") == 1, ts
     # ingest end-to-end (pairing Q&A): c1 terjawab oleh c2
     try:
         import tempfile
@@ -664,9 +854,18 @@ if __name__ == "__main__":
         its, info = collect_range(df, dt, official_handles=[target_handle()])
         print(json.dumps({"info": info, "n": len(its)}, ensure_ascii=False))
     elif cmd == "dump":
-        df = sys.argv[2] if len(sys.argv) > 2 else _yesterday()
-        dt = sys.argv[3] if len(sys.argv) > 3 else df
-        out = sys.argv[4] if len(sys.argv) > 4 else ("tt_dump_%s_%s.csv" % (df, dt))
+        rest = list(sys.argv[2:])
+        out = None
+        if "--out" in rest:
+            i = rest.index("--out")
+            if i + 1 < len(rest):
+                out = rest[i + 1]
+                del rest[i:i + 2]
+            else:
+                del rest[i]
+        df = rest[0] if len(rest) > 0 else _yesterday()
+        dt = rest[1] if len(rest) > 1 else df
+        out = out or ("tt_dump_%s_%s.csv" % (df, dt))
         its, info = collect_range(df, dt, official_handles=[target_handle()], dump_path=out)
         print(json.dumps({"info": info, "n": len(its)}, ensure_ascii=False))
     else:
