@@ -16,6 +16,7 @@ import datetime as _dt
 from collections import Counter, defaultdict
 
 import avaya.db as avdb
+import awe.botfilter as botfilter
 from awe.botfilter import wants_exclude, exclude_bot_sql
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -243,24 +244,77 @@ _PAGES = [
 ]
 
 
+def _ensure_perf_schema(conn):
+    """Optimasi skema (idempoten, sekali jalan) pada awe_conversations.
+
+    1) Kolom generated VIRTUAL `is_bot` (dihitung DB dari agent_name) -> TIDAK
+       perlu backfill manual; otomatis terisi utk baris BARU saat ingest.
+    2) Index aditif (IF NOT EXISTS) utk mempercepat filter tanggal/agent/nik
+       dan pengecualian bot (`is_bot = 0`).
+    Aman & reversibel: tidak mengubah/menghapus data; index bisa DROP kapan pun.
+    Bila kolom is_bot gagal disiapkan, USE_IS_BOT tetap False -> exclude_bot_sql
+    otomatis fallback ke NOT LIKE (hasil identik, hanya lebih lambat).
+    """
+    # (a) index dasar (independen dari is_bot)
+    conn.executescript(
+        "CREATE INDEX IF NOT EXISTS idx_awe_conv_tgl "
+        "ON awe_conversations(substr(tanggal,1,10));"
+        "CREATE INDEX IF NOT EXISTS idx_awe_conv_agent "
+        "ON awe_conversations(agent_name);"
+        "CREATE INDEX IF NOT EXISTS idx_awe_conv_nik "
+        "ON awe_conversations(nik);"
+    )
+    conn.commit()
+    # (b) kolom generated is_bot (ALTER tak dukung IF NOT EXISTS -> cek dulu)
+    try:
+        xcols = [r[1] for r in conn.execute(
+            "PRAGMA table_xinfo(awe_conversations)").fetchall()]
+    except Exception:
+        xcols = [r[1] for r in conn.execute(
+            "PRAGMA table_info(awe_conversations)").fetchall()]
+    has_is_bot = "is_bot" in xcols
+    if not has_is_bot:
+        try:
+            conn.execute(
+                "ALTER TABLE awe_conversations ADD COLUMN is_bot INTEGER "
+                "GENERATED ALWAYS AS " + botfilter.is_bot_sql_expr("agent_name")
+                + " VIRTUAL"
+            )
+            has_is_bot = True
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            has_is_bot = False
+    # (c) index utk is_bot + aktifkan fast-path bila kolom siap. Membangun
+    #     index ini sekaligus "mengisi" is_bot utk seluruh data LAMA (sekali).
+    if has_is_bot:
+        try:
+            conn.executescript(
+                "CREATE INDEX IF NOT EXISTS idx_awe_conv_is_bot "
+                "ON awe_conversations(is_bot);"
+                "CREATE INDEX IF NOT EXISTS idx_awe_conv_nonbot_tgl "
+                "ON awe_conversations(is_bot, substr(tanggal,1,10));"
+            )
+            conn.commit()
+            conn.execute(
+                "SELECT COALESCE(is_bot,0) FROM awe_conversations LIMIT 1"
+            ).fetchone()
+            botfilter.USE_IS_BOT = True
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            botfilter.USE_IS_BOT = False
+    return botfilter.USE_IS_BOT
+
+
 def register(app, *, render_page):
     """Pasang 5 halaman submenu + API analitik ke FastAPI app."""
-    # Optimasi (sekali di startup): pastikan index pada awe_conversations agar
-    # filter tanggal & agent tidak memindai SELURUH tabel setiap request.
-    # Index bersifat ADITIF (tidak mengubah/menghapus data) & idempoten
-    # (IF NOT EXISTS), dibangun sekali atas data yang sudah ada.
+    # Optimasi (sekali di startup): kolom generated is_bot + index pada
+    # awe_conversations. ADITIF & idempoten (tidak mengubah/menghapus data).
     try:
         _c = avdb.init_db(avdb.connect())
         try:
-            _c.executescript(
-                "CREATE INDEX IF NOT EXISTS idx_awe_conv_tgl "
-                "ON awe_conversations(substr(tanggal,1,10));"
-                "CREATE INDEX IF NOT EXISTS idx_awe_conv_agent "
-                "ON awe_conversations(agent_name);"
-                "CREATE INDEX IF NOT EXISTS idx_awe_conv_nik "
-                "ON awe_conversations(nik);"
-            )
-            _c.commit()
+            _ensure_perf_schema(_c)
         finally:
             _c.close()
     except Exception:
