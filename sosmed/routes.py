@@ -31,12 +31,14 @@ import sosmed.db as sdb
 import sosmed.x as sx
 import sosmed.knowledge as sk
 import sosmed.semantic_index as ssi
+import sosmed.monitor as smon
 from app_core import render_page
 
 
 def _conn():
     c = sdb.connect()
     sdb.init_db(c)
+    smon.ensure_review_columns(c)
     return c
 
 
@@ -183,6 +185,10 @@ async def sosmed_sla_page(request: Request):
 
 async def sosmed_deflection_page(request: Request):
     return render_page(request, "sosmed_deflection.html", "sosmed_deflection")
+
+
+async def sosmed_monitor_page(request: Request):
+    return render_page(request, "sosmed_monitor.html", "sosmed_monitor")
 
 
 # Redirect rute lama -> baru (kompatibilitas bookmark setelah rombak menu)
@@ -442,6 +448,60 @@ async def api_set_topik(request: Request):
 
 
 # ---------------------------------------------------------------------------
+# Pengawasan SPV (monitoring kurasi manual pertanyaan warga)
+# ---------------------------------------------------------------------------
+async def api_monitor(request: Request):
+    q = request.query_params
+    try:
+        limit = int(q.get("limit") or 500)
+    except Exception:
+        limit = 500
+
+    def _do():
+        c = _conn()
+        try:
+            return smon.monitor_list(
+                c, platform=_qp(request, "platform"),
+                range_=_qp(request, "range", "all"),
+                start=_qp(request, "start"), end=_qp(request, "end"),
+                answered=_qp(request, "answered"), q=_qp(request, "q"),
+                limit=limit)
+        finally:
+            c.close()
+    return JSONResponse(await run_in_threadpool(_do))
+
+
+async def api_review(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    item_id = (body or {}).get("id")
+    if not item_id:
+        return JSONResponse({"ok": False, "error": "id wajib."}, status_code=400)
+    fields = {}
+    for k in ("crm_url", "spv_answered", "spv_answered_at", "spv_answer_link", "spv_note"):
+        if k in (body or {}):
+            fields[k] = body.get(k)
+    user = _current_username(request)
+
+    def _do():
+        c = _conn()
+        try:
+            ok = smon.update_review(c, int(item_id), fields, user=user)
+            return {"ok": ok}
+        finally:
+            c.close()
+    res = await run_in_threadpool(_do)
+    try:
+        if isinstance(res, dict) and res.get("ok"):
+            _kick_reindex_bg()
+    except Exception:
+        pass
+    return JSONResponse(res)
+
+
+# ---------------------------------------------------------------------------
 # SLA & Analitik (gabungan Coverage & SLA + Analitik)
 # ---------------------------------------------------------------------------
 async def api_coverage(request: Request):
@@ -551,6 +611,7 @@ def register(app):
     app.add_api_route("/sosmed/kelola", sosmed_kelola_page, methods=["GET"])
     app.add_api_route("/sosmed/sla", sosmed_sla_page, methods=["GET"])
     app.add_api_route("/sosmed/deflection", sosmed_deflection_page, methods=["GET"])
+    app.add_api_route("/sosmed/monitor", sosmed_monitor_page, methods=["GET"])
     # Redirect rute lama -> baru
     app.add_api_route("/sosmed/inbox", _redir_qna, methods=["GET"])
     app.add_api_route("/sosmed/coverage", _redir_sla, methods=["GET"])
@@ -569,6 +630,9 @@ def register(app):
     app.add_api_route("/api/sosmed/thread", api_thread, methods=["GET"])
     app.add_api_route("/api/sosmed/status", api_set_status, methods=["POST"])
     app.add_api_route("/api/sosmed/topik", api_set_topik, methods=["POST"])
+    # Pengawasan SPV
+    app.add_api_route("/api/sosmed/monitor", api_monitor, methods=["GET"])
+    app.add_api_route("/api/sosmed/review", api_review, methods=["POST"])
     # SLA & Analitik
     app.add_api_route("/api/sosmed/coverage", api_coverage, methods=["GET"])
     app.add_api_route("/api/sosmed/analytics", api_analytics, methods=["GET"])
