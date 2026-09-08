@@ -501,6 +501,28 @@ async def api_review(request: Request):
     return JSONResponse(res)
 
 
+async def api_monitor_thread(request: Request):
+    """Klaster interaksi satu UTAMA (untuk modal ikon mata): utama + tambahan +
+    jawaban resmi terkait, plus kandidat komentar resmi (picker jawaban manual)."""
+    item_id = _qp(request, "id")
+    if not item_id:
+        return JSONResponse({"ok": False, "error": "id wajib."}, status_code=400)
+    try:
+        iid = int(item_id)
+    except Exception:
+        return JSONResponse({"ok": False, "error": "id tidak valid."}, status_code=400)
+
+    def _do():
+        c = _conn()
+        try:
+            return smon.monitor_thread(c, iid)
+        finally:
+            c.close()
+    r = await run_in_threadpool(_do)
+    code = 200 if r.get("ok") else 404
+    return JSONResponse(r, status_code=code)
+
+
 # ---------------------------------------------------------------------------
 # SLA & Analitik (gabungan Coverage & SLA + Analitik)
 # ---------------------------------------------------------------------------
@@ -633,6 +655,7 @@ def register(app):
     # Pengawasan SPV
     app.add_api_route("/api/sosmed/monitor", api_monitor, methods=["GET"])
     app.add_api_route("/api/sosmed/review", api_review, methods=["POST"])
+    app.add_api_route("/api/sosmed/monitor-thread", api_monitor_thread, methods=["GET"])
     # SLA & Analitik
     app.add_api_route("/api/sosmed/coverage", api_coverage, methods=["GET"])
     app.add_api_route("/api/sosmed/analytics", api_analytics, methods=["GET"])
