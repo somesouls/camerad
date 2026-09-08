@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """sosmed_routes.py — Rute Menu Sosmed (X / IG / TikTok), versi ringkas 4 menu.
 
-Struktur menu (rombak Agustus 2026, sesuai arahan "cukup jadi database FAQ"):
+Struktur menu (rombak Agustus 2026, sesuai arahan \"cukup jadi database FAQ\"):
   1. Q&A                   — gabungan Inbox + Daftar Q&A (pertanyaan warga + utas).
   2. Kelola Data Sosmed    — impor manual / tarik X + housekeeping + perbaiki data.
   3. SLA & Analitik        — gabungan Coverage & SLA + Analitik Sosmed.
@@ -456,6 +456,7 @@ async def api_monitor(request: Request):
         limit = int(q.get("limit") or 500)
     except Exception:
         limit = 500
+    inb = (q.get("include_nimbrung") or "").strip().lower() in ("1", "true", "ya", "yes")
 
     def _do():
         c = _conn()
@@ -465,7 +466,7 @@ async def api_monitor(request: Request):
                 range_=_qp(request, "range", "all"),
                 start=_qp(request, "start"), end=_qp(request, "end"),
                 answered=_qp(request, "answered"), q=_qp(request, "q"),
-                limit=limit)
+                include_nimbrung=inb, limit=limit)
         finally:
             c.close()
     return JSONResponse(await run_in_threadpool(_do))
@@ -499,6 +500,130 @@ async def api_review(request: Request):
     except Exception:
         pass
     return JSONResponse(res)
+
+
+async def api_post_label(request: Request):
+    """Simpan/hapus NAMA postingan (mis. 'P1 Lupa Kata Sandi'). label kosong = hapus."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    plat = ((body or {}).get("platform") or "").strip()
+    conv = ((body or {}).get("conversation_id") or (body or {}).get("conv") or "").strip()
+    label = ((body or {}).get("label") or "").strip()
+    if not conv:
+        return JSONResponse({"ok": False, "error": "conversation_id wajib."}, status_code=400)
+
+    def _do():
+        c = _conn()
+        try:
+            smon.set_post_label(c, plat, conv, label)
+            return {"ok": True, "label": label}
+        finally:
+            c.close()
+    return JSONResponse(await run_in_threadpool(_do))
+
+
+async def api_batch_delete(request: Request):
+    """Hapus data satu batch tarikan/impor (Riwayat Impor / Tarik) agar bisa
+    ditarik ulang. Menghapus item milik batch itu + baris batch, lalu merajut
+    ulang Q&A untuk percakapan yang tersentuh. Item yang pertama kali masuk pada
+    batch lain TIDAK ikut terhapus (batch_id item hanya diset saat INSERT)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    bid = ((body or {}).get("batch_id") or "").strip()
+    if not bid:
+        return JSONResponse({"ok": False, "error": "batch_id wajib."}, status_code=400)
+
+    def _do():
+        c = _conn()
+        try:
+            rows = c.execute("SELECT DISTINCT platform, conversation_id "
+                             "FROM sosmed_items WHERE batch_id=?", (bid,)).fetchall()
+            convs = [(r[0], r[1]) for r in rows]
+            n = c.execute("SELECT COUNT(*) FROM sosmed_items WHERE batch_id=?",
+                          (bid,)).fetchone()[0]
+            c.execute("DELETE FROM sosmed_items WHERE batch_id=?", (bid,))
+            c.execute("DELETE FROM sosmed_batches WHERE batch_id=?", (bid,))
+            c.commit()
+            for (plat, conv) in convs:
+                try:
+                    sdb._pair_conversation(c, plat, conv)
+                except Exception:
+                    pass
+            c.commit()
+            return {"ok": True, "deleted": n, "conversations": len(convs), "batch": bid}
+        finally:
+            c.close()
+    res = await run_in_threadpool(_do)
+    try:
+        if isinstance(res, dict) and res.get("ok"):
+            _kick_reindex_bg()
+    except Exception:
+        pass
+    return JSONResponse(res)
+
+
+# Kunci meta untuk pengaturan penarikan yang bisa diatur lewat UI.
+_CFG_META = {
+    "ig_max_posts": ("cfg_ig_max_posts", "SOSMED_IG_MAX_POSTS", 12),
+    "tt_max_posts": ("cfg_tt_max_posts", "SOSMED_TT_MAX_VIDEOS", 10),
+}
+
+
+async def api_settings(request: Request):
+    """Pengaturan penarikan efektif (maks postingan IG / video TikTok per tarik).
+    Nilai meta (>0) menang atas env; bila 0/kosong, pakai env lalu default."""
+    def _do():
+        c = _conn()
+        try:
+            out = {"ok": True}
+            for bk, (mk, env, dflt) in _CFG_META.items():
+                v = sdb.get_meta(c, mk)
+                try:
+                    iv = int(v) if v not in (None, "") else 0
+                except Exception:
+                    iv = 0
+                if iv > 0:
+                    out[bk] = iv
+                else:
+                    try:
+                        out[bk] = int(os.environ.get(env) or dflt)
+                    except Exception:
+                        out[bk] = int(dflt)
+            return out
+        finally:
+            c.close()
+    return JSONResponse(await run_in_threadpool(_do))
+
+
+async def api_settings_save(request: Request):
+    """Simpan pengaturan penarikan (disimpan di sosmed_meta). 0 = pakai default/env."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+
+    def _do():
+        c = _conn()
+        try:
+            saved = {}
+            for bk, (mk, _env, _d) in _CFG_META.items():
+                if bk in (body or {}):
+                    try:
+                        val = int(body.get(bk))
+                    except Exception:
+                        continue
+                    if val < 0:
+                        val = 0
+                    sdb.set_meta(c, mk, val)
+                    saved[bk] = val
+            return {"ok": True, "saved": saved}
+        finally:
+            c.close()
+    return JSONResponse(await run_in_threadpool(_do))
 
 
 async def api_monitor_thread(request: Request):
@@ -686,6 +811,9 @@ def register(app):
     app.add_api_route("/api/sosmed/purge", api_purge, methods=["POST"])
     app.add_api_route("/api/sosmed/repair", api_repair, methods=["POST"])
     app.add_api_route("/api/sosmed/reindex", api_reindex, methods=["POST"])
+    app.add_api_route("/api/sosmed/batch-delete", api_batch_delete, methods=["POST"])
+    app.add_api_route("/api/sosmed/settings", api_settings, methods=["GET"])
+    app.add_api_route("/api/sosmed/settings-save", api_settings_save, methods=["POST"])
     # Q&A
     app.add_api_route("/api/sosmed/list", api_list, methods=["GET"])
     app.add_api_route("/api/sosmed/thread", api_thread, methods=["GET"])
@@ -694,6 +822,7 @@ def register(app):
     # Pengawasan SPV
     app.add_api_route("/api/sosmed/monitor", api_monitor, methods=["GET"])
     app.add_api_route("/api/sosmed/review", api_review, methods=["POST"])
+    app.add_api_route("/api/sosmed/post-label", api_post_label, methods=["POST"])
     app.add_api_route("/api/sosmed/monitor-thread", api_monitor_thread, methods=["GET"])
     app.add_api_route("/api/sosmed/monitor-posts", api_monitor_posts, methods=["GET"])
     app.add_api_route("/api/sosmed/monitor-post", api_monitor_post, methods=["GET"])

@@ -17,6 +17,7 @@ textarea.sm-in{min-height:120px;font-family:ui-monospace,Menlo,Consolas,monospac
 .sm-btn:disabled{opacity:.5;cursor:default;}
 .sm-btn.ghost{background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);}
 .sm-btn.danger{background:transparent;color:#ef5350;border:1px solid rgba(239,83,80,.4);}
+.sm-btn.sm{padding:5px 11px;font-size:11.5px;}
 .sm-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;}
 .cap-badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:20px;margin:3px 6px 3px 0;}
 .cap-ok{background:rgba(38,166,91,.15);color:#2ea86a;}
@@ -33,6 +34,9 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
 .kpi .k{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:10px;padding:9px 14px;min-width:90px;}
 .kpi .k b{font-size:19px;display:block;}
 .kpi .k span{font-size:11px;color:var(--text-muted);}
+.cfg-row{display:flex;gap:16px;flex-wrap:wrap;align-items:flex-end;}
+.cfg-fld{display:flex;flex-direction:column;gap:4px;}
+.cfg-fld input{width:120px;}
 </style>
 {% endblock %}
 {% block content %}
@@ -136,10 +140,25 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
     </div>
     <p class="sm-note">“Perbaiki pemasangan Q&amp;A” menjalankan ulang perajutan pertanyaan–jawaban sadar-thread untuk seluruh data lama. Gunakan sekali setelah pembaruan sistem bila ada tweet jawaban yang keliru tercatat sebagai pertanyaan. Aman dijalankan berulang.</p>
     <p class="sm-note">“Index data baru” membangun index vektor pencarian cepat sosmed secara inkremental — hanya meng-embed Q&amp;A terjawab yang baru/berubah. Berjalan otomatis di latar tiap ada impor/tarik/perbaikan; tombol ini untuk memicu manual. Aman diklik berulang.</p>
+    <p class="sm-note">Tombol <b>Hapus</b> di kolom Aksi menghapus data satu batch tarikan/impor agar bisa <b>ditarik ulang</b> (mis. saat URL IG sempat tak tersedia). Item yang pertama masuk lewat batch lain tidak ikut terhapus. Pemasangan Q&amp;A untuk percakapan terkait dirajut ulang otomatis.</p>
     <div class="sm-out" id="reindexOut"></div>
     <div class="sm-out" id="repairOut"></div>
-    <table class="sm-tb"><thead><tr><th>Waktu</th><th>Platform</th><th>Sumber</th><th>Rentang</th><th>Baru</th><th>Total</th><th>Oleh</th></tr></thead>
-    <tbody id="batchBody"><tr><td colspan="7" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
+    <div class="sm-out" id="batchOut"></div>
+    <table class="sm-tb"><thead><tr><th>Waktu</th><th>Platform</th><th>Sumber</th><th>Rentang</th><th>Baru</th><th>Total</th><th>Oleh</th><th>Aksi</th></tr></thead>
+    <tbody id="batchBody"><tr><td colspan="8" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
+  </div>
+
+  <!-- Pengaturan penarikan (maks postingan/video per tarik) -->
+  <div class="sm-card" style="margin-top:16px;">
+    <h3>Pengaturan Penarikan</h3>
+    <p class="hint">Atur berapa banyak postingan/video terbaru yang komentarnya ditarik setiap kali menarik (IG &amp; TikTok), tanpa perlu ubah env di server lalu restart. Berlaku untuk tombol “Tarik sekarang” maupun penjadwal harian.</p>
+    <div class="cfg-row">
+      <div class="cfg-fld"><label class="sm-lbl" style="margin:0">Instagram — maks postingan</label><input class="sm-in" id="cfgIg" type="number" min="0" step="1"></div>
+      <div class="cfg-fld"><label class="sm-lbl" style="margin:0">TikTok — maks video</label><input class="sm-in" id="cfgTt" type="number" min="0" step="1"></div>
+      <button class="sm-btn" id="btnCfgSave">Simpan pengaturan</button>
+    </div>
+    <p class="sm-note">Isi <b>0</b> untuk memakai nilai default/env server (IG default 12, TikTok default 10). Makin besar angkanya, makin banyak komentar ditarik tapi makin lama prosesnya.</p>
+    <div class="sm-out" id="cfgOut"></div>
   </div>
 </div>
 {% endblock %}
@@ -160,10 +179,40 @@ async function loadStats(){
       `<div class="k"><b>${(d.index&&d.index.vec)||0}</b><span>Terindeks</span></div>`+
       `<div class="k"><b>${(s.platforms||[]).map(p=>p.platform+':'+p.n).join(' · ')||'-'}</b><span>Per platform</span></div>`;
     const tb=$('#batchBody');
-    if(!d.batches||!d.batches.length){tb.innerHTML='<tr><td colspan=7 style="color:var(--text-muted)">Belum ada.</td></tr>';return;}
-    tb.innerHTML=d.batches.map(b=>`<tr><td>${b.created_at||''}</td><td>${b.platform||''}</td><td>${b.source||''}</td><td>${(b.date_from||'')} – ${(b.date_to||'')}</td><td>${b.n_new}</td><td>${b.n_fetched}</td><td>${b.pulled_by||''}</td></tr>`).join('');
+    if(!d.batches||!d.batches.length){tb.innerHTML='<tr><td colspan=8 style="color:var(--text-muted)">Belum ada.</td></tr>';return;}
+    tb.innerHTML=d.batches.map(b=>`<tr><td>${b.created_at||''}</td><td>${b.platform||''}</td><td>${b.source||''}</td><td>${(b.date_from||'')} – ${(b.date_to||'')}</td><td>${b.n_new}</td><td>${b.n_fetched}</td><td>${b.pulled_by||''}</td><td><button class="sm-btn danger sm sm-del" data-batch="${b.batch_id||''}">Hapus</button></td></tr>`).join('');
+    bindBatchDeletes();
   }catch(e){}
 }
+
+function bindBatchDeletes(){
+  document.querySelectorAll('#batchBody .sm-del').forEach(btn=>{
+    btn.onclick=async()=>{
+      const bid=btn.dataset.batch;
+      if(!bid){out($('#batchOut'),false,'Batch ini tak punya ID sehingga tak bisa dihapus per batch.');return;}
+      if(!confirm('Hapus semua data dari batch ini agar bisa ditarik ulang? Tindakan ini tidak bisa dibatalkan.'))return;
+      btn.disabled=true;out($('#batchOut'),true,'Menghapus…');
+      const {data}=await jpost('/api/sosmed/batch-delete',{batch_id:bid});
+      if(data.ok){out($('#batchOut'),true,`Terhapus: ${data.deleted} item dari ${data.conversations} percakapan. Silakan tarik ulang.`);loadStats();}
+      else{btn.disabled=false;out($('#batchOut'),false,data.error||'Gagal menghapus batch.');}
+    };
+  });
+}
+
+async function loadSettings(){
+  try{const d=await jget('/api/sosmed/settings');if(!d||!d.ok)return;
+    if(typeof d.ig_max_posts!=='undefined')$('#cfgIg').value=d.ig_max_posts;
+    if(typeof d.tt_max_posts!=='undefined')$('#cfgTt').value=d.tt_max_posts;
+  }catch(e){}
+}
+$('#btnCfgSave').onclick=async()=>{
+  const ig=parseInt($('#cfgIg').value,10),tt=parseInt($('#cfgTt').value,10);
+  const body={};if(!isNaN(ig))body.ig_max_posts=ig;if(!isNaN(tt))body.tt_max_posts=tt;
+  $('#btnCfgSave').disabled=true;out($('#cfgOut'),true,'Menyimpan…');
+  const {data}=await jpost('/api/sosmed/settings-save',body);$('#btnCfgSave').disabled=false;
+  if(data.ok){out($('#cfgOut'),true,'Pengaturan tersimpan. Berlaku pada penarikan berikutnya.');loadSettings();}
+  else out($('#cfgOut'),false,data.error||'Gagal menyimpan pengaturan.');
+};
 
 function _pad2(n){return String(n).padStart(2,'0');}
 
@@ -244,6 +293,6 @@ $('#btnPurge').onclick=async()=>{
   if(!confirm('Hapus SEMUA data sosmed? Tindakan ini tidak bisa dibatalkan.'))return;
   const {data}=await jpost('/api/sosmed/purge',{});if(data.ok){loadStats();}
 };
-loadStats();refreshAutos();
+loadStats();refreshAutos();loadSettings();
 </script>
 {% endblock %}

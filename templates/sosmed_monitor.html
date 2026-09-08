@@ -4,7 +4,7 @@
 <style>
 .sm-wrap{max-width:1440px;margin:0 auto;padding:22px 26px 60px;}
 .sm-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
-.sm-sub{color:var(--text-muted);font-size:12.5px;margin-top:6px;max-width:960px;line-height:1.55;}
+.sm-sub{color:var(--text-muted);font-size:12.5px;margin-top:6px;max-width:980px;line-height:1.55;}
 .muted{color:var(--text-muted);}
 .seg{display:inline-flex;background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:12px;overflow:hidden;flex-wrap:wrap;margin-top:14px;}
 .seg button{border:none;background:transparent;color:var(--text-muted);padding:8px 13px;font-size:12px;font-weight:600;cursor:pointer;}
@@ -19,6 +19,8 @@
 .fld select,.fld input{background:var(--bg-base);border:1px solid var(--panel-border);border-radius:8px;color:var(--text-main);padding:8px 9px;font-size:12px;min-width:130px;}
 .fld.grow{flex:1;min-width:190px;}
 .fld.grow input{width:100%;min-width:0;}
+.chk{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600;color:var(--text-main);background:var(--bg-base);border:1px solid var(--panel-border);border-radius:8px;padding:8px 11px;cursor:pointer;white-space:nowrap;}
+.chk input{width:15px;height:15px;min-width:0;margin:0;cursor:pointer;}
 .btn{background:var(--accent);color:#fff;border:none;border-radius:9px;padding:9px 16px;font-weight:600;cursor:pointer;font-size:12px;}
 .btn:hover{background:var(--accent-hover);}
 .btn.ghost{background:transparent;color:var(--text-muted);border:1px solid var(--panel-border);}
@@ -49,11 +51,16 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
 .toast.show{opacity:1;transform:translateY(0);}
 /* Badge nimbrung (warga lain menyela di utas warga lain) */
 .nb{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;background:rgba(245,158,11,.15);color:#f59e0b;white-space:nowrap;}
-/* Kartu per-postingan (mode verifikasi) */
-.pcard{border:1px solid var(--panel-border);border-radius:14px;background:var(--panel-bg);padding:12px 14px;margin-bottom:10px;}
+/* Grup & kartu per-postingan (mode verifikasi + tabel per postingan) */
+.pgroup{margin-bottom:18px;}
+.pcard{border:1px solid var(--panel-border);border-radius:14px 14px 0 0;background:var(--panel-bg);padding:12px 14px;border-bottom:none;}
 .ph{display:flex;gap:10px;align-items:center;flex-wrap:wrap;font-size:12px;}
+.pttl{font-weight:800;font-size:13.5px;}
+.pname-row{display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;}
+.pname{max-width:360px;}
 .pstats{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;font-size:11.5px;color:var(--text-muted);}
 .pstats b{color:var(--text-main);}
+.pgroup .tbl-wrap{border-radius:0 0 14px 14px;border-top:none;}
 .pcomments{margin-top:10px;display:flex;flex-direction:column;gap:8px;border-top:1px dashed var(--panel-border);padding-top:10px;}
 /* Modal ikon mata */
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:100;padding:20px;}
@@ -85,7 +92,7 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
 {% block content %}
 <div class="sm-wrap">
   <h1 class="sm-title">Pengawasan SPV · Sosmed</h1>
-  <p class="sm-sub">Hanya <b>komentar/tweet utama warga</b> (bukan akun resmi) yang tampil di mode <b>Per interaksi</b>. Untuk X, balasan susulan warga dihitung sebagai interaksi baru di harinya sendiri. SLA IG/TikTok dihitung dari komentar utama. Warga lain yang <b>nimbrung</b> (membalas warga berbeda) ditandai badge <span class="nb">Nimbrung</span> tapi tidak mengubah SLA. Gunakan mode <b>Per postingan</b> untuk memverifikasi jumlah data yang tertarik per postingan dan menelusuri (Ctrl+F) seluruh komentar.</p>
+  <p class="sm-sub">Mode <b>Per interaksi</b> menampilkan <b>komentar/tweet utama warga</b> (bukan akun resmi). Untuk X, balasan susulan warga dihitung sebagai interaksi baru di harinya sendiri. SLA IG/TikTok dihitung dari komentar utama. Warga lain yang <b>nimbrung</b> (membalas warga berbeda) ditandai badge <span class="nb">Nimbrung</span> dan <b>tidak</b> mengubah SLA; centang <b>Komentar nimbrung</b> untuk menampilkannya sebagai baris yang bisa diawasi/dikurasi. Mode <b>Per postingan</b> menampilkan daftar postingan (bisa diberi nama) beserta tabel komentar yang sama seperti Per interaksi, dikelompokkan per postingan.</p>
 
   <div class="seg" id="segRange">
     <button data-r="all" class="active">Semua</button><button data-r="today">Hari ini</button><button data-r="yesterday">Kemarin</button><button data-r="7d">7 hari</button><button data-r="30d">30 hari</button><button data-r="90d">90 hari</button><button data-r="custom">Rentang…</button>
@@ -100,6 +107,7 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
     <div class="fld"><label>Platform</label><select id="fPlatform"><option value="">Semua</option><option value="x">X</option><option value="ig">Instagram</option><option value="tiktok">TikTok</option></select></div>
     <div class="fld" id="fAnsWrap"><label>Status jawab</label><select id="fAns"><option value="">Semua</option><option value="belum">Belum dijawab</option><option value="ya">Sudah dijawab</option><option value="itd">ITD</option></select></div>
     <div class="fld grow"><label>Cari teks / akun</label><input id="fQ" placeholder="kata kunci pertanyaan atau @handle…"></div>
+    <label class="chk" title="Tampilkan komentar nimbrung (warga lain yang menyela) sebagai baris yang diawasi"><input type="checkbox" id="fNimbrung">Komentar nimbrung</label>
     <button class="btn" id="btnGo">Terapkan</button>
     <button class="btn ghost" id="btnReset">Reset</button>
   </div></div>
@@ -139,6 +147,7 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
   var RANGE='all',CS='',CE='';
   var VIEW='interaksi';
   var CUR=null; // {id, platform, cands:[]}
+  var THEAD='<tr><th>Platform</th><th>Akun yang nanya</th><th>Timestamp</th><th>Isi komentar</th><th>Sudah dijawab?</th><th>Tgl dijawab</th><th>Selisih</th><th>Link CRM</th><th>Interaksi</th><th></th></tr>';
   function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
   function jget(u){return fetch(u).then(function(r){return r.json();});}
   function jpost(u,b){return fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})}).then(function(r){return r.json();});}
@@ -158,16 +167,15 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
   };});
   $('#cApply').onclick=function(){CS=$('#cStart').value;CE=$('#cEnd').value;refresh();};
   $('#btnGo').onclick=refresh;
+  $('#fNimbrung').addEventListener('change',refresh);
   $('#fQ').addEventListener('keydown',function(e){if(e.key==='Enter')refresh();});
-  $('#btnReset').onclick=function(){$('#fPlatform').value='';$('#fAns').value='';$('#fQ').value='';refresh();};
+  $('#btnReset').onclick=function(){$('#fPlatform').value='';$('#fAns').value='';$('#fQ').value='';$('#fNimbrung').checked=false;refresh();};
 
   function refresh(){
     if(VIEW==='postingan'){
-      $('#tblWrap').style.display='none';$('#postWrap').style.display='';
-      $('#fAnsWrap').style.display='none';loadPosts();
+      $('#tblWrap').style.display='none';$('#postWrap').style.display='';loadPosts();
     }else{
-      $('#tblWrap').style.display='';$('#postWrap').style.display='none';
-      $('#fAnsWrap').style.display='';load();
+      $('#tblWrap').style.display='';$('#postWrap').style.display='none';load();
     }
   }
 
@@ -177,6 +185,7 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
     if($('#fPlatform').value)p.set('platform',$('#fPlatform').value);
     if($('#fAns').value)p.set('answered',$('#fAns').value);
     if($('#fQ').value)p.set('q',$('#fQ').value);
+    if($('#fNimbrung').checked)p.set('include_nimbrung','1');
     p.set('limit','500');
     return p.toString();
   }
@@ -187,37 +196,42 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
       '<option value="itd"'+(st==='itd'?' selected':'')+'>ITD</option>'+
     '</select>';
   }
+  // Bangun satu baris tabel interaksi (dipakai Per interaksi & Per postingan).
+  function rowHtml(it){
+    var st=it.eff_status||'belum';
+    var gcls=st==='ya'?'ans-ya':(st==='itd'?'ans-itd':'ans-belum');
+    var reps=(Number(it.n_additions||0)+Number(it.n_official||0));
+    var rc=reps>0?'<span class="rc">'+reps+'</span>':'';
+    var isNb=Number(it.is_nimbrung||0)===1;
+    var whoExtra=isNb?('<br><span class="nb">Nimbrung</span>'+(it.parent_handle?' <span class="mini">menyela @'+esc(it.parent_handle)+'</span>':'')):'';
+    var nbadge=(!isNb&&Number(it.n_nimbrung||0)>0)?' <span class="nb">Nimbrung '+it.n_nimbrung+'</span>':'';
+    return '<tr data-id="'+it.id+'" data-platform="'+esc(it.platform)+'" data-note="'+esc(it.spv_note||'')+'">'+
+      '<td><span class="badge '+pc(it.platform)+'">'+esc(it.platform)+'</span></td>'+
+      '<td><span class="who">@'+(esc(it.author_handle)||'-')+'</span>'+(it.author_name?'<br><span class="muted">'+esc(it.author_name)+'</span>':'')+whoExtra+'</td>'+
+      '<td class="mono">'+esc(it.created_at||'')+'</td>'+
+      '<td class="txt">'+esc(it.text||'')+nbadge+(it.spv_note?'<div class="mini">📝 '+esc(it.spv_note)+'</div>':'')+'</td>'+
+      '<td>'+statusCell(st)+'</td>'+
+      '<td><input class="cell-in f-at mono" placeholder="YYYY-MM-DD HH:MM" value="'+esc(it.eff_answered_at||'')+'"></td>'+
+      '<td class="mono '+gcls+'">'+gap(it.eff_gap_s)+'</td>'+
+      '<td><input class="cell-in f-crm" placeholder="URL tiket CRM" value="'+esc(it.crm_url||'')+'"></td>'+
+      '<td><button class="eye f-eye" title="Lihat tektok-an interaksi">👁'+rc+'</button></td>'+
+      '<td><button class="btn sm f-save">Simpan</button></td>'+
+    '</tr>';
+  }
+  function bindRow(tr){
+    var mark=function(){tr.classList.add('row-dirty');};
+    tr.querySelectorAll('input,select').forEach(function(el){el.addEventListener('change',mark);});
+    tr.querySelector('.f-save').onclick=function(){save(tr);};
+    tr.querySelector('.f-eye').onclick=function(){openEye(tr);};
+  }
   function load(){
     $('#tb').innerHTML='<tr><td colspan="10"><div class="empty">Memuat…</div></td></tr>';
     jget('/api/sosmed/monitor?'+qs()).then(function(d){
       if(!d||!d.ok){$('#tb').innerHTML='<tr><td colspan="10"><div class="empty">Gagal memuat data.</div></td></tr>';return;}
-      $('#count').textContent=d.total+' interaksi utama';
+      $('#count').textContent=d.total+' interaksi';
       if(!d.items.length){$('#tb').innerHTML='<tr><td colspan="10"><div class="empty">Tidak ada interaksi untuk filter ini.</div></td></tr>';return;}
-      $('#tb').innerHTML=d.items.map(function(it){
-        var st=it.eff_status||'belum';
-        var gcls=st==='ya'?'ans-ya':(st==='itd'?'ans-itd':'ans-belum');
-        var reps=(Number(it.n_additions||0)+Number(it.n_official||0));
-        var rc=reps>0?'<span class="rc">'+reps+'</span>':'';
-        var nbadge=Number(it.n_nimbrung||0)>0?' <span class="nb">Nimbrung '+it.n_nimbrung+'</span>':'';
-        return '<tr data-id="'+it.id+'" data-platform="'+esc(it.platform)+'" data-note="'+esc(it.spv_note||'')+'">'+
-          '<td><span class="badge '+pc(it.platform)+'">'+esc(it.platform)+'</span></td>'+
-          '<td><span class="who">@'+(esc(it.author_handle)||'-')+'</span>'+(it.author_name?'<br><span class="muted">'+esc(it.author_name)+'</span>':'')+'</td>'+
-          '<td class="mono">'+esc(it.created_at||'')+'</td>'+
-          '<td class="txt">'+esc(it.text||'')+nbadge+(it.spv_note?'<div class="mini">📝 '+esc(it.spv_note)+'</div>':'')+'</td>'+
-          '<td>'+statusCell(st)+'</td>'+
-          '<td><input class="cell-in f-at mono" placeholder="YYYY-MM-DD HH:MM" value="'+esc(it.eff_answered_at||'')+'"></td>'+
-          '<td class="mono '+gcls+'">'+gap(it.eff_gap_s)+'</td>'+
-          '<td><input class="cell-in f-crm" placeholder="URL tiket CRM" value="'+esc(it.crm_url||'')+'"></td>'+
-          '<td><button class="eye f-eye" title="Lihat tektok-an interaksi">👁'+rc+'</button></td>'+
-          '<td><button class="btn sm f-save">Simpan</button></td>'+
-        '</tr>';
-      }).join('');
-      document.querySelectorAll('#tb tr[data-id]').forEach(function(tr){
-        var mark=function(){tr.classList.add('row-dirty');};
-        tr.querySelectorAll('input,select').forEach(function(el){el.addEventListener('change',mark);});
-        tr.querySelector('.f-save').onclick=function(){save(tr);};
-        tr.querySelector('.f-eye').onclick=function(){openEye(tr);};
-      });
+      $('#tb').innerHTML=d.items.map(rowHtml).join('');
+      document.querySelectorAll('#tb tr[data-id]').forEach(bindRow);
     });
   }
   function save(tr){
@@ -229,49 +243,74 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
     var btn=tr.querySelector('.f-save');btn.disabled=true;btn.textContent='…';
     jpost('/api/sosmed/review',body).then(function(r){
       btn.disabled=false;btn.textContent='Simpan';
-      if(r&&r.ok){tr.classList.remove('row-dirty');toast('Tersimpan');load();}
+      if(r&&r.ok){tr.classList.remove('row-dirty');toast('Tersimpan');refresh();}
       else{toast((r&&r.error)||'Gagal menyimpan');}
     });
   }
 
-  // ---- Mode Per postingan (verifikasi tarikan) ----
+  // ---- Mode Per postingan (daftar postingan + tabel komentar per postingan) ----
   function loadPosts(){
     $('#postWrap').innerHTML='<div class="empty">Memuat…</div>';
-    jget('/api/sosmed/monitor-posts?'+qs()).then(function(d){
-      if(!d||!d.ok){$('#postWrap').innerHTML='<div class="empty">Gagal memuat data.</div>';return;}
-      $('#count').textContent=d.total+' postingan';
-      if(!d.posts.length){$('#postWrap').innerHTML='<div class="empty">Tidak ada postingan untuk filter ini.</div>';return;}
-      $('#postWrap').innerHTML=d.posts.map(function(p){
+    Promise.all([jget('/api/sosmed/monitor-posts?'+qs()),jget('/api/sosmed/monitor?'+qs())]).then(function(res){
+      var dp=res[0],dm=res[1];
+      if(!dp||!dp.ok){$('#postWrap').innerHTML='<div class="empty">Gagal memuat data.</div>';return;}
+      $('#count').textContent=dp.total+' postingan';
+      if(!dp.posts.length){$('#postWrap').innerHTML='<div class="empty">Tidak ada postingan untuk filter ini.</div>';return;}
+      var byConv={};
+      if(dm&&dm.ok){(dm.items||[]).forEach(function(it){(byConv[it.conversation_id]=byConv[it.conversation_id]||[]).push(it);});}
+      $('#postWrap').innerHTML=dp.posts.map(function(p){
+        var rows=byConv[p.conversation_id]||[];
         var link=p.post_url?'<a href="'+esc(p.post_url)+'" target="_blank" rel="noopener">buka postingan ↗</a>':'<span class="muted">(tautan tak tersedia)</span>';
         var nb=Number(p.n_nimbrung||0)>0?'<span class="nb">Nimbrung: '+p.n_nimbrung+'</span>':'';
-        return '<div class="pcard" data-plat="'+esc(p.platform)+'" data-conv="'+esc(p.conversation_id)+'">'+
-          '<div class="ph"><span class="badge '+pc(p.platform)+'">'+esc(p.platform)+'</span>'+link+'<span class="muted mono">'+esc(p.last_at||'')+'</span></div>'+
-          '<div class="pstats">'+
-            '<span>Total ditarik: <b>'+p.n_items+'</b></span>'+
-            '<span>Utama: '+p.n_main+'</span>'+
-            '<span>Tambahan: '+p.n_addition+'</span>'+
-            '<span>Resmi: '+p.n_official+'</span>'+
-            '<span class="ans-belum">Belum: '+p.n_unanswered+'</span>'+
-            '<span class="ans-ya">Sudah: '+p.n_answered+'</span>'+
-            '<span class="ans-itd">ITD: '+p.n_itd+'</span>'+nb+
+        var body=rows.length?('<div class="tbl-wrap"><table class="mon"><thead>'+THEAD+'</thead><tbody>'+rows.map(rowHtml).join('')+'</tbody></table></div>'):'<div class="tbl-wrap" style="padding:12px 14px"><span class="muted" style="font-size:12px">Tidak ada komentar yang cocok filter untuk postingan ini.</span></div>';
+        return '<div class="pgroup" data-plat="'+esc(p.platform)+'" data-conv="'+esc(p.conversation_id)+'">'+
+          '<div class="pcard">'+
+            '<div class="ph"><span class="badge '+pc(p.platform)+'">'+esc(p.platform)+'</span>'+(p.post_label?'<span class="pttl">'+esc(p.post_label)+'</span>':'')+link+'<span class="muted mono">'+esc(p.last_at||'')+'</span></div>'+
+            '<div class="pname-row"><input class="cell-in pname" placeholder="Beri nama postingan (mis. P1 Lupa Kata Sandi)" value="'+esc(p.post_label||'')+'"><button class="btn sm psave">Simpan nama</button></div>'+
+            '<div class="pstats">'+
+              '<span>Total ditarik: <b>'+p.n_items+'</b></span>'+
+              '<span>Utama: '+p.n_main+'</span>'+
+              '<span>Tambahan: '+p.n_addition+'</span>'+
+              '<span>Resmi: '+p.n_official+'</span>'+
+              '<span class="ans-belum">Belum: '+p.n_unanswered+'</span>'+
+              '<span class="ans-ya">Sudah: '+p.n_answered+'</span>'+
+              '<span class="ans-itd">ITD: '+p.n_itd+'</span>'+nb+
+            '</div>'+
+            '<div style="margin-top:8px"><button class="btn sm ghost pexp">Lihat semua komentar ('+p.n_items+')</button></div>'+
+            '<div class="pcomments" style="display:none"></div>'+
           '</div>'+
-          '<div style="margin-top:8px"><button class="btn sm ghost pexp">Lihat semua komentar ('+p.n_items+')</button></div>'+
-          '<div class="pcomments" style="display:none"></div>'+
+          body+
         '</div>';
       }).join('');
-      document.querySelectorAll('#postWrap .pcard').forEach(function(card){
-        card.querySelector('.pexp').onclick=function(){togglePost(card);};
+      document.querySelectorAll('#postWrap .pgroup').forEach(function(g){
+        var card=g.querySelector('.pcard');
+        card.querySelector('.pexp').onclick=function(){togglePost(g);};
+        var ps=card.querySelector('.psave');
+        if(ps)ps.onclick=function(){savePostLabel(g);};
+        g.querySelectorAll('tr[data-id]').forEach(bindRow);
       });
     });
   }
-  function togglePost(card){
+  function savePostLabel(g){
+    var card=g.querySelector('.pcard');
+    var inp=card.querySelector('.pname');
+    var btn=card.querySelector('.psave');
+    btn.disabled=true;btn.textContent='…';
+    jpost('/api/sosmed/post-label',{platform:g.dataset.plat,conversation_id:g.dataset.conv,label:inp.value}).then(function(r){
+      btn.disabled=false;btn.textContent='Simpan nama';
+      if(r&&r.ok){toast('Nama postingan tersimpan');var ttl=card.querySelector('.pttl');if(ttl)ttl.textContent=inp.value;}
+      else{toast((r&&r.error)||'Gagal menyimpan');}
+    });
+  }
+  function togglePost(g){
+    var card=g.querySelector('.pcard');
     var box=card.querySelector('.pcomments');
     var btn=card.querySelector('.pexp');
     if(box.style.display!=='none'){box.style.display='none';btn.textContent='Lihat semua komentar';return;}
     box.style.display='';btn.textContent='Sembunyikan komentar';
     if(box.dataset.loaded==='1')return;
     box.innerHTML='<div class="empty">Memuat…</div>';
-    var plat=card.dataset.plat,conv=card.dataset.conv;
+    var plat=g.dataset.plat,conv=g.dataset.conv;
     jget('/api/sosmed/monitor-post?platform='+encodeURIComponent(plat)+'&conversation_id='+encodeURIComponent(conv)).then(function(d){
       if(!d||!d.ok){box.innerHTML='<div class="empty">'+esc((d&&d.error)||'Gagal memuat.')+'</div>';return;}
       box.dataset.loaded='1';
@@ -349,7 +388,7 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
       var btn=$('#mPickSave');btn.disabled=true;btn.textContent='…';
       jpost('/api/sosmed/review',{id:CUR.id,spv_answered:'ya',spv_answered_at:c.created_at||'',spv_answer_link:c.permalink||''}).then(function(r){
         btn.disabled=false;btn.textContent='Tandai sbg jawaban';
-        if(r&&r.ok){toast('Jawaban ditautkan');closeOv();load();}
+        if(r&&r.ok){toast('Jawaban ditautkan');closeOv();refresh();}
         else{toast((r&&r.error)||'Gagal menyimpan');}
       });
     };
@@ -358,7 +397,7 @@ table.mon td.txt{max-width:360px;white-space:pre-wrap;word-break:break-word;line
     if(!CUR)return;var btn=$('#mNoteSave');btn.disabled=true;btn.textContent='…';
     jpost('/api/sosmed/review',{id:CUR.id,spv_note:$('#mNote').value}).then(function(r){
       btn.disabled=false;btn.textContent='Simpan catatan';
-      if(r&&r.ok){toast('Catatan tersimpan');closeOv();load();}
+      if(r&&r.ok){toast('Catatan tersimpan');closeOv();refresh();}
       else{toast((r&&r.error)||'Gagal menyimpan');}
     });
   };

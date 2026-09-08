@@ -15,7 +15,9 @@ di UI & bertahan setelah restart.
 CATATAN IG/TikTok: kedua platform tak punya pencarian per-tanggal publik, jadi
 kolektor menarik komentar pada N postingan/video TERBARU akun resmi; dedup
 (UNIQUE platform+external_id) + pull_log menjaga komentar baru terkumpul tiap
-hari tanpa dobel.
+hari tanpa dobel. Jumlah N (maks postingan IG / video TikTok) bisa diatur lewat
+UI Kelola Data (disimpan di sosmed_meta) tanpa perlu set env + restart; nilai UI
+diterapkan ke env proses sesaat sebelum kolektor jalan (lihat _apply_pull_settings).
 
 Env per platform (X = SOSMED_X_*, IG = SOSMED_IG_*, TikTok = SOSMED_TT_*):
   SOSMED_X_SCHEDULER=1        aktifkan penjadwal harian (default 0/mati)
@@ -71,6 +73,12 @@ _PLATS = {
         "min_env": "SOSMED_TT_INGEST_MINUTE", "min_def": 50,
         "target_env": "SOSMED_TT_TARGET", "target_def": "kring_pajak",
     },
+}
+
+# Pemetaan pengaturan maks-post (UI -> env kolektor). Nilai meta (>0) menang.
+_MAX_META = {
+    "ig": ("cfg_ig_max_posts", "SOSMED_IG_MAX_POSTS"),
+    "tiktok": ("cfg_tt_max_posts", "SOSMED_TT_MAX_VIDEOS"),
 }
 
 _LOCKS = {p: _threading.Lock() for p in _PLATS}
@@ -186,6 +194,34 @@ def _int_env(name, default):
         return int(default)
 
 
+def _apply_pull_settings(platform):
+    """Terapkan maks-post/video dari UI (sosmed_meta) ke env proses sebelum
+    kolektor jalan, sehingga tombol \"Tarik sekarang\" maupun penjadwal ikut
+    memakainya tanpa perlu set env + restart. Hanya menimpa bila nilai meta > 0;
+    bila 0/kosong, env/default kolektor tetap dipakai. Fail-soft."""
+    pair = _MAX_META.get((platform or "").lower())
+    if not pair:
+        return
+    meta_key, env_name = pair
+    try:
+        import sosmed.db as sdb
+        c = sdb.connect()
+        try:
+            v = sdb.get_meta(c, meta_key)
+        finally:
+            c.close()
+    except Exception:
+        return
+    if v in (None, ""):
+        return
+    try:
+        iv = int(v)
+    except Exception:
+        return
+    if iv > 0:
+        os.environ[env_name] = str(iv)
+
+
 # --------------------------------------------------------------------------
 # Inti auto-pull (generik untuk semua platform)
 # --------------------------------------------------------------------------
@@ -208,6 +244,11 @@ def sosmed_autopull_run(platform, date_from=None, date_to=None, trigger="schedul
         coll = importlib.import_module(cfg["module"])
         import sosmed.db as sdb
         import sosmed.pull_log as spl
+        # Terapkan pengaturan maks-post dari UI (bila ada) sebelum kolektor jalan.
+        try:
+            _apply_pull_settings(platform)
+        except Exception:
+            pass
         off = sdb.official_handles()
         kwargs = {"official_handles": off, "trigger": trigger}
         if cfg["use_target_arg"]:
