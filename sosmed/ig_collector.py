@@ -10,9 +10,15 @@ untuk sosmed.db.ingest_items (pairing Q&A sadar-thread berjalan otomatis lewat
 conversation_id = id media, in_reply_to_id = parent_comment_id, is_official).
 
 Berbeda dgn X: Instagram tidak punya pencarian per-tanggal untuk publik, sehingga
-strategi v1 adalah \"komentar pada N postingan TERBARU akun resmi\". Penjadwal harian
+strategi v1 adalah "komentar pada N postingan TERBARU akun resmi". Penjadwal harian
 + dedup (UNIQUE platform+external_id) memastikan komentar baru tiap hari terkumpul
-tanpa dobel; pull_log tetap menandai hari itu \"sudah ditarik\" (lihat autopull.py).
+tanpa dobel; pull_log tetap menandai hari itu "sudah ditarik" (lihat autopull.py).
+
+BALASAN BERJENJANG (child comments): IG hanya memuat balasan setelah toggle
+"Lihat balasan" DIKLIK. Karena daftar komentar divirtualisasi (komentar atas
+dibuang dari DOM saat scroll ke bawah), _load_comments menelusuri BERTAHAP dari
+ATAS ke BAWAH sambil mengklik tiap toggle saat masih ter-render, lalu MENGULANG
+dari atas beberapa kali (multi-pass) agar semua balasan resmi ikut terpanen.
 
 FAIL-SOFT: import Playwright LAZY sehingga fungsi murni extract_ig_comments tetap
 bisa diuji offline walau Playwright belum terpasang.
@@ -26,10 +32,10 @@ ENV (JANGAN commit kredensial):
   SOSMED_IG_HEADLESS     : 1 (default) headless; 0 utk login manual tampak jendela
   SOSMED_IG_MAX_POSTS    : jumlah postingan terbaru yang dibuka (default 12;
                            set 0 = SEMUA postingan target, 1 = hanya terbaru, dst.)
-  SOSMED_IG_MAX_SCROLLS  : batas scroll komentar per-postingan (default 8)
+  SOSMED_IG_MAX_SCROLLS  : batas pass scroll komentar per-postingan (default 8)
   SOSMED_IG_DEBUG        : 1 utk mencetak trace URL/keys respons (diagnosa)
   SOSMED_IG_TZ           : zona acuan H-1 (default Asia/Jakarta)
-  SOSMED_IG_USER_DATA_DIR: folder \"User Data\" Chrome utk pakai profil yg sudah login
+  SOSMED_IG_USER_DATA_DIR: folder "User Data" Chrome utk pakai profil yg sudah login
   SOSMED_IG_PROFILE_DIR  : subfolder profil (default 'Default')
   SOSMED_IG_CHANNEL      : channel browser (mis. 'chrome'); default Chromium bawaan
 
@@ -481,7 +487,7 @@ def save_login_state():
             if not ok and headless:
                 print("Login IG otomatis gagal:", err)
                 print("Buat sesi SEMI-MANUAL (PowerShell):")
-                print('  $env:SOSMED_IG_HEADLESS=\"0\"; python -m sosmed.ig_collector login')
+                print('  $env:SOSMED_IG_HEADLESS="0"; python -m sosmed.ig_collector login')
         has_cookie = _has_auth_cookie(ctx)
         if ok and not has_cookie:
             ok = False
@@ -546,6 +552,117 @@ _SCROLL_JS = """
 }
 """
 
+# Scroll kontainer komentar terbaik sejauh `delta` px (bertahap, TIDAK melompat
+# ke dasar) + lapor posisi utk deteksi dasar. Bertahap penting agar tiap toggle
+# 'Lihat balasan' sempat ter-render & terklik sebelum IG membuangnya dari DOM.
+_SCROLL_STEP_JS = """
+(delta) => {
+  const els = Array.from(document.querySelectorAll('div,ul,section'));
+  let best = null, bestH = 0;
+  for (const el of els) {
+    const over = el.scrollHeight - el.clientHeight;
+    if (over > 200 && el.clientHeight > 150) {
+      const oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > bestH) {
+        best = el; bestH = el.scrollHeight;
+      }
+    }
+  }
+  if (best) {
+    best.scrollTop = Math.min(best.scrollHeight, best.scrollTop + delta);
+    return {top: best.scrollTop, h: best.scrollHeight, c: best.clientHeight, win: false};
+  }
+  window.scrollBy(0, delta);
+  return {top: window.scrollY, h: document.body.scrollHeight, c: window.innerHeight, win: true};
+}
+"""
+
+# Kembali ke ATAS kontainer komentar (awal tiap pass) supaya toggle balasan di
+# komentar teratas ikut terklik — inilah 'naik lagi ke atas' yang sebelumnya absen.
+_SCROLL_TOP_JS = """
+() => {
+  const els = Array.from(document.querySelectorAll('div,ul,section'));
+  let best = null, bestH = 0;
+  for (const el of els) {
+    const over = el.scrollHeight - el.clientHeight;
+    if (over > 200 && el.clientHeight > 150) {
+      const oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > bestH) {
+        best = el; bestH = el.scrollHeight;
+      }
+    }
+  }
+  if (best) { best.scrollTop = 0; }
+  window.scrollTo(0, 0);
+  return true;
+}
+"""
+
+# Klik SEMUA kontrol (elemen terdalam yang cocok, dedup posisi) yang teksnya
+# cocok pola `src`, LEWAT JS. Lebih andal daripada lokator Playwright utk DOM IG
+# yang dinamis/virtualized & mengabaikan cek actionability. Tombol 'Sembunyikan/
+# Hide' dilewati agar balasan yang sudah terbuka tidak tertutup lagi.
+_CLICK_MATCHING_JS = """
+(src) => {
+  const rx = new RegExp(src, 'i');
+  const hide = /(sembunyikan|hide|tutup)/i;
+  const seen = new Set();
+  const picks = [];
+  const all = document.querySelectorAll('span,button,div[role=button],a[role=button]');
+  for (const el of all) {
+    const t = (el.textContent || '').trim();
+    if (!t || t.length > 60) continue;
+    if (hide.test(t)) continue;
+    if (!rx.test(t)) continue;
+    let childMatch = false;
+    const kids = el.querySelectorAll('*');
+    for (const c of kids) {
+      const ct = (c.textContent || '').trim();
+      if (ct && ct.length <= 60 && rx.test(ct) && !hide.test(ct)) { childMatch = true; break; }
+    }
+    if (childMatch) continue;
+    const r = el.getBoundingClientRect();
+    const key = Math.round(r.x) + ',' + Math.round(r.y);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    picks.push(el);
+  }
+  let n = 0;
+  for (const el of picks) {
+    try { el.scrollIntoView({block: 'center'}); } catch (e) {}
+    try { el.click(); n++; } catch (e) {}
+  }
+  return n;
+}
+"""
+
+# Sumber pola teks tombol (dipakai RegExp JS di _CLICK_MATCHING_JS).
+_MORE_COMMENTS_SRC = (
+    r"(view\s+(more|all|previous)?\s*comments?|"
+    r"(lihat|muat|tampilkan)\s+(\d[\d.,]*\s+)?komentar(\s+(lain|lainnya|sebelumnya))?)")
+_MORE_REPLIES_SRC = (
+    r"(view\s+(all\s+)?(\d[\d.,]*\s+)?(more\s+)?repl(y|ies)|"
+    r"(lihat|muat|tampilkan)\s+(\d[\d.,]*\s+)?balasan(\s+lainnya)?|"
+    r"balas(an)?\s+lainnya)")
+
+
+def _click_js(page, src):
+    """Klik semua kontrol (innermost, dedup posisi) yang teksnya cocok `src` via
+    JS. Kembalikan jumlah klik (fail-soft)."""
+    try:
+        return int(page.evaluate(_CLICK_MATCHING_JS, src) or 0)
+    except Exception:
+        return 0
+
+
+def _scroll_step(page, delta):
+    """Scroll kontainer komentar (atau window) sejauh `delta` px; kembalikan
+    posisi {top,h,c} utk deteksi dasar."""
+    try:
+        return page.evaluate(_SCROLL_STEP_JS, delta) or {}
+    except Exception:
+        return {}
+
 
 def _click_all(page, rx, limit=40):
     """Klik semua elemen yang teksnya cocok regex rx (mis. 'lihat balasan').
@@ -595,35 +712,52 @@ def _click_all(page, rx, limit=40):
 
 
 def _load_comments(page, max_scrolls, diag=None):
-    """Muat komentar + BALASAN berjenjang: beri waktu komentar awal termuat,
-    scroll kontainer komentar, klik 'muat komentar', lalu buka SEMUA toggle
-    'lihat balasan' (child comments dimuat lewat graphql & ikut disadap),
-    ulangi. Menghitung klik ke diag['more_comments']/['more_replies']."""
+    """Muat komentar + BALASAN berjenjang di IG.
+
+    IG memvirtualisasi daftar komentar & menaruh toggle 'Lihat balasan' di tiap
+    komentar induk; balasan (child comments) hanya dimuat (lewat graphql, lalu
+    disadap _on_response) SETELAH toggle diklik. Karena scroll-ke-bawah membuang
+    komentar atas dari DOM, kita menelusuri BERTAHAP dari ATAS ke BAWAH sambil
+    mengklik tiap toggle saat masih ter-render, lalu ULANGI dari atas beberapa
+    kali (multi-pass) agar semua balasan terbuka. Menghitung klik ke
+    diag['more_comments']/['more_replies']."""
     if diag is None:
         diag = {}
-    _sleep(2.0)  # beri waktu komentar awal termuat sebelum diproses
-    for _ in range(max(1, int(max_scrolls or 1))):
-        diag["more_comments"] = diag.get("more_comments", 0) + \
-            _click_all(page, _MORE_COMMENTS_RE, limit=8)
-        # Buka balasan berjenjang: ulang beberapa kali karena toggle baru
-        # bermunculan setelah yang sebelumnya diklik.
-        for _r in range(4):
-            c = _click_all(page, _MORE_REPLIES_RE, limit=40)
-            diag["more_replies"] = diag.get("more_replies", 0) + c
-            if not c:
+    _sleep(2.0)  # beri waktu komentar awal termuat
+    passes = max(2, min(int(max_scrolls or 1), 5))
+    for _p in range(passes):
+        # Mulai tiap pass dari ATAS agar toggle di komentar teratas ikut terklik.
+        try:
+            page.evaluate(_SCROLL_TOP_JS)
+        except Exception:
+            pass
+        _sleep(0.8)
+        pass_clicks = 0
+        reached_bottom = False
+        for _s in range(60):
+            mc = _click_js(page, _MORE_COMMENTS_SRC)
+            rc = _click_js(page, _MORE_REPLIES_SRC)
+            diag["more_comments"] = diag.get("more_comments", 0) + mc
+            diag["more_replies"] = diag.get("more_replies", 0) + rc
+            pass_clicks += mc + rc
+            if rc:
+                _sleep(0.9)  # tunggu child_comments (graphql) termuat & tersadap
+            st = _scroll_step(page, 850)
+            _sleep(0.8)
+            try:
+                if st and (st.get("top", 0) + st.get("c", 0)) >= (st.get("h", 0) - 6):
+                    reached_bottom = True
+            except Exception:
+                pass
+            if reached_bottom:
+                diag["more_comments"] = diag.get("more_comments", 0) + _click_js(page, _MORE_COMMENTS_SRC)
+                diag["more_replies"] = diag.get("more_replies", 0) + _click_js(page, _MORE_REPLIES_SRC)
                 break
-            _sleep(0.9)
-        try:
-            page.evaluate(_SCROLL_JS)
-        except Exception:
-            pass
-        try:
-            page.mouse.wheel(0, 2400)
-        except Exception:
-            pass
-        _sleep(1.6)
-    # Sapuan akhir: pastikan seluruh balasan sudah diperluas.
-    for _r in range(6):
+        # Berhenti bila pass ini tak menghasilkan klik apa pun (semua terbuka).
+        if pass_clicks == 0 and _p >= 1:
+            break
+    # Sapuan akhir Playwright (jaring pengaman) utk sisa toggle balasan.
+    for _r in range(4):
         c = _click_all(page, _MORE_REPLIES_RE, limit=60)
         diag["more_replies"] = diag.get("more_replies", 0) + c
         if not c:
@@ -755,7 +889,7 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             except Exception:
                 continue
             _sleep(2.6)
-            # Scroll panel komentar (JS) + klik "muat lebih / lihat balasan".
+            # Scroll panel komentar (bertahap) + klik 'muat lebih / lihat balasan'.
             _load_comments(page, max_scrolls, _diag)
 
         if not persistent:
