@@ -1,28 +1,35 @@
 # -*- coding: utf-8 -*-
-"""sosmed/monitor.py — Lapisan data Halaman "Pengawasan SPV" (Sosmed).
+"""sosmed/monitor.py — Lapisan data Halaman \"Pengawasan SPV\" (Sosmed).
 
 Menyajikan HANYA komentar/tweet UTAMA dari warga (bukan akun resmi) + kolom
 kurasi manual Supervisor, tanpa mengubah skema inti di sosmed/db.py (kolom SPV
 ditambah via ALTER TABLE idempoten & fail-soft).
 
-DETEKSI "UTAMA" (independen dari item_type inti db.py, sesuai arahan SPV):
+DETEKSI \"UTAMA\" (independen dari item_type inti db.py, sesuai arahan SPV):
   - UTAMA    : item non-resmi yang INDUKNYA akun RESMI atau TANPA induk (root).
                (mis. di X: user membalas balasan resmi = interaksi/utama BARU.)
   - TAMBAHAN : item non-resmi yang induknya sesama non-resmi → DIGABUNG ke utama
-               terdekat (mis. tweet D "menambahkan info" atas tweet C).
+               terdekat (mis. tweet D \"menambahkan info\" atas tweet C).
   - RESMI    : semua item akun resmi (kandidat jawaban).
 
 NIMBRUNG (deteksi ringan, NON-DESTRUKTIF terhadap SLA):
   Sebuah TAMBAHAN yang penulisnya BERBEDA dari penulis UTAMA-nya dianggap
-  "nimbrung" (warga lain yang menyela di utas warga lain). Ini HANYA ditandai
-  (flag/badge + hitungan), TIDAK otomatis menjadi baris "belum dijawab" dan
-  TIDAK mengubah SLA — SLA IG/TikTok tetap dihitung dari komentar UTAMA. SPV bisa
-  memutuskan tindak lanjut secara manual. Deteksi murni dari data yang sudah ada
-  (author_handle + relasi in_reply_to), jadi mudah & aman.
+  \"nimbrung\" (warga lain yang menyela di utas warga lain). Secara default hanya
+  DITANDAI (flag/badge + hitungan) dan TIDAK mengubah SLA — SLA IG/TikTok tetap
+  dihitung dari komentar UTAMA. Namun SPV bisa MENGAWASI nimbrung sebagai baris
+  tersendiri dengan mengaktifkan include_nimbrung=True (dari centangan di UI):
+  saat itu tiap nimbrung tampil sebagai baris yang bisa dikurasi (status jawab,
+  tgl jawab, dll.), dengan deteksi jawaban resmi yang MEMBALAS nimbrung itu
+  langsung. Deteksi murni dari data yang sudah ada (author_handle + relasi
+  in_reply_to), jadi mudah & aman.
 
-JAWABAN sebuah utama = balasan RESMI paling awal yang "menuruni" utama tsb
+JAWABAN sebuah utama = balasan RESMI paling awal yang \"menuruni\" utama tsb
 (mendaki in_reply_to dari tiap balasan resmi sampai bertemu utama/tambahannya).
 Tanggal jawab & selisih (jam+menit) dihitung otomatis dari sini.
+
+PENAMAAN POSTINGAN: tiap (platform, conversation_id) bisa diberi nama bebas oleh
+SPV (mis. \"P1 Lupa Kata Sandi\"), disimpan di tabel meta (sosmed_meta) dengan
+kunci 'postlabel:<platform>:<conversation_id>' — tanpa mengubah skema inti.
 
 KURASI MANUAL SPV (menang atas deteksi otomatis):
   - spv_answered    : 'ya' / 'belum' / 'itd' (Interaksi Tidak Dijawab) / ''.
@@ -30,7 +37,7 @@ KURASI MANUAL SPV (menang atas deteksi otomatis):
   - spv_answer_link : permalink komentar jawaban (diisi lewat PICKER di modal
                       mata untuk kasus jawaban tak-berelasi, mis. IG mention off).
   - crm_url         : tautan tiket/CRM.
-  - spv_note        : catatan bebas (mis. "dibalas admin via HP").
+  - spv_note        : catatan bebas (mis. \"dibalas admin via HP\").
   - spv_updated_by / spv_updated_at : jejak audit.
 
 Catatan penting: agar akun resmi tiap platform dikenali (mis. IG
@@ -82,6 +89,50 @@ def ensure_review_columns(conn):
             conn.commit()
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# Penamaan postingan (disimpan di sosmed_meta, tanpa ubah skema inti)
+# ---------------------------------------------------------------------------
+def _pl_key(plat, conv):
+    return "postlabel:%s:%s" % ((plat or ""), (conv or ""))
+
+
+def get_post_label(conn, plat, conv):
+    try:
+        return sdb.get_meta(conn, _pl_key(plat, conv)) or ""
+    except Exception:
+        return ""
+
+
+def set_post_label(conn, plat, conv, label):
+    """Simpan/hapus nama postingan. label kosong = hapus."""
+    label = (label or "").strip()
+    key = _pl_key(plat, conv)
+    if label:
+        try:
+            sdb.set_meta(conn, key, label)
+        except Exception:
+            pass
+    else:
+        try:
+            conn.execute("DELETE FROM sosmed_meta WHERE key=?", (key,))
+            conn.commit()
+        except Exception:
+            pass
+    return True
+
+
+def _all_post_labels(conn):
+    out = {}
+    try:
+        for r in conn.execute(
+                "SELECT key, value FROM sosmed_meta WHERE key LIKE 'postlabel:%'"
+        ).fetchall():
+            out[r[0]] = r[1]
+    except Exception:
+        pass
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -181,6 +232,28 @@ def _classify_conv(rows, off):
     return role, main_of, officials_of
 
 
+def _officials_direct(rows, off, by_ext):
+    """Untuk tiap balasan RESMI, cari leluhur NON-RESMI TERDEKAT (utama ATAU
+    tambahan) lalu atribusikan ke situ. Dipakai mendeteksi jawaban yang membalas
+    sebuah NIMBRUNG secara langsung. Kembalikan dict ext -> list resmi (ASC)."""
+    direct = {}
+    for r in rows:
+        if not _is_off(r, off):
+            continue
+        cur = by_ext.get(r.get("in_reply_to_id") or "")
+        seen = set()
+        while cur is not None and cur.get("external_id") not in seen:
+            e = cur.get("external_id")
+            seen.add(e)
+            if not _is_off(cur, off):
+                direct.setdefault(e, []).append(r)
+                break
+            cur = by_ext.get(cur.get("in_reply_to_id") or "")
+    for e, lst in direct.items():
+        lst.sort(key=lambda x: (x.get("created_at") or "", x.get("id") or 0))
+    return direct
+
+
 def _is_nimbrung(row, ext_main, by_ext):
     """True bila TAMBAHAN ini ditulis warga yang BERBEDA dari penulis UTAMA-nya."""
     main_row = by_ext.get(ext_main)
@@ -243,17 +316,73 @@ def _candidate_convs(conn, norm_plat, s, e, q):
     return [(r[0], r[1]) for r in conn.execute(sql, params).fetchall() if r[1]]
 
 
+def _mk_row(r, plat, conv, role_name, is_nimbrung, offs, n_add, n_nimbrung,
+            label, parent_handle=""):
+    """Bangun satu baris keluaran monitor_list (utama atau nimbrung)."""
+    auto_ans = bool(offs)
+    auto_at = offs[0].get("created_at") if offs else ""
+    auto_by = offs[0].get("author_handle") if offs else ""
+    eff = _eff_status(r, auto_ans)
+    if eff == "ya":
+        eff_at = (r.get("spv_answered_at") or auto_at or "")
+    elif eff == "itd":
+        eff_at = ""
+    else:
+        eff_at = (r.get("spv_answered_at") or "")
+    gap = None
+    if eff == "ya" and eff_at:
+        try:
+            gap = sdb._resp_seconds(r.get("created_at"), eff_at)
+        except Exception:
+            gap = None
+    return {
+        "id": r.get("id"),
+        "platform": plat,
+        "conversation_id": conv,
+        "external_id": r.get("external_id"),
+        "role": role_name,
+        "is_nimbrung": 1 if is_nimbrung else 0,
+        "parent_handle": parent_handle or "",
+        "post_label": label or "",
+        "author_handle": r.get("author_handle"),
+        "author_name": r.get("author_name"),
+        "created_at": r.get("created_at"),
+        "text": r.get("text"),
+        "permalink": r.get("permalink"),
+        "topik": r.get("topik"),
+        "auto_answered": 1 if auto_ans else 0,
+        "auto_answered_at": auto_at,
+        "auto_answered_by": auto_by,
+        "crm_url": r.get("crm_url") or "",
+        "spv_answered": r.get("spv_answered") or "",
+        "spv_answered_at": r.get("spv_answered_at") or "",
+        "spv_answer_link": r.get("spv_answer_link") or "",
+        "spv_note": r.get("spv_note") or "",
+        "eff_status": eff,
+        "eff_answered_at": eff_at,
+        "eff_gap_s": gap,
+        "n_additions": n_add,
+        "n_nimbrung": n_nimbrung,
+        "n_official": len(offs),
+    }
+
+
 def monitor_list(conn, platform="", range_="all", start="", end="",
-                 answered="", q="", limit=500):
+                 answered="", q="", include_nimbrung=False, limit=500):
     """Daftar komentar/tweet UTAMA warga + kolom kurasi SPV (halaman Pengawasan).
 
     Rentang tanggal diterapkan pada tanggal UTAMA itu sendiri (mis. tweet C yang
     menyusul di hari berikutnya tampil di hari-C, bukan hari root). Setiap baris
     membawa turunan efektif: eff_status ('ya'/'belum'/'itd'), eff_answered_at,
     dan eff_gap_s (detik) untuk kolom Selisih (dirender jam+menit di UI).
+
+    Bila include_nimbrung=True, tiap komentar NIMBRUNG (tambahan dari warga lain)
+    juga ditampilkan sebagai baris yang bisa dikurasi, dengan deteksi jawaban
+    resmi yang membalasnya langsung. SLA komentar utama TIDAK berubah.
     """
     ensure_review_columns(conn)
     off = _off_set()
+    labels = _all_post_labels(conn)
     norm_plat = sdb._norm_platform(platform) if platform else ""
     rng = (range_ or "all").lower()
     if rng == "custom":
@@ -273,74 +402,57 @@ def monitor_list(conn, platform="", range_="all", start="", end="",
             continue
         role, main_of, officials_of = _classify_conv(rows, off)
         by_ext = {r["external_id"]: r for r in rows if r.get("external_id")}
-        for r in rows:
-            ext = r.get("external_id")
-            if role.get(ext) != "main":
-                continue
+        direct = _officials_direct(rows, off, by_ext) if include_nimbrung else {}
+        label = labels.get(_pl_key(plat, conv), "")
+
+        def _passes(r):
             day = (r.get("created_at") or "")[:10]
             if s and day < s:
-                continue
+                return False
             if e and day > e:
-                continue
+                return False
             if ql:
                 hay = " ".join([str(r.get("text") or ""),
                                 str(r.get("author_name") or ""),
                                 str(r.get("author_handle") or "")]).lower()
                 if ql not in hay:
+                    return False
+            return True
+
+        for r in rows:
+            ext = r.get("external_id")
+            rl = role.get(ext)
+            if rl == "main":
+                if not _passes(r):
                     continue
-            offs = officials_of.get(ext, [])
-            auto_ans = bool(offs)
-            auto_at = offs[0].get("created_at") if offs else ""
-            auto_by = offs[0].get("author_handle") if offs else ""
-            eff = _eff_status(r, auto_ans)
-            if eff == "ya":
-                eff_at = (r.get("spv_answered_at") or auto_at or "")
-            elif eff == "itd":
-                eff_at = ""
-            else:
-                eff_at = (r.get("spv_answered_at") or "")
-            gap = None
-            if eff == "ya" and eff_at:
-                try:
-                    gap = sdb._resp_seconds(r.get("created_at"), eff_at)
-                except Exception:
-                    gap = None
-            n_add = 0
-            n_nimbrung = 0
-            for x in rows:
-                xe = x.get("external_id")
-                if role.get(xe) == "addition" and main_of.get(xe) == ext:
-                    n_add += 1
-                    if _is_nimbrung(x, ext, by_ext):
-                        n_nimbrung += 1
-            if want in _ANSWER_CHOICES and eff != want:
-                continue
-            out.append({
-                "id": r.get("id"),
-                "platform": plat,
-                "conversation_id": conv,
-                "external_id": ext,
-                "author_handle": r.get("author_handle"),
-                "author_name": r.get("author_name"),
-                "created_at": r.get("created_at"),
-                "text": r.get("text"),
-                "permalink": r.get("permalink"),
-                "topik": r.get("topik"),
-                "auto_answered": 1 if auto_ans else 0,
-                "auto_answered_at": auto_at,
-                "auto_answered_by": auto_by,
-                "crm_url": r.get("crm_url") or "",
-                "spv_answered": r.get("spv_answered") or "",
-                "spv_answered_at": r.get("spv_answered_at") or "",
-                "spv_answer_link": r.get("spv_answer_link") or "",
-                "spv_note": r.get("spv_note") or "",
-                "eff_status": eff,
-                "eff_answered_at": eff_at,
-                "eff_gap_s": gap,
-                "n_additions": n_add,
-                "n_nimbrung": n_nimbrung,
-                "n_official": len(offs),
-            })
+                offs = officials_of.get(ext, [])
+                n_add = 0
+                n_nimbrung = 0
+                for x in rows:
+                    xe = x.get("external_id")
+                    if role.get(xe) == "addition" and main_of.get(xe) == ext:
+                        n_add += 1
+                        if _is_nimbrung(x, ext, by_ext):
+                            n_nimbrung += 1
+                row = _mk_row(r, plat, conv, "main", False, offs, n_add,
+                              n_nimbrung, label)
+                if want in _ANSWER_CHOICES and row["eff_status"] != want:
+                    continue
+                out.append(row)
+            elif include_nimbrung and rl == "addition":
+                m = main_of.get(ext)
+                if not _is_nimbrung(r, m, by_ext):
+                    continue
+                if not _passes(r):
+                    continue
+                offs = direct.get(ext, [])
+                main_row = by_ext.get(m)
+                parent_handle = _handle(main_row) if main_row else ""
+                row = _mk_row(r, plat, conv, "nimbrung", True, offs, 0, 0,
+                              label, parent_handle=parent_handle)
+                if want in _ANSWER_CHOICES and row["eff_status"] != want:
+                    continue
+                out.append(row)
     out.sort(key=lambda x: (x.get("created_at") or ""), reverse=True)
     out = out[:int(limit)]
     try:
@@ -357,12 +469,12 @@ def monitor_posts(conn, platform="", range_="all", start="", end="", q="",
     """Ringkasan PER POSTINGAN (conversation) untuk verifikasi data tarikan.
 
     Tiap postingan membawa hitungan: total komentar ditarik, jumlah utama,
-    tambahan, resmi, nimbrung, serta status jawab utama (belum/sudah/itd) dan
-    tautan postingan. Berguna untuk membandingkan jumlah komentar yang tampil
-    dengan yang ada di platform (IG/TikTok menarik data per postingan).
+    tambahan, resmi, nimbrung, serta status jawab utama (belum/sudah/itd),
+    tautan postingan, dan nama (label) postingan bila sudah diberi SPV.
     """
     ensure_review_columns(conn)
     off = _off_set()
+    labels = _all_post_labels(conn)
     norm_plat = sdb._norm_platform(platform) if platform else ""
     rng = (range_ or "all").lower()
     if rng == "custom":
@@ -405,6 +517,7 @@ def monitor_posts(conn, platform="", range_="all", start="", end="", q="",
             "platform": plat,
             "conversation_id": conv,
             "post_url": _post_url(plat, conv, rows),
+            "post_label": labels.get(_pl_key(plat, conv), ""),
             "n_items": len(rows),
             "n_main": n_main,
             "n_addition": n_add,
@@ -500,6 +613,7 @@ def monitor_post(conn, platform, conversation_id):
             items.append(_mk(r, 0, None))
     return {"ok": True, "platform": plat, "conversation_id": conversation_id,
             "post_url": _post_url(plat, conversation_id, rows),
+            "post_label": get_post_label(conn, plat, conversation_id),
             "n_items": len(rows), "items": items}
 
 
