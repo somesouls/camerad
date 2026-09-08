@@ -26,6 +26,7 @@ ENV (JANGAN commit kredensial):
   SOSMED_IG_HEADLESS     : 1 (default) headless; 0 utk login manual tampak jendela
   SOSMED_IG_MAX_POSTS    : jumlah postingan terbaru yang dibuka (default 12)
   SOSMED_IG_MAX_SCROLLS  : batas scroll komentar per-postingan (default 8)
+  SOSMED_IG_DEBUG        : 1 utk mencetak trace URL/keys respons (diagnosa)
   SOSMED_IG_TZ           : zona acuan H-1 (default Asia/Jakarta)
   SOSMED_IG_USER_DATA_DIR: folder \"User Data\" Chrome utk pakai profil yg sudah login
   SOSMED_IG_PROFILE_DIR  : subfolder profil (default 'Default')
@@ -80,6 +81,10 @@ def _is_ig_comment(n):
     if not isinstance(n, dict):
         return False
     if n.get("text") is None:
+        return False
+    # Node media/postingan (punya caption/kode) BUKAN komentar.
+    if any(k in n for k in ("media_type", "product_type", "shortcode",
+                            "carousel_media", "code")):
         return False
     u = n.get("user")
     if not isinstance(u, dict) or not u.get("username"):
@@ -167,8 +172,12 @@ def extract_media_codes(obj, out=None, depth=0):
         pk = obj.get("pk") or obj.get("id")
         if code and pk and (obj.get("taken_at") or obj.get("caption") is not None
                             or obj.get("media_type")):
+            _own = obj.get("user") or obj.get("owner") or {}
+            _oh = (str(_own.get("username") or "").lstrip("@").lower()
+                   if isinstance(_own, dict) else "")
             out[str(pk).split("_")[0]] = {"code": str(code),
-                                          "taken_at": obj.get("taken_at") or 0}
+                                          "taken_at": obj.get("taken_at") or 0,
+                                          "owner": _oh}
         for v in obj.values():
             if isinstance(v, (dict, list)):
                 extract_media_codes(v, out, depth + 1)
@@ -428,7 +437,7 @@ def save_login_state():
             if not ok and headless:
                 print("Login IG otomatis gagal:", err)
                 print("Buat sesi SEMI-MANUAL (PowerShell):")
-                print('  $env:SOSMED_IG_HEADLESS="0"; python -m sosmed.ig_collector login')
+                print('  $env:SOSMED_IG_HEADLESS=\"0\"; python -m sosmed.ig_collector login')
         has_cookie = _has_auth_cookie(ctx)
         if ok and not has_cookie:
             ok = False
@@ -466,6 +475,56 @@ def diag_session():
                 "state_file": state_file(), "state_exists": os.path.exists(state_file())}
 
 
+_MORE_LABELS = ("View more comments", "Load more comments", "View all comments",
+                "Lihat komentar lainnya", "Muat komentar lainnya",
+                "View replies", "Lihat balasan", "View more replies",
+                "Lihat balasan lainnya")
+
+_SCROLL_JS = """
+() => {
+  const els = Array.from(document.querySelectorAll('div,ul,section'));
+  let best = null, bestH = 0;
+  for (const el of els) {
+    const over = el.scrollHeight - el.clientHeight;
+    if (over > 200 && el.clientHeight > 150) {
+      const oy = getComputedStyle(el).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && el.scrollHeight > bestH) {
+        best = el; bestH = el.scrollHeight;
+      }
+    }
+  }
+  if (best) { best.scrollTop = best.scrollHeight; return best.scrollHeight; }
+  window.scrollTo(0, document.body.scrollHeight);
+  return 0;
+}
+"""
+
+
+def _load_comments(page, max_scrolls):
+    """Picu pemuatan komentar: klik tombol 'muat lebih/lihat balasan' lalu
+    scroll kontainer komentar via JS. Best-effort (fail-soft)."""
+    for _ in range(max(1, int(max_scrolls or 1))):
+        for lab in _MORE_LABELS:
+            try:
+                els = page.get_by_text(lab, exact=False).all()
+            except Exception:
+                els = []
+            for b in els[:6]:
+                try:
+                    b.click(timeout=1200)
+                except Exception:
+                    pass
+        try:
+            page.evaluate(_SCROLL_JS)
+        except Exception:
+            pass
+        try:
+            page.mouse.wheel(0, 2400)
+        except Exception:
+            pass
+        _sleep(1.5)
+
+
 def collect_range(date_from=None, date_to=None, official_handles=None,
                   target=None, trigger="manual", dump_path=None, **_kw):
     """Tarik komentar pada N postingan terbaru akun resmi IG via browser.
@@ -491,7 +550,9 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
     max_scrolls = _int_env("SOSMED_IG_MAX_SCROLLS", 8)
     by_id = {}
     media_codes = {}
-    _diag = {"comments": 0, "feed": 0}
+    _diag = {"comments": 0, "feed": 0, "json": 0}
+    _debug = _flag("SOSMED_IG_DEBUG", "0")
+    _trace = []
 
     with sync_playwright() as pw:
         browser, ctx, persistent = _launch(pw, headless)
@@ -501,25 +562,41 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 u = resp.url or ""
                 if "instagram.com" not in u:
                     return
-                if "/comments/" in u or "/child_comments/" in u:
+                is_api = ("/api/" in u or "/graphql" in u
+                          or "/comments/" in u or "/child_comments/" in u)
+                if not is_api:
+                    return
+                try:
+                    data = resp.json()
+                except Exception:
+                    return
+                _diag["json"] += 1
+                # 1) Panen komentar dari respons komentar ATAU graphql —
+                #    IG 2026 kerap mengirim komentar lewat /graphql/query.
+                got = 0
+                if ("/comments/" in u or "/child_comments/" in u
+                        or "/graphql" in u):
                     m = _MEDIA_RE.search(u)
                     mid = m.group(1) if m else None
-                    try:
-                        data = resp.json()
-                    except Exception:
-                        return
-                    _diag["comments"] += 1
                     code = (media_codes.get(str(mid)) or {}).get("code") if mid else None
+                    before = len(by_id)
                     for it in extract_ig_comments(data, mid, code, off):
                         by_id[it["external_id"]] = it
-                elif ("/feed/user/" in u or "web_profile_info" in u
-                      or "graphql/query" in u):
-                    try:
-                        data = resp.json()
-                    except Exception:
-                        return
-                    _diag["feed"] += 1
+                    got = len(by_id) - before
+                    if got:
+                        _diag["comments"] += 1
+                # 2) Panen kode media (postingan) utk menentukan yg dibuka.
+                if ("/feed/user/" in u or "web_profile_info" in u
+                        or "/graphql" in u or "/api/v1/users/" in u):
                     extract_media_codes(data, media_codes)
+                    _diag["feed"] += 1
+                if _debug:
+                    _trace.append({
+                        "url": u[:200],
+                        "keys": (list(data.keys())[:14]
+                                 if isinstance(data, dict) else "list"),
+                        "new_comments": got,
+                    })
             except Exception:
                 pass
 
@@ -551,9 +628,17 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             _sleep(2.0)
 
         # Urutkan postingan terbaru (taken_at desc) lalu buka satu per satu.
-        codes = sorted(media_codes.values(),
-                       key=lambda d: d.get("taken_at") or 0, reverse=True)
-        codes = [d["code"] for d in codes if d.get("code")][:max_posts]
+        _tgt_l = tgt.lower()
+        _codes_all = sorted(media_codes.values(),
+                            key=lambda d: d.get("taken_at") or 0, reverse=True)
+        # Hanya buka postingan milik target (owner cocok / tak diketahui);
+        # buang postingan sugesti/explore dari akun lain.
+        codes = [d["code"] for d in _codes_all
+                 if d.get("code") and (not d.get("owner")
+                                       or d.get("owner") == _tgt_l)]
+        if not codes:
+            codes = [d["code"] for d in _codes_all if d.get("code")]
+        codes = codes[:max_posts]
         for code in codes:
             try:
                 page.goto("https://www.instagram.com/p/%s/" % code,
@@ -561,20 +646,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             except Exception:
                 continue
             _sleep(2.6)
-            # Scroll area komentar utk memicu pemuatan komentar & balasan.
-            stagnant = 0
-            last = -1
-            for _ in range(max_scrolls):
-                n = len(by_id)
-                stagnant = stagnant + 1 if n == last else 0
-                last = n
-                if stagnant >= 3:
-                    break
-                try:
-                    page.mouse.wheel(0, 2200)
-                except Exception:
-                    pass
-                _sleep(1.6)
+            # Scroll panel komentar (JS) + klik "muat lebih / lihat balasan".
+            _load_comments(page, max_scrolls)
 
         if not persistent:
             try:
@@ -591,7 +664,10 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             "range": "%s s/d %s" % (date_from, date_to), "url": url,
             "target": tgt, "logged_in": bool(logged_in),
             "posts_opened": len(codes), "media_seen": len(media_codes),
-            "comments_seen": _diag["comments"], "feed_seen": _diag["feed"]}
+            "comments_seen": _diag["comments"], "feed_seen": _diag["feed"],
+            "json_seen": _diag["json"]}
+    if _debug:
+        info["trace"] = _trace[:80]
     if dump_path:
         info["dump_path"] = dump_path
         info["dumped"] = bool(dumped)
@@ -677,9 +753,18 @@ if __name__ == "__main__":
         its, info = collect_range(df, dt, official_handles=[target_handle()])
         print(json.dumps({"info": info, "n": len(its)}, ensure_ascii=False))
     elif cmd == "dump":
-        df = sys.argv[2] if len(sys.argv) > 2 else _yesterday()
-        dt = sys.argv[3] if len(sys.argv) > 3 else df
-        out = sys.argv[4] if len(sys.argv) > 4 else ("ig_dump_%s_%s.csv" % (df, dt))
+        rest = list(sys.argv[2:])
+        out = None
+        if "--out" in rest:
+            i = rest.index("--out")
+            if i + 1 < len(rest):
+                out = rest[i + 1]
+                del rest[i:i + 2]
+            else:
+                del rest[i]
+        df = rest[0] if len(rest) > 0 else _yesterday()
+        dt = rest[1] if len(rest) > 1 else df
+        out = out or ("ig_dump_%s_%s.csv" % (df, dt))
         its, info = collect_range(df, dt, official_handles=[target_handle()], dump_path=out)
         print(json.dumps({"info": info, "n": len(its)}, ensure_ascii=False))
     else:
