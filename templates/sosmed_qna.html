@@ -96,6 +96,45 @@ async function jget(u){const r=await fetch(u);return r.json();}
 async function jpost(u,b){const r=await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b||{})});return r.json();}
 function rt(s){if(s==null)return '';if(s<60)return s+'s';if(s<3600)return Math.round(s/60)+'m';return Math.round(s/360)/10+'j';}
 
+// Ambil SATU cabang percakapan (komentar induk yang diklik + seluruh turunannya)
+// yang memuat item ber-id `anchorId`. Di X, conversation_id sudah memisahkan satu
+// utas tanya-jawab. Di IG/TikTok, conversation_id = kode postingan sehingga SEMUA
+// komentar satu postingan berbagi conversation_id yang sama; tanpa penyaringan ini
+// modal menampilkan komentar & jawaban yang tidak terkait bercampur.
+function threadBranch(items,anchorId){
+  items=items||[];
+  const aId=String(anchorId);
+  const byId={},byExt={};
+  items.forEach(it=>{byId[String(it.id)]=it;const e=(it.external_id==null?'':String(it.external_id));if(e)byExt[e]=it;});
+  const anchor=byId[aId];
+  if(!anchor)return items;
+  // Naik ke akar cabang selama induk (in_reply_to_id) masih ada di set ini.
+  let root=anchor;const seen={};
+  while(true){
+    const pext=(root.in_reply_to_id==null?'':String(root.in_reply_to_id)).trim();
+    const parent=pext?byExt[pext]:null;
+    if(!parent||seen[String(root.id)])break;
+    seen[String(root.id)]=1;root=parent;
+  }
+  // Kumpulkan akar + seluruh turunannya (telusur lewat in_reply_to_id).
+  const children={};
+  items.forEach(it=>{const p=(it.in_reply_to_id==null?'':String(it.in_reply_to_id)).trim();(children[p]=children[p]||[]).push(it);});
+  const out=[],stack=[root],picked={};
+  while(stack.length){
+    const node=stack.pop();
+    if(picked[String(node.id)])continue;
+    picked[String(node.id)]=1;out.push(node);
+    const e=(node.external_id==null?'':String(node.external_id));
+    (children[e]||[]).forEach(k=>stack.push(k));
+  }
+  out.sort((a,b)=>{
+    const ta=Date.parse(String(a.created_at||'').replace(' ','T'))||0;
+    const tb=Date.parse(String(b.created_at||'').replace(' ','T'))||0;
+    return ta-tb||(a.id-b.id);
+  });
+  return out;
+}
+
 document.querySelectorAll('#segRange button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#segRange button').forEach(x=>x.classList.remove('active'));
   b.classList.add('active');RANGE=b.dataset.r;
@@ -150,8 +189,13 @@ async function openThread(ds){
   $('#ovLink').href=ds.link||'#';$('#ovLink').style.display=ds.link?'inline-block':'none';
   const d=await jget('/api/sosmed/thread?platform='+encodeURIComponent(ds.p)+'&conversation_id='+encodeURIComponent(ds.c));
   if(!d||!d.ok){$('#ovBody').innerHTML='<div class="empty">Utas tidak ditemukan.</div>';return;}
-  $('#ovTitle').textContent='Utas · '+ds.p.toUpperCase()+' · '+d.n+' pesan';
-  $('#ovBody').innerHTML=d.items.map(it=>{
+  // X: conversation_id sudah memisahkan satu utas tanya-jawab (tampilkan apa adanya).
+  // IG/TikTok: conversation_id = kode postingan; SEMUA komentar satu postingan
+  // berbagi conversation_id sama, jadi batasi ke satu cabang komentar yang diklik.
+  let items=(d.items||[]);
+  if(ds.p==='ig'||ds.p==='tiktok'){items=threadBranch(items,ds.id);}
+  $('#ovTitle').textContent='Utas · '+ds.p.toUpperCase()+' · '+items.length+' pesan';
+  $('#ovBody').innerHTML=items.map(it=>{
     const off=it.is_official==1;
     const itlbl=(it.item_type||'').replace('_',' ');
     return `<div class="bub ${off?'off':'cust'}"><div class="who">${off?'✓ ':''}@${esc(it.author_handle)||'-'} · <span style="opacity:.7">${itlbl}</span></div>${esc(it.text)}<div class="tm">${esc(it.created_at||'')}${it.topik?' · '+esc(it.topik):''}</div></div>`;
