@@ -57,7 +57,30 @@ _REINDEX_STATE = {"running": False, "again": False}
 def _auto_reindex_on():
     return str(os.environ.get("SOSMED_AUTO_REINDEX", "1")).strip().lower() not in (
         "0", "false", "no", "off")
+async def api_delete_by_date(request: Request):
+    """Hapus data sosmed berdasarkan platform dan tanggal (mis. untuk log auto-pull)."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    plat = ((body or {}).get("platform") or "").strip().lower()
+    day = ((body or {}).get("day") or "").strip()
+    if not plat or not day:
+        return JSONResponse({"ok": False, "error": "Platform dan tanggal (day) wajib diisi."}, status_code=400)
 
+    def _do():
+        c = _conn()
+        try:
+            return sdb.delete_items_by_date(c, plat, day)
+        finally:
+            c.close()
+    res = await run_in_threadpool(_do)
+    try:
+        if isinstance(res, dict) and res.get("ok"):
+            _kick_reindex_bg()
+    except Exception:
+        pass
+    return JSONResponse(res)
 
 def _kick_reindex_bg():
     """Jadwalkan rebuild index vektor sosmed di latar.
@@ -853,6 +876,46 @@ async def api_reindex(request: Request):
             return {"ok": False, "n": 0, "reason": str(e)[:160]}
     return JSONResponse(await run_in_threadpool(_do))
 
+async def api_item_delete(request: Request):
+    """Hapus satu item sosmed berdasarkan ID item."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    item_id = (body or {}).get("id")
+    if not item_id:
+        return JSONResponse({"ok": False, "error": "id wajib."}, status_code=400)
+
+    def _do():
+        c = _conn()
+        try:
+            # Ambil platform & conversation_id sebelum dihapus untuk merajut ulang Q&A
+            row = c.execute("SELECT platform, conversation_id FROM sosmed_items WHERE id=?", (int(item_id),)).fetchone()
+            if not row:
+                return {"ok": False, "error": "Item tidak ditemukan."}
+            plat, conv = row[0], row[1]
+            
+            # Hapus item dari database
+            c.execute("DELETE FROM sosmed_items WHERE id=?", (int(item_id),))
+            c.commit()
+            
+            # Rajut ulang percakapan
+            try:
+                sdb._pair_conversation(c, plat, conv)
+            except Exception:
+                pass
+            c.commit()
+            return {"ok": True}
+        finally:
+            c.close()
+            
+    res = await run_in_threadpool(_do)
+    try:
+        if isinstance(res, dict) and res.get("ok"):
+            _kick_reindex_bg()
+    except Exception:
+        pass
+    return JSONResponse(res)
 
 # ---------------------------------------------------------------------------
 # Registrasi
@@ -902,7 +965,8 @@ def register(app):
     # kompat: endpoint FAQ lama -> knowledge-gap
     app.add_api_route("/api/sosmed/faq", api_knowledge_gap, methods=["GET"])
     app.add_api_route("/api/sosmed/stats", api_stats, methods=["GET"])
-
+    app.add_api_route("/api/sosmed/delete-by-date", api_delete_by_date, methods=["POST"])
+    app.add_api_route("/api/sosmed/item-delete", api_item_delete, methods=["POST"])
     # --- Auto-pull X harian (Fase 1): tarik mention H-1 otomatis tanpa ekstensi.
     #     Rute /api/sosmed/pull-x-auto/* + penjadwal (default MATI: SOSMED_X_SCHEDULER=0).
     #     Fail-soft: bila modul/dependensi bermasalah, rute lain tetap boot. ---

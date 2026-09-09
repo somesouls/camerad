@@ -62,8 +62,8 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
       </div>
       <div class="sm-out" id="out_x"></div>
       <p class="sm-note">Penjadwal harian otomatis (H-1) aktif bila <code>SOSMED_X_SCHEDULER=1</code> di server — jam &amp; zona waktu diatur lewat <code>SOSMED_X_INGEST_HOUR/MINUTE</code> &amp; <code>SOSMED_X_TZ</code> (default Asia/Jakarta). Tarikan lewat X API lama sudah tidak dipakai (free tier tak bisa baca mention).</p>
-      <table class="sm-tb"><thead><tr><th>Hari</th><th>Status</th><th>Baru</th><th>Ditarik</th><th>Pemicu</th><th>Diperbarui</th></tr></thead>
-      <tbody id="log_x"><tr><td colspan="6" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
+      <table class="sm-tb"><thead><tr><th>Hari</th><th>Status</th><th>Baru</th><th>Ditarik</th><th>Aksi</th></tr></thead>
+      <tbody id="log_x"><tr><td colspan="5" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
     </div>
 
     <!-- Tarik Instagram -->
@@ -81,8 +81,8 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
       </div>
       <div class="sm-out" id="out_ig"></div>
       <p class="sm-note">Penjadwal harian aktif bila <code>SOSMED_IG_SCHEDULER=1</code> — jam via <code>SOSMED_IG_INGEST_HOUR/MINUTE</code>. Instagram tak punya pencarian per-tanggal publik, jadi kolektor menarik komentar pada <code>SOSMED_IG_MAX_POSTS</code> postingan terbaru; anti-dobel menjaga hanya komentar baru tersimpan. Butuh login akun kedua di server (<code>SOSMED_IG_USERNAME/PASSWORD</code>) atau sesi tersimpan, dan target di <code>SOSMED_IG_TARGET</code>.</p>
-      <table class="sm-tb"><thead><tr><th>Hari</th><th>Status</th><th>Baru</th><th>Ditarik</th><th>Pemicu</th><th>Diperbarui</th></tr></thead>
-      <tbody id="log_ig"><tr><td colspan="6" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
+      <table class="sm-tb"><thead><tr><th>Hari</th><th>Status</th><th>Baru</th><th>Ditarik</th><th>Aksi</th></tr></thead>
+      <tbody id="log_ig"><tr><td colspan="5" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
     </div>
 
     <!-- Tarik TikTok -->
@@ -100,8 +100,8 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
       </div>
       <div class="sm-out" id="out_tiktok"></div>
       <p class="sm-note">Penjadwal harian aktif bila <code>SOSMED_TT_SCHEDULER=1</code> — jam via <code>SOSMED_TT_INGEST_HOUR/MINUTE</code>. TikTok tak punya pencarian per-tanggal publik, jadi kolektor menarik komentar pada <code>SOSMED_TT_MAX_VIDEOS</code> video terbaru; anti-dobel menjaga hanya komentar baru tersimpan. Butuh login akun kedua di server (<code>SOSMED_TT_USERNAME/PASSWORD</code>) atau sesi tersimpan, dan target di <code>SOSMED_TT_TARGET</code>.</p>
-      <table class="sm-tb"><thead><tr><th>Hari</th><th>Status</th><th>Baru</th><th>Ditarik</th><th>Pemicu</th><th>Diperbarui</th></tr></thead>
-      <tbody id="log_tiktok"><tr><td colspan="6" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
+      <table class="sm-tb"><thead><tr><th>Hari</th><th>Status</th><th>Baru</th><th>Ditarik</th><th>Aksi</th></tr></thead>
+      <tbody id="log_tiktok"><tr><td colspan="5" style="color:var(--text-muted);">Belum ada.</td></tr></tbody></table>
     </div>
 
     <!-- Impor manual -->
@@ -140,7 +140,6 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
     </div>
     <p class="sm-note">“Perbaiki pemasangan Q&amp;A” menjalankan ulang perajutan pertanyaan–jawaban sadar-thread untuk seluruh data lama. Gunakan sekali setelah pembaruan sistem bila ada tweet jawaban yang keliru tercatat sebagai pertanyaan. Aman dijalankan berulang.</p>
     <p class="sm-note">“Index data baru” membangun index vektor pencarian cepat sosmed secara inkremental — hanya meng-embed Q&amp;A terjawab yang baru/berubah. Berjalan otomatis di latar tiap ada impor/tarik/perbaikan; tombol ini untuk memicu manual. Aman diklik berulang.</p>
-    <p class="sm-note">Tombol <b>Hapus</b> di kolom Aksi menghapus data satu batch tarikan/impor agar bisa <b>ditarik ulang</b> (mis. saat URL IG sempat tak tersedia). Item yang pertama masuk lewat batch lain tidak ikut terhapus. Pemasangan Q&amp;A untuk percakapan terkait dirajut ulang otomatis.</p>
     <div class="sm-out" id="reindexOut"></div>
     <div class="sm-out" id="repairOut"></div>
     <div class="sm-out" id="batchOut"></div>
@@ -158,7 +157,7 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
       <button class="sm-btn" id="btnCfgSave">Simpan pengaturan</button>
     </div>
     <p class="sm-note">Isi <b>0</b> untuk memakai nilai default/env server (IG default 12, TikTok default 10). Makin besar angkanya, makin banyak komentar ditarik tapi makin lama prosesnya.</p>
-    <div class="sm-out" id="cfgOut"></div>
+    <div class="cfg-out" id="cfgOut"></div>
   </div>
 
   <!-- Tarik satu postingan tertentu ("Tarik postingan ini") -->
@@ -258,8 +257,9 @@ function makeAuto(p,label){
   }
   async function log(){
     try{const d=await jget(base+'/log?platform='+p);const tb=LOG();
-      if(!d.ok||!d.days||!d.days.length){tb.innerHTML='<tr><td colspan=6 style="color:var(--text-muted)">Belum ada.</td></tr>';return;}
-      tb.innerHTML=d.days.map(x=>`<tr><td>${x.day||''}</td><td>${x.status||''}</td><td>${x.n_new||0}</td><td>${x.n_fetched||0}</td><td>${x.trigger||''}</td><td>${x.updated_at||''}</td></tr>`).join('');
+      if(!d.ok||!d.days||!d.days.length){tb.innerHTML='<tr><td colspan=5 style="color:var(--text-muted)">Belum ada.</td></tr>';return;}
+      tb.innerHTML=d.days.map(x=>`<tr><td>${x.day||''}</td><td>${x.status||''}</td><td>${x.n_new||0}</td><td>${x.n_fetched||0}</td><td><button class="sm-btn danger sm sm-del-day" data-day="${x.day||''}">Hapus</button></td></tr>`).join('');
+      bindDayDeletes(p);
     }catch(e){}
   }
   async function pull(){
@@ -272,6 +272,26 @@ function makeAuto(p,label){
   $('#btnStat_'+p).onclick=()=>{status();log();};
   $('#btnPull_'+p).onclick=pull;
   return {status,log};
+}
+
+function bindDayDeletes(p){
+  document.querySelectorAll('#log_'+p+' .sm-del-day').forEach(btn=>{
+    btn.onclick=async()=>{
+      const day=btn.dataset.day;
+      if(!day)return;
+      if(!confirm(`Hapus seluruh data tarikan tanggal ${day} untuk ${p.toUpperCase()}? Tindakan ini tidak bisa dibatalkan.`))return;
+      btn.disabled=true;
+      const {code, data}=await jpost('/api/sosmed/delete-by-date',{platform: p, day: day});
+      if(data.ok){
+        alert(`Berhasil menghapus ${data.deleted} item pada tanggal ${day}.`);
+        refreshAutos();
+        loadStats();
+      } else {
+        btn.disabled=false;
+        alert(data.error || 'Gagal menghapus data.');
+      }
+    };
+  });
 }
 
 const AUTOS=[makeAuto('x','X'),makeAuto('ig','Instagram'),makeAuto('tiktok','TikTok')];

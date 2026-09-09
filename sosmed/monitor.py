@@ -160,12 +160,6 @@ def _handle(row):
 # Rekonstruksi satu conversation -> peran (utama/tambahan/resmi) + peta jawaban
 # ---------------------------------------------------------------------------
 def _classify_conv(rows, off):
-    """rows: semua baris satu (platform, conversation_id), urut waktu ASC.
-    Kembalikan (role, main_of, officials_of):
-      role[ext]        : 'main' | 'addition' | 'official'
-      main_of[ext]     : ext utama untuk item 'main'/'addition'
-      officials_of[m]  : list baris resmi (jawaban) untuk utama m, urut waktu ASC
-    """
     by_ext = {r["external_id"]: r for r in rows if r.get("external_id")}
     role = {}
     main_of = {}
@@ -176,10 +170,14 @@ def _classify_conv(rows, off):
         if _is_off(r, off):
             role[ext] = "official"
             continue
+            
         parent = by_ext.get(r.get("in_reply_to_id") or "")
-        if parent is None or _is_off(parent, off):
+        if parent is None:
             role[ext] = "main"
             main_of[ext] = ext
+        elif _is_off(parent, off):
+            # Warga membalas langsung ke akun resmi -> masuk Tambahan/Nimbrung
+            role[ext] = "addition"
         else:
             role[ext] = "addition"
 
@@ -203,8 +201,9 @@ def _classify_conv(rows, off):
             if m:
                 main_of[ext] = m
             else:
-                # tambahan yatim (induk hilang dari tarikan) -> jadikan utama.
-                role[ext] = "main"
+                # KUNCI PERBAIKAN: Jangan paksa jadi "main"!
+                # Tetap jadikan "addition" agar masuk ke filter Nimbrung
+                role[ext] = "addition"
                 main_of[ext] = ext
 
     officials_of = {}
@@ -232,6 +231,7 @@ def _classify_conv(rows, off):
     return role, main_of, officials_of
 
 
+
 def _officials_direct(rows, off, by_ext):
     """Untuk tiap balasan RESMI, cari leluhur NON-RESMI TERDEKAT (utama ATAU
     tambahan) lalu atribusikan ke situ. Dipakai mendeteksi jawaban yang membalas
@@ -255,7 +255,13 @@ def _officials_direct(rows, off, by_ext):
 
 
 def _is_nimbrung(row, ext_main, by_ext):
-    """True bila TAMBAHAN ini ditulis warga yang BERBEDA dari penulis UTAMA-nya."""
+    """True bila TAMBAHAN ini membalas official langsung, atau ditulis warga yang BERBEDA dari penulis UTAMA-nya."""
+    parent = by_ext.get(row.get("in_reply_to_id") or "")
+    
+    # Aturan Baru: Jika membalas langsung ke akun resmi -> Mutlak Nimbrung
+    if parent and parent.get("is_official") == 1:
+        return True
+        
     main_row = by_ext.get(ext_main)
     if not main_row:
         return False

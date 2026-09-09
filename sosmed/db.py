@@ -441,20 +441,41 @@ def ingest_items(conn, items, default_platform=None, source="import",
             "n_skip": n_skip, "batch": batch_id,
             "platforms": sorted(platforms), "convs": len(touched_convs)}
 
+def delete_items_by_date(conn, platform, day_str):
+    """Hapus item sosmed berdasarkan platform dan tanggal tertentu (YYYY-MM-DD)."""
+    norm_plat = _norm_platform(platform) if platform else ""
+    cur = conn.cursor()
+    # Ambil percakapan yang tersentuh untuk dirajut ulang pairing-nya nanti
+    rows = cur.execute(
+        "SELECT DISTINCT platform, conversation_id FROM sosmed_items "
+        "WHERE platform=? AND substr(created_at, 1, 10)=?",
+        (norm_plat, day_str)
+    ).fetchall()
+    convs = [(r[0], r[1]) for r in rows]
+    
+    # Hapus datanya
+    cur.execute(
+        "DELETE FROM sosmed_items WHERE platform=? AND substr(created_at, 1, 10)=?",
+        (norm_plat, day_str)
+    )
+    deleted_count = cur.rowcount
+    conn.commit()
+    
+    # Rajut ulang percakapan yang tersisa
+    for (plat, conv) in convs:
+        try:
+            _pair_conversation(conn, plat, conv)
+        except Exception:
+            pass
+    conn.commit()
+    return {"ok": True, "deleted": deleted_count, "platform": norm_plat, "day": day_str}
 
 def _pair_conversation(conn, platform, conv):
-    """Rekonstruksi pohon balasan satu conversation lalu tetapkan item_type &
-    status Q&A yang benar (lihat modul docstring).
-
-    Aturan item_type:
-      - is_official                              -> 'balasan_resmi'
-      - non-resmi membalas item RESMI            -> 'susulan'
-      - selain itu (root / balas sesama customer)-> 'pertanyaan'
-    Aturan status untuk 'pertanyaan':
-      - 'terjawab' bila ADA balasan resmi sebagai keturunan pada pohon balasan
-        (menelusuri in_reply_to ke atas dari tiap balasan resmi). Ambil balasan
-        resmi paling awal sebagai jawaban (answered_by/at, answer_text, RT).
-      - status 'diabaikan' (keputusan manual) dihormati, tidak ditimpa.
+    """Rekonstruksi pohon balasan satu conversation lalu tetapkan item_type & status Q&A.
+    
+    PERUBAHAN BARU: Semua komentar dari warga (baik root maupun balasan ke admin) 
+    dianggap sebagai 'pertanyaan' agar memiliki argometer SLA mandiri dan 
+    masuk ke antrean tabel Utama SPV.
     """
     rows = conn.execute(
         "SELECT id,external_id,in_reply_to_id,is_official,created_at,author_handle,"
@@ -468,11 +489,9 @@ def _pair_conversation(conn, platform, conv):
     def _final_type(r):
         if r["is_official"] == 1:
             return "balasan_resmi"
-        tgt = by_ext.get(r["in_reply_to_id"] or "")
-        if r["in_reply_to_id"] and tgt is not None and tgt["is_official"] == 1:
-            return "susulan"
+        # HAPUS logika "susulan". Semua dari warga = "pertanyaan" (Tiket Baru)
         return "pertanyaan"
-
+    
     # Jawaban: telusuri ancestor dari tiap balasan resmi; tandai pertanyaan
     # leluhur sebagai terjawab oleh balasan resmi paling awal.
     answer_of = {}   # question_ext -> official row
@@ -494,32 +513,27 @@ def _pair_conversation(conn, platform, conv):
                 "UPDATE sosmed_items SET item_type='balasan_resmi', status='terjawab' "
                 "WHERE id=?", (r["id"],))
             continue
-        if ftype == "susulan":
-            # bukan pertanyaan; bersihkan jejak pairing lama bila ada.
-            conn.execute(
-                "UPDATE sosmed_items SET item_type='susulan', status='pending',"
-                "answered_by=NULL,answered_at=NULL,answer_text=NULL,response_time_s=NULL "
-                "WHERE id=?", (r["id"],))
-            continue
-        # pertanyaan
+            
+        # Untuk semua pertanyaan/tiket dari warga
         if r["status"] == "diabaikan":
-            conn.execute("UPDATE sosmed_items SET item_type='pertanyaan' WHERE id=?",
-                         (r["id"],))
+            conn.execute("UPDATE sosmed_items SET item_type='pertanyaan' WHERE id=?", (r["id"],))
             continue
+            
         off = answer_of.get(r["external_id"])
         if off is not None:
+            # Jika ada balasan resmi untuk tiket ini
             rt = _resp_seconds(r["created_at"], off["created_at"])
             conn.execute(
                 "UPDATE sosmed_items SET item_type='pertanyaan',status='terjawab',"
                 "answered_by=?,answered_at=?,answer_text=?,response_time_s=? WHERE id=?",
                 (off["author_handle"], off["created_at"], off["text"], rt, r["id"]))
         else:
+            # Jika belum ada balasan resmi
             conn.execute(
                 "UPDATE sosmed_items SET item_type='pertanyaan',status='belum_terjawab',"
                 "answered_by=NULL,answered_at=NULL,answer_text=NULL,response_time_s=NULL "
                 "WHERE id=?", (r["id"],))
-
-
+            
 def _lt(a, b):
     da, db = _parse_dt(a), _parse_dt(b)
     if da and db:
@@ -846,20 +860,28 @@ if __name__ == "__main__":
     assert it3["topik"] == "Perubahan Data", it3["topik"]
     assert it3["item_type"] == "pertanyaan" and it3["status"] == "belum_terjawab", it3
 
-    # MULTI-TURN c4: root 2001 = pertanyaan TERJAWAB (admin jawab node berbeda),
-    #   2003 = susulan (bukan pertanyaan), 2002/2004 = balasan_resmi.
+# MULTI-TURN c4: root 2001 -> admin klarifikasi 2002 -> customer balas admin 2003
+    #   -> admin jawab akhir 2004. 
+    # Keduanya (root 2001 dan balasan lanjutan 2003) dihitung sebagai tiket 'pertanyaan'
+    # dan memiliki SLA masing-masing yang sukses terjawab.
     root = get_item(c, 5)
     assert root["external_id"] == "2001", root["external_id"]
     assert root["item_type"] == "pertanyaan" and root["status"] == "terjawab", root
     assert root["response_time_s"] == 10 * 60, root["response_time_s"]  # jawaban resmi paling awal
+    
     sus = get_item(c, 7)
-    assert sus["external_id"] == "2003" and sus["item_type"] == "susulan", sus
+    # Node 2003 kini jadi tiket pertanyaan baru, dan dijawab oleh 2004 (SLA 10 mnt)
+    assert sus["external_id"] == "2003" and sus["item_type"] == "pertanyaan", sus
+    assert sus["status"] == "terjawab", sus["status"]
+    assert sus["response_time_s"] == 10 * 60, sus["response_time_s"]
+
     off2 = get_item(c, 6)
     assert off2["item_type"] == "balasan_resmi", off2
 
-    # daftar pertanyaan: 1001,1003,1004,2001,ig1 = 5 (susulan TIDAK termasuk)
+    # daftar pertanyaan: 1001,1003,1004,2001,2003,ig1 = 6 total pertanyaan antrean
     lst = list_items(c, only_questions=True)
-    assert lst["total"] == 5, lst["total"]
+    assert lst["total"] == 6, lst["total"]
+
     lst_x = list_items(c, platform="x", topik="Lupa EFIN", only_questions=True)
     assert lst_x["total"] == 1, lst_x["total"]
 
@@ -867,10 +889,10 @@ if __name__ == "__main__":
     th = get_thread(c, "x", "c4")
     assert th and th["n"] == 4, th
 
-    # coverage & SLA: 5 pertanyaan, 2 terjawab (1001, 2001)
+    # coverage & SLA: 6 pertanyaan, 3 terjawab (1001, 2001, 2003)
     cov = coverage_sla(c)
-    assert cov["total"] == 5 and cov["answered"] == 2, cov
-    assert cov["within_sla"] == 2, cov  # 25 & 10 mnt <= 60 mnt
+    assert cov["total"] == 6 and cov["answered"] == 3, cov
+    assert cov["within_sla"] == 3, cov  # 25, 10, & 10 mnt <= 60 mnt
 
     # analytics
     an = analytics(c)
@@ -879,20 +901,20 @@ if __name__ == "__main__":
 
     # faq_pairs: pertanyaan terjawab membawa draf jawaban
     fp = faq_pairs(c, only_answered=True)
-    assert fp["total"] == 2, fp["total"]
+    assert fp["total"] == 3, fp["total"]
     assert all(p["jawaban_draf"] for p in fp["pairs"]), fp["pairs"]
 
     # idempotensi: ingest ulang tidak menambah baris & item_type stabil
     r2 = ingest_items(c, sample, source="import")
     assert r2["n_new"] == 0 and r2["n_dup"] == 9, r2
-    assert get_item(c, 7)["item_type"] == "susulan", "item_type harus stabil"
+    assert get_item(c, 7)["item_type"] == "pertanyaan", "item_type harus stabil"
 
     # repair_all_pairing aman dijalankan ulang
     rep = repair_all_pairing(c)
     assert rep["ok"], rep
 
     st = stats(c)
-    assert st["total"] == 9 and st["questions"] == 5 and st["answered"] == 2, st
+    assert st["total"] == 9 and st["questions"] == 6 and st["answered"] == 3, st
 
     c.close()
     print("SOSMED_DB_SMOKE_OK")
