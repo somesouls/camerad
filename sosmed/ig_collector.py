@@ -672,6 +672,33 @@ _MORE_REPLIES_SRC = (
     r"(lihat|muat|tampilkan)\s+(semua\s+)?(\d[\d.,]*\s+)?(lagi\s+)?balasan(\s+lainnya)?|"
     r"balas(an)?\s+lainnya)")
 
+# Tombol "muat lebih banyak komentar INDUK" di IG desktop kerap HANYA ikon (SVG
+# '+') tanpa teks, jadi _MORE_COMMENTS_SRC (berbasis teks) tak pernah mengklik
+# (more_comments_clicked=0). Cari svg[aria-label] terkait komentar lalu klik
+# tombol pembungkusnya (role=button/button/a). Fail-soft, dedup per posisi.
+_MORE_COMMENTS_ICON_JS = r"""
+() => {
+  const rx = /(load more comment|more comment|see more comment|view more comment|previous comment|muat.*komentar|komentar lain|komentar sebelumnya|lihat komentar|tampilkan komentar)/i;
+  let n = 0;
+  const seen = new Set();
+  const svgs = document.querySelectorAll('svg[aria-label]');
+  for (const s of svgs) {
+    const lbl = s.getAttribute('aria-label') || '';
+    if (!rx.test(lbl)) continue;
+    const btn = s.closest('[role="button"]') || s.closest('button') ||
+                s.closest('a[role="link"]') || s.parentElement;
+    if (!btn) continue;
+    const r = btn.getBoundingClientRect();
+    const key = Math.round(r.x) + ',' + Math.round(r.y);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    try { btn.scrollIntoView({block: 'center'}); } catch (e) {}
+    try { btn.click(); n++; } catch (e) {}
+  }
+  return n;
+}
+"""
+
 # Diagnostik: kumpulkan teks pendek unik dari elemen yang bisa diklik & mungkin
 # terkait balasan/muat-lebih. Dipakai saat DEBUG utk mengetahui WORDING tombol
 # 'Lihat balasan' versi IG/locale user bila belum ada balasan terpanen.
@@ -772,29 +799,46 @@ _DOM_COMMENTS_JS = r"""
     if (!m) continue;
     const cid = m[1];
     if (seen.has(cid)) continue;
-    const li = a.closest('li') || a.parentElement;
-    if (!li) continue;
+    // Komentar IG dibangun dari <div> bertingkat (TIDAK ada <li>). Anchor
+    // permalink `/p/<code>/c/<id>/` berada di dalam blok komentar; telusuri
+    // NAIK ke leluhur sampai ketemu kontainer yang memuat username
+    // (span._ap3a) DAN span teks terpisah (bukan username, bukan waktu,
+    // bukan permalink). Ambil kontainer terkecil yang memuat keduanya.
     let handle = '';
-    const ha = li.querySelector('h3 a[href^="/"]') ||
-               li.querySelector('a[role="link"][href^="/"]');
-    if (ha) {
-      const hm = (ha.getAttribute('href') || '').match(/^\/([^\/?#]+)/);
-      handle = hm ? hm[1] : (ha.textContent || '').trim();
-    }
     let text = '';
-    const ts = li.querySelector('span._ap3a') ||
-               li.querySelector('h3 + div span[dir="auto"]') ||
-               li.querySelector('span[dir="auto"]');
-    if (ts) text = (ts.textContent || ts.innerText || '').trim();
-    let created = 0;
-    const te = a.querySelector('time[datetime]') ||
-               li.querySelector('time[datetime]');
-    if (te) {
-      const dt = te.getAttribute('datetime') || '';
-      const t = Date.parse(dt);
-      if (!isNaN(t)) created = Math.floor(t / 1000);
+    let box = a.parentElement;
+    for (let i = 0; i < 12 && box; i++) {
+      const un = box.querySelector('span._ap3a');
+      if (un) {
+        let h = '';
+        const pa = box.querySelector('a[role="link"][href^="/"]');
+        if (pa) {
+          const hm = (pa.getAttribute('href') || '').match(/^\/([^\/?#]+)\/?$/);
+          if (hm) h = hm[1];
+        }
+        if (!h) h = (un.textContent || '').trim();
+        let best = '';
+        const spans = box.querySelectorAll('span[dir="auto"]');
+        for (const s of spans) {
+          if (s.matches && s.matches('span._ap3a')) continue;
+          if (s.closest('a')) continue;
+          if (s.querySelector('span._ap3a')) continue;
+          if (s.querySelector('time')) continue;
+          if (s.closest('a[href*="/c/"]')) continue;
+          const t = (s.innerText || s.textContent || '').trim();
+          if (t && t.length > best.length) best = t;
+        }
+        if (h && best) { handle = h; text = best; break; }
+      }
+      box = box.parentElement;
     }
     if (!handle || !text) continue;
+    let created = 0;
+    const te = a.querySelector('time[datetime]');
+    if (te) {
+      const t = Date.parse(te.getAttribute('datetime') || '');
+      if (!isNaN(t)) created = Math.floor(t / 1000);
+    }
     seen.add(cid);
     out.push({pk: cid, text: text, user: {username: handle}, created_at: created});
   }
@@ -843,11 +887,15 @@ def _load_comments(page, max_scrolls, diag=None):
         stagnant = 0
         for _s in range(80):
             mc = _click_js(page, _MORE_COMMENTS_SRC)
+            try:
+                mc += int(page.evaluate(_MORE_COMMENTS_ICON_JS) or 0)
+            except Exception:
+                pass
             rc = _click_js(page, _MORE_REPLIES_SRC)
             diag["more_comments"] = diag.get("more_comments", 0) + mc
             diag["more_replies"] = diag.get("more_replies", 0) + rc
-            if rc:
-                _sleep(0.9)  # tunggu child_comments (graphql) termuat & tersadap
+            if rc or mc:
+                _sleep(0.9)  # tunggu komentar induk / child_comments termuat & tersadap
             st = _scroll_step(page, 1200)
             _sleep(0.8)
             _grab_dom()
@@ -865,7 +913,11 @@ def _load_comments(page, max_scrolls, diag=None):
             if h > last_h:
                 last_h = h
         # Sapuan di dasar pass ini.
-        diag["more_comments"] = diag.get("more_comments", 0) + _click_js(page, _MORE_COMMENTS_SRC)
+        try:
+            _icon = int(page.evaluate(_MORE_COMMENTS_ICON_JS) or 0)
+        except Exception:
+            _icon = 0
+        diag["more_comments"] = diag.get("more_comments", 0) + _click_js(page, _MORE_COMMENTS_SRC) + _icon
         diag["more_replies"] = diag.get("more_replies", 0) + _click_js(page, _MORE_REPLIES_SRC)
     # Sapuan akhir Playwright (jaring pengaman) utk sisa toggle balasan.
     for _r in range(4):
