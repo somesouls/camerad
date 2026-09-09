@@ -160,6 +160,23 @@ table.sm-tb th{color:var(--text-muted);font-weight:600;}
     <p class="sm-note">Isi <b>0</b> untuk memakai nilai default/env server (IG default 12, TikTok default 10). Makin besar angkanya, makin banyak komentar ditarik tapi makin lama prosesnya.</p>
     <div class="sm-out" id="cfgOut"></div>
   </div>
+
+  <!-- Tarik satu postingan tertentu ("Tarik postingan ini") -->
+  <div class="sm-card" style="margin-top:16px;">
+    <h3>Tarik Postingan Ini</h3>
+    <p class="hint">Tarik ulang komentar dari SATU postingan tertentu (mis. setelah komentar induk bertambah, atau saat sebuah postingan perlu diperbarui tanpa menunggu penarikan menyeluruh). Pilih dari daftar postingan yang sudah terpantau, atau tempel URL/kode postingan langsung. Data langsung di-ingest &amp; anti-dobel.</p>
+    <div class="cfg-row">
+      <div class="cfg-fld"><label class="sm-lbl" style="margin:0">Platform</label>
+        <select class="sm-sel" id="ppPlat"><option value="ig">Instagram</option><option value="tiktok">TikTok</option></select></div>
+      <div class="cfg-fld" style="flex:1;min-width:240px;"><label class="sm-lbl" style="margin:0">Pilih postingan terpantau</label>
+        <select class="sm-sel" id="ppPost"><option value="">— memuat… —</option></select></div>
+    </div>
+    <label class="sm-lbl">Atau tempel URL / kode postingan (opsional; bila diisi, menang atas pilihan di atas)</label>
+    <input class="sm-in" id="ppUrl" type="text" placeholder="https://www.instagram.com/p/Dc-kZ1DJHpH/  •  atau  Dc-kZ1DJHpH  •  atau URL video TikTok">
+    <div class="sm-row"><button class="sm-btn" id="btnPullPost">Tarik postingan ini</button></div>
+    <div class="sm-out" id="ppOut"></div>
+    <p class="sm-note"><b>Instagram</b> aman berjalan headless di server. <b>TikTok</b> memerlukan sesi headed/lokal (<code>SOSMED_TT_HEADLESS=0</code>) karena captcha/overlay — jalankan dari mesin yang punya profil Chrome yang sudah login. Proses bisa memakan 1–2 menit tergantung jumlah balasan.</p>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -293,6 +310,39 @@ $('#btnPurge').onclick=async()=>{
   if(!confirm('Hapus SEMUA data sosmed? Tindakan ini tidak bisa dibatalkan.'))return;
   const {data}=await jpost('/api/sosmed/purge',{});if(data.ok){loadStats();}
 };
-loadStats();refreshAutos();loadSettings();
+
+// "Tarik postingan ini": pilih dari daftar postingan terpantau atau tempel URL/kode.
+async function loadPosts(p){
+  const sel=$('#ppPost');sel.innerHTML='<option value="">— memuat… —</option>';
+  try{const d=await jget('/api/sosmed/monitor-posts?platform='+p);
+    const posts=(d&&d.posts)||[];
+    if(!posts.length){sel.innerHTML='<option value="">(belum ada postingan terpantau — tempel URL/kode di bawah)</option>';return;}
+    sel.innerHTML='<option value="">— pilih postingan —</option>'+posts.map(x=>{
+      const val=String(x.post_url||x.conversation_id||'');
+      const lbl=String((x.post_label||x.conversation_id||'(tanpa judul)')+' — '+(x.n_items||0)+' item');
+      return `<option value="${val.replace(/"/g,'&quot;')}">${lbl.replace(/</g,'&lt;')}</option>`;
+    }).join('');
+  }catch(e){sel.innerHTML='<option value="">(gagal memuat daftar)</option>';}
+}
+$('#ppPlat').onchange=()=>loadPosts($('#ppPlat').value);
+$('#btnPullPost').onclick=async()=>{
+  const plat=$('#ppPlat').value;
+  const manual=$('#ppUrl').value.trim();
+  const post=manual||$('#ppPost').value;
+  if(!post){out($('#ppOut'),false,'Pilih postingan dari daftar atau tempel URL/kode dulu.');return;}
+  const btn=$('#btnPullPost');btn.disabled=true;
+  out($('#ppOut'),true,'Menarik komentar postingan… bisa memakan 1–2 menit, mohon tunggu.');
+  const {code,data}=await jpost('/api/sosmed/pull-post',{platform:plat,post:post});
+  btn.disabled=false;
+  if(data.ok){out($('#ppOut'),true,`Selesai: ${data.pulled||0} komentar ditarik, ${data.n_new||0} baru, ${data.n_dup||0} dobel.`);loadStats();}
+  else{
+    let m=data.error||'Gagal menarik postingan.';
+    if(data.need_login)m+=' (Perlu login akun kedua di server / sesi tersimpan.)';
+    if(data.need_playwright)m+=' (Playwright belum terpasang di server.)';
+    out($('#ppOut'),false,m);
+  }
+};
+
+loadStats();refreshAutos();loadSettings();loadPosts('ig');
 </script>
 {% endblock %}
