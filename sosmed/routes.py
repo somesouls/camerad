@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """sosmed_routes.py — Rute Menu Sosmed (X / IG / TikTok), versi ringkas 4 menu.
 
-Struktur menu (rombak Agustus 2026, sesuai arahan \"cukup jadi database FAQ\"):
+Struktur menu (rombak Agustus 2026, sesuai arahan "cukup jadi database FAQ"):
   1. Q&A                   — gabungan Inbox + Daftar Q&A (pertanyaan warga + utas).
   2. Kelola Data Sosmed    — impor manual / tarik X + housekeeping + perbaiki data.
   3. SLA & Analitik        — gabungan Coverage & SLA + Analitik Sosmed.
@@ -21,6 +21,7 @@ import csv
 import json
 import zipfile
 import threading
+import importlib
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -327,6 +328,66 @@ async def api_pull_x(request: Request):
     return JSONResponse(res, status_code=code)
 
 
+async def api_pull_post(request: Request):
+    """Tarik komentar dari SATU postingan tertentu (IG shortcode/URL atau TikTok
+    URL/id video). Dipakai tombol "Tarik postingan ini" di Kelola Data.
+
+    IG aman berjalan headless di server; TikTok butuh sesi headed/lokal
+    (SOSMED_TT_HEADLESS=0) karena captcha/overlay."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    plat = ((body or {}).get("platform") or "").strip().lower()
+    if plat in ("instagram", "ig"):
+        plat = "ig"
+    elif plat in ("tiktok", "tt"):
+        plat = "tiktok"
+    post = ((body or {}).get("post") or (body or {}).get("url")
+            or (body or {}).get("conversation_id") or "").strip()
+    cfg = _POST_PULL.get(plat)
+    if not cfg:
+        return JSONResponse({"ok": False, "error": "Platform tidak didukung (pilih IG / TikTok)."},
+                            status_code=400)
+    if not post:
+        return JSONResponse({"ok": False, "error": "Postingan (URL/kode) wajib diisi."},
+                            status_code=400)
+    user = _current_username(request)
+    off = _off_handles()
+
+    def _do():
+        try:
+            coll = importlib.import_module(cfg["module"])
+        except Exception as e:
+            return {"ok": False, "error": "Collector %s tidak tersedia: %s" % (cfg["label"], e)}
+        try:
+            items, cinfo = coll.collect_range(official_handles=list(off),
+                                              trigger="manual_post",
+                                              **{cfg["arg"]: [post]})
+        except Exception as e:
+            return {"ok": False, "error": "Gagal menarik postingan: %s" % e}
+        if not cinfo.get("ok"):
+            return {"ok": False, "error": cinfo.get("error", "Gagal menarik postingan."),
+                    "need_login": cinfo.get("need_login", False),
+                    "need_playwright": cinfo.get("need_playwright", False)}
+        c = _conn()
+        try:
+            res = sdb.ingest_items(c, items, default_platform=plat,
+                                   source="pull_post_" + plat, pulled_by=user)
+        finally:
+            c.close()
+        res["pulled"] = cinfo.get("count", len(items))
+        return res
+    res = await run_in_threadpool(_do)
+    try:
+        if res.get("ok"):
+            _kick_reindex_bg()
+    except Exception:
+        pass
+    code = 200 if res.get("ok") else 400
+    return JSONResponse(res, status_code=code)
+
+
 async def api_repair(request: Request):
     """Perbaiki data lama: jalankan ulang pairing Q&A sadar-thread untuk SEMUA
     conversation. Dipakai sekali setelah upgrade agar baris lama (yang di-ingest
@@ -572,6 +633,12 @@ _CFG_META = {
     "tt_max_posts": ("cfg_tt_max_posts", "SOSMED_TT_MAX_VIDEOS", 10),
 }
 
+# Peta collector untuk aksi "Tarik postingan ini" (satu postingan tertentu).
+_POST_PULL = {
+    "ig": {"module": "sosmed.ig_collector", "arg": "only_codes", "label": "Instagram"},
+    "tiktok": {"module": "sosmed.tiktok_collector", "arg": "only_urls", "label": "TikTok"},
+}
+
 
 async def api_settings(request: Request):
     """Pengaturan penarikan efektif (maks postingan IG / video TikTok per tarik).
@@ -734,113 +801,4 @@ async def api_knowledge_gap(request: Request):
                 start=_qp(request, "start"), end=_qp(request, "end"),
                 min_count=min_count, use_semantic=use_sem)
         finally:
-            c.close()
-    return JSONResponse(await run_in_threadpool(_do))
-
-
-# ---------------------------------------------------------------------------
-# Stats / housekeeping
-# ---------------------------------------------------------------------------
-async def api_stats(request: Request):
-    def _do():
-        c = _conn()
-        try:
-            out = {"ok": True, "stats": sdb.stats(c), "batches": sdb.list_batches(c, 50)}
-        finally:
-            c.close()
-        try:
-            out["index"] = ssi.stats()
-        except Exception:
-            out["index"] = {"vec": 0}
-        return out
-    return JSONResponse(await run_in_threadpool(_do))
-
-
-async def api_purge(request: Request):
-    def _do():
-        c = _conn()
-        try:
-            sdb.purge_all(c)
-            return {"ok": True}
-        finally:
-            c.close()
-    res = await run_in_threadpool(_do)
-    try:
-        _kick_reindex_bg()
-    except Exception:
-        pass
-    return JSONResponse(res)
-
-
-async def api_reindex(request: Request):
-    """Bangun ulang index vektor sosmed secara inkremental.
-
-    Hanya meng-embed Q&A terjawab yang baru/berubah (dan membuang yang sudah
-    dihapus). Dipakai oleh tombol \"Index data baru\" di Kelola Data Sosmed.
-    Fail-open: bila index nonaktif/dependensi tak ada, balikin ok=False + alasan.
-    """
-    def _do():
-        try:
-            return ssi.build()
-        except Exception as e:
-            return {"ok": False, "n": 0, "reason": str(e)[:160]}
-    return JSONResponse(await run_in_threadpool(_do))
-
-
-# ---------------------------------------------------------------------------
-# Registrasi
-# ---------------------------------------------------------------------------
-def register(app):
-    # Halaman (4 menu)
-    app.add_api_route("/sosmed", sosmed_qna_page, methods=["GET"])
-    app.add_api_route("/sosmed/qna", sosmed_qna_page, methods=["GET"])
-    app.add_api_route("/sosmed/kelola", sosmed_kelola_page, methods=["GET"])
-    app.add_api_route("/sosmed/sla", sosmed_sla_page, methods=["GET"])
-    app.add_api_route("/sosmed/deflection", sosmed_deflection_page, methods=["GET"])
-    app.add_api_route("/sosmed/monitor", sosmed_monitor_page, methods=["GET"])
-    # Redirect rute lama -> baru
-    app.add_api_route("/sosmed/inbox", _redir_qna, methods=["GET"])
-    app.add_api_route("/sosmed/coverage", _redir_sla, methods=["GET"])
-    app.add_api_route("/sosmed/analytics", _redir_sla, methods=["GET"])
-    app.add_api_route("/sosmed/faq", _redir_deflection, methods=["GET"])
-    # Kelola data
-    app.add_api_route("/api/sosmed/import-upload", api_import_upload, methods=["POST"])
-    app.add_api_route("/api/sosmed/import-paste", api_import_paste, methods=["POST"])
-    app.add_api_route("/api/sosmed/x/capabilities", api_x_capabilities, methods=["GET"])
-    app.add_api_route("/api/sosmed/pull-x", api_pull_x, methods=["POST"])
-    app.add_api_route("/api/sosmed/purge", api_purge, methods=["POST"])
-    app.add_api_route("/api/sosmed/repair", api_repair, methods=["POST"])
-    app.add_api_route("/api/sosmed/reindex", api_reindex, methods=["POST"])
-    app.add_api_route("/api/sosmed/batch-delete", api_batch_delete, methods=["POST"])
-    app.add_api_route("/api/sosmed/settings", api_settings, methods=["GET"])
-    app.add_api_route("/api/sosmed/settings-save", api_settings_save, methods=["POST"])
-    # Q&A
-    app.add_api_route("/api/sosmed/list", api_list, methods=["GET"])
-    app.add_api_route("/api/sosmed/thread", api_thread, methods=["GET"])
-    app.add_api_route("/api/sosmed/status", api_set_status, methods=["POST"])
-    app.add_api_route("/api/sosmed/topik", api_set_topik, methods=["POST"])
-    # Pengawasan SPV
-    app.add_api_route("/api/sosmed/monitor", api_monitor, methods=["GET"])
-    app.add_api_route("/api/sosmed/review", api_review, methods=["POST"])
-    app.add_api_route("/api/sosmed/post-label", api_post_label, methods=["POST"])
-    app.add_api_route("/api/sosmed/monitor-thread", api_monitor_thread, methods=["GET"])
-    app.add_api_route("/api/sosmed/monitor-posts", api_monitor_posts, methods=["GET"])
-    app.add_api_route("/api/sosmed/monitor-post", api_monitor_post, methods=["GET"])
-    # SLA & Analitik
-    app.add_api_route("/api/sosmed/coverage", api_coverage, methods=["GET"])
-    app.add_api_route("/api/sosmed/analytics", api_analytics, methods=["GET"])
-    # Coverage & Deflection (FAQ + gap)
-    app.add_api_route("/api/sosmed/knowledge-gap", api_knowledge_gap, methods=["GET"])
-    # kompat: endpoint FAQ lama -> knowledge-gap
-    app.add_api_route("/api/sosmed/faq", api_knowledge_gap, methods=["GET"])
-    app.add_api_route("/api/sosmed/stats", api_stats, methods=["GET"])
-
-    # --- Auto-pull X harian (Fase 1): tarik mention H-1 otomatis tanpa ekstensi.
-    #     Rute /api/sosmed/pull-x-auto/* + penjadwal (default MATI: SOSMED_X_SCHEDULER=0).
-    #     Fail-soft: bila modul/dependensi bermasalah, rute lain tetap boot. ---
-    try:
-        import sosmed.autopull as _sosmed_autopull
-        _sosmed_autopull.register_app(app)
-        _sosmed_autopull.maybe_start_scheduler()
-    except Exception as _autopull_exc:
-        print("[sosmed-autopull] registrasi dilewati:", _autopull_exc, flush=True)
+            

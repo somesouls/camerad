@@ -83,6 +83,21 @@ def _ig_user(u):
             str(u.get("pk") or u.get("id") or ""))
 
 
+def _post_code(s):
+    """Ambil shortcode postingan IG dari URL (/p/<code>/, /reel/<code>/,
+    /tv/<code>/) atau kembalikan token apa adanya bila sudah berupa shortcode."""
+    s = str(s or "").strip()
+    if not s:
+        return ""
+    m = re.search(r"/(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)", s)
+    if m:
+        return m.group(1)
+    s = s.split("?")[0].split("#")[0].strip().strip("/")
+    if "/" in s:
+        s = s.split("/")[-1]
+    return s
+
+
 def _is_ig_comment(n):
     """True bila node terlihat seperti komentar IG (punya text + user.username + pk)."""
     if not isinstance(n, dict):
@@ -741,6 +756,53 @@ def _click_all(page, rx, limit=40):
     return n
 
 
+# Panen komentar ter-render dari DOM. IG menaruh komentar UTAMA (root) di HTML
+# hasil SSR (BUKAN XHR), jadi harus dibaca dari DOM; hanya balasan yang datang
+# lewat /graphql. Tiap komentar punya tautan permalink `/p/<code>/c/<comment_id>/`
+# + penulis (h3 a) + teks (span._ap3a) + waktu (<time datetime>). Kembalikan node
+# siap _mk_ig_item (created_at = epoch detik agar cocok _epoch_to_iso).
+_DOM_COMMENTS_JS = r"""
+() => {
+  const out = [];
+  const seen = new Set();
+  const anchors = document.querySelectorAll('a[href*="/c/"]');
+  for (const a of anchors) {
+    const href = a.getAttribute('href') || '';
+    const m = href.match(/\/(?:p|reel|reels|tv)\/[A-Za-z0-9_-]+\/c\/(\d+)\//);
+    if (!m) continue;
+    const cid = m[1];
+    if (seen.has(cid)) continue;
+    const li = a.closest('li') || a.parentElement;
+    if (!li) continue;
+    let handle = '';
+    const ha = li.querySelector('h3 a[href^="/"]') ||
+               li.querySelector('a[role="link"][href^="/"]');
+    if (ha) {
+      const hm = (ha.getAttribute('href') || '').match(/^\/([^\/?#]+)/);
+      handle = hm ? hm[1] : (ha.textContent || '').trim();
+    }
+    let text = '';
+    const ts = li.querySelector('span._ap3a') ||
+               li.querySelector('h3 + div span[dir="auto"]') ||
+               li.querySelector('span[dir="auto"]');
+    if (ts) text = (ts.textContent || ts.innerText || '').trim();
+    let created = 0;
+    const te = a.querySelector('time[datetime]') ||
+               li.querySelector('time[datetime]');
+    if (te) {
+      const dt = te.getAttribute('datetime') || '';
+      const t = Date.parse(dt);
+      if (!isNaN(t)) created = Math.floor(t / 1000);
+    }
+    if (!handle || !text) continue;
+    seen.add(cid);
+    out.push({pk: cid, text: text, user: {username: handle}, created_at: created});
+  }
+  return out;
+}
+"""
+
+
 def _load_comments(page, max_scrolls, diag=None):
     """Muat komentar + BALASAN berjenjang di IG.
 
@@ -755,7 +817,19 @@ def _load_comments(page, max_scrolls, diag=None):
     & mengumpulkan diag['reply_candidates'] (wording tombol) utk diagnosa."""
     if diag is None:
         diag = {}
+    # Akumulasi node komentar DOM (root ter-SSR) bertahap tiap scroll agar tidak
+    # hilang oleh virtualisasi; dikonversi ke item di collect_range (butuh code).
+    _dom = diag.setdefault("_dom_nodes", {})
+    def _grab_dom():
+        try:
+            for nd in (page.evaluate(_DOM_COMMENTS_JS) or []):
+                pk = str((nd or {}).get("pk") or "").split("_")[0]
+                if pk and pk not in _dom:
+                    _dom[pk] = nd
+        except Exception:
+            pass
     _sleep(2.0)  # beri waktu komentar awal termuat
+    _grab_dom()
     passes = max(2, min(int(max_scrolls or 1), 4))
     for _p in range(passes):
         # Mulai tiap pass dari ATAS agar toggle di komentar teratas ikut terklik.
@@ -764,6 +838,7 @@ def _load_comments(page, max_scrolls, diag=None):
         except Exception:
             pass
         _sleep(0.7)
+        _grab_dom()
         last_h = 0
         stagnant = 0
         for _s in range(80):
@@ -775,6 +850,7 @@ def _load_comments(page, max_scrolls, diag=None):
                 _sleep(0.9)  # tunggu child_comments (graphql) termuat & tersadap
             st = _scroll_step(page, 1200)
             _sleep(0.8)
+            _grab_dom()
             try:
                 h = int(st.get("h", 0) or 0)
             except Exception:
@@ -798,6 +874,7 @@ def _load_comments(page, max_scrolls, diag=None):
         if not c:
             break
         _sleep(1.0)
+    _grab_dom()
     # Diagnostik wording tombol (dipakai saat DEBUG bila balasan masih 0).
     try:
         cand = page.evaluate(_CANDIDATE_TEXTS_JS) or []
@@ -813,7 +890,8 @@ def _load_comments(page, max_scrolls, diag=None):
 
 
 def collect_range(date_from=None, date_to=None, official_handles=None,
-                  target=None, trigger="manual", dump_path=None, **_kw):
+                  target=None, trigger="manual", dump_path=None,
+                  only_codes=None, **_kw):
     """Tarik komentar pada N postingan terbaru akun resmi IG via browser.
     Kembalikan (items, info). items siap sosmed.db.ingest_items.
 
@@ -841,7 +919,7 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
     # datang lewat /graphql tanpa media-id di URL) ke postingan yang benar.
     _cur = {"code": None}
     _diag = {"comments": 0, "feed": 0, "json": 0,
-             "more_comments": 0, "more_replies": 0}
+             "more_comments": 0, "more_replies": 0, "dom_comments": 0}
     _debug = _flag("SOSMED_IG_DEBUG", "0")
     _trace = []
 
@@ -912,31 +990,41 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                     pass
         logged_in = _has_auth_cookie(ctx)
 
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        except Exception:
-            pass
-        _sleep(4)
-        for _ in range(4):
+        # Mode "Tarik postingan ini": bila only_codes diberikan, LEWATI pembukaan
+        # profil & pendaftaran postingan; buka persis shortcode yang diminta.
+        _only = []
+        for _c in (only_codes or []):
+            _cc = _post_code(_c)
+            if _cc and _cc not in _only:
+                _only.append(_cc)
+        if _only:
+            codes = _only
+        else:
             try:
-                page.mouse.wheel(0, 2600)
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
             except Exception:
                 pass
-            _sleep(2.0)
+            _sleep(4)
+            for _ in range(4):
+                try:
+                    page.mouse.wheel(0, 2600)
+                except Exception:
+                    pass
+                _sleep(2.0)
 
-        # Urutkan postingan terbaru (taken_at desc) lalu buka satu per satu.
-        _tgt_l = tgt.lower()
-        _codes_all = sorted(media_codes.values(),
-                            key=lambda d: d.get("taken_at") or 0, reverse=True)
-        # Hanya buka postingan milik target (owner cocok / tak diketahui);
-        # buang postingan sugesti/explore dari akun lain.
-        codes = [d["code"] for d in _codes_all
-                 if d.get("code") and (not d.get("owner")
-                                       or d.get("owner") == _tgt_l)]
-        if not codes:
-            codes = [d["code"] for d in _codes_all if d.get("code")]
-        if max_posts and max_posts > 0:
-            codes = codes[:max_posts]  # 0 / negatif = SEMUA postingan target
+            # Urutkan postingan terbaru (taken_at desc) lalu buka satu per satu.
+            _tgt_l = tgt.lower()
+            _codes_all = sorted(media_codes.values(),
+                                key=lambda d: d.get("taken_at") or 0, reverse=True)
+            # Hanya buka postingan milik target (owner cocok / tak diketahui);
+            # buang postingan sugesti/explore dari akun lain.
+            codes = [d["code"] for d in _codes_all
+                     if d.get("code") and (not d.get("owner")
+                                           or d.get("owner") == _tgt_l)]
+            if not codes:
+                codes = [d["code"] for d in _codes_all if d.get("code")]
+            if max_posts and max_posts > 0:
+                codes = codes[:max_posts]  # 0 / negatif = SEMUA postingan target
         for code in codes:
             # Tandai postingan yang sedang dibuka -> _on_response menautkan
             # komentar ke shortcode ini (conversation_id postingan yang benar).
@@ -949,6 +1037,19 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             _sleep(2.6)
             # Scroll panel komentar (bertahap) + klik 'muat lebih / lihat balasan'.
             _load_comments(page, max_scrolls, _diag)
+            # Panen komentar UTAMA (root) dari DOM ter-render lalu tautkan ke
+            # shortcode postingan ini. XHR (punya induk) tetap MENANG via
+            # setdefault; DOM hanya mengisi root yang tak lewat XHR.
+            try:
+                _domn = _diag.get("_dom_nodes") or {}
+                if _domn:
+                    _before = len(by_id)
+                    for it in extract_ig_comments(list(_domn.values()), None,
+                                                  code, off):
+                        by_id.setdefault(it["external_id"], it)
+                    _diag["dom_comments"] += len(by_id) - _before
+            finally:
+                _diag["_dom_nodes"] = {}
 
         if not persistent:
             try:
@@ -968,7 +1069,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             "comments_seen": _diag["comments"], "feed_seen": _diag["feed"],
             "json_seen": _diag["json"],
             "more_comments_clicked": _diag["more_comments"],
-            "more_replies_clicked": _diag["more_replies"]}
+            "more_replies_clicked": _diag["more_replies"],
+            "dom_comments": _diag["dom_comments"]}
     if _debug:
         info["trace"] = _trace[:80]
         if _diag.get("reply_candidates"):
@@ -1056,6 +1158,24 @@ def _smoke():
         c.close()
     except ImportError:
         pass
+    # single-post: ekstraksi shortcode dari URL / kode telanjang
+    assert _post_code("https://www.instagram.com/p/Dc-kZ1DJHpH/") == "Dc-kZ1DJHpH"
+    assert _post_code("https://www.instagram.com/reel/AbC-1_2/?x=1") == "AbC-1_2"
+    assert _post_code("Dc-kZ1DJHpH") == "Dc-kZ1DJHpH"
+    # DOM harvest (komentar UTAMA/root SSR): node bentuk-DOM -> item root,
+    # conversation_id = shortcode, permalink terisi, created_at dari epoch.
+    dom_nodes = [{"pk": "18118251241819981",
+                  "text": "VERIF EMAIL dong min",
+                  "user": {"username": "rzdpa"}, "created_at": 1757295815}]
+    dom_items = extract_ig_comments(dom_nodes, None, "Dc-kZ1DJHpH",
+                                    official=["kring_pajak"])
+    assert len(dom_items) == 1, dom_items
+    _d0 = dom_items[0]
+    assert _d0["conversation_id"] == "Dc-kZ1DJHpH", _d0
+    assert _d0["in_reply_to_id"] is None, _d0
+    assert _d0["permalink"] == (
+        "https://www.instagram.com/p/Dc-kZ1DJHpH/c/18118251241819981/"), _d0
+    assert _d0["created_at"] == "2025-09-08T01:43:35.000Z", _d0["created_at"]
     print("SOSMED_IG_COLLECTOR_SMOKE_OK")
 
 
