@@ -363,6 +363,18 @@ def profile_url(target=None):
     return "https://www.tiktok.com/@%s" % (target or target_handle())
 
 
+def _video_url(s, target=None):
+    """Bentuk URL video TikTok dari input: URL penuh -> buang query; id telanjang
+    -> https://www.tiktok.com/@<target>/video/<id>. MURNI, bisa diuji offline."""
+    s = str(s or "").strip()
+    if not s:
+        return ""
+    if s.startswith("http://") or s.startswith("https://"):
+        return s.split("?")[0]
+    tgt = (target or target_handle()).lstrip("@")
+    return "https://www.tiktok.com/@%s/video/%s" % (tgt, s)
+
+
 def _sleep(base):
     try:
         time.sleep(max(0.2, base + _random.uniform(-0.4, 0.8)))
@@ -377,7 +389,7 @@ def _context_kwargs():
     """Mengatur konteks browser, memaksa resolusi besar agar Captcha tidak terpotong."""
     kw = dict(
         user_agent=(os.environ.get("SOSMED_TT_UA") or _DEFAULT_UA),
-        locale="id-ID", 
+        locale="id-ID",
         viewport={"width": 1280, "height": 768} # PERBAIKAN: Perbesar resolusi agar slider captcha terlihat
     )
     tz = _tz_name()
@@ -393,37 +405,37 @@ def _persistent_dir():
 def _launch(pw, headless):
     """Memulai browser dengan Stealth Mode dan resolusi penuh."""
     args = [
-        "--no-sandbox", 
+        "--no-sandbox",
         "--disable-dev-shm-usage",
         "--disable-blink-features=AutomationControlled",
         "--disable-infobars",
         "--window-size=1920,1080" # PERBAIKAN: Paksa ukuran jendela Windows
     ]
-    
+
     # PERBAIKAN: Gunakan Chrome asli yang terinstal di komputer, bukan Chromium
     channel = (os.environ.get("SOSMED_TT_CHANNEL") or "chrome").strip()
     udd = _persistent_dir()
-    
+
     if udd:
         prof = (os.environ.get("SOSMED_TT_PROFILE_DIR") or "Default").strip()
         if prof:
             args.append("--profile-directory=%s" % prof)
         launch_kw = dict(headless=headless, args=args, channel=channel)
-        
-        # Jangan gunakan context kwargs viewport terpisah jika menggunakan persistent context 
+
+        # Jangan gunakan context kwargs viewport terpisah jika menggunakan persistent context
         # agar window tidak terpotong (bergantung pada --window-size di args)
-        launch_kw["viewport"] = {"width": 1920, "height": 1080} 
-        
+        launch_kw["viewport"] = {"width": 1920, "height": 1080}
+
         ctx = pw.chromium.launch_persistent_context(udd, **launch_kw)
         if stealth_sync:
             ctx.on("page", lambda page: stealth_sync(page))
         return None, ctx, True
-        
+
     launch_kw = dict(headless=headless, args=args, channel=channel)
     browser = pw.chromium.launch(**launch_kw)
     sf = state_file()
     kw = _context_kwargs()
-    
+
     if os.path.exists(sf):
         try:
             ctx = browser.new_context(storage_state=sf, **kw)
@@ -431,7 +443,7 @@ def _launch(pw, headless):
             return browser, ctx, False
         except Exception:
             pass
-            
+
     ctx = browser.new_context(**kw)
     if stealth_sync: ctx.on("page", lambda page: stealth_sync(page))
     return browser, ctx, False
@@ -651,15 +663,15 @@ def _click_all(page, rx, limit=40):
 def _scroll_comment_section(page):
     """Scroll khusus di dalam panel komentar TikTok agar API memuat data baru."""
     _check_and_wait_captcha(page)
-    
+
     # Paksa scroll element via JS (jauh lebih cepat dan pasti mengenai target)
     try:
         page.evaluate("""() => {
             // Cari container komentar TikTok berdasarkan atribut spesifiknya
-            const panel = document.querySelector('[data-e2e="search-comment-container"]') || 
+            const panel = document.querySelector('[data-e2e="search-comment-container"]') ||
                           document.querySelector('div[class*="DivCommentListContainer"]');
-            if(panel) { 
-                panel.scrollBy(0, 1500); 
+            if(panel) {
+                panel.scrollBy(0, 1500);
             } else {
                 window.scrollBy(0, 1000);
             }
@@ -695,13 +707,13 @@ def _load_comments(page, max_scrolls, diag=None):
     """Memuat komentar dan balasan dengan log responsif dan tidak macet."""
     if diag is None:
         diag = {}
-    
+
     _human_sleep(3, 5) # Beri waktu render komentar awal
     _check_and_wait_captcha(page)
-    
+
     for i in range(max(1, int(max_scrolls or 1))):
         print(f"      - Scroll & memuat balasan ({i+1}/{max_scrolls})...")
-        
+
         # 1. Buka balasan berjenjang (Klik via JS sangat cepat & anti-macet)
         for _r in range(3):
             c = _click_replies(page)
@@ -709,18 +721,22 @@ def _load_comments(page, max_scrolls, diag=None):
             if not c:
                 break
             _human_sleep(1.0, 1.5)
-            
+
         # 2. Scroll panel komentar ke bawah untuk memicu lazy load (Komentar baru)
         _scroll_comment_section(page)
-        
+
     return diag
 
 def collect_range(date_from=None, date_to=None, official_handles=None,
-                  target=None, trigger="manual", dump_path=None, **_kw):
+                  target=None, trigger="manual", dump_path=None,
+                  only_urls=None, **_kw):
     """
     1. Buka profil target
     2. Parsing DOM HTML untuk mengambil link /video/ atau /photo/
     3. Buka link tersebut satu per satu dan load komentar
+
+    Mode "Tarik postingan ini": bila only_urls diberikan (list URL/id video),
+    LEWATI buka profil & scraping DOM; langsung proses video yang diminta.
     """
     date_from = date_from or _yesterday()
     date_to = date_to or date_from
@@ -728,16 +744,16 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
     tgt = (target or target_handle()).lstrip("@")
     off.add(tgt.lower())
     url = profile_url(tgt)
-    
+
     try:
         from playwright.sync_api import sync_playwright
     except Exception as e:
         return [], {"ok": False, "need_playwright": True, "error": str(e)}
-        
+
     headless = _flag("SOSMED_TT_HEADLESS", "1") # Set 0 saat pertama kali untuk selesaikan captcha
     max_videos = _int_env("SOSMED_TT_MAX_VIDEOS", 10)
     max_scrolls = _int_env("SOSMED_TT_MAX_SCROLLS", 8)
-    
+
     by_id = {}
     awemes = {} # Untuk simpan API data jika lewat
     _diag = {"comments": 0, "items": 0, "json": 0, "more_comments": 0, "more_replies": 0}
@@ -752,13 +768,13 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             try:
                 u = resp.url or ""
                 if "tiktok.com" not in u: return
-                is_cmt = "/api/comment/list" in u 
+                is_cmt = "/api/comment/list" in u
                 is_item = ("/api/post/item_list" in u or "/api/user/detail" in u)
                 if not (is_cmt or is_item): return
-                
+
                 try: data = resp.json()
                 except Exception: return
-                
+
                 _diag["json"] += 1
                 if is_cmt:
                     before = len(by_id)
@@ -782,54 +798,64 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 _close(browser, ctx)
                 return [], {"ok": False, "need_login": True, "error": err, "url": url}
 
-        print(f"[*] Membuka profil: {url}")
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-        except Exception:
-            pass
-            
-        _human_sleep(4, 6)
-        _check_and_wait_captcha(page)
+        # Mode "Tarik postingan ini": bila only_urls diberikan, LEWATI buka profil
+        # & scraping DOM; langsung proses URL/id video yang diminta.
+        _only = []
+        for _s in (only_urls or []):
+            _vu = _video_url(_s, tgt)
+            if _vu and _vu not in _only:
+                _only.append(_vu)
+        if _only:
+            valid_links = _only
+            print(f"[*] Mode tarik-postingan: {len(valid_links)} URL diminta.")
+        else:
+            print(f"[*] Membuka profil: {url}")
+            try:
+                page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            except Exception:
+                pass
 
-        # LANGKAH 2: Scroll profil dan Kumpulkan Link dari HTML (DOM)
-        print("[*] Menscroll halaman profil untuk memuat link video/photo...")
-        _human_scroll(page, scrolls=4)
-        _human_sleep(2, 3)
+            _human_sleep(4, 6)
+            _check_and_wait_captcha(page)
 
-        # Ekstrak href menggunakan JavaScript DOM selector
-        print("[*] Mengekstrak link postingan...")
-        hrefs = page.evaluate("""() => {
-            const links = Array.from(document.querySelectorAll('a[href]'));
-            return links.map(a => a.href);
-        }""")
+            # LANGKAH 2: Scroll profil dan Kumpulkan Link dari HTML (DOM)
+            print("[*] Menscroll halaman profil untuk memuat link video/photo...")
+            _human_scroll(page, scrolls=4)
+            _human_sleep(2, 3)
 
-        # Filter hanya link video atau photo milik target
-        valid_links = []
-        target_pattern_video = f"/@{tgt}/video/"
-        target_pattern_photo = f"/@{tgt}/photo/"
-        
-        for href in hrefs:
-            if target_pattern_video in href or target_pattern_photo in href:
-                # Bersihkan URL dari parameter query (misal ?is_from_webapp=1)
-                clean_url = href.split("?")[0]
-                if clean_url not in valid_links:
-                    valid_links.append(clean_url)
+            # Ekstrak href menggunakan JavaScript DOM selector
+            print("[*] Mengekstrak link postingan...")
+            hrefs = page.evaluate("""() => {
+                const links = Array.from(document.querySelectorAll('a[href]'));
+                return links.map(a => a.href);
+            }""")
 
-        print(f"[+] Ditemukan {len(valid_links)} link postingan di DOM.")
+            # Filter hanya link video atau photo milik target
+            valid_links = []
+            target_pattern_video = f"/@{tgt}/video/"
+            target_pattern_photo = f"/@{tgt}/photo/"
 
-        # Batasi jumlah video yang akan diproses
-        if max_videos and max_videos > 0:
-            valid_links = valid_links[:max_videos]
+            for href in hrefs:
+                if target_pattern_video in href or target_pattern_photo in href:
+                    # Bersihkan URL dari parameter query (misal ?is_from_webapp=1)
+                    clean_url = href.split("?")[0]
+                    if clean_url not in valid_links:
+                        valid_links.append(clean_url)
 
-        # LANGKAH 3 & 4: Buka satu per satu dan kumpulkan
-# LANGKAH 3 & 4: Buka satu per satu dengan klik elemen (seperti manusia)
+            print(f"[+] Ditemukan {len(valid_links)} link postingan di DOM.")
+
+            # Batasi jumlah video yang akan diproses
+            if max_videos and max_videos > 0:
+                valid_links = valid_links[:max_videos]
+
+        # LANGKAH 3 & 4: Buka satu per satu dengan klik elemen (seperti manusia)
         for idx, post_url in enumerate(valid_links):
             print(f"[*] Memproses ({idx+1}/{len(valid_links)}): {post_url}")
             try:
                 # Ekstrak ID postingan dari URL untuk mencari elemen <a> di halaman
                 post_id = post_url.rstrip("/").split("/")[-1].split("?")[0]
                 video_el = page.locator(f'a[href*="{post_id}"]').first
-                
+
                 if video_el.count() > 0:
                     print("    -> Mengklik thumbnail di profil...")
                     video_el.scroll_into_view_if_needed()
@@ -838,22 +864,22 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 else:
                     print("    -> Navigasi direct URL (Fallback)...")
                     page.goto(post_url, referer=url, wait_until="domcontentloaded", timeout=45000)
-                    
+
             except Exception as e:
                 print(f"[-] Gagal membuka postingan {post_url}: {e}")
                 continue
-                
+
             # Tunggu overlay video dan kolom komentar dimuat penuh
             _human_sleep(4, 6)
             _check_and_wait_captcha(page)
-            
+
             # Scroll panel komentar dan ekspansi balasan
             print("    -> Memuat komentar...")
             _load_comments(page, max_scrolls, _diag)
-            
+
             # Berikan waktu API merespon dan menyimpan JSON
             _human_sleep(2, 3)
-            
+
             # Tutup overlay (kembali ke profil) atau go back
             try:
                 # Cari tombol "Close" (X) dari overlay TikTok: <button data-e2e="browse-close">
@@ -885,22 +911,22 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
         # Jika API komentar tidak membawa permalink, bentuk manual
         if it.get("conversation_id") and not it.get("permalink"):
             it["permalink"] = "https://www.tiktok.com/@%s/video/%s" % (tgt, it["conversation_id"])
-            
+
     dumped = False
     if dump_path:
         dumped = _write_dump(dump_path, items, tgt)
-        
+
     info = {
         "ok": True, "count": len(items),
         "target": tgt, "logged_in": True,
         "videos_opened": len(valid_links),
-        "comments_seen": _diag["comments"], 
+        "comments_seen": _diag["comments"],
         "more_replies_clicked": _diag["more_replies"]
     }
-    
+
     if len(items) == 0:
         info["note"] = "0 hasil: Captcha mungkin menghalangi, atau elemen tidak ditemukan. Gunakan SOSMED_TT_HEADLESS=0 untuk inspeksi visual."
-        
+
     return items, info
 
 # ===========================================================================
@@ -938,6 +964,11 @@ def _smoke():
                         "author": {"uniqueId": "kring_pajak"}}]}
     aw = extract_aweme_ids(il)
     assert "vid9" in aw and aw["vid9"]["owner"] == "kring_pajak", aw
+    # single-post: bentuk URL video dari URL penuh / id telanjang
+    assert _video_url("https://www.tiktok.com/@kring_pajak/video/123?is_from_webapp=1") == \
+        "https://www.tiktok.com/@kring_pajak/video/123"
+    assert _video_url("7300", target="kring_pajak") == \
+        "https://www.tiktok.com/@kring_pajak/video/7300"
     # threaded sort: komentar UTAMA (c1) sebelum BALASAN-nya (c2, level 1)
     ts = _thread_sort(items)
     _order = [it["external_id"] for it in ts]

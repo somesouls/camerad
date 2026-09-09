@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """sosmed_routes.py — Rute Menu Sosmed (X / IG / TikTok), versi ringkas 4 menu.
 
-Struktur menu (rombak Agustus 2026, sesuai arahan \"cukup jadi database FAQ\"):
+Struktur menu (rombak Agustus 2026, sesuai arahan "cukup jadi database FAQ"):
   1. Q&A                   — gabungan Inbox + Daftar Q&A (pertanyaan warga + utas).
   2. Kelola Data Sosmed    — impor manual / tarik X + housekeeping + perbaiki data.
   3. SLA & Analitik        — gabungan Coverage & SLA + Analitik Sosmed.
@@ -21,6 +21,7 @@ import csv
 import json
 import zipfile
 import threading
+import importlib
 
 from fastapi import Request
 from fastapi.responses import JSONResponse, RedirectResponse
@@ -327,6 +328,66 @@ async def api_pull_x(request: Request):
     return JSONResponse(res, status_code=code)
 
 
+async def api_pull_post(request: Request):
+    """Tarik komentar dari SATU postingan tertentu (IG shortcode/URL atau TikTok
+    URL/id video). Dipakai tombol "Tarik postingan ini" di Kelola Data.
+
+    IG aman berjalan headless di server; TikTok butuh sesi headed/lokal
+    (SOSMED_TT_HEADLESS=0) karena captcha/overlay."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    plat = ((body or {}).get("platform") or "").strip().lower()
+    if plat in ("instagram", "ig"):
+        plat = "ig"
+    elif plat in ("tiktok", "tt"):
+        plat = "tiktok"
+    post = ((body or {}).get("post") or (body or {}).get("url")
+            or (body or {}).get("conversation_id") or "").strip()
+    cfg = _POST_PULL.get(plat)
+    if not cfg:
+        return JSONResponse({"ok": False, "error": "Platform tidak didukung (pilih IG / TikTok)."},
+                            status_code=400)
+    if not post:
+        return JSONResponse({"ok": False, "error": "Postingan (URL/kode) wajib diisi."},
+                            status_code=400)
+    user = _current_username(request)
+    off = _off_handles()
+
+    def _do():
+        try:
+            coll = importlib.import_module(cfg["module"])
+        except Exception as e:
+            return {"ok": False, "error": "Collector %s tidak tersedia: %s" % (cfg["label"], e)}
+        try:
+            items, cinfo = coll.collect_range(official_handles=list(off),
+                                              trigger="manual_post",
+                                              **{cfg["arg"]: [post]})
+        except Exception as e:
+            return {"ok": False, "error": "Gagal menarik postingan: %s" % e}
+        if not cinfo.get("ok"):
+            return {"ok": False, "error": cinfo.get("error", "Gagal menarik postingan."),
+                    "need_login": cinfo.get("need_login", False),
+                    "need_playwright": cinfo.get("need_playwright", False)}
+        c = _conn()
+        try:
+            res = sdb.ingest_items(c, items, default_platform=plat,
+                                   source="pull_post_" + plat, pulled_by=user)
+        finally:
+            c.close()
+        res["pulled"] = cinfo.get("count", len(items))
+        return res
+    res = await run_in_threadpool(_do)
+    try:
+        if res.get("ok"):
+            _kick_reindex_bg()
+    except Exception:
+        pass
+    code = 200 if res.get("ok") else 400
+    return JSONResponse(res, status_code=code)
+
+
 async def api_repair(request: Request):
     """Perbaiki data lama: jalankan ulang pairing Q&A sadar-thread untuk SEMUA
     conversation. Dipakai sekali setelah upgrade agar baris lama (yang di-ingest
@@ -572,6 +633,12 @@ _CFG_META = {
     "tt_max_posts": ("cfg_tt_max_posts", "SOSMED_TT_MAX_VIDEOS", 10),
 }
 
+# Peta collector untuk aksi "Tarik postingan ini" (satu postingan tertentu).
+_POST_PULL = {
+    "ig": {"module": "sosmed.ig_collector", "arg": "only_codes", "label": "Instagram"},
+    "tiktok": {"module": "sosmed.tiktok_collector", "arg": "only_urls", "label": "TikTok"},
+}
+
 
 async def api_settings(request: Request):
     """Pengaturan penarikan efektif (maks postingan IG / video TikTok per tarik).
@@ -808,6 +875,7 @@ def register(app):
     app.add_api_route("/api/sosmed/import-paste", api_import_paste, methods=["POST"])
     app.add_api_route("/api/sosmed/x/capabilities", api_x_capabilities, methods=["GET"])
     app.add_api_route("/api/sosmed/pull-x", api_pull_x, methods=["POST"])
+    app.add_api_route("/api/sosmed/pull-post", api_pull_post, methods=["POST"])
     app.add_api_route("/api/sosmed/purge", api_purge, methods=["POST"])
     app.add_api_route("/api/sosmed/repair", api_repair, methods=["POST"])
     app.add_api_route("/api/sosmed/reindex", api_reindex, methods=["POST"])
