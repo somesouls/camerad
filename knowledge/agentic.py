@@ -13,20 +13,22 @@ Loop agentic READ-ONLY di atas DB Registry (db/registry.py):
 v2 (retrieval basis pengetahuan): loop kini juga dapat menelusuri sumber
 TEKSTUAL (peraturan, SOP, media sosial, percakapan AWE, intent) lewat aksi
 'rag_search' yang membungkus mesin retrieval RAG (rag/kb_search.py) TANPA LLM
-sintesis. Tetap READ-ONLY. Opsional & gagal-anggun: bila modul retrieval tak
-tersedia, aksi 'rag_search' tidak ditawarkan dan loop database berjalan seperti
-semula.
+sintesis. Tetap READ-ONLY.
 
-v3 (grounding & pencarian isi): tambah aksi 'columns' (introspeksi kolom NYATA
-via registry.get_columns, anti-mengarang kolom) dan 'content_search' (pencocokan
-POLA regex pada ISI transkrip percakapan di sisi server via
-knowledge/content_search.py — mengembalikan sid/nama/nik tanpa mengirim isi/email
-mentah ke LLM). Query yang gagal karena 'no such column' otomatis diberi daftar
-kolom nyata + petunjuk isi percakapan. Semua tetap READ-ONLY & ADITIF.
+v3 (grounding & pencarian isi): aksi 'columns' (introspeksi kolom NYATA via
+registry.get_columns) dan 'content_search' (pencocokan POLA regex pada ISI di
+sisi server via knowledge/content_search.py — kini lintas-DB). Query gagal karena
+'no such column' otomatis diberi daftar kolom nyata + petunjuk isi percakapan.
+
+v4 (kamus data & batas via .env): aksi 'schema' kini melampirkan KAMUS DATA dari
+knowledge/data_dictionary.py (deskripsi kolom, nilai kategorikal NYATA, contoh)
+sehingga model memilih filter dengan benar. Batas langkah dapat diatur lewat
+environment: AGENTIC_MAX_QUERY_STEPS dan AGENTIC_MAX_ITERS.
 
 Sifat: ADITIF & NON-BREAKING. Modul & endpoint baru; /api/ask dan
 /api/ask-data lama tidak diubah perilakunya.
 """
+import os
 import json
 import re
 import datetime as _dt
@@ -50,12 +52,28 @@ try:
 except Exception:  # pragma: no cover - content_search opsional
     content_search = None
 
+try:
+    import knowledge.data_dictionary as data_dict  # kamus data/grounding (opsional)
+except Exception:  # pragma: no cover - grounding opsional
+    data_dict = None
+
+
+def _env_int(name, default):
+    try:
+        v = int(os.environ.get(name, "") or default)
+        return v if v > 0 else default
+    except Exception:
+        return default
+
+
 # --- Batasan aman (guardrail operasional) --------------------------------
-MAX_ITERS = 6            # total giliran model (schema/query/final) per permintaan
-MAX_QUERY_STEPS = 6      # batas langkah query aktual
+# Dapat diatur lewat .env: AGENTIC_MAX_QUERY_STEPS, AGENTIC_MAX_ITERS.
+MAX_QUERY_STEPS = _env_int("AGENTIC_MAX_QUERY_STEPS", 8)  # batas langkah query/pencarian aktual
+MAX_ITERS = _env_int("AGENTIC_MAX_ITERS", MAX_QUERY_STEPS + 6)  # total giliran model
 MAX_ROWS = 200           # baris maksimum per query (diteruskan ke run_select)
 MAX_ROWS_TO_LLM = 50     # baris yang diumpankan balik ke LLM per observasi
 MAX_RESULT_CHARS = 3500  # batas ukuran teks observasi yang diumpan balik
+MAX_SCHEMA_CHARS = 8000  # batas observasi 'schema' (memuat kamus data)
 MAX_RAG_STEPS = 4        # batas langkah pencarian basis pengetahuan (rag_search)
 MAX_RAG_CHARS = 3500     # batas panjang konteks RAG yang diumpan balik ke LLM
 
@@ -91,18 +109,19 @@ def _query_hints():
         "alamat email yang diketik) ada di kolom TRANSKRIP: transkrip_json (CHAT) dan "
         "stt_text/transkrip_json (TELEPON). TIDAK ADA kolom conversation_text/"
         "isi_percakapan/transcript — JANGAN mengarang; bila ragu pakai aksi 'columns' "
-        "untuk melihat kolom nyata. Bila pengguna meminta pencarian pada ISI "
-        "percakapan, JANGAN cari di customer; pakai aksi 'content_search' (paling "
-        "andal, cocok di sisi server) atau REGEXP pada kolom transkrip. Fungsi REGEXP "
-        "tersedia (case-insensitive); contoh email @gmail.com dengan LEBIH DARI SATU "
-        "titik sebelum @ (mis. sam.sul.h@gmail.com; wp1@gmail.com atau "
-        "nico.reno@gmail.com yang 0/1 titik TIDAK dicari): "
+        "atau 'schema' (memuat kamus data) untuk melihat kolom & nilai nyata. Bila "
+        "pengguna meminta pencarian pada ISI percakapan, JANGAN cari di customer; "
+        "pakai aksi 'content_search' (paling andal, cocok di sisi server) atau REGEXP "
+        "pada kolom transkrip. Fungsi REGEXP tersedia (case-insensitive); contoh "
+        "email @gmail.com dengan LEBIH DARI SATU titik sebelum @ (mis. "
+        "sam.sul.h@gmail.com; wp1@gmail.com atau nico.reno@gmail.com yang 0/1 titik "
+        "TIDAK dicari): "
         r"'[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+){2,}@gmail\.com'"
         ". 'bot-only' (murni bot) = agent_name kosong; untuk mengecualikan bot-only "
         "tambahkan AND agent_name IS NOT NULL AND agent_name<>'' (atau pakai "
         "exclude_bot_only pada content_search). Bila sebuah query mengembalikan 0 "
-        "baris, coba longgarkan (LIKE lebih longgar / lepas filter tanggal) sebelum "
-        "menyimpulkan data tidak ada."
+        "baris, coba longgarkan (LIKE lebih longgar / lepas filter tanggal / periksa "
+        "nilai kategorikal di kamus data) sebelum menyimpulkan data tidak ada."
     )
 
 
@@ -134,14 +153,19 @@ def _system_prompt():
         )
     cs_line = ""
     if content_search is not None:
+        try:
+            _supported = ", ".join(content_search.supported())
+        except Exception:
+            _supported = "avaya"
         cs_line = (
             "- Cari POLA pada ISI percakapan (regex, DICOCOKKAN DI SISI SERVER, hanya "
-            "mengembalikan sid/nama/nik) untuk database 'avaya': "
+            "mengembalikan kolom identitas aman spt sid/nama/nik): "
             "{\"action\":\"content_search\",\"db\":\"avaya\",\"pattern\":\"<regex>\","
             "\"scope\":\"chat\",\"exclude_bot_only\":true,\"prefilter\":\"gmail.com\"}.\n"
             "  * Pakai ini bila pertanyaan menyangkut ISI/teks percakapan (mis. "
-            "mencari alamat email/kata pada transkrip), BUKAN identitas. 'scope' = "
-            "'chat' atau 'phone'; 'prefilter' opsional (substring untuk mempersempit "
+            "mencari alamat email/kata pada transkrip), BUKAN identitas. Didukung "
+            "untuk DB: " + _supported + ". Untuk avaya 'scope'='chat'/'phone'; DB lain "
+            "pakai scope default. 'prefilter' opsional (substring mempersempit "
             "kandidat). READ-ONLY.\n"
         )
     return (
@@ -149,8 +173,8 @@ def _system_prompt():
         "pertanyaan dengan MENELUSURI beberapa database internal (READ-ONLY).\n\n"
         "Cara kerja (WAJIB):\n"
         "- Balas TEPAT SATU objek JSON per langkah. Tanpa teks lain, tanpa markdown.\n"
-        "- Lihat skema kolom dulu bila belum tahu: "
-        "{\"action\":\"schema\",\"db\":\"<key>\"}.\n"
+        "- Lihat skema + KAMUS DATA (deskripsi kolom, nilai kategorikal NYATA, contoh) "
+        "sebelum menulis query: {\"action\":\"schema\",\"db\":\"<key>\"}.\n"
         "- Lihat kolom NYATA sebuah database (anti-mengarang kolom): "
         "{\"action\":\"columns\",\"db\":\"<key>\"}.\n"
         "- Ambil data: {\"action\":\"query\",\"db\":\"<key>\",\"sql\":\"SELECT ...\"}.\n"
@@ -163,6 +187,8 @@ def _system_prompt():
         "Database tersedia (key | label | tabel):\n" + _catalog_text() +
         "\n\nAturan penting:\n"
         "- Gunakan HANYA key database pada daftar di atas. Database 'users' TIDAK tersedia.\n"
+        "- Untuk pertanyaan lintas-topik/lintas-DB, query tiap DB TERPISAH lalu gabungkan "
+        "di penalaran (tidak ada JOIN antar-DB).\n"
         "- Maksimal " + str(MAX_QUERY_STEPS) + " langkah query; setelah itu WAJIB 'final'.\n"
         "- Jika data tidak ditemukan, jujur katakan belum tersedia di data internal."
         + _query_hints()
@@ -246,9 +272,15 @@ def answer_agentic(question, lang=None, max_iters=MAX_ITERS):
             key = (act.get("db") or "").strip()
             sc = registry.get_schema(key)
             trace.append({"type": "schema", "db": key, "ok": bool(sc.get("ok"))})
-            messages.append({"role": "user", "content": _clip(
-                "OBSERVASI (schema " + key + "):\n" +
-                json.dumps(sc, ensure_ascii=False))})
+            obs = "OBSERVASI (schema " + key + "):\n" + json.dumps(sc, ensure_ascii=False)
+            if sc.get("ok") and data_dict is not None:
+                try:
+                    g = data_dict.grounding_text(key)
+                except Exception:
+                    g = ""
+                if g:
+                    obs += "\n" + g
+            messages.append({"role": "user", "content": _clip(obs, MAX_SCHEMA_CHARS)})
             continue
 
         if action == "columns":
@@ -431,4 +463,5 @@ if __name__ == "__main__":
     assert a4.get("action") == "rag_search" and a4.get("query") == "efin", a4
     a5 = _parse_action('{"action":"content_search","db":"avaya","pattern":"x"}')
     assert a5.get("action") == "content_search" and a5.get("db") == "avaya", a5
-    print("AGENTIC_SMOKE_OK")
+    assert MAX_QUERY_STEPS > 0 and MAX_ITERS >= MAX_QUERY_STEPS, (MAX_QUERY_STEPS, MAX_ITERS)
+    print("AGENTIC_SMOKE_OK steps=", MAX_QUERY_STEPS, "iters=", MAX_ITERS)
