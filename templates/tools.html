@@ -44,17 +44,16 @@
 /* Modal */
 .overlay{position:fixed; inset:0; background:transparent; display:none; align-items:flex-start; justify-content:center; padding:40px 16px; z-index:50; overflow-y:auto}
 .overlay.show{display:flex}
-/* Untuk modal lebar (Step 6/9), overlay tidak usah ikut discroll -- tabel di dalamnya (.s6wrap) sudah punya scroll sendiri, jadi tidak perlu scrollbar rangkap. Halaman di belakang tetap bisa discroll seperti biasa. */
+/* Untuk modal lebar (Step 6/9), overlay tidak usah ikut discroll -- modal itu sendiri sudah membatasi tinggi maksimum dan bisa discroll sendiri kalau perlu, jadi tidak ada scrollbar rangkap. Halaman di belakang tetap bisa discroll seperti biasa. */
 .overlay:has(.modal.wide){overflow-y:hidden}
 .modal{background:var(--canvas); width:100%; max-width:560px; border-radius:16px; border:1px solid var(--border); box-shadow:0 24px 64px -12px rgba(15,23,42,.32), 0 4px 16px rgba(15,23,42,.14); overflow:hidden; animation:pop .18s ease}
-.modal.wide{max-width:1180px; max-height:calc(100vh - 80px); display:flex; flex-direction:column}
-.modal.wide .mhead,.modal.wide .s6bar,.modal.wide .status,.modal.wide .mfoot{flex:none}
+.modal.wide{max-width:1180px; max-height:calc(100vh - 80px); overflow-y:auto}
 .s6bar{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; padding:16px 24px 12px; border-bottom:1px solid var(--border)}
 .s6bar .fg{display:flex; flex-direction:column; gap:5px}
 .s6bar label{font-size:11.5px; font-weight:600; color:var(--text2)}
 .s6bar select,.s6bar input{padding:7px 10px; border:1px solid var(--border); border-radius:8px; background:var(--soft); color:var(--text); font-size:13px; font-family:inherit}
 .s6bar .count{margin-left:auto; font-size:12.5px; color:var(--text2); align-self:center}
-.s6wrap{flex:1; min-height:120px; max-height:60vh; overflow:auto; padding:0 12px}
+.s6wrap{max-height:60vh; overflow:auto; padding:0 12px}
 .s6table{width:100%; border-collapse:collapse; font-size:13px}
 .s6table th{position:sticky; top:0; background:var(--soft2); text-align:left; padding:9px 10px; font-size:11.5px; color:var(--text2); border-bottom:1px solid var(--border); z-index:1}
 .s6table td{padding:8px 10px; border-bottom:1px solid var(--border); vertical-align:top}
