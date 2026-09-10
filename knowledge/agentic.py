@@ -52,6 +52,33 @@ def _now():
     return _dt.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+def _today_jkt():
+    """Tanggal hari ini zona Asia/Jakarta (fallback UTC+7)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return _dt.datetime.now(ZoneInfo("Asia/Jakarta")).date()
+    except Exception:
+        tz = _dt.timezone(_dt.timedelta(hours=7))
+        return _dt.datetime.now(tz).date()
+
+
+def _query_hints():
+    """Petunjuk umum: sadar tanggal + pencocokan fuzzy identitas/teks."""
+    today = _today_jkt().isoformat()
+    return (
+        "\n\nKonteks waktu: hari ini = " + today + " (zona Asia/Jakarta). "
+        "Pertanyaan relatif ('hari ini', 'kemarin', 'minggu ini', 'bulan ini', "
+        "'30 hari terakhir') dihitung dari tanggal itu. Bila kolom tanggal TEXT, "
+        "pakai substr(kolom,1,10) untuk filter harian.\n"
+        "Pencarian identitas/teks (nama pelanggan/customer, SID, nomor telepon/ANI, "
+        "nama agen, NIK, topik, intent): gunakan pencocokan SEBAGIAN & tidak peka "
+        "huruf, mis. WHERE lower(customer) LIKE lower('%kata%'); hindari '=' untuk "
+        "nama/teks kecuali nilainya jelas eksak. Bila sebuah query mengembalikan 0 "
+        "baris, coba longgarkan (LIKE lebih longgar / lepas filter tanggal) sebelum "
+        "menyimpulkan data tidak ada."
+    )
+
+
 def _clip(s, n=MAX_RESULT_CHARS):
     s = s or ""
     return s if len(s) <= n else (s[:n] + "\u2026(dipotong)")
@@ -96,6 +123,7 @@ def _system_prompt():
         "- Gunakan HANYA key database pada daftar di atas. Database 'users' TIDAK tersedia.\n"
         "- Maksimal " + str(MAX_QUERY_STEPS) + " langkah query; setelah itu WAJIB 'final'.\n"
         "- Jika data tidak ditemukan, jujur katakan belum tersedia di data internal."
+        + _query_hints()
     )
 
 
