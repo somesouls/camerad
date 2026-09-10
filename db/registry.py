@@ -18,17 +18,38 @@ Prinsip:
   mengekspos tabel KONTEN SQL-nya; tabel *_vec (embedding BLOB) & *_fts (indeks
   FTS) TIDAK didaftarkan dan tidak boleh di-SELECT.
 - golden.db belum punya modul koneksi di repo -> dikecualikan pada v1.
+
+Fungsi REGEXP (read-only) didaftarkan pada tiap koneksi sebelum SELECT AI
+dijalankan, sehingga model bisa mencocokkan POLA pada teks (mis. isi transkrip)
+lewat `kolom REGEXP 'pola'`. Case-insensitive + DOTALL. Tidak mengubah data.
 """
 
 from __future__ import annotations
 
 import importlib
+import re as _re
 from typing import Any, Dict, List, Optional
 
 import db.analytics_db as adb
 
 # Database yang tidak boleh diakses AI dengan alasan apa pun.
 EXCLUDED = {"users"}
+
+
+def _sqlite_regexp(pattern, value):
+    """Implementasi operator SQLite `X REGEXP Y` -> regexp(Y=pattern, X=value).
+
+    Read-only: hanya membaca nilai & mencocokkan pola. Case-insensitive + DOTALL
+    agar cocok lintas baris pada teks transkrip. Aman terhadap pola tak valid
+    (mengembalikan 0, bukan melempar error yang menggagalkan query).
+    """
+    if value is None or pattern is None:
+        return 0
+    try:
+        return 1 if _re.search(str(pattern), str(value), _re.IGNORECASE | _re.DOTALL) else 0
+    except Exception:
+        return 0
+
 
 REGISTRY: List[Dict[str, Any]] = [
     {
@@ -93,27 +114,49 @@ REGISTRY: List[Dict[str, Any]] = [
             "awe_stage_coverage", "awe_meta",
         ],
         "schema": (
-            "DB AWE Avaya berisi DUA sumber terpisah: (1) CHAT live-chat dan "
-            "(2) TELEPON. Kolom tanggal bertipe TEXT; untuk filter/rekap harian "
-            "pakai substr(tanggal,1,10). "
-            "awe_conversations = percakapan CHAT per-sid (a.l. run_id, sid, "
-            "tanggal, customer, nik, agent_name, durasi, behavior "
-            "['direct'/'langsung' = langsung ke agent], is_returning, "
-            "mapped_intent, coverage_band, case_label, sentiment "
+            "DB AWE Avaya berisi DUA sumber terpisah: (1) CHAT live-chat "
+            "(tabel awe_conversations) dan (2) TELEPON (tabel awe_phone_interactions). "
+            "Kolom tanggal bertipe TEXT; untuk filter/rekap harian pakai "
+            "substr(tanggal,1,10). "
+            "awe_conversations = percakapan CHAT per-sid (a.l. run_id, sid, tanggal, "
+            "customer [NAMA pelanggan -- ini IDENTITAS, BUKAN isi percakapan], nik, "
+            "agent_name, durasi, behavior ['direct'/'langsung' = langsung ke agent], "
+            "is_returning, mapped_intent, coverage_band, case_label, sentiment "
             "['positif'/'netral'/'negatif'], emotion, topik, jenis_layanan, "
-            "deflection_gap [1=ke agent walau ada intent mirip], is_poro, "
-            "non_npwp, serta skor softskill ss_salam_pembuka/ss_menanyakan_nama/"
+            "deflection_gap [1=ke agent walau ada intent mirip], is_poro, non_npwp, "
+            "transkrip_json, serta skor softskill ss_salam_pembuka/ss_menanyakan_nama/"
             "ss_menyapa_customer/ss_menawarkan_bantuan/ss_hold/ss_salam_penutup/"
-            "ss_lengkap [1/0]). 'reached agent' = agent_name tidak kosong. "
+            "ss_lengkap [1/0]). "
             "awe_phone_interactions = interaksi TELEPON per-sid (a.l. sid, day, "
             "tanggal, ani [nomor penelepon], dnis, call_id, durasi, hold_time_sec, "
             "has_audio, customer, agent_name, ringkasan, topik, jenis_layanan, "
-            "sentiment, emotion, resolusi, frustrasi, analyzed_at). "
+            "sentiment, emotion, resolusi, frustrasi, stt_text, transkrip_json, "
+            "analyzed_at). "
             "awe_runs = riwayat proses analisis chat. awe_meta = metadata "
             "(key, value). awe_staging/awe_day_coverage/awe_stage_batches/"
             "awe_stage_coverage = tabel staging & cakupan harian (jarang dipakai "
-            "untuk analisis). CATATAN: kolom *_json (transkrip_json, analisis_json, "
-            "dll) & stt_text berisi teks besar; untuk rekap pakai agregasi kolom "
+            "untuk analisis). "
+            "=== ISI PERCAKAPAN (PENTING) === "
+            "ISI/teks percakapan yang sebenarnya (apa yang diketik/diucapkan customer "
+            "& agent, TERMASUK alamat email yang diketik) tersimpan di kolom "
+            "transkrip_json (CHAT; berupa TEXT JSON array [{role,text}]) dan pada "
+            "stt_text / transkrip_json (TELEPON). TIDAK ADA kolom bernama "
+            "conversation_text, isi_percakapan, transcript, atau sejenisnya -- JANGAN "
+            "mengarang kolom. Kolom customer/ani/nik/agent_name adalah IDENTITAS, bukan "
+            "isi. 'bot-only' (murni bot, tak pernah ke agent) = agent_name kosong; "
+            "'reached agent' = agent_name tidak kosong. "
+            "Untuk MENCARI POLA pada ISI percakapan (mis. alamat email/kata tertentu), "
+            "fungsi REGEXP TERSEDIA (case-insensitive) dan dicocokkan ke isi transkrip. "
+            "Pakai di WHERE dan JANGAN mem-SELECT kolom transkrip besar itu; cukup "
+            "SELECT sid, customer AS nama, nik. Contoh email @gmail.com dengan LEBIH "
+            "DARI SATU titik pada bagian sebelum @ (mis. sam.sul.h@gmail.com): "
+            "WHERE transkrip_json REGEXP "
+            r"'[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+){2,}@gmail\.com'"
+            " (email tanpa titik / hanya 1 titik seperti wp1@gmail.com atau "
+            "nico.reno@gmail.com TIDAK cocok). Untuk kasus yang perlu pengecualian "
+            "bot-only berbasis peran transkrip atau pencocokan sangat presisi, aksi "
+            "'content_search' (mode agentic) melakukan pencocokan di sisi server dan "
+            "hanya mengembalikan sid/nama/nik. Untuk rekap AGREGAT tetap pakai kolom "
             "terstruktur dan hindari SELECT kolom JSON besar tanpa alasan."
         ),
     },
@@ -241,11 +284,42 @@ def get_schema(key: str) -> Dict[str, Any]:
     }
 
 
+def get_columns(key: str) -> Dict[str, Any]:
+    """Kolom NYATA tiap tabel (via PRAGMA table_info) untuk introspeksi aman AI.
+
+    Read-only; menolak excluded/unknown. Nama tabel berasal dari registry
+    (tepercaya, bukan input pengguna) sehingga aman untuk PRAGMA. Berguna agar
+    model tidak mengarang nama kolom (mis. 'conversation_text').
+    """
+    if key in EXCLUDED:
+        return {"ok": False, "error": f"database '{key}' dikecualikan dari akses AI", "db": key}
+    d = _entry(key)
+    if d is None:
+        return {"ok": False, "error": f"database '{key}' tidak dikenal", "db": key}
+    conn = None
+    cols: Dict[str, List[str]] = {}
+    try:
+        conn = _module(d).connect()
+        for t in d.get("tables", []):
+            try:
+                cols[t] = [r[1] for r in conn.execute("PRAGMA table_info(%s)" % t).fetchall()]
+            except Exception:
+                cols[t] = []
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+    return {"ok": True, "db": key, "columns": cols}
+
+
 def run_select(key: str, sql: str, max_rows: int = 200) -> Dict[str, Any]:
     """Jalankan SELECT read-only pada satu database terdaftar.
 
     - Menolak database excluded SEBELUM membuka koneksi.
     - Guard SQL read-only memakai db.analytics_db.run_select (SELECT/WITH saja).
+    - Mendaftarkan fungsi REGEXP (read-only) pada koneksi sebelum eksekusi.
     - Tidak memanggil init_db() -> murni read-only.
     """
     if key in EXCLUDED:
@@ -256,6 +330,10 @@ def run_select(key: str, sql: str, max_rows: int = 200) -> Dict[str, Any]:
     conn = None
     try:
         conn = _module(d).connect()
+        try:
+            conn.create_function("regexp", 2, _sqlite_regexp)
+        except Exception:
+            pass
         res = adb.run_select(conn, sql, max_rows=max_rows)
         if isinstance(res, dict):
             res["db"] = key
