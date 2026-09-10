@@ -105,3 +105,6 @@ pdf2image>=1.17          # butuh Poppler terpasang di sistem (pdftoppm) untuk OC
 #   pip install playwright
 #   python -m playwright install chromium
 # playwright>=1.40
+
+
+

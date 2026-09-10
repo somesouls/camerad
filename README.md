@@ -263,3 +263,38 @@ Setiap step berdiri sendiri; hasil step yang sukses tersimpan di `_runs/<run>/` 
 - **PC lain tidak bisa buka** → cek firewall port 8080 & pastikan `WEB_HOST=0.0.0.0`.
 - **Torch lambat / ingin GPU** → install torch versi CUDA (lihat langkah 2).
 - **Mau kontribusi kode** → baca `AGENTS.md` dulu; jangan tambah modul datar/shim baru di root (ditolak guard CI). Jalankan `python scripts/oneoff/check_structure.py` sebelum commit.
+
+
+
+
+START_START_START_START
+Untuk menjalankan atau mengaktifkan virtual environment (.venv) di Python:
+1. WindowsBuka Command Prompt (CMD) atau PowerShell di folder proyek Anda, lalu jalankan perintah berikut:
+Jika menggunakan Command Prompt (CMD):
+.venv\Scripts\activate.bat
+
+Jika menggunakan PowerShell:
+.venv\Scripts\Activate.ps1
+
+Catatan: Jika muncul error "Script Execution Disabled" di PowerShell, jalankan perintah Set-ExecutionPolicy Unrestricted -Scope Process terlebih dahulu, lalu coba aktifkan kembali.
+2. macOS / Linux
+Buka Terminal di folder proyek Anda, lalu jalankan perintah berikut:
+source.venv/bin/activate
+
+💡 Tanda .venv Sudah AktifJika berhasil, Anda akan melihat nama virtual environment Anda muncul di bagian paling kiri baris terminal Anda, contohnya seperti ini:(.venv) C:\Users\NamaKamu\Projects> atau (.venv) user@computer:~/project$
+
+🛑 Cara MenonaktifkanJika Anda sudah selesai bekerja dan ingin keluar dari virtual environment, cukup ketik perintah berikut di terminal (berlaku untuk semua OS):
+deactivate
+
+
+Silakan ikuti langkah singkat ini untuk me-*restart* tunnel Anda:
+
+1. **Buka Terminal Tunnel:** Kembali ke jendela PowerShell/terminal tempat Anda sebelumnya menjalankan perintah `cloudflared tunnel run...`.
+2. **Hentikan Tunnel:** Tekan **`Ctrl` + `C**` di keyboard Anda untuk mematikan prosesnya.
+3. **Jalankan Kembali:** Ketik atau *copy-paste* perintah ini lagi, lalu tekan Enter:
+
+cloudflared tunnel run --url http://localhost:8080 bot-tunnel
+
+Tunggu beberapa detik sampai muncul tulisan `INF Registered tunnel connection` (seperti log yang sebelumnya pernah Anda lihat).
+
+Jika log tersebut sudah muncul, silakan *refresh* (F5) kembali halaman web **`[https://chat.agenthebat.com/livechat](https://chat.agenthebat.com/livechat)`** di *browser* Anda. Halamannya pasti akan langsung terbuka! 
