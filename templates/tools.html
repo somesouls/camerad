@@ -44,6 +44,8 @@
 /* Modal */
 .overlay{position:fixed; inset:0; background:transparent; display:none; align-items:flex-start; justify-content:center; padding:40px 16px; z-index:50; overflow-y:auto}
 .overlay.show{display:flex}
+/* Saat modal terbuka, kunci scroll halaman di belakangnya agar tidak muncul scrollbar tambahan (halaman jadi diam, hanya isi modal yang bisa discroll). */
+body:has(.overlay.show) .content-area{overflow:hidden}
 .modal{background:var(--canvas); width:100%; max-width:560px; border-radius:16px; border:1px solid var(--border); box-shadow:0 24px 64px -12px rgba(15,23,42,.32), 0 4px 16px rgba(15,23,42,.14); overflow:hidden; animation:pop .18s ease}
 .modal.wide{max-width:1180px}
 .s6bar{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; padding:16px 24px 12px; border-bottom:1px solid var(--border)}
