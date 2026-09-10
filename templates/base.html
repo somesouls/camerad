@@ -218,8 +218,30 @@ textarea#input::placeholder { color: var(--text-muted); }
 .content-area{ flex:1; overflow-y:auto; }
 .content-inner{ width:100%; }
 .ask-ai-shell{ max-width:1180px; margin:0 auto; padding:0 32px; box-sizing:border-box; }
-.ask-ai-shell[data-shell-page="voicebot_lab"]{ max-width:900px; padding:0 28px; }
 @media (max-width:600px){ .ask-ai-shell{ padding:0 16px; } }
+
+/* Standardize every page's content container to one uniform width, overriding each page's own wrap/section width rules (including inline styles). */
+.content-inner > *:not(.ask-ai-shell){ max-width:1180px !important; margin-left:auto !important; margin-right:auto !important; box-sizing:border-box; }
+
+/* Universal data table enhancer: pagination (10/25/50/100/Semua) + click-to-sort headers, applied automatically to every table (including AJAX-rendered ones). */
+table.dt-table thead th.dt-sortable{ cursor:pointer; user-select:none; position:relative; padding-right:22px !important; }
+table.dt-table thead th.dt-sortable:hover{ color:var(--accent); }
+table.dt-table thead th.dt-sortable .dt-sort-ic{ position:absolute; right:6px; top:50%; transform:translateY(-50%); font-size:10px; opacity:.45; line-height:1; }
+table.dt-table thead th.dt-sortable .dt-sort-ic::after{ content:'\2195'; }
+table.dt-table thead th.dt-sortable[data-dir="asc"] .dt-sort-ic{ opacity:1; color:var(--accent); }
+table.dt-table thead th.dt-sortable[data-dir="asc"] .dt-sort-ic::after{ content:'\2191'; }
+table.dt-table thead th.dt-sortable[data-dir="desc"] .dt-sort-ic{ opacity:1; color:var(--accent); }
+table.dt-table thead th.dt-sortable[data-dir="desc"] .dt-sort-ic::after{ content:'\2193'; }
+.dt-bar{ display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin:8px 0 18px; padding:9px 2px; font-size:12.5px; color:var(--text-muted); border-top:1px solid var(--panel-border); }
+.dt-bar .dt-info{ flex:1; min-width:140px; }
+.dt-bar .dt-size label{ display:flex; align-items:center; gap:6px; }
+.dt-bar .dt-size select{ font-size:12.5px; padding:4px 8px; border-radius:8px; border:1px solid var(--panel-border); background:var(--bg-base); color:var(--text-main); cursor:pointer; outline:none; }
+.dt-bar .dt-nav{ display:flex; align-items:center; gap:8px; }
+.dt-bar .dt-nav .dt-pageno{ min-width:70px; text-align:center; }
+.dt-bar .dt-nav button{ width:26px; height:26px; border-radius:7px; border:1px solid var(--panel-border); background:transparent; color:var(--text-main); cursor:pointer; display:flex; align-items:center; justify-content:center; font-size:14px; }
+.dt-bar .dt-nav button:hover:not(:disabled){ border-color:var(--accent); color:var(--accent); }
+.dt-bar .dt-nav button:disabled{ opacity:.4; cursor:default; }
+@media (max-width:600px){ .dt-bar{ font-size:12px; } .dt-bar .dt-info{ order:3; width:100%; } }
 
 .app{ display:block; min-height:100vh; }
 .side .logo{ background: transparent !important; overflow:hidden; padding: 0; }
@@ -658,6 +680,17 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
   }
 })();
 </script>
-{% block scripts %}{% endblock %}
-</body>
-</html>
+<script>
+(function(){
+  var GUARD = false;
+  function runGuarded(fn){ GUARD = true; fn(); setTimeout(function(){ GUARD = false; }, 0); }
+
+  function parseCellNum(raw){
+    if (!raw) return null;
+    var s = raw.trim();
+    if (!s || !/\d/.test(s)) return null;
+    var cleaned = s.replace(/[^\d.,\-]/g, '');
+    if (!cleaned) return null;
+    var lastComma = cleaned.lastIndexOf(','), lastDot = cleaned.lastIndexOf('.');
+    if (lastComma > -1 && lastDot > -1) {
+      if (last
