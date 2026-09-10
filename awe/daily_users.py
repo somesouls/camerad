@@ -28,6 +28,9 @@ Catatan data (penting):
   - Daftar percakapan per pengguna TIDAK lagi ditempel di payload utama; dimuat
     lazy lewat /api/awe/daily-users/conversations saat pengguna diklik. Ini
     membuat `limit_users` aman dinaikkan besar tanpa membebani browser.
+  - Pencarian pengguna dilakukan SISI-SERVER (param `q`): seluruh pengguna
+    teridentifikasi disaring dulu sebelum dipotong `limit_users`, sehingga
+    pencarian tidak lagi terbatas pada daftar teratas yang tampil.
   - TIDAK ada penggabungan dengan data Dialogflow (tidak ada ID unik lintas
     sumber — sesuai keputusan desain avaya.db).
 
@@ -221,7 +224,7 @@ def _norm_sent(s):
     return "Tidak diketahui"
 
 
-def daily_users(conn, start=None, end=None, limit_users=2000, exclude_bot=True):
+def daily_users(conn, start=None, end=None, limit_users=2000, exclude_bot=True, q=""):
     where, params = [], []
     if start:
         where.append("substr(tanggal,1,10) >= ?"); params.append(start[:10])
@@ -416,6 +419,20 @@ def daily_users(conn, start=None, end=None, limit_users=2000, exclude_bot=True):
 
     user_list.sort(key=lambda x: (-x["conv"], -x["direct"]))
 
+    # --- Pencarian sisi-server (opsional) ---------------------------------
+    # Saring SELURUH pengguna teridentifikasi (bukan hanya daftar teratas)
+    # SEBELUM dipotong limit_users, agar pencarian menjangkau semua data.
+    # KPI tetap global (dihitung dari seluruh pengguna) — hanya baris tabel
+    # yang mengikuti kata kunci pencarian.
+    qnorm = str(q or "").strip().lower()
+    if qnorm:
+        def _umatch(u):
+            blob = " ".join(str(x or "") for x in (
+                u.get("label"), u.get("name"), u.get("taxid"),
+                u.get("themes"), u.get("idtype"))).lower()
+            return qnorm in blob
+        user_list = [u for u in user_list if _umatch(u)]
+
     # --- Penyebab hit agent terbanyak (per tema, atas percakapan langsung) ---
     hit_causes = []
     for th, c in cause.items():
@@ -495,6 +512,13 @@ def daily_users(conn, start=None, end=None, limit_users=2000, exclude_bot=True):
 
     # --- Tabel anomali / Tidak Teridentifikasi ---
     anom_list = sorted(anom_users.values(), key=lambda x: -x["conv"])
+    if qnorm:
+        def _amatch(a):
+            blob = " ".join(str(x or "") for x in (
+                a.get("label"),
+                ", ".join(k for k, _ in a["themes"].most_common(3)))).lower()
+            return qnorm in blob
+        anom_list = [a for a in anom_list if _amatch(a)]
     anomali_out = {
         "conv": anom_conv_total,
         "conv_pct": round(100 * anom_conv_total / total_rows, 1) if total_rows else 0,
@@ -622,12 +646,14 @@ def register(app, *, render_page):
             limit = 2000
         limit = max(1, min(limit, 20000))
         exclude_bot = wants_exclude(q)
+        qtext = q.get("q") or ""
 
         def _run():
             conn = avdb.init_db(avdb.connect())
             try:
                 s, e = resolve_range(preset, start, end)
-                data = daily_users(conn, s, e, limit_users=limit, exclude_bot=exclude_bot)
+                data = daily_users(conn, s, e, limit_users=limit,
+                                   exclude_bot=exclude_bot, q=qtext)
                 data["bounds"] = data_bounds(conn)
                 data["preset"] = preset
                 return data
