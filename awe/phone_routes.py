@@ -108,7 +108,10 @@ async def awe_phone_probe(request: Request):
                 (str(body.get("resolusi") or "").strip() or None),
                 (str(body.get("frustrasi") or "").strip() or None),
                 (str(body.get("status") or "").strip() or None),
-                bool(body.get("with_options")))
+                bool(body.get("with_options")),
+                (str(body.get("sid") or "").strip() or None),
+                (str(body.get("ani") or "").strip() or None),
+                (str(body.get("customer") or "").strip() or None))
             d["ok"] = True
             return JSONResponse(d)
         except Exception as e:

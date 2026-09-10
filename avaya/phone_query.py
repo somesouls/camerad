@@ -13,7 +13,8 @@ _LIST_COLS = ("sid,day,tanggal,ani,dnis,call_id,durasi,hold_time_sec,has_audio,"
 
 
 def _list_where(day_from=None, day_to=None, agent=None, sentiment=None,
-                resolusi=None, frustrasi=None, status=None):
+                resolusi=None, frustrasi=None, status=None,
+                sid=None, ani=None, customer=None):
     """Bangun klausa WHERE + params untuk daftar interaksi telepon."""
     where = ["1=1"]
     p = []
@@ -32,6 +33,16 @@ def _list_where(day_from=None, day_to=None, agent=None, sentiment=None,
     if resolusi:
         where.append("resolusi=?")
         p.append(str(resolusi))
+    # Pencarian teks bebas (tidak peka huruf, sebagian) untuk SID / nomor / nama.
+    if sid:
+        where.append("lower(coalesce(sid,'')) LIKE ?")
+        p.append("%" + str(sid).strip().lower() + "%")
+    if ani:
+        where.append("lower(coalesce(ani,'')) LIKE ?")
+        p.append("%" + str(ani).strip().lower() + "%")
+    if customer:
+        where.append("lower(coalesce(customer,'')) LIKE ?")
+        p.append("%" + str(customer).strip().lower() + "%")
     fr = str(frustrasi or "").strip().lower()
     if fr in ("ya", "yes", "true", "1", "y"):
         where.append("lower(coalesce(frustrasi,'')) in ('1','true','ya','yes','y')")
@@ -65,7 +76,7 @@ def _list_options(conn, day_from=None, day_to=None):
 
 def list_phone(conn, day_from=None, day_to=None, limit=25, offset=0, agent=None,
                sentiment=None, resolusi=None, frustrasi=None, status=None,
-               with_options=False):
+               with_options=False, sid=None, ani=None, customer=None):
     """Daftar interaksi telepon dengan pagination + filter sisi-server.
 
     Kembalikan {interactions, total, offset, limit, options?}. `total` = jumlah
@@ -73,7 +84,7 @@ def list_phone(conn, day_from=None, day_to=None, limit=25, offset=0, agent=None,
     """
     init_phone_db(conn)
     wsql, p = _list_where(day_from, day_to, agent, sentiment, resolusi,
-                          frustrasi, status)
+                          frustrasi, status, sid=sid, ani=ani, customer=customer)
     total = conn.execute(
         "SELECT COUNT(*) FROM awe_phone_interactions" + wsql, p).fetchone()[0]
     off = max(int(offset or 0), 0)
