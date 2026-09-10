@@ -2,7 +2,7 @@
 {% set _agentic_only_pages = ['rag_harness','voicebot_lab'] %}
 {% set agentic_only = active_page in _agentic_only_pages %}
 <style>
-  .ask-card{width:calc(100% - 36px);max-width:1180px;margin:0 auto 22px;padding:20px 22px;border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);}
+  .ask-card{width:100%;box-sizing:border-box;margin:0 0 22px;padding:20px 22px;border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);}
   .ask-card .ask-hd{display:flex;align-items:center;gap:12px;}
   .ask-card .ask-hd .ic{width:36px;height:36px;flex:0 0 auto;display:grid;place-items:center;border-radius:10px;background:var(--accent);color:#fff;}
   .ask-card .ask-hd .ic svg{width:19px;height:19px;}
@@ -38,19 +38,11 @@
   .ask-save:hover{background:var(--accent);color:#fff;}
   .ask-save:disabled{opacity:.6;cursor:default;}
   .ask-savenote{font-size:12px;color:var(--text-muted);}
-  @media (min-width:821px){
-    .ask-card[data-page="voicebot_lab"]{max-width:900px;}
-    .ask-card[data-page="rag_harness"]{max-width:1180px;}
-  }
   @media (max-width:600px){
-    .ask-card{width:calc(100% - 24px);padding:16px;}
+    .ask-card{padding:16px;}
     .ask-card .ask-row{flex-direction:column;}
     .ask-card .ask-send{width:100%;min-height:40px;}
   }
-  /* The shared base template owns these elements. Keep the compact sidebar focused
-     on the current accordion even on pages where the base script ran first. */
-  body:not(.sidebar-pinned) .side:not(:hover) .sec-label:not(.is-active),
-  body:not(.sidebar-pinned) .side:not(:hover) .tool-side:not(.active-accordion-item){display:none;}
 </style>
 <section class="ask-card" id="askCard" data-page="{{ active_page }}" data-agentic-only="{{ 'true' if agentic_only else 'false' }}" data-can-report="true">
   <div class="ask-hd">
@@ -76,66 +68,6 @@
 </section>
 <script>
 (function(){
-  function polishSidebar(){
-    var scrollBox = document.querySelector('.side-scroll');
-    if(!scrollBox) return;
-    var labels = Array.prototype.slice.call(scrollBox.querySelectorAll('.sec-label'));
-    var activeLink = scrollBox.querySelector('.tool-side.active');
-    var activeLabel = null;
-    labels.forEach(function(label){
-      var group = [];
-      var el = label.nextElementSibling;
-      while(el && !el.classList.contains('sec-label')){ group.push(el); el = el.nextElementSibling; }
-      var isActive = group.some(function(item){ return item.classList && item.classList.contains('active'); });
-      label.classList.toggle('is-active', isActive);
-      label.setAttribute('aria-expanded', isActive ? 'true' : 'false');
-      if(isActive) activeLabel = label;
-      group.forEach(function(item){
-        if(item.classList && item.classList.contains('tool-side')){
-          item.classList.toggle('active-accordion-item', isActive);
-          item.style.display = isActive ? '' : 'none';
-        }
-      });
-      var chev = label.querySelector('.acc-chev');
-      if(chev) label.classList.toggle('acc-collapsed', !isActive);
-    });
-    if(activeLink && activeLink.scrollIntoView){
-      setTimeout(function(){ activeLink.scrollIntoView({block:'center'}); }, 0);
-    }
-    /* Keep one visible accordion at a time when the user explicitly opens one. */
-    labels.forEach(function(label){
-      if(label.__askAccordionBound) return;
-      label.__askAccordionBound = true;
-      label.addEventListener('click', function(){
-        labels.forEach(function(other){
-          if(other === label) return;
-          other.classList.remove('is-active');
-          other.setAttribute('aria-expanded','false');
-          var item = other.nextElementSibling;
-          while(item && !item.classList.contains('sec-label')){
-            if(item.classList && item.classList.contains('tool-side')){
-              item.classList.remove('active-accordion-item');
-              item.style.display='none';
-            }
-            item = item.nextElementSibling;
-          }
-        });
-        label.classList.add('is-active');
-        label.setAttribute('aria-expanded','true');
-        var next = label.nextElementSibling;
-        while(next && !next.classList.contains('sec-label')){
-          if(next.classList && next.classList.contains('tool-side')){
-            next.classList.add('active-accordion-item');
-            next.style.display='';
-          }
-          next = next.nextElementSibling;
-        }
-      });
-    });
-  }
-  setTimeout(polishSidebar, 0);
-  window.addEventListener('load', polishSidebar);
-
   var card = document.getElementById('askCard');
   if (!card) return;
   var page = card.getAttribute('data-page') || '';
