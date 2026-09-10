@@ -112,7 +112,7 @@ def _query_hints():
         r"'[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+){2,}@gmail\.com'"
         ".\n"
         "'bot-only' (murni bot) = agent_name kosong; untuk MENGECUALIKAN bot-only "
-        "tamb的" "kan AND agent_name IS NOT NULL AND agent_name<>''. Bila sebuah "
+        "tambahkan AND agent_name IS NOT NULL AND agent_name<>''. Bila sebuah "
         "query mengembalikan 0 baris, longgarkan (LIKE lebih longgar / lepas filter "
         "tanggal) sebelum menyimpulkan data tidak ada."
     )
