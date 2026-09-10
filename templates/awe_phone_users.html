@@ -14,6 +14,10 @@
 .field label{font-size:13px;font-weight:600;color:var(--text-muted);}
 .field input{padding:11px 14px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base);color:var(--text-main);font-size:14.5px;font-family:inherit;outline:none;transition:.2s;}
 .field input:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
+.filter-row{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin:4px 0 16px;padding-top:14px;border-top:1px dashed var(--panel-border);}
+.filter-row .field{min-width:150px;}
+.filter-row .field.sm{min-width:120px;}
+.filter-hint{font-size:12.5px;color:var(--text-muted);margin:0 0 10px;line-height:1.5;}
 .btn-modern{padding:11px 20px;border:none;border-radius:10px;background:var(--accent);color:#fff;font-weight:600;font-size:14px;cursor:pointer;transition:.2s;display:inline-flex;align-items:center;justify-content:center;gap:8px;box-shadow:0 4px 12px var(--accent-glow);}
 .btn-modern:hover{background:var(--accent-hover);transform:translateY(-1px);}
 .btn-outline{background:transparent;border:1px solid var(--panel-border);color:var(--text-main);box-shadow:none;}
@@ -62,6 +66,16 @@
     <div class="field"><label>Baris per halaman</label><input type="number" id="pu_limit" value="25" min="5" max="200"></div>
     <div class="field"><button class="btn-modern" id="puLoad">Muat</button></div>
   </div>
+  <p class="filter-hint">Filter pencarian berjalan di <b>sisi server</b> dan menjangkau <b>seluruh penelepon</b> pada rentang tanggal ini (bukan hanya daftar teratas yang tampil). Kosongkan lalu klik <b>Terapkan</b> untuk menampilkan semua.</p>
+  <div class="filter-row">
+    <div class="field"><label>No. Penelepon (ANI)</label><input type="text" id="pu_ani" placeholder="mis. 0812…"></div>
+    <div class="field"><label>Agen</label><input type="text" id="pu_agent" placeholder="nama agen…"></div>
+    <div class="field"><label>Tema</label><input type="text" id="pu_theme" placeholder="mis. EFIN, PBB…"></div>
+    <div class="field sm"><label>Sentimen</label><input type="text" id="pu_sent" placeholder="positif/negatif…"></div>
+    <div class="field sm"><label>Resolusi</label><input type="text" id="pu_reso" placeholder="selesai…"></div>
+    <div class="field" style="min-width:auto;"><button class="btn-modern" id="puApply">Terapkan</button></div>
+    <div class="field" style="min-width:auto;"><button class="btn-modern btn-outline" id="puReset">Reset</button></div>
+  </div>
   <div class="kpi-grid" id="puKpi"></div>
   <div class="sec-h" style="margin-top:16px;">Frekuensi menghubungi</div>
   <div id="puFreq"><p class="muted-text">&mdash;</p></div>
@@ -86,5 +100,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/awe_phone_users.js?v=3"></script>
+<script src="/static/awe_phone_users.js?v=4"></script>
 {% endblock %}
