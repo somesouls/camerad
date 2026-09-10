@@ -220,10 +220,8 @@ textarea#input::placeholder { color: var(--text-muted); }
 .ask-ai-shell{ max-width:1180px; margin:0 auto; padding:0 32px; box-sizing:border-box; }
 @media (max-width:600px){ .ask-ai-shell{ padding:0 16px; } }
 
-/* Standardize every page's content container to one uniform width, overriding each page's own wrap/section width rules (including inline styles). */
 .content-inner > *:not(.ask-ai-shell){ max-width:1180px !important; margin-left:auto !important; margin-right:auto !important; box-sizing:border-box; }
 
-/* Universal data table enhancer: pagination (10/25/50/100/Semua) + click-to-sort headers, applied automatically to every table (including AJAX-rendered ones). */
 table.dt-table thead th.dt-sortable{ cursor:pointer; user-select:none; position:relative; padding-right:22px !important; }
 table.dt-table thead th.dt-sortable:hover{ color:var(--accent); }
 table.dt-table thead th.dt-sortable .dt-sort-ic{ position:absolute; right:6px; top:50%; transform:translateY(-50%); font-size:10px; opacity:.45; line-height:1; }
@@ -683,14 +681,135 @@ body.sidebar-pinned .pin-btn svg{ transform:rotate(180deg); }
 <script>
 (function(){
   var GUARD = false;
-  function runGuarded(fn){ GUARD = true; fn(); setTimeout(function(){ GUARD = false; }, 0); }
-
-  function parseCellNum(raw){
-    if (!raw) return null;
-    var s = raw.trim();
-    if (!s || !/\d/.test(s)) return null;
-    var cleaned = s.replace(/[^\d.,\-]/g, '');
-    if (!cleaned) return null;
-    var lastComma = cleaned.lastIndexOf(','), lastDot = cleaned.lastIndexOf('.');
-    if (lastComma > -1 && lastDot > -1) {
-      if (last
+  function guarded(fn){ GUARD = true; fn(); setTimeout(function(){ GUARD = false; }, 0); }
+  function numOf(s){
+    if (!s) return null;
+    s = s.trim();
+    if (!/\d/.test(s)) return null;
+    var c = s.replace(/[^\d.,\-]/g, '');
+    if (!c) return null;
+    var lc = c.lastIndexOf(','), ld = c.lastIndexOf('.');
+    if (lc > -1 && ld > -1) { c = lc > ld ? c.replace(/\./g, '').replace(',', '.') : c.replace(/,/g, ''); }
+    else if (lc > -1) { var p = c.split(','); c = (p.length === 2 && p[1].length <= 2) ? c.replace(',', '.') : c.replace(/,/g, ''); }
+    var n = parseFloat(c);
+    return isNaN(n) ? null : n;
+  }
+  function cmpVal(av, bv){
+    var an = numOf(av), bn = numOf(bv);
+    if (an !== null && bn !== null) return an - bn;
+    var dre = /[a-zA-Z]{3}.*\d{4}|\d{4}-\d{2}-\d{2}/;
+    if (dre.test(av) && dre.test(bv)) {
+      var ad = Date.parse(av), bd = Date.parse(bv);
+      if (!isNaN(ad) && !isNaN(bd)) return ad - bd;
+    }
+    return av.localeCompare(bv, 'id', { numeric: true, sensitivity: 'base' });
+  }
+  function wireSort(table, thead, tbody){
+    var hr = thead.querySelectorAll(':scope > tr');
+    if (hr.length !== 1) return;
+    var ths = Array.prototype.slice.call(hr[0].children);
+    ths.forEach(function(th, idx){
+      if (th.hasAttribute('data-no-sort') || th.classList.contains('dt-sortable')) return;
+      if (th.querySelector('input,button,select,a,textarea')) return;
+      if (!(th.textContent || '').trim()) return;
+      th.classList.add('dt-sortable');
+      th.setAttribute('role', 'button');
+      th.setAttribute('tabindex', '0');
+      th.setAttribute('aria-sort', 'none');
+      var ic = document.createElement('span');
+      ic.className = 'dt-sort-ic';
+      th.appendChild(ic);
+      function go(){
+        var dir = th.getAttribute('data-dir') === 'asc' ? 'desc' : 'asc';
+        ths.forEach(function(t){ t.removeAttribute('data-dir'); t.setAttribute('aria-sort', 'none'); });
+        th.setAttribute('data-dir', dir);
+        th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
+        var rows = Array.prototype.slice.call(tbody.querySelectorAll(':scope > tr'));
+        rows.sort(function(a, b){
+          var av = (a.children[idx] ? a.children[idx].textContent : '').trim();
+          var bv = (b.children[idx] ? b.children[idx].textContent : '').trim();
+          var c = cmpVal(av, bv);
+          return dir === 'asc' ? c : -c;
+        });
+        guarded(function(){ rows.forEach(function(r){ tbody.appendChild(r); }); });
+        table.__dtRows = rows;
+        render(table);
+      }
+      th.addEventListener('click', go);
+      th.addEventListener('keydown', function(e){ if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+    });
+  }
+  function ensureBar(table){
+    if (table.__dtBar) return table.__dtBar;
+    var b = document.createElement('div');
+    b.className = 'dt-bar';
+    b.innerHTML = '<div class="dt-info"></div><div class="dt-size"><label>Tampilkan <select class="dt-size-sel"><option value="10">10</option><option value="25">25</option><option value="50">50</option><option value="100">100</option><option value="all">Semua</option></select></label></div><div class="dt-nav"><button type="button" class="dt-prev" aria-label="Sebelumnya">&lsaquo;</button><span class="dt-pageno"></span><button type="button" class="dt-next" aria-label="Berikutnya">&rsaquo;</button></div>';
+    guarded(function(){ table.insertAdjacentElement('afterend', b); });
+    table.__dtBar = b;
+    b.querySelector('.dt-size-sel').addEventListener('change', function(e){
+      table.__dtSize = e.target.value === 'all' ? Infinity : parseInt(e.target.value, 10);
+      table.__dtPage = 1;
+      render(table);
+    });
+    b.querySelector('.dt-prev').addEventListener('click', function(){
+      table.__dtPage = Math.max(1, (table.__dtPage || 1) - 1);
+      render(table);
+    });
+    b.querySelector('.dt-next').addEventListener('click', function(){
+      var rows = table.__dtRows || [], size = table.__dtSize || 10;
+      var tp = size === Infinity ? 1 : Math.max(1, Math.ceil(rows.length / size));
+      table.__dtPage = Math.min(tp, (table.__dtPage || 1) + 1);
+      render(table);
+    });
+    return b;
+  }
+  function render(table){
+    var rows = table.__dtRows || [], size = table.__dtSize || 10, total = rows.length;
+    var tp = size === Infinity ? 1 : Math.max(1, Math.ceil(total / size));
+    var page = Math.min(Math.max(1, table.__dtPage || 1), tp);
+    table.__dtPage = page;
+    var start = size === Infinity ? 0 : (page - 1) * size;
+    var end = size === Infinity ? total : Math.min(start + size, total);
+    rows.forEach(function(r, i){ r.style.display = (i >= start && i < end) ? '' : 'none'; });
+    var b = table.__dtBar;
+    if (!b) return;
+    b.querySelector('.dt-info').textContent = total ? ('Menampilkan ' + (start + 1) + '\u2013' + end + ' dari ' + total) : 'Tidak ada data';
+    b.querySelector('.dt-pageno').textContent = 'Hal ' + page + ' / ' + tp;
+    b.querySelector('.dt-prev').disabled = page <= 1;
+    b.querySelector('.dt-next').disabled = page >= tp;
+    b.style.display = total > 0 ? 'flex' : 'none';
+    var sel = b.querySelector('.dt-size-sel');
+    if (sel) sel.value = size === Infinity ? 'all' : String(size);
+  }
+  function enhance(table){
+    if (table.hasAttribute('data-no-enhance') || table.closest('.ask-answer')) return;
+    var tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    var rows = Array.prototype.slice.call(tbody.querySelectorAll(':scope > tr'));
+    if (!table.__dtInit) {
+      if (!rows.length) return;
+      table.__dtInit = true;
+      table.classList.add('dt-table');
+      var thead = table.querySelector('thead');
+      if (thead) wireSort(table, thead, tbody);
+      table.__dtRows = rows;
+      table.__dtSize = 10;
+      table.__dtPage = 1;
+      ensureBar(table);
+      render(table);
+      return;
+    }
+    var cached = table.__dtRows || [];
+    var changed = rows.length !== cached.length;
+    if (!changed) { for (var i = 0; i < rows.length; i++) { if (rows[i] !== cached[i]) { changed = true; break; } } }
+    if (changed) { table.__dtRows = rows; table.__dtPage = 1; render(table); }
+  }
+  function scan(root){ Array.prototype.forEach.call(root.querySelectorAll('table'), enhance); }
+  var contentArea = document.querySelector('.content-area') || document.body;
+  scan(contentArea);
+  new MutationObserver(function(){ if (!GUARD) scan(contentArea); }).observe(contentArea, { childList: true, subtree: true });
+})();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>
