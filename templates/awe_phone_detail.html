@@ -54,7 +54,7 @@
 {% block content %}
 <div class="page-header">
   <h1 class="page-title">Detail Percakapan — Phone</h1>
-  <p class="page-desc">Telusuri panggilan <b>Telepon</b> (Avaya) satu per satu. Klik baris untuk membuka transkrip, ringkasan, poin penting, entitas, dan hasil analisis LLM. Gunakan <b>filter</b> (Agen/Sentimen/Resolusi/Frustrasi/Status) dan navigasi <b>halaman</b> di bawah tabel — semuanya diproses di server. Terpisah total dari Chat.</p>
+  <p class="page-desc">Telusuri panggilan <b>Telepon</b> (Avaya) satu per satu. Klik baris untuk membuka transkrip, ringkasan, poin penting, entitas, dan hasil analisis LLM. Gunakan <b>pencarian</b> (Nama pelanggan/Nomor (ANI)/SID) dan <b>filter</b> (Agen/Sentimen/Resolusi/Frustrasi/Status), lalu navigasi <b>halaman</b> di bawah tabel — semuanya diproses di server. Terpisah total dari Chat.</p>
 </div>
 <section class="c-card">
   <div class="stage-head"><h2 class="stage-title">Daftar Panggilan</h2><span class="pill" id="dtPill">&mdash;</span></div>
@@ -63,6 +63,11 @@
     <div class="field"><label>Sampai tanggal</label><input type="date" id="dt_to"></div>
     <div class="field"><label>Baris per halaman</label><input type="number" id="dt_limit" value="25" min="5" max="200"></div>
     <div class="field"><button class="btn-modern" id="dtLoad">Muat</button></div>
+  </div>
+  <div class="form-row">
+    <div class="field"><label>Nama pelanggan</label><input type="text" id="dt_customer" placeholder="cari nama…"></div>
+    <div class="field"><label>Nomor (ANI)</label><input type="text" id="dt_ani" placeholder="cari nomor…"></div>
+    <div class="field"><label>SID</label><input type="text" id="dt_sid" placeholder="cari SID…"></div>
   </div>
   <div class="form-row">
     <div class="field"><label>Agen</label><select id="dt_agent"><option value="">Semua agen</option></select></div>
@@ -89,5 +94,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/awe_phone_detail.js?v=3"></script>
+<script src="/static/awe_phone_detail.js?v=4"></script>
 {% endblock %}
