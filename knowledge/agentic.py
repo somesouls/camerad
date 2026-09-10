@@ -17,6 +17,13 @@ sintesis. Tetap READ-ONLY. Opsional & gagal-anggun: bila modul retrieval tak
 tersedia, aksi 'rag_search' tidak ditawarkan dan loop database berjalan seperti
 semula.
 
+v3 (grounding & pencarian isi): tambah aksi 'columns' (introspeksi kolom NYATA
+via registry.get_columns, anti-mengarang kolom) dan 'content_search' (pencocokan
+POLA regex pada ISI transkrip percakapan di sisi server via
+knowledge/content_search.py — mengembalikan sid/nama/nik tanpa mengirim isi/email
+mentah ke LLM). Query yang gagal karena 'no such column' otomatis diberi daftar
+kolom nyata + petunjuk isi percakapan. Semua tetap READ-ONLY & ADITIF.
+
 Sifat: ADITIF & NON-BREAKING. Modul & endpoint baru; /api/ask dan
 /api/ask-data lama tidak diubah perilakunya.
 """
@@ -37,6 +44,11 @@ try:
     import rag.kb_search as rag_kb  # retrieval basis pengetahuan (opsional)
 except Exception:  # pragma: no cover - retrieval KB opsional
     rag_kb = None
+
+try:
+    import knowledge.content_search as content_search  # pencarian ISI (opsional)
+except Exception:  # pragma: no cover - content_search opsional
+    content_search = None
 
 # --- Batasan aman (guardrail operasional) --------------------------------
 MAX_ITERS = 6            # total giliran model (schema/query/final) per permintaan
@@ -63,17 +75,32 @@ def _today_jkt():
 
 
 def _query_hints():
-    """Petunjuk umum: sadar tanggal + pencocokan fuzzy identitas/teks."""
+    """Petunjuk umum: sadar tanggal + fuzzy identitas + pemisahan identitas vs ISI."""
     today = _today_jkt().isoformat()
     return (
         "\n\nKonteks waktu: hari ini = " + today + " (zona Asia/Jakarta). "
         "Pertanyaan relatif ('hari ini', 'kemarin', 'minggu ini', 'bulan ini', "
         "'30 hari terakhir') dihitung dari tanggal itu. Bila kolom tanggal TEXT, "
         "pakai substr(kolom,1,10) untuk filter harian.\n"
-        "Pencarian identitas/teks (nama pelanggan/customer, SID, nomor telepon/ANI, "
-        "nama agen, NIK, topik, intent): gunakan pencocokan SEBAGIAN & tidak peka "
-        "huruf, mis. WHERE lower(customer) LIKE lower('%kata%'); hindari '=' untuk "
-        "nama/teks kecuali nilainya jelas eksak. Bila sebuah query mengembalikan 0 "
+        "Pencarian IDENTITAS/teks kolom (nama pelanggan/customer, SID, nomor "
+        "telepon/ANI, nama agen, NIK, topik, intent): gunakan pencocokan SEBAGIAN "
+        "& tidak peka huruf, mis. WHERE lower(customer) LIKE lower('%kata%'); "
+        "hindari '=' untuk nama/teks kecuali nilainya jelas eksak.\n"
+        "PENTING — IDENTITAS vs ISI PERCAKAPAN: customer/ani/nik/agent_name adalah "
+        "IDENTITAS, BUKAN isi. ISI/teks percakapan (yang diketik/diucapkan, termasuk "
+        "alamat email yang diketik) ada di kolom TRANSKRIP: transkrip_json (CHAT) dan "
+        "stt_text/transkrip_json (TELEPON). TIDAK ADA kolom conversation_text/"
+        "isi_percakapan/transcript — JANGAN mengarang; bila ragu pakai aksi 'columns' "
+        "untuk melihat kolom nyata. Bila pengguna meminta pencarian pada ISI "
+        "percakapan, JANGAN cari di customer; pakai aksi 'content_search' (paling "
+        "andal, cocok di sisi server) atau REGEXP pada kolom transkrip. Fungsi REGEXP "
+        "tersedia (case-insensitive); contoh email @gmail.com dengan LEBIH DARI SATU "
+        "titik sebelum @ (mis. sam.sul.h@gmail.com; wp1@gmail.com atau "
+        "nico.reno@gmail.com yang 0/1 titik TIDAK dicari): "
+        r"'[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+){2,}@gmail\.com'"
+        ". 'bot-only' (murni bot) = agent_name kosong; untuk mengecualikan bot-only "
+        "tambahkan AND agent_name IS NOT NULL AND agent_name<>'' (atau pakai "
+        "exclude_bot_only pada content_search). Bila sebuah query mengembalikan 0 "
         "baris, coba longgarkan (LIKE lebih longgar / lepas filter tanggal) sebelum "
         "menyimpulkan data tidak ada."
     )
@@ -105,6 +132,18 @@ def _system_prompt():
             "  * 'sources' opsional (subset: intent, awe, sosmed, peraturan, sop); "
             "kosongkan untuk mencari semua sumber. READ-ONLY.\n"
         )
+    cs_line = ""
+    if content_search is not None:
+        cs_line = (
+            "- Cari POLA pada ISI percakapan (regex, DICOCOKKAN DI SISI SERVER, hanya "
+            "mengembalikan sid/nama/nik) untuk database 'avaya': "
+            "{\"action\":\"content_search\",\"db\":\"avaya\",\"pattern\":\"<regex>\","
+            "\"scope\":\"chat\",\"exclude_bot_only\":true,\"prefilter\":\"gmail.com\"}.\n"
+            "  * Pakai ini bila pertanyaan menyangkut ISI/teks percakapan (mis. "
+            "mencari alamat email/kata pada transkrip), BUKAN identitas. 'scope' = "
+            "'chat' atau 'phone'; 'prefilter' opsional (substring untuk mempersempit "
+            "kandidat). READ-ONLY.\n"
+        )
     return (
         "Kamu asisten data internal Camerad untuk tim analis DJP. Kamu menjawab "
         "pertanyaan dengan MENELUSURI beberapa database internal (READ-ONLY).\n\n"
@@ -112,8 +151,11 @@ def _system_prompt():
         "- Balas TEPAT SATU objek JSON per langkah. Tanpa teks lain, tanpa markdown.\n"
         "- Lihat skema kolom dulu bila belum tahu: "
         "{\"action\":\"schema\",\"db\":\"<key>\"}.\n"
+        "- Lihat kolom NYATA sebuah database (anti-mengarang kolom): "
+        "{\"action\":\"columns\",\"db\":\"<key>\"}.\n"
         "- Ambil data: {\"action\":\"query\",\"db\":\"<key>\",\"sql\":\"SELECT ...\"}.\n"
         "  * Hanya SELECT/WITH (read-only). Satu statement, tanpa ';'. Sertakan LIMIT wajar.\n"
+        + cs_line
         + rag_line +
         "- Bila sudah cukup untuk menjawab: {\"action\":\"final\",\"answer\":\"...\"}.\n"
         "  * 'answer' Bahasa Indonesia, ringkas, jelas, boleh Markdown, sebutkan angka penting.\n"
@@ -209,6 +251,62 @@ def answer_agentic(question, lang=None, max_iters=MAX_ITERS):
                 json.dumps(sc, ensure_ascii=False))})
             continue
 
+        if action == "columns":
+            key = (act.get("db") or "").strip()
+            cols = registry.get_columns(key)
+            trace.append({"type": "columns", "db": key, "ok": bool(cols.get("ok"))})
+            messages.append({"role": "user", "content": _clip(
+                "OBSERVASI (columns " + key + "):\n" +
+                json.dumps(cols, ensure_ascii=False))})
+            continue
+
+        if action == "content_search":
+            key = (act.get("db") or "").strip()
+            pattern = (act.get("pattern") or act.get("regex") or "").strip()
+            if content_search is None:
+                messages.append({"role": "user", "content":
+                    "Aksi 'content_search' tidak tersedia. Gunakan REGEXP pada kolom "
+                    "transkrip lewat 'query', atau 'columns'/'final'."})
+                continue
+            if not pattern:
+                messages.append({"role": "user", "content":
+                    "content_search butuh 'pattern' (regex). Balas JSON aksi lagi."})
+                continue
+            if query_steps >= MAX_QUERY_STEPS:
+                messages.append({"role": "user", "content":
+                    "Batas langkah tercapai. Balas sekarang dengan "
+                    "{\"action\":\"final\",\"answer\":\"...\"}."})
+                continue
+            query_steps += 1
+            try:
+                cres = content_search.search(
+                    key or "avaya", pattern,
+                    scope=(act.get("scope") or "chat"),
+                    exclude_bot_only=bool(act.get("exclude_bot_only", True)),
+                    prefilter=(act.get("prefilter") or act.get("contains") or ""),
+                    limit=int(act.get("limit") or 500))
+            except Exception as e:
+                cres = {"ok": False, "error": str(e)}
+            ok = bool(cres.get("ok"))
+            if key:
+                used_dbs.append(key)
+            trace.append({
+                "type": "content_search", "db": key, "ok": ok,
+                "error": (None if ok else cres.get("error")),
+                "rows": (cres.get("total") if ok else 0)})
+            if ok:
+                obs = json.dumps({
+                    "db": key, "columns": cres.get("columns"),
+                    "rows": (cres.get("rows") or [])[:MAX_ROWS_TO_LLM],
+                    "total": cres.get("total"), "scanned": cres.get("scanned"),
+                    "truncated": cres.get("truncated")}, ensure_ascii=False)
+            else:
+                obs = json.dumps({"db": key, "error": cres.get("error")},
+                                 ensure_ascii=False)
+            messages.append({"role": "user",
+                             "content": _clip("OBSERVASI (content_search):\n" + obs)})
+            continue
+
         if action == "query":
             key = (act.get("db") or "").strip()
             sql = (act.get("sql") or "").strip()
@@ -232,9 +330,22 @@ def answer_agentic(question, lang=None, max_iters=MAX_ITERS):
                     "rows": res.get("rows", [])[:MAX_ROWS_TO_LLM]},
                     ensure_ascii=False)
             else:
-                obs = json.dumps({
-                    "db": key, "error": res.get("error"),
-                    "sql": res.get("sql", sql)}, ensure_ascii=False)
+                err = res.get("error") or ""
+                obs_obj = {"db": key, "error": err, "sql": res.get("sql", sql)}
+                # Auto-koreksi: bila kolom tak ada, sertakan kolom NYATA + petunjuk isi.
+                if "no such column" in err.lower() and key:
+                    try:
+                        _cols = registry.get_columns(key)
+                        if _cols.get("ok"):
+                            obs_obj["kolom_tersedia"] = _cols.get("columns")
+                            obs_obj["petunjuk"] = (
+                                "Kolom conversation_text/isi_percakapan TIDAK ADA. "
+                                "Isi percakapan CHAT ada di 'transkrip_json', TELEPON di "
+                                "'stt_text'. Untuk mencari pola pada isi, pakai aksi "
+                                "'content_search' atau REGEXP pada kolom transkrip.")
+                    except Exception:
+                        pass
+                obs = json.dumps(obs_obj, ensure_ascii=False)
             messages.append({"role": "user",
                              "content": _clip("OBSERVASI (query):\n" + obs)})
             continue
@@ -318,4 +429,6 @@ if __name__ == "__main__":
     assert a3.get("action") == "final", a3
     a4 = _parse_action('{"action":"rag_search","query":"efin","sources":["peraturan"]}')
     assert a4.get("action") == "rag_search" and a4.get("query") == "efin", a4
+    a5 = _parse_action('{"action":"content_search","db":"avaya","pattern":"x"}')
+    assert a5.get("action") == "content_search" and a5.get("db") == "avaya", a5
     print("AGENTIC_SMOKE_OK")
