@@ -2,30 +2,32 @@
 {% set _agentic_only_pages = ['rag_harness','voicebot_lab'] %}
 {% set agentic_only = active_page in _agentic_only_pages %}
 <style>
-  .ask-card{margin:0 0 22px;padding:20px 22px;border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);}
+  .ask-card{width:calc(100% - 36px);max-width:1180px;margin:0 auto 22px;padding:20px 22px;border:1px solid var(--panel-border);border-radius:var(--radius);background:var(--panel-bg);box-shadow:var(--shadow-sm);}
   .ask-card .ask-hd{display:flex;align-items:center;gap:12px;}
   .ask-card .ask-hd .ic{width:36px;height:36px;flex:0 0 auto;display:grid;place-items:center;border-radius:10px;background:var(--accent);color:#fff;}
   .ask-card .ask-hd .ic svg{width:19px;height:19px;}
   .ask-card .ask-title{margin:0;font-size:16px;font-weight:700;color:var(--text-main);line-height:1.15;}
-  .ask-card .ask-scope{font-size:12px;color:var(--text-muted);margin-top:1px;}
+  .ask-card .ask-scope{font-size:12px;color:var(--text-muted);margin-top:1px;line-height:1.4;}
   .ask-card .ask-mode{display:flex;align-items:center;gap:8px;margin-top:14px;flex-wrap:wrap;}
   .ask-card .ask-toggle{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-muted);cursor:pointer;user-select:none;}
   .ask-card .ask-toggle input{width:15px;height:15px;cursor:pointer;}
   .ask-card .ask-badge{display:inline-block;font-size:12px;padding:3px 10px;border-radius:999px;background:var(--accent);color:#fff;font-weight:600;}
-  .ask-card .ask-row{display:flex;gap:10px;margin-top:14px;}
-  .ask-card .ask-row input{flex:1;padding:11px 14px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base,transparent);color:var(--text-main);font-size:14px;}
-  .ask-card .ask-send{border:none;border-radius:10px;padding:0 20px;background:var(--accent);color:#fff;font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap;}
+  .ask-card .ask-row{display:flex;align-items:stretch;gap:10px;margin-top:14px;}
+  .ask-card .ask-row input{min-width:0;flex:1;padding:11px 14px;border:1px solid var(--panel-border);border-radius:10px;background:var(--bg-base,transparent);color:var(--text-main);font-size:14px;}
+  .ask-card .ask-row input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow);}
+  .ask-card .ask-send{min-height:42px;border:none;border-radius:10px;padding:0 20px;background:var(--accent);color:#fff;font-weight:600;font-size:14px;cursor:pointer;white-space:nowrap;}
+  .ask-card .ask-send:hover:not(:disabled){background:var(--accent-hover);}
   .ask-card .ask-send:disabled{opacity:.6;cursor:default;}
   .ask-card .ask-ex{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
   .ask-card .ask-ex button{font-size:12px;padding:6px 12px;border:1px solid var(--panel-border);border-radius:999px;background:transparent;color:var(--text-muted);cursor:pointer;}
   .ask-card .ask-ex button:hover{border-color:var(--accent);color:var(--accent);}
   .ask-answer{margin-top:16px;border-radius:14px;background:var(--bg-base,rgba(127,127,127,.06));border:1px solid var(--panel-border);display:none;overflow:hidden;}
   .ask-answer.show{display:block;}
-  .ask-answer .inner{padding:18px 20px;font-size:14px;color:var(--text-main);line-height:1.55;}
+  .ask-answer .inner{padding:18px 20px;font-size:14px;color:var(--text-main);line-height:1.55;overflow-wrap:anywhere;}
   .ask-answer .inner p{margin:0 0 10px;} .ask-answer .inner p:last-child{margin:0;}
-  .ask-answer pre{background:rgba(0,0,0,.10);border:1px solid var(--panel-border);border-radius:10px;padding:12px;overflow-x:auto;font-size:13px;margin:8px 0 0;}
-  .ask-answer table{border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;}
-  .ask-answer th,.ask-answer td{border:1px solid var(--panel-border);padding:7px 11px;text-align:left;}
+  .ask-answer pre{max-width:100%;background:rgba(0,0,0,.10);border:1px solid var(--panel-border);border-radius:10px;padding:12px;overflow-x:auto;font-size:13px;}
+  .ask-answer table{border-collapse:collapse;width:100%;font-size:13px;margin-top:12px;display:block;overflow-x:auto;}
+  .ask-answer th,.ask-answer td{border:1px solid var(--panel-border);padding:7px 11px;text-align:left;white-space:nowrap;}
   .ask-answer th{background:var(--c-blue);color:var(--c-blue-txt);}
   .ask-sql{margin-top:12px;padding-top:12px;border-top:1px dashed var(--panel-border);font-size:12px;color:var(--text-muted);word-break:break-word;}
   .ask-state{display:flex;align-items:center;gap:10px;color:var(--text-muted);}
@@ -36,6 +38,19 @@
   .ask-save:hover{background:var(--accent);color:#fff;}
   .ask-save:disabled{opacity:.6;cursor:default;}
   .ask-savenote{font-size:12px;color:var(--text-muted);}
+  @media (min-width:821px){
+    .ask-card[data-page="voicebot_lab"]{max-width:900px;}
+    .ask-card[data-page="rag_harness"]{max-width:1180px;}
+  }
+  @media (max-width:600px){
+    .ask-card{width:calc(100% - 24px);padding:16px;}
+    .ask-card .ask-row{flex-direction:column;}
+    .ask-card .ask-send{width:100%;min-height:40px;}
+  }
+  /* The shared base template owns these elements. Keep the compact sidebar focused
+     on the current accordion even on pages where the base script ran first. */
+  body:not(.sidebar-pinned) .side:not(:hover) .sec-label:not(.is-active),
+  body:not(.sidebar-pinned) .side:not(:hover) .tool-side:not(.active-accordion-item){display:none;}
 </style>
 <section class="ask-card" id="askCard" data-page="{{ active_page }}" data-agentic-only="{{ 'true' if agentic_only else 'false' }}" data-can-report="true">
   <div class="ask-hd">
@@ -61,6 +76,66 @@
 </section>
 <script>
 (function(){
+  function polishSidebar(){
+    var scrollBox = document.querySelector('.side-scroll');
+    if(!scrollBox) return;
+    var labels = Array.prototype.slice.call(scrollBox.querySelectorAll('.sec-label'));
+    var activeLink = scrollBox.querySelector('.tool-side.active');
+    var activeLabel = null;
+    labels.forEach(function(label){
+      var group = [];
+      var el = label.nextElementSibling;
+      while(el && !el.classList.contains('sec-label')){ group.push(el); el = el.nextElementSibling; }
+      var isActive = group.some(function(item){ return item.classList && item.classList.contains('active'); });
+      label.classList.toggle('is-active', isActive);
+      label.setAttribute('aria-expanded', isActive ? 'true' : 'false');
+      if(isActive) activeLabel = label;
+      group.forEach(function(item){
+        if(item.classList && item.classList.contains('tool-side')){
+          item.classList.toggle('active-accordion-item', isActive);
+          item.style.display = isActive ? '' : 'none';
+        }
+      });
+      var chev = label.querySelector('.acc-chev');
+      if(chev) label.classList.toggle('acc-collapsed', !isActive);
+    });
+    if(activeLink && activeLink.scrollIntoView){
+      setTimeout(function(){ activeLink.scrollIntoView({block:'center'}); }, 0);
+    }
+    /* Keep one visible accordion at a time when the user explicitly opens one. */
+    labels.forEach(function(label){
+      if(label.__askAccordionBound) return;
+      label.__askAccordionBound = true;
+      label.addEventListener('click', function(){
+        labels.forEach(function(other){
+          if(other === label) return;
+          other.classList.remove('is-active');
+          other.setAttribute('aria-expanded','false');
+          var item = other.nextElementSibling;
+          while(item && !item.classList.contains('sec-label')){
+            if(item.classList && item.classList.contains('tool-side')){
+              item.classList.remove('active-accordion-item');
+              item.style.display='none';
+            }
+            item = item.nextElementSibling;
+          }
+        });
+        label.classList.add('is-active');
+        label.setAttribute('aria-expanded','true');
+        var next = label.nextElementSibling;
+        while(next && !next.classList.contains('sec-label')){
+          if(next.classList && next.classList.contains('tool-side')){
+            next.classList.add('active-accordion-item');
+            next.style.display='';
+          }
+          next = next.nextElementSibling;
+        }
+      });
+    });
+  }
+  setTimeout(polishSidebar, 0);
+  window.addEventListener('load', polishSidebar);
+
   var card = document.getElementById('askCard');
   if (!card) return;
   var page = card.getAttribute('data-page') || '';
@@ -69,207 +144,36 @@
   var PRECISION_PAGES = ['awe_dasbor','awe_coverage','awe_taksonomi','awe_sentimen','awe_percakapan','awe_pengguna','awe_penilaian','awe_telepon_dash','awe_telepon_cov','awe_telepon_tax','awe_telepon_sen','awe_telepon_detail','awe_telepon_users','sosmed_qna','sosmed_sla','sosmed_deflection','peraturan','sop','kamus'];
   var lastQuestion = '';
   var SCOPE = {
-    glosarium: 'Menjawab dari Glosarium Istilah Pajak',
-    disambiguasi: 'Menjawab dari Pustaka Disambiguasi',
-    intentmap: 'Menjawab dari Peta Intent & Katalog',
-    dashboard: 'Menjawab dari database interaksi (query SQL)',
-    data: 'Menjawab dari database interaksi (query SQL)',
-    deflection: 'Menjawab dari data interaksi (query SQL)',
-    lifecycle: 'Menjawab dari data interaksi (query SQL)',
-    tools: 'Menjawab dari data interaksi (query SQL)',
-    awe_dasbor: 'Menjawab dari data Chat AWE (Avaya)',
-    awe_coverage: 'Menjawab dari data Chat AWE (coverage & deflection)',
-    awe_taksonomi: 'Menjawab dari data Chat AWE (taksonomi & peluang)',
-    awe_sentimen: 'Menjawab dari data Chat AWE (sentimen & agent)',
-    awe_percakapan: 'Menjawab dari detail percakapan Chat AWE',
-    awe_pengguna: 'Menjawab dari data pengguna harian Chat AWE',
-    awe_penilaian: 'Menjawab dari penilaian QA Chat AWE',
-    awe_telepon_dash: 'Menjawab dari data Telepon AWE',
-    awe_telepon_cov: 'Menjawab dari data Telepon AWE (coverage)',
-    awe_telepon_tax: 'Menjawab dari data Telepon AWE (taksonomi)',
-    awe_telepon_sen: 'Menjawab dari data Telepon AWE (sentimen)',
-    awe_telepon_detail: 'Menjawab dari detail percakapan Telepon AWE',
-    awe_telepon_users: 'Menjawab dari data penelepon Telepon AWE',
-    sosmed_qna: 'Menjawab dari data Sosmed (Q&A)',
-    sosmed_sla: 'Menjawab dari data Sosmed (SLA & analitik)',
-    sosmed_deflection: 'Menjawab dari data Sosmed (coverage & deflection)',
-    peraturan: 'Menjawab dari basis data Peraturan (query SQL)',
-    sop: 'Menjawab dari basis data SOP & Proses Bisnis',
-    kamus: 'Menjawab dari Kamus & Rewriting'
+    glosarium: 'Menjawab dari Glosarium Istilah Pajak', disambiguasi: 'Menjawab dari Pustaka Disambiguasi', intentmap: 'Menjawab dari Peta Intent & Katalog', dashboard: 'Menjawab dari database interaksi (query SQL)', data: 'Menjawab dari database interaksi (query SQL)', deflection: 'Menjawab dari data interaksi (query SQL)', lifecycle: 'Menjawab dari data interaksi (query SQL)', tools: 'Menjawab dari data interaksi (query SQL)', awe_dasbor: 'Menjawab dari data Chat AWE (Avaya)', awe_coverage: 'Menjawab dari data Chat AWE (coverage & deflection)', awe_taksonomi: 'Menjawab dari data Chat AWE (taksonomi & peluang)', awe_sentimen: 'Menjawab dari data Chat AWE (sentimen & agent)', awe_percakapan: 'Menjawab dari detail percakapan Chat AWE', awe_pengguna: 'Menjawab dari data pengguna harian Chat AWE', awe_penilaian: 'Menjawab dari penilaian QA Chat AWE', awe_telepon_dash: 'Menjawab dari data Telepon AWE', awe_telepon_cov: 'Menjawab dari data Telepon AWE (coverage)', awe_telepon_tax: 'Menjawab dari data Telepon AWE (taksonomi)', awe_telepon_sen: 'Menjawab dari data Telepon AWE (sentimen)', awe_telepon_detail: 'Menjawab dari detail percakapan Telepon AWE', awe_telepon_users: 'Menjawab dari data penelepon Telepon AWE', sosmed_qna: 'Menjawab dari data Sosmed (Q&A)', sosmed_sla: 'Menjawab dari data Sosmed (SLA & analitik)', sosmed_deflection: 'Menjawab dari data Sosmed (coverage & deflection)', peraturan: 'Menjawab dari basis data Peraturan (query SQL)', sop: 'Menjawab dari basis data SOP & Proses Bisnis', kamus: 'Menjawab dari Kamus & Rewriting'
   };
   var EX = {
-    glosarium: ['Apa itu EFIN?', 'Jelaskan istilah Coretax'],
-    disambiguasi: ['Kapan pakai DJP Online vs Coretax?', 'Arti "lapor pajak" yang ambigu'],
-    intentmap: ['Intent untuk lupa EFIN?', 'Kebijakan jawaban reset password'],
-    dashboard: ['Top 5 intent minggu lalu?', 'Fallback rate 7 hari terakhir?', 'Top pertanyaan fallback hari ini'],
-    data: ['Berapa total sesi bulan ini?', 'Top 5 intent minggu lalu'],
-    deflection: ['Berapa fallback rate 7 hari terakhir?'],
-    lifecycle: ['Berapa intent yang tak pernah dipanggil?'],
-    tools: ['Berapa total interaksi minggu lalu?'],
-    awe_dasbor: ['Berapa volume chat bulan ini?', 'Rata-rata durasi chat?'],
-    awe_coverage: ['Deflection gap tertinggi per topik?'],
-    awe_sentimen: ['Porsi sentimen negatif chat?'],
-    awe_pengguna: ['Berapa pengguna unik hari ini?'],
-    awe_penilaian: ['Kepatuhan softskill agent terbaru?'],
-    awe_telepon_dash: ['Volume telepon minggu ini?'],
-    awe_telepon_users: ['Penelepon berulang terbanyak?'],
-    sosmed_qna: ['Pertanyaan warga tersering?'],
-    sosmed_sla: ['Keterjawaban Sosmed 7 hari terakhir?'],
-    peraturan: ['Berapa peraturan berlaku per tahun?', 'Peraturan yang sudah dicabut?'],
-    sop: ['Berapa SOP aktif per kategori?'],
-    kamus: ['Sinonim untuk EFIN?']
+    glosarium: ['Apa itu EFIN?', 'Jelaskan istilah Coretax'], disambiguasi: ['Kapan pakai DJP Online vs Coretax?', 'Arti "lapor pajak" yang ambigu'], intentmap: ['Intent untuk lupa EFIN?', 'Kebijakan jawaban reset password'], dashboard: ['Top 5 intent minggu lalu?', 'Fallback rate 7 hari terakhir?', 'Top pertanyaan fallback hari ini'], data: ['Berapa total sesi bulan ini?', 'Top 5 intent minggu lalu'], deflection: ['Berapa fallback rate 7 hari terakhir?'], lifecycle: ['Berapa intent yang tak pernah dipanggil?'], tools: ['Berapa total interaksi minggu lalu?'], awe_dasbor: ['Berapa volume chat bulan ini?', 'Rata-rata durasi chat?'], awe_coverage: ['Deflection gap tertinggi per topik?'], awe_sentimen: ['Porsi sentimen negatif chat?'], awe_pengguna: ['Berapa pengguna unik hari ini?'], awe_penilaian: ['Kepatuhan softskill agent terbaru?'], awe_telepon_dash: ['Volume telepon minggu ini?'], awe_telepon_users: ['Penelepon berulang terbanyak?'], sosmed_qna: ['Pertanyaan warga tersering?'], sosmed_sla: ['Keterjawaban Sosmed 7 hari terakhir?'], peraturan: ['Berapa peraturan berlaku per tahun?', 'Peraturan yang sudah dicabut?'], sop: ['Berapa SOP aktif per kategori?'], kamus: ['Sinonim untuk EFIN?']
   };
   var scopeEl = document.getElementById('askScope');
   var agToggle = document.getElementById('askAgentic');
   function isAgentic(){ return agenticOnly || (agToggle && agToggle.checked); }
-  function baseScope(){
-    if (SCOPE[page]) return SCOPE[page] + ' — hanya dari database internal.';
-    return 'Menjawab dari data halaman ini — hanya dari database internal, bukan sumber luar.';
-  }
-  function updateScope(){
-    if (isAgentic()) scopeEl.textContent = 'Mode agentic — menelusuri semua database internal (kecuali data pengguna), read-only. Bisa memakan beberapa langkah.';
-    else scopeEl.textContent = baseScope();
-  }
+  function baseScope(){ if (SCOPE[page]) return SCOPE[page] + ' — hanya dari database internal.'; return 'Menjawab dari data halaman ini — hanya dari database internal, bukan sumber luar.'; }
+  function updateScope(){ if (isAgentic()) scopeEl.textContent = 'Mode agentic — menelusuri semua database internal (kecuali data pengguna), read-only. Bisa memakan beberapa langkah.'; else scopeEl.textContent = baseScope(); }
   updateScope();
   if (agToggle) agToggle.addEventListener('change', updateScope);
-  var q = document.getElementById('askQ');
-  var send = document.getElementById('askSend');
-  var ansWrap = document.getElementById('askAnswer');
-  var ans = ansWrap.querySelector('.inner');
+  var q = document.getElementById('askQ'), send = document.getElementById('askSend'), ansWrap = document.getElementById('askAnswer'), ans = ansWrap.querySelector('.inner');
   function esc(s){ return (s||'').replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
-  function mdLite(src){
-    var t = esc(src||'');
-    t = t.replace(/```(\w*)\n?([\s\S]*?)```/g, function(m,l,c){ return '<pre>'+c+'</pre>'; });
-    t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\n{2,}/g, '</p><p>').replace(/\n/g, '<br>');
-    return '<p>'+t+'</p>';
-  }
-  function tbl(cols, rows){
-    if (!cols || !rows || !rows.length) return '';
-    return '<table><tr>' + cols.map(function(c){ return '<th>'+esc(String(c))+'</th>'; }).join('') + '</tr>' +
-      rows.slice(0,15).map(function(r){ return '<tr>' + r.map(function(v){ return '<td>'+esc(String(v==null?'':v))+'</td>'; }).join('') + '</tr>'; }).join('') + '</table>';
-  }
-  function dbList(dbs){
-    if (!dbs || !dbs.length) return '';
-    var names = dbs.map(function(d){ return typeof d === 'string' ? d : (d && (d.key || d.name) ? (d.key || d.name) : JSON.stringify(d)); });
-    return '<div class="ask-sql">Sumber database: '+esc(names.join(', '))+'</div>';
-  }
-  function show(html){ ans.innerHTML = html; ansWrap.classList.add('show'); }
-  function nonJsonMsg(st){
-    if (st === 401 || st === 403) return 'Sesi berakhir atau akses ditolak. Muat ulang halaman lalu login kembali.';
-    if (st === 502 || st === 503 || st === 504) return 'Server AI melebihi batas waktu (gateway ' + st + '). Coba lagi sebentar atau persempit pertanyaan.';
-    if (st && (st < 200 || st >= 300)) return 'Server membalas status ' + st + ' dengan format non-JSON. Coba lagi sebentar.';
-    return 'Respons server tidak dapat dibaca (bukan JSON). Kemungkinan permintaan melebihi batas waktu proxy saat menunggu jawaban AI.';
-  }
-  var busy = false;
-  function finish(){ busy = false; send.disabled = false; }
-  function renderResult(r){
-    var html = mdLite(r.answer);
-    if (r.mode === 'data') {
-      html += tbl(r.columns, r.rows);
-      if (r.sql) html += '<div class="ask-sql">Query SQL: <code>'+esc(r.sql)+'</code></div>';
-    } else if (r.mode === 'agentic') {
-      html += dbList(r.databases);
-      if (r.note) html += '<div class="ask-sql">'+esc(r.note)+'</div>';
-    }
-    show(html);
-    if (canReport) addSaveBar(r);
-  }
-  function deriveTitle(qq){ qq=(qq||'').replace(/\s+/g,' ').trim(); if(!qq) return 'Laporan'; return qq.length>70 ? qq.slice(0,70)+'…' : qq; }
-  function buildReportMd(r){
-    var qq = lastQuestion || '';
-    var dbs = (r.databases && r.databases.length) ? r.databases : (r.db ? [r.db] : []);
-    var dbtxt = dbs.map(function(d){ return typeof d === 'string' ? d : (d && (d.key || d.name) ? (d.key || d.name) : String(d)); }).join(', ') || '-';
-    var out = ['# ' + deriveTitle(qq), '', '_Sumber data: ' + dbtxt + '_', '', '**Permintaan:** ' + qq, '', (r.answer || '').trim()];
-    var qsteps = (r.steps || []).filter(function(s){ return s && s.type === 'query'; });
-    if (r.mode === 'data' && r.sql) { out.push('', '---', '', '## Lampiran - Query SQL', '', '```sql', r.sql, '```'); }
-    else if (qsteps.length) { out.push('', '---', '', '## Lampiran - Query SQL', ''); qsteps.forEach(function(s,i){ out.push('**' + (i+1) + '. ' + (s.db || '?') + '** (' + (s.ok ? 'ok' : 'gagal') + ')', '', '```sql', (s.sql || '').trim(), '```', ''); }); }
-    return out.join('\n');
-  }
-  function addSaveBar(r){
-    if (!r || !r.answer) return;
-    if (ans.querySelector('.ask-savebar')) return;
-    var bar = document.createElement('div'); bar.className = 'ask-savebar';
-    var btn = document.createElement('button'); btn.type = 'button'; btn.className = 'ask-save'; btn.textContent = 'Simpan sebagai laporan';
-    var note = document.createElement('span'); note.className = 'ask-savenote';
-    bar.appendChild(btn); bar.appendChild(note); ans.appendChild(bar);
-    btn.onclick = function(){
-      btn.disabled = true; note.textContent = ' Menyimpan…';
-      var dbs = (r.databases && r.databases.length) ? r.databases : (r.db ? [r.db] : []);
-      fetch('/api/laporan/save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ title: deriveTitle(lastQuestion), content_md: buildReportMd(r), question: lastQuestion || '', databases: dbs, steps: r.steps || [] }) })
-        .then(function(x){ return x.text(); })
-        .then(function(raw){ var s; try { s = JSON.parse(raw); } catch (_e) { s = { ok:false, error:'Respons non-JSON.' }; } if (s.ok) { note.innerHTML = ' ✓ Tersimpan. <a href="/laporan" style="color:var(--accent);">Buka Laporan</a>'; } else { btn.disabled = false; note.textContent = ' ⚠ ' + (s.error || 'Gagal menyimpan.'); } })
-        .catch(function(e){ btn.disabled = false; note.textContent = ' ⚠ ' + e.message; });
-    };
-  }
-  function askPrecise(text){
-    var _status = 0;
-    var _url = (PRECISION_PAGES.indexOf(page) >= 0) ? '/api/ask-precise' : '/api/ask';
-    fetch(_url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: text, page: page }) })
-      .then(function(r){ _status = r.status; return r.text(); })
-      .then(function(raw){
-        var r;
-        try { r = JSON.parse(raw); }
-        catch (_e) { show('⚠ ' + esc(nonJsonMsg(_status))); return; }
-        if (!r.ok) { show('⚠ ' + esc(r.error || 'Gagal memproses.') + (r.sql ? '<div class="ask-sql">SQL gagal: <code>'+esc(r.sql)+'</code></div>' : '')); return; }
-        renderResult(r);
-      })
-      .catch(function(e){ show('⚠ ' + esc(e.message)); })
-      .then(finish);
-  }
-  function askAgentic(text){
-    // Fase 4: mulai job ASINKRON lalu polling status (anti-timeout gateway).
-    var _status = 0;
-    var t0 = Date.now();
-    var MAX_MS = 6 * 60 * 1000;
-    function fail(msg){ show('⚠ ' + esc(msg)); finish(); }
-    function poll(jobId){
-      fetch('/api/ask-agentic/status/' + encodeURIComponent(jobId), { method:'GET' })
-        .then(function(rr){ _status = rr.status; return rr.text(); })
-        .then(function(raw){
-          var s;
-          try { s = JSON.parse(raw); } catch (_e) { fail(nonJsonMsg(_status)); return; }
-          if (s.status === 'queued' || s.status === 'running') {
-            if (Date.now() - t0 > MAX_MS) { fail('Analisis terlalu lama (lebih dari 6 menit). Coba persempit pertanyaan atau ulangi.'); return; }
-            var el = Math.round((Date.now() - t0) / 1000);
-            var lbl = (s.status === 'queued') ? 'Antre memproses' : 'Menelusuri lintas database';
-            var steps = (s.steps_done ? ', ' + s.steps_done + ' langkah' : '');
-            show('<div class="ask-state"><span class="ask-spin"></span>' + lbl + '… (' + el + 's' + steps + ')</div>');
-            setTimeout(function(){ poll(jobId); }, 2000);
-            return;
-          }
-          if (s.status === 'done') { renderResult(s); finish(); return; }
-          fail(s.error || 'Analisis gagal atau dibatalkan.');
-        })
-        .catch(function(e){ fail(e.message); });
-    }
-    fetch('/api/ask-agentic/start', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ question: text, page: page }) })
-      .then(function(r){ _status = r.status; return r.text(); })
-      .then(function(raw){
-        var r;
-        try { r = JSON.parse(raw); } catch (_e) { fail(nonJsonMsg(_status)); return; }
-        if (!r.ok || !r.job_id) { fail(r.error || 'Gagal memulai analisis.'); return; }
-        show('<div class="ask-state"><span class="ask-spin"></span>Menyiapkan analisis lintas database…</div>');
-        setTimeout(function(){ poll(r.job_id); }, 800);
-      })
-      .catch(function(e){ fail(e.message); });
-  }
-  function askNow(){
-    var text = q.value.trim();
-    if (!text || busy) return;
-    lastQuestion = text;
-    var agentic = isAgentic();
-    busy = true; send.disabled = true;
-    show('<div class="ask-state"><span class="ask-spin"></span>' + (agentic ? 'Menganalisis lintas database (bisa beberapa langkah)…' : 'Menganalisis data internal…') + '</div>');
-    if (agentic) askAgentic(text); else askPrecise(text);
-  }
-  send.onclick = askNow;
-  q.addEventListener('keydown', function(e){ if (e.key === 'Enter') askNow(); });
-  var exWrap = document.getElementById('askEx');
-  (EX[page] || []).forEach(function(ex){
-    var b = document.createElement('button');
-    b.type = 'button'; b.textContent = ex;
-    b.onclick = function(){ q.value = ex; askNow(); };
-    exWrap.appendChild(b);
-  });
+  function mdLite(src){ var t=esc(src||''); t=t.replace(/```(\w*)\n?([\s\S]*?)```/g,function(m,l,c){return '<pre>'+c+'</pre>';}); t=t.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>').replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>'); return '<p>'+t+'</p>'; }
+  function tbl(cols,rows){ if(!cols||!rows||!rows.length)return ''; return '<table><tr>'+cols.map(function(c){return '<th>'+esc(String(c))+'</th>';}).join('')+'</tr>'+rows.slice(0,15).map(function(r){return '<tr>'+r.map(function(v){return '<td>'+esc(String(v==null?'':v))+'</td>';}).join('')+'</tr>';}).join('')+'</table>'; }
+  function dbList(dbs){ if(!dbs||!dbs.length)return ''; var names=dbs.map(function(d){return typeof d==='string'?d:(d&&(d.key||d.name)?(d.key||d.name):JSON.stringify(d));}); return '<div class="ask-sql">Sumber database: '+esc(names.join(', '))+'</div>'; }
+  function show(html){ ans.innerHTML=html; ansWrap.classList.add('show'); }
+  function nonJsonMsg(st){ if(st===401||st===403)return 'Sesi berakhir atau akses ditolak. Muat ulang halaman lalu login kembali.'; if(st===502||st===503||st===504)return 'Server AI melebihi batas waktu (gateway '+st+'). Coba lagi sebentar atau persempit pertanyaan.'; if(st&&(st<200||st>=300))return 'Server membalas status '+st+' dengan format non-JSON. Coba lagi sebentar.'; return 'Respons server tidak dapat dibaca (bukan JSON). Kemungkinan permintaan melebihi batas waktu proxy saat menunggu jawaban AI.'; }
+  var busy=false;
+  function finish(){busy=false;send.disabled=false;}
+  function renderResult(r){ var html=mdLite(r.answer); if(r.mode==='data'){html+=tbl(r.columns,r.rows);if(r.sql)html+='<div class="ask-sql">Query SQL: <code>'+esc(r.sql)+'</code></div>';}else if(r.mode==='agentic'){html+=dbList(r.databases);if(r.note)html+='<div class="ask-sql">'+esc(r.note)+'</div>';} show(html); if(canReport)addSaveBar(r); }
+  function deriveTitle(qq){qq=(qq||'').replace(/\s+/g,' ').trim();if(!qq)return 'Laporan';return qq.length>70?qq.slice(0,70)+'…':qq;}
+  function buildReportMd(r){ var qq=lastQuestion||''; var dbs=(r.databases&&r.databases.length)?r.databases:(r.db?[r.db]:[]); var dbtxt=dbs.map(function(d){return typeof d==='string'?d:(d&&(d.key||d.name)?(d.key||d.name):String(d));}).join(', ')||'-'; var out=['# '+deriveTitle(qq),'','_Sumber data: '+dbtxt+'_','','**Permintaan:** '+qq,'',(r.answer||'').trim()]; var qsteps=(r.steps||[]).filter(function(s){return s&&s.type==='query';}); if(r.mode==='data'&&r.sql){out.push('','---','','## Lampiran - Query SQL','','```sql',r.sql,'```');}else if(qsteps.length){out.push('','---','','## Lampiran - Query SQL','');qsteps.forEach(function(s,i){out.push('**'+(i+1)+'. '+(s.db||'?')+'** ('+(s.ok?'ok':'gagal')+')','','```sql',(s.sql||'').trim(),'```','');});} return out.join('\n'); }
+  function addSaveBar(r){ if(!r||!r.answer)return; if(ans.querySelector('.ask-savebar'))return; var bar=document.createElement('div');bar.className='ask-savebar';var btn=document.createElement('button');btn.type='button';btn.className='ask-save';btn.textContent='Simpan sebagai laporan';var note=document.createElement('span');note.className='ask-savenote';bar.appendChild(btn);bar.appendChild(note);ans.appendChild(bar);btn.onclick=function(){btn.disabled=true;note.textContent=' Menyimpan…';var dbs=(r.databases&&r.databases.length)?r.databases:(r.db?[r.db]:[]);fetch('/api/laporan/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:deriveTitle(lastQuestion),content_md:buildReportMd(r),question:lastQuestion||'',databases:dbs,steps:r.steps||[]})}).then(function(x){return x.text();}).then(function(raw){var s;try{s=JSON.parse(raw);}catch(_e){s={ok:false,error:'Respons non-JSON.'};}if(s.ok){note.innerHTML=' ✓ Tersimpan. <a href="/laporan" style="color:var(--accent);">Buka Laporan</a>';}else{btn.disabled=false;note.textContent=' ⚠ '+(s.error||'Gagal menyimpan.');}}).catch(function(e){btn.disabled=false;note.textContent=' ⚠ '+e.message;});}; }
+  function askPrecise(text){ var _status=0,_url=(PRECISION_PAGES.indexOf(page)>=0)?'/api/ask-precise':'/api/ask'; fetch(_url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:text,page:page})}).then(function(r){_status=r.status;return r.text();}).then(function(raw){var r;try{r=JSON.parse(raw);}catch(_e){show('⚠ '+esc(nonJsonMsg(_status)));return;}if(!r.ok){show('⚠ '+esc(r.error||'Gagal memproses.')+(r.sql?'<div class="ask-sql">SQL gagal: <code>'+esc(r.sql)+'</code></div>':''));return;}renderResult(r);}).catch(function(e){show('⚠ '+esc(e.message));}).then(finish); }
+  function askAgentic(text){ var _status=0,t0=Date.now(),MAX_MS=6*60*1000; function fail(msg){show('⚠ '+esc(msg));finish();} function poll(jobId){fetch('/api/ask-agentic/status/'+encodeURIComponent(jobId),{method:'GET'}).then(function(rr){_status=rr.status;return rr.text();}).then(function(raw){var s;try{s=JSON.parse(raw);}catch(_e){fail(nonJsonMsg(_status));return;}if(s.status==='queued'||s.status==='running'){if(Date.now()-t0>MAX_MS){fail('Analisis terlalu lama (lebih dari 6 menit). Coba persempit pertanyaan atau ulangi.');return;}var el=Math.round((Date.now()-t0)/1000),lbl=s.status==='queued'?'Antre memproses':'Menelusuri lintas database',steps=s.steps_done?', '+s.steps_done+' langkah':'';show('<div class="ask-state"><span class="ask-spin"></span>'+lbl+'… ('+el+'s'+steps+')</div>');setTimeout(function(){poll(jobId);},2000);return;}if(s.status==='done'){renderResult(s);finish();return;}fail(s.error||'Analisis gagal atau dibatalkan.');}).catch(function(e){fail(e.message);});} fetch('/api/ask-agentic/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({question:text,page:page})}).then(function(r){_status=r.status;return r.text();}).then(function(raw){var r;try{r=JSON.parse(raw);}catch(_e){fail(nonJsonMsg(_status));return;}if(!r.ok||!r.job_id){fail(r.error||'Gagal memulai analisis.');return;}show('<div class="ask-state"><span class="ask-spin"></span>Menyiapkan analisis lintas database…</div>');setTimeout(function(){poll(r.job_id);},800);}).catch(function(e){fail(e.message);}); }
+  function askNow(){var text=q.value.trim();if(!text||busy)return;lastQuestion=text;var agentic=isAgentic();busy=true;send.disabled=true;show('<div class="ask-state"><span class="ask-spin"></span>'+(agentic?'Menganalisis lintas database (bisa beberapa langkah)…':'Menganalisis data internal…')+'</div>');if(agentic)askAgentic(text);else askPrecise(text);}
+  send.onclick=askNow;
+  q.addEventListener('keydown',function(e){if(e.key==='Enter')askNow();});
+  var exWrap=document.getElementById('askEx');(EX[page]||[]).forEach(function(ex){var b=document.createElement('button');b.type='button';b.textContent=ex;b.onclick=function(){q.value=ex;askNow();};exWrap.appendChild(b);});
 })();
 </script>
