@@ -235,12 +235,19 @@ def detail(sid):
         conn.close()
 
 
-def daily_users(day_from=None, day_to=None, limit=1000, offset=0):
+def daily_users(day_from=None, day_to=None, limit=1000, offset=0,
+                ani=None, agent=None, theme=None, sentiment=None, resolusi=None):
     """Agregasi Pengguna Harian telepon (per ANI) untuk rentang tanggal.
 
     KPI/tren/chart dihitung utuh untuk seluruh rentang; hanya tabel pemanggil
     yang dipotong per halaman (offset/limit) => pagination sisi-server. Kunci
     tambahan: callers_total, callers_offset, callers_limit.
+
+    Filter pencarian (ani/agent/theme/sentiment/resolusi) dilakukan SISI-SERVER
+    atas SELURUH daftar penelepon SEBELUM dipotong per halaman, sehingga
+    pencarian menjangkau semua data (bukan hanya daftar teratas yang tampil).
+    Semuanya pencocokan sebagian (substring), tidak peka huruf besar-kecil.
+    KPI/tren tetap dihitung dari seluruh rentang (tidak ikut tersaring).
     """
     conn = _conn()
     try:
@@ -249,6 +256,29 @@ def daily_users(day_from=None, day_to=None, limit=1000, offset=0):
         data = pdaily.compute(conn, s, e, limit_users=1000000)
         data["bounds"] = pdaily.data_bounds(conn)
         full = data.get("callers") or []
+
+        # --- Filter pencarian sisi-server (opsional) ---
+        def _norm(v):
+            return str(v or "").strip().lower()
+        f_ani = _norm(ani); f_agent = _norm(agent); f_theme = _norm(theme)
+        f_sent = _norm(sentiment); f_reso = _norm(resolusi)
+        if f_ani or f_agent or f_theme or f_sent or f_reso:
+            def _match(c):
+                if f_ani and f_ani not in _norm(c.get("ani")):
+                    return False
+                if f_agent and f_agent not in _norm(c.get("agent")):
+                    return False
+                if f_theme:
+                    blob = _norm(c.get("themes")) + " " + _norm(c.get("top_theme"))
+                    if f_theme not in blob:
+                        return False
+                if f_sent and f_sent not in _norm(c.get("sentiment")):
+                    return False
+                if f_reso and f_reso not in _norm(c.get("resolusi")):
+                    return False
+                return True
+            full = [c for c in full if _match(c)]
+
         total = len(full)
         off = max(int(offset or 0), 0)
         lim = max(int(limit or 1000), 1)
