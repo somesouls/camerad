@@ -72,12 +72,14 @@ def _today_jkt():
 
 
 def _query_hints():
-    """Petunjuk umum text-to-SQL: sadar tanggal + pencocokan fuzzy identitas.
+    """Petunjuk umum text-to-SQL: sadar tanggal + pencocokan fuzzy identitas +
+    pemisahan tegas antara IDENTITAS vs ISI percakapan (anti-halusinasi kolom).
 
     Ditambahkan ke prompt agar AI tidak 'buta': tahu tanggal hari ini untuk
-    pertanyaan relatif (hari ini/kemarin/minggu/bulan ini) dan memakai
-    pencocokan sebagian tidak peka huruf (LIKE + lower) untuk nama/SID/nomor,
-    sehingga data yang ada tidak terlewat karena kecocokan sama-persis.
+    pertanyaan relatif (hari ini/kemarin/minggu/bulan ini), memakai pencocokan
+    sebagian tidak peka huruf untuk nama/SID/nomor, dan — penting — tahu bahwa
+    ISI percakapan ada di kolom transkrip (bukan di kolom identitas), serta bisa
+    memakai REGEXP untuk mencocokkan pola pada isi.
     """
     today = _today_jkt().isoformat()
     return (
@@ -86,13 +88,33 @@ def _query_hints():
         "'bulan ini', atau '30 hari terakhir' dihitung dari tanggal tersebut. "
         "Bila kolom tanggal bertipe TEXT, pakai substr(kolom,1,10) untuk filter "
         "per hari (mis. substr(tanggal,1,10) >= '" + today + "').\n"
-        "Pencarian identitas/teks (nama pelanggan/customer, SID, nomor telepon/ANI, "
-        "nama agen, NIK, topik, intent): gunakan pencocokan SEBAGIAN & tidak peka "
-        "huruf besar-kecil, mis. WHERE lower(customer) LIKE lower('%kata%'). "
-        "JANGAN memakai kecocokan sama-persis (=) untuk nama/teks kecuali pengguna "
-        "memberi nilai yang jelas eksak (mis. SID/ID lengkap). Bila pengguna "
-        "menyebut sebuah nama/nomor/kata kunci, selalu cari dengan LIKE agar data "
-        "yang relevan tidak terlewat."
+        "Pencarian IDENTITAS/teks kolom (nama pelanggan/customer, SID, nomor "
+        "telepon/ANI, nama agen, NIK, topik, intent): gunakan pencocokan SEBAGIAN "
+        "& tidak peka huruf besar-kecil, mis. WHERE lower(customer) LIKE "
+        "lower('%kata%'). JANGAN memakai kecocokan sama-persis (=) untuk nama/teks "
+        "kecuali pengguna memberi nilai yang jelas eksak (mis. SID/ID lengkap).\n"
+        "PENTING — IDENTITAS vs ISI PERCAKAPAN: kolom customer/ani/nik/agent_name "
+        "adalah IDENTITAS, BUKAN isi percakapan. ISI/teks percakapan yang "
+        "sebenarnya (yang diketik/diucapkan customer & agent, termasuk alamat "
+        "email yang diketik) ada di kolom TRANSKRIP: transkrip_json untuk CHAT "
+        "(awe_conversations) dan stt_text/transkrip_json untuk TELEPON "
+        "(awe_phone_interactions). TIDAK ADA kolom bernama conversation_text, "
+        "isi_percakapan, atau transcript — JANGAN mengarang nama kolom; bila ragu "
+        "pakai hanya kolom yang tercantum di skema.\n"
+        "Bila pengguna meminta pencarian pada ISI percakapan, cocokkan ke kolom "
+        "transkrip, JANGAN ke customer. Fungsi REGEXP TERSEDIA (case-insensitive) "
+        "untuk pola pada isi; pakai di WHERE tetapi JANGAN mem-SELECT kolom "
+        "transkrip besar itu — cukup SELECT sid, customer AS nama, nik. Contoh "
+        "email @gmail.com dengan LEBIH DARI SATU titik pada bagian sebelum @ "
+        "(mis. sam.sul.h@gmail.com, s.a.m.s.u.l.h@gmail.com; sedangkan "
+        "wp1@gmail.com atau nico.reno@gmail.com yang 0/1 titik TIDAK dicari): "
+        "WHERE transkrip_json REGEXP "
+        r"'[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+){2,}@gmail\.com'"
+        ".\n"
+        "'bot-only' (murni bot) = agent_name kosong; untuk MENGECUALIKAN bot-only "
+        "tamb的" "kan AND agent_name IS NOT NULL AND agent_name<>''. Bila sebuah "
+        "query mengembalikan 0 baris, longgarkan (LIKE lebih longgar / lepas filter "
+        "tanggal) sebelum menyimpulkan data tidak ada."
     )
 
 
