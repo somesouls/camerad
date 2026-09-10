@@ -42,11 +42,12 @@
 .ld{width:12px; height:12px; border-radius:50%; display:inline-block}
 
 /* Modal */
-.overlay{position:fixed; inset:0; background:transparent; display:none; align-items:flex-start; justify-content:center; padding:40px 16px; z-index:50; overflow-y:auto}
+.overlay{position:fixed; inset:0; background:transparent; display:none; align-items:center; justify-content:center; padding:40px 16px; z-index:50; overflow-y:auto}
 .overlay.show{display:flex}
 /* Untuk modal lebar (Step 6/9), overlay tidak usah ikut discroll -- modal itu sendiri sudah membatasi tinggi maksimum dan bisa discroll sendiri kalau perlu, jadi tidak ada scrollbar rangkap. Halaman di belakang tetap bisa discroll seperti biasa. */
 .overlay:has(.modal.wide){overflow-y:hidden}
-.modal{background:var(--canvas); width:100%; max-width:560px; border-radius:16px; border:1px solid var(--border); box-shadow:0 24px 64px -12px rgba(15,23,42,.32), 0 4px 16px rgba(15,23,42,.14); overflow:hidden; animation:pop .18s ease}
+/* margin:auto membuat modal benar-benar center di layar (horizontal & vertikal) langsung dari halaman, tanpa terasa dibatasi kotak overlay. Kalau modal lebih tinggi dari layar, otomatis balik ke atas dan tetap bisa discroll (tidak terpotong). */
+.modal{background:var(--canvas); width:100%; max-width:560px; margin:auto; border-radius:16px; border:1px solid var(--border); box-shadow:0 24px 64px -12px rgba(15,23,42,.32), 0 4px 16px rgba(15,23,42,.14); overflow:hidden; animation:pop .18s ease}
 .modal.wide{max-width:1180px; max-height:calc(100vh - 80px); overflow-y:auto}
 .s6bar{display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end; padding:16px 24px 12px; border-bottom:1px solid var(--border)}
 .s6bar .fg{display:flex; flex-direction:column; gap:5px}
