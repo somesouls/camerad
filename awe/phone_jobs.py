@@ -209,15 +209,20 @@ def coverage(day_from=None, day_to=None):
 
 def list_rows(day_from=None, day_to=None, limit=25, offset=0, agent=None,
               sentiment=None, resolusi=None, frustrasi=None, status=None,
-              with_options=False):
-    """Daftar interaksi telepon: pagination sisi-server + filter opsional."""
+              with_options=False, sid=None, ani=None, customer=None):
+    """Daftar interaksi telepon: pagination sisi-server + filter opsional.
+
+    Filter teks bebas sid/ani/customer memakai pencocokan sebagian (LIKE) yang
+    tidak peka huruf besar-kecil (lihat phone_query.list_phone).
+    """
     conn = _conn()
     try:
         return pquery.list_phone(conn, day_from or None, day_to or None,
                                  limit=limit, offset=offset, agent=agent,
                                  sentiment=sentiment, resolusi=resolusi,
                                  frustrasi=frustrasi, status=status,
-                                 with_options=with_options)
+                                 with_options=with_options,
+                                 sid=sid, ani=ani, customer=customer)
     finally:
         conn.close()
 
