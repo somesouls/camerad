@@ -39,10 +39,11 @@
   .loading{color:var(--text-muted,#8a8f98);padding:34px;text-align:center;}
   .btn-lihat{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;}
   .btn-lihat:hover{opacity:.85;}
-  /* Filter daftar percakapan (client-side) */
-  .conv-filter{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
+  /* Filter daftar percakapan (server-side) */
+  .conv-filter{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px;}
   .conv-filter input{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:9px;color:var(--text-main,#e8e9ec);padding:7px 10px;font-size:12px;min-width:150px;}
   .conv-filter input:focus{outline:none;border-color:var(--accent,#5a78ff);}
+  .conv-note{font-size:11px;color:var(--text-muted,#8a8f98);margin-bottom:10px;}
   /* Modal transkrip */
   #txModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);}
   #txModal.open{display:flex;align-items:center;justify-content:center;}
@@ -107,7 +108,7 @@
   var body=document.getElementById('aweBody');
   var rangeEl=document.getElementById('aweRange');
   var state={range:'7d',start:'',end:''};
-  var lastConvs=[];
+  var convT=null;
   function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
   function pct(n,d){return d? Math.round(1000*n/d)/10:0;}
   function bars(items,color){
@@ -198,18 +199,10 @@
     });
   }
 
-  // ======= Filter daftar percakapan (client-side) =======
-  function convMatch(c,f){
-    function has(hay,needle){return String(hay==null?'':hay).toLowerCase().indexOf(needle)>=0;}
-    if(f.cust&&!has(c.customer,f.cust))return false;
-    if(f.sid&&!has(c.sid,f.sid))return false;
-    if(f.agent&&!has(c.agent_name,f.agent))return false;
-    if(f.kw){
-      var blob=[c.mapped_intent,c.case_label,c.topik,c.emotion,c.sentiment,c.coverage_band].join(' ').toLowerCase();
-      if(blob.indexOf(f.kw)<0)return false;
-    }
-    return true;
-  }
+  // ======= Pencarian daftar percakapan (SISI-SERVER) =======
+  // Berbeda dari sebelumnya (filter client atas 500 baris teratas), pencarian
+  // kini memanggil endpoint khusus yang menyaring SELURUH percakapan pada
+  // rentang aktif, sehingga hasil tidak lagi terbatas pada 500 teratas.
   function convRowsHtml(list){
     if(!list.length)return '<tr><td colspan="10" class="muted">Tidak ada data yang cocok.</td></tr>';
     return list.map(function(c){
@@ -228,19 +221,27 @@
         +'</tr>';
     }).join('');
   }
-  function applyConvFilter(){
-    var f={
-      cust:((document.getElementById('fCust')||{}).value||'').trim().toLowerCase(),
-      sid:((document.getElementById('fSid')||{}).value||'').trim().toLowerCase(),
-      agent:((document.getElementById('fAgent')||{}).value||'').trim().toLowerCase(),
-      kw:((document.getElementById('fKw')||{}).value||'').trim().toLowerCase()
-    };
-    var list=lastConvs.filter(function(c){return convMatch(c,f);});
-    var tb=document.getElementById('convBody');
-    if(tb)tb.innerHTML=convRowsHtml(list);
-    var cnt=document.getElementById('convCount');
-    if(cnt)cnt.textContent=list.length+' dari '+lastConvs.length+' baris';
+  function convQS(){
+    var qs='range='+encodeURIComponent(state.range);
+    if(state.range==='custom'){qs+='&start='+encodeURIComponent(state.start)+'&end='+encodeURIComponent(state.end);}
+    function add(id,key){var e=document.getElementById(id);var v=e?e.value.trim():'';if(v)qs+='&'+key+'='+encodeURIComponent(v);}
+    add('fCust','customer');add('fSid','sid');add('fAgent','agent');add('fKw','kw');
+    qs+='&limit=1000';
+    return qs;
   }
+  function loadConvSearch(){
+    var tb=document.getElementById('convBody');
+    var cnt=document.getElementById('convCount');
+    if(!tb)return;
+    tb.innerHTML='<tr><td colspan="10" class="muted">Memuat…</td></tr>';
+    fetch('/api/awe/analytics/conversations?'+convQS()).then(function(r){return r.json();}).then(function(d){
+      if(!d||d.ok===false){tb.innerHTML='<tr><td colspan="10" class="muted">Gagal memuat: '+esc((d&&d.error)||'')+'</td></tr>';return;}
+      var list=d.conversations||[];
+      tb.innerHTML=convRowsHtml(list);
+      if(cnt){var t=d.total||0;cnt.textContent=(d.truncated?('menampilkan '+list.length+' dari '+t+' baris cocok'):(t+' baris cocok'));}
+    }).catch(function(){tb.innerHTML='<tr><td colspan="10" class="muted">Gagal memuat data.</td></tr>';});
+  }
+  function scheduleConvSearch(){if(convT)clearTimeout(convT);convT=setTimeout(loadConvSearch,350);}
 
   function render(d){
     rangeEl.textContent='Rentang: '+(d.meta.date_min||d.range&&d.range.start||'—')+' s/d '+(d.meta.date_max||d.range&&d.range.end||'—')+' · '+d.meta.total+' percakapan · '+d.meta.customers+' pelanggan';
@@ -267,7 +268,6 @@
       var rows=d.agents.map(function(a){return '<tr><td>'+a.rank+'</td><td>'+esc(a.name)+'</td><td>'+a.count+'</td><td>'+a.avg_durasi+'</td><td>'+a.pos_rate+'%</td><td>'+a.neg_rate+'%</td><td><b>'+a.score+'</b></td></tr>';}).join('');
       html+='<div class="card"><h3>Kinerja agent</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Agent</th><th>Chat</th><th>Durasi rata²</th><th>Positif</th><th>Negatif</th><th>Skor</th></tr></thead><tbody>'+(rows||'<tr><td colspan="7" class="muted">Tidak ada data.</td></tr>')+'</tbody></table></div></div>';
     } else if(section==='percakapan'){
-      lastConvs=(d.conversations||[]);
       html+='<div class="card"><h3>Detail percakapan</h3>'
         +'<div class="conv-filter">'
         +'<input id="fCust" type="text" placeholder="Nama pelanggan…">'
@@ -276,6 +276,7 @@
         +'<input id="fKw" type="text" placeholder="Intent / kasus / topik…">'
         +'<span class="muted" id="convCount"></span>'
         +'</div>'
+        +'<div class="conv-note">Pencarian berjalan di server — mencakup seluruh percakapan pada rentang ini, bukan hanya yang tampil.</div>'
         +'<div class="tbl-wrap"><table class="tbl"><thead><tr>'
         +'<th>Tanggal</th><th>SID</th><th>Customer</th><th>Agent</th><th>Intent</th>'
         +'<th>Coverage</th><th>Kasus</th><th>Sentimen</th><th>Gap</th><th>Transkrip</th>'
@@ -285,9 +286,9 @@
     if(section==='percakapan'){
       ['fCust','fSid','fAgent','fKw'].forEach(function(id){
         var e=document.getElementById(id);
-        if(e)e.addEventListener('input',applyConvFilter);
+        if(e){e.addEventListener('input',scheduleConvSearch);e.addEventListener('keydown',function(ev){if(ev.key==='Enter'){if(convT)clearTimeout(convT);loadConvSearch();}});}
       });
-      applyConvFilter();
+      loadConvSearch();
     }
   }
   function load(){

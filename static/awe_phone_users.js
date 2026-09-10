@@ -2,6 +2,7 @@
   function el(id){return document.getElementById(id);}
   function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
   function iso(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
+  function fv(id){var e=el(id);return e?String(e.value||'').trim():'';}
   function api(p){return fetch('/api/awe/phone/probe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(p)}).then(function(r){return r.json();});}
   function setStat(msg,k){var s=el('puStat');if(!s)return;s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
   function hideStat(){var s=el('puStat');if(s){s.className='status';s.innerHTML='';}}
@@ -60,7 +61,8 @@
     if(reset)pState.offset=0;
     pState.limit=pLimit();
     setStat('Memuat pengguna harian&hellip;');
-    api({action:'daily_users',date_from:(el('pu_from')?el('pu_from').value:''),date_to:(el('pu_to')?el('pu_to').value:''),limit_rows:pState.limit,offset:pState.offset}).then(function(d){
+    api({action:'daily_users',date_from:(el('pu_from')?el('pu_from').value:''),date_to:(el('pu_to')?el('pu_to').value:''),limit_rows:pState.limit,offset:pState.offset,
+      ani:fv('pu_ani'),agent:fv('pu_agent'),theme:fv('pu_theme'),sentiment:fv('pu_sent'),resolusi:fv('pu_reso')}).then(function(d){
       if(!d.ok){setStat('Gagal memuat: '+esc(d.error||'tidak diketahui'),'err');return;}
       hideStat();render(d);
     }).catch(function(e){setStat('Gagal: '+e,'err');});
@@ -147,6 +149,19 @@
     if(el('puModalX'))el('puModalX').addEventListener('click',closeModal);
     if(el('puModal'))el('puModal').addEventListener('click',function(e){if(e.target===this)closeModal();});
     document.addEventListener('keydown',function(e){if(e.key==='Escape'||e.keyCode===27){var m=el('puModal');if(m&&m.style.display!=='none')closeModal();}});
+
+    // ---- Filter pencarian sisi-server (debounce 350ms + Enter + tombol) ----
+    var fIds=['pu_ani','pu_agent','pu_theme','pu_sent','pu_reso'];
+    var _ft=null;
+    function _applyFilter(){load(true);}
+    fIds.forEach(function(id){
+      var e=el(id);if(!e)return;
+      e.addEventListener('input',function(){if(_ft)clearTimeout(_ft);_ft=setTimeout(_applyFilter,350);});
+      e.addEventListener('keydown',function(ev){if(ev.key==='Enter'){if(_ft)clearTimeout(_ft);_applyFilter();}});
+    });
+    if(el('puApply'))el('puApply').addEventListener('click',function(){if(_ft)clearTimeout(_ft);_applyFilter();});
+    if(el('puReset'))el('puReset').addEventListener('click',function(){fIds.forEach(function(id){var e=el(id);if(e)e.value='';});if(_ft)clearTimeout(_ft);load(true);});
+
     load(true);
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);

@@ -4,6 +4,9 @@
 Dipasang via studio_routes.register(...) (yang dipanggil dari web_app.py) supaya
 TIDAK perlu menyentuh web_app.py (file besar). Menyediakan:
   - GET /api/awe/analytics?range=&start=&end=   (agregasi awe_conversations)
+  - GET /api/awe/analytics/conversations?range=&start=&end=&customer=&sid=&agent=&kw=
+    (pencarian daftar percakapan SISI-SERVER — mencakup SELURUH data pada
+    rentang, bukan hanya 500 teratas yang dipakai agregasi)
   - 5 halaman submenu AWE: /awe/dasbor, /awe/coverage, /awe/taksonomi,
     /awe/sentimen, /awe/percakapan
 
@@ -235,6 +238,82 @@ def analytics(conn, start=None, end=None, limit_conv=500, exclude_bot=True):
     }
 
 
+def search_conversations(conn, start=None, end=None, customer="", sid="",
+                         agent="", kw="", limit=1000, exclude_bot=True):
+    """Pencarian daftar percakapan SISI-SERVER atas awe_conversations.
+
+    Berbeda dari analytics() yang hanya menyertakan 500 percakapan pertama untuk
+    agregasi, fungsi ini menyaring SELURUH baris pada rentang tanggal memakai
+    filter teks bebas (LIKE, tidak peka huruf) di kolom customer/sid/agent serta
+    kata kunci lintas intent/kasus/topik. Kembalikan hingga `limit` baris
+    (terbaru dulu) beserta jumlah total yang cocok.
+    """
+    where, params = [], []
+    if start:
+        where.append("substr(tanggal,1,10) >= ?"); params.append(start[:10])
+    if end:
+        where.append("substr(tanggal,1,10) <= ?"); params.append(end[:10])
+    if exclude_bot:
+        where.append(exclude_bot_sql("agent_name"))
+
+    def _like(col, val):
+        where.append("lower(coalesce(%s,'')) LIKE ?" % col)
+        params.append("%" + str(val).strip().lower() + "%")
+
+    if customer and str(customer).strip():
+        _like("customer", customer)
+    if sid and str(sid).strip():
+        _like("sid", sid)
+    if agent and str(agent).strip():
+        _like("agent_name", agent)
+    kwn = str(kw or "").strip().lower()
+    if kwn:
+        cols = ("mapped_intent", "case_label", "topik", "coverage_band",
+                "emotion", "sentiment")
+        where.append("(" + " OR ".join(
+            "lower(coalesce(%s,'')) LIKE ?" % c for c in cols) + ")")
+        for _c in cols:
+            params.append("%" + kwn + "%")
+
+    wsql = (" WHERE " + " AND ".join(where)) if where else ""
+    total = conn.execute(
+        "SELECT COUNT(*) FROM awe_conversations" + wsql, params).fetchone()[0]
+    lim = max(1, min(int(limit or 1000), 5000))
+    rows = conn.execute(
+        "SELECT sid, tanggal, customer, agent_name, durasi, behavior, "
+        "is_returning, mapped_intent, coverage_band, case_label, sentiment, "
+        "emotion, topik, deflection_gap "
+        "FROM awe_conversations" + wsql +
+        " ORDER BY tanggal DESC LIMIT ?", params + [lim]
+    ).fetchall()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        behavior = (d.get("behavior") or "").strip().lower()
+        is_direct = behavior in ("direct", "langsung")
+        gap_val = d.get("deflection_gap")
+        if gap_val in (None, ""):
+            gap = 1 if is_direct else 0
+        else:
+            gap = 1 if _truthy(gap_val) else 0
+        topik = (str(d.get("topik")).strip() if d.get("topik") else "") \
+            or (d.get("mapped_intent") or "").strip() or "(tanpa topik)"
+        out.append({
+            "tanggal": d.get("tanggal") or "", "sid": d.get("sid") or "",
+            "customer": (d.get("customer") or "").strip(),
+            "agent_name": (d.get("agent_name") or "").strip() or "(tanpa agent)",
+            "mapped_intent": d.get("mapped_intent") or "",
+            "coverage_band": d.get("coverage_band") or "",
+            "case_label": d.get("case_label") or "",
+            "sentiment": _norm_sent(d.get("sentiment")),
+            "emotion": (d.get("emotion") or "").strip() or "Tidak diketahui",
+            "topik": topik, "deflection_gap": bool(gap),
+        })
+    return {"conversations": out, "total": int(total or 0),
+            "returned": len(out), "truncated": int(total or 0) > len(out)}
+
+
 _PAGES = [
     ("/awe/dasbor", "awe_dasbor", "Dashboard AWE", "dasbor"),
     ("/awe/coverage", "awe_coverage", "Coverage & Deflection", "coverage"),
@@ -353,6 +432,43 @@ def register(app, *, render_page):
             return JSONResponse({"ok": False, "error": str(ex)}, status_code=500)
 
     app.add_api_route("/api/awe/analytics", api_awe_analytics, methods=["GET"])
+
+    async def api_awe_conversations(request: Request):
+        """Pencarian daftar percakapan SISI-SERVER (lihat search_conversations)."""
+        q = request.query_params
+        preset = q.get("range") or "7d"
+        start = q.get("start"); end = q.get("end")
+        exclude_bot = wants_exclude(q)
+        customer = q.get("customer") or ""
+        sid = q.get("sid") or ""
+        agent = q.get("agent") or ""
+        kw = q.get("kw") or ""
+        try:
+            limit = int(q.get("limit") or 1000)
+        except Exception:
+            limit = 1000
+
+        def _run():
+            conn = avdb.init_db(avdb.connect())
+            try:
+                s, e = resolve_range(preset, start, end)
+                data = search_conversations(
+                    conn, s, e, customer=customer, sid=sid, agent=agent,
+                    kw=kw, limit=limit, exclude_bot=exclude_bot)
+                data["ok"] = True
+                data["range"] = {"start": s or "", "end": e or ""}
+                return data
+            finally:
+                conn.close()
+
+        try:
+            return JSONResponse(await run_in_threadpool(_run))
+        except Exception as ex:
+            return JSONResponse({"ok": False, "error": str(ex),
+                                 "conversations": []}, status_code=500)
+
+    app.add_api_route("/api/awe/analytics/conversations",
+                      api_awe_conversations, methods=["GET"])
 
     # Pasang modul Penilaian QA (Assessor): API transkrip percakapan.
     # Dilakukan di sini agar tidak perlu menyentuh web_app.py maupun

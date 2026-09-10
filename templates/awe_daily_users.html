@@ -7,6 +7,8 @@
   .awe-title{font-size:23px;font-weight:800;letter-spacing:-.02em;margin:0;}
   .awe-sub{color:var(--text-muted,#8a8f98);font-size:12.5px;margin-top:4px;}
   .awe-tb{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+  .awe-srch{background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:10px;color:var(--text-main,#e8e9ec);padding:8px 11px;font-size:12px;min-width:260px;}
+  .awe-srch:focus{outline:none;border-color:var(--accent,#5a78ff);}
   .seg{display:flex;background:var(--panel-bg,#1b1c1f);border:1px solid var(--panel-border,#2a2b30);border-radius:12px;overflow:hidden;}
   .seg button{border:none;background:transparent;color:var(--text-muted,#8a8f98);padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;}
   .seg button.active{background:var(--accent-glow,rgba(90,120,255,.16));color:var(--accent,#5a78ff);}
@@ -94,6 +96,7 @@
       <div class="awe-sub" id="aweRange">Memuat…</div>
     </div>
     <div class="awe-tb">
+      <input type="text" id="userQ" class="awe-srch" placeholder="Cari pengguna (server): nama / NIK / NPWP / tema…">
       <div class="seg" id="seg">
         <button data-r="today">Hari ini</button>
         <button data-r="yesterday">Kemarin</button>
@@ -130,7 +133,7 @@
 (function(){
   var body=document.getElementById('aweBody');
   var rangeEl=document.getElementById('aweRange');
-  var state={range:'30d',start:'',end:''};
+  var state={range:'30d',start:'',end:'',q:''};
   var DATA=null;
   var TBL={};
   function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
@@ -381,7 +384,8 @@
     var df=d.direct_focus||{themes:[],sentiment:{Positif:0,Netral:0,Negatif:0},poro:0,avg_dur_direct:0,avg_dur_other:0};
     var nn=d.non_npwp||{conv:0,conv_pct:0,users:0,themes:[]};
     var cs=d.contact_stats||{median:0,mean:0,max:0,p90:0};
-    rangeEl.textContent='Rentang: '+(m.date_min||'—')+' s/d '+(m.date_max||'—')+' · '+(m.total_conv||0)+' percakapan · '+(m.total_users||0)+' pengguna unik · '+(m.active_days||0)+' hari aktif'+(an.users?(' · '+an.conv+' baris anomali dikecualikan'):'');
+    var qActive=(state.q||'').trim();
+    rangeEl.textContent='Rentang: '+(m.date_min||'—')+' s/d '+(m.date_max||'—')+' · '+(m.total_conv||0)+' percakapan · '+(m.total_users||0)+' pengguna unik · '+(m.active_days||0)+' hari aktif'+(an.users?(' · '+an.conv+' baris anomali dikecualikan'):'')+(qActive?(' · pencarian server: "'+qActive+'"'):'');
     var html='';
     // KPIs (2 baris x 4)
     html+='<div class="kpis">'
@@ -394,6 +398,7 @@
       +kpi(nn.users,'Pengguna non-NPWP (≈ per nama)')
       +kpi(cs.median,'Median kontak / pengguna')
       +kpi((an.users||0)+' / '+(an.conv||0),'Anomali (pengguna / percakapan)')+'</div>';
+    if(qActive){html+='<div class="note" style="margin:-6px 0 12px;">Pencarian <b>"'+esc(qActive)+'"</b> berjalan di server dan menjangkau <b>seluruh pengguna</b> pada rentang ini (bukan hanya daftar teratas). Kartu KPI di atas tetap menghitung total keseluruhan; tabel di bawah mengikuti hasil pencarian.</div>';}
     // Tren multi-seri
     html+='<div class="card"><h3>Tren harian — pengguna, langsung agent &amp; anomali</h3>'+multiTrend(d.trend)
       +'<div class="note">Garis = jumlah per hari. Baris anomali (DNIS=customer dll) ditampilkan terpisah dan tidak dihitung sebagai pengguna.</div></div>';
@@ -428,7 +433,7 @@
       theadCols:'<th class="th-sort" data-tbl="cause" data-sort="theme">Tema / jenis layanan</th><th class="th-sort" data-tbl="cause" data-sort="users">Pengguna unik</th><th class="th-sort" data-tbl="cause" data-sort="direct">Hit agent</th><th class="th-sort" data-tbl="cause" data-sort="pct">% dari semua hit</th><th class="th-sort" data-tbl="cause" data-sort="neg_pct">% negatif</th><th class="th-sort" data-tbl="cause" data-sort="poro">PORO</th><th class="th-sort" data-tbl="cause" data-sort="avg_dur">Durasi rata²</th>',colspan:7});
     // Tabel 1: Pengguna NIK/NPWP & tanpa penanda
     html+=tblSkeleton({name:'usr',title:'Daftar Pengguna (NIK/NPWP & tanpa penanda)',unit:'pengguna',search:'Cari nama / NIK / NPWP / tema…',
-      note:'Klik <b>Lihat</b> untuk membuka daftar percakapan lalu transkripnya. Pengguna non-NPWP &amp; baris anomali dipisah ke tabel di bawah.',
+      note:'Klik <b>Lihat</b> untuk membuka daftar percakapan lalu transkripnya. Pengguna non-NPWP &amp; baris anomali dipisah ke tabel di bawah. Untuk mencari ke <b>seluruh</b> data (bukan hanya yang tampil), gunakan kotak <b>pencarian server</b> di kanan atas.',
       filterOpts:'<option value="all">Semua pengguna</option><option value="direct">Pernah langsung agent</option><option value="repeat">Berulang (>1 hari)</option><option value="taxid">Ada NIK/NPWP</option>',
       theadCols:'<th class="th-sort" data-tbl="usr" data-sort="label">Identitas</th><th>Jenis ID</th><th class="th-sort" data-tbl="usr" data-sort="conv">Percakapan</th><th class="th-sort" data-tbl="usr" data-sort="days">Hari</th><th class="th-sort" data-tbl="usr" data-sort="direct">Langsung agent</th><th>Tema utama</th><th class="th-sort" data-tbl="usr" data-sort="sentiment">Sentimen</th><th>Berulang</th><th>Aksi</th>',colspan:9});
     // Tabel 2: Non-NPWP
@@ -454,6 +459,7 @@
     body.innerHTML='<div class="loading">Memuat data…</div>';
     var qs='range='+encodeURIComponent(state.range);
     if(state.range==='custom'){qs+='&start='+encodeURIComponent(state.start)+'&end='+encodeURIComponent(state.end);}
+    if(state.q)qs+='&q='+encodeURIComponent(state.q);
     fetch('/api/awe/daily-users?'+qs).then(function(r){return r.json();}).then(function(d){
       if(d&&d.ok===false){body.innerHTML='<div class="loading">Gagal memuat: '+esc(d.error||'')+'</div>';return;}
       render(d);
@@ -473,6 +479,14 @@
     state.end=document.getElementById('cEnd').value;
     if(state.start&&state.end)load();
   });
+  // Pencarian pengguna SISI-SERVER (debounce) — menjangkau seluruh data.
+  var userQ=document.getElementById('userQ');
+  if(userQ){
+    var _uqt=null;
+    function _doUserQ(){state.q=userQ.value.trim();load();}
+    userQ.addEventListener('input',function(){if(_uqt)clearTimeout(_uqt);_uqt=setTimeout(_doUserQ,350);});
+    userQ.addEventListener('keydown',function(ev){if(ev.key==='Enter'){if(_uqt)clearTimeout(_uqt);_doUserQ();}});
+  }
   load();
 })();
 </script>

@@ -14,7 +14,7 @@ TERPISAH total dari alur Chat. Handler didaftarkan oleh awe/routes.py
     - coverage      : ringkasan per hari (audio/transkrip/analisis) + stats.
     - list          : daftar interaksi (rentang tanggal + pagination + filter).
     - detail        : satu interaksi lengkap (butuh sid).
-    - daily_users   : agregasi Pengguna Harian per ANI + tema (pagination).
+    - daily_users   : agregasi Pengguna Harian per ANI + tema (pagination + filter).
     - daily_convs   : daftar panggilan satu nomor telepon (butuh ani).
 Butuh izin 'awe_manage'. Kredensial tarik diambil dari .env (AVAYA_USERNAME/
 AVAYA_PASSWORD), sama seperti AWE Chat; dipakai sekali lalu dilupakan.
@@ -133,7 +133,13 @@ async def awe_phone_probe(request: Request):
         try:
             lim = int(body.get("limit_rows") or 25)
             off = int(body.get("offset") or 0)
-            d = await run_in_threadpool(pjobs.daily_users, df or None, dt or None, lim, off)
+            d = await run_in_threadpool(
+                pjobs.daily_users, df or None, dt or None, lim, off,
+                (str(body.get("ani") or "").strip() or None),
+                (str(body.get("agent") or "").strip() or None),
+                (str(body.get("theme") or "").strip() or None),
+                (str(body.get("sentiment") or "").strip() or None),
+                (str(body.get("resolusi") or "").strip() or None))
             d["ok"] = True
             return JSONResponse(d)
         except Exception as e:
