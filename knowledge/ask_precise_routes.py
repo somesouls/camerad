@@ -6,6 +6,12 @@ Endpoint /api/ask-precise: text-to-SQL read-only pada SATU database terdaftar
 DEFAULT (tak centang) di halaman-halaman itu hanya mencari di DB terkait, bukan
 menelusuri semua DB seperti agentic.
 
+v2 (grounding + mini-loop): prompt kini disuntik KAMUS DATA (deskripsi kolom,
+nilai kategorikal nyata, contoh) dari knowledge/data_dictionary.py, dan penulisan
+SQL dijalankan dalam MINI-LOOP: bila query gagal (mis. 'no such column') atau
+mengembalikan 0 baris, model diberi umpan balik (kolom nyata / saran longgarkan)
+lalu mencoba lagi hingga PRECISE_MAX_RETRIES kali. Tetap READ-ONLY & single-DB.
+
 SIFAT: ADITIF & NON-BREAKING — modul & endpoint baru; /api/ask, /api/ask-data,
 dan /api/ask-agentic TIDAK diubah. SELECT diarahkan lewat db.registry.run_select
 (read-only, users dikecualikan, LIMIT dipaksa).
@@ -13,6 +19,7 @@ dan /api/ask-agentic TIDAK diubah. SELECT diarahkan lewat db.registry.run_select
 Daftarkan dengan:
     import knowledge.ask_precise_routes as ap; ap.register(app)
 """
+import os
 import re
 import json
 import datetime as _dt
@@ -26,6 +33,11 @@ import common.llm_client as llm_client
 import common.pii_mask as pii_mask
 
 try:
+    import knowledge.data_dictionary as data_dict
+except Exception:  # pragma: no cover - grounding opsional
+    data_dict = None
+
+try:
     from knowledge import ctx as kctx
 except Exception:  # pragma: no cover - kctx opsional
     kctx = None
@@ -36,8 +48,19 @@ except Exception:  # pragma: no cover - fallback bila import gagal
     ASK_AGENTIC_SCOPES = {}
 
 
+def _env_int(name, default):
+    try:
+        v = int(os.environ.get(name, "") or default)
+        return v if v >= 0 else default
+    except Exception:
+        return default
+
+
+# Berapa kali model boleh MEMPERBAIKI SQL setelah percobaan pertama.
+PRECISE_MAX_RETRIES = _env_int("PRECISE_MAX_RETRIES", 2)
+
+
 # Halaman -> SATU database (registry key) untuk mode presisi single-DB.
-# Semua halaman ini memakai tepat satu database sumber.
 PRECISION_DB = {
     "awe_dasbor": "avaya",
     "awe_coverage": "avaya",
@@ -72,14 +95,8 @@ def _today_jkt():
 
 
 def _query_hints():
-    """Petunjuk umum text-to-SQL: sadar tanggal + pencocokan fuzzy identitas +
-    pemisahan tegas antara IDENTITAS vs ISI percakapan (anti-halusinasi kolom).
-
-    Ditambahkan ke prompt agar AI tidak 'buta': tahu tanggal hari ini untuk
-    pertanyaan relatif (hari ini/kemarin/minggu/bulan ini), memakai pencocokan
-    sebagian tidak peka huruf untuk nama/SID/nomor, dan — penting — tahu bahwa
-    ISI percakapan ada di kolom transkrip (bukan di kolom identitas), serta bisa
-    memakai REGEXP untuk mencocokkan pola pada isi.
+    """Petunjuk umum text-to-SQL: sadar tanggal + fuzzy identitas + pemisahan
+    tegas antara IDENTITAS vs ISI percakapan (anti-halusinasi kolom).
     """
     today = _today_jkt().isoformat()
     return (
@@ -100,7 +117,7 @@ def _query_hints():
         "(awe_conversations) dan stt_text/transkrip_json untuk TELEPON "
         "(awe_phone_interactions). TIDAK ADA kolom bernama conversation_text, "
         "isi_percakapan, atau transcript — JANGAN mengarang nama kolom; bila ragu "
-        "pakai hanya kolom yang tercantum di skema.\n"
+        "pakai hanya kolom yang tercantum di skema/kamus data.\n"
         "Bila pengguna meminta pencarian pada ISI percakapan, cocokkan ke kolom "
         "transkrip, JANGAN ke customer. Fungsi REGEXP TERSEDIA (case-insensitive) "
         "untuk pola pada isi; pakai di WHERE tetapi JANGAN mem-SELECT kolom "
@@ -114,7 +131,7 @@ def _query_hints():
         "'bot-only' (murni bot) = agent_name kosong; untuk MENGECUALIKAN bot-only "
         "tambahkan AND agent_name IS NOT NULL AND agent_name<>''. Bila sebuah "
         "query mengembalikan 0 baris, longgarkan (LIKE lebih longgar / lepas filter "
-        "tanggal) sebelum menyimpulkan data tidak ada."
+        "tanggal / periksa nilai kategorikal) sebelum menyimpulkan data tidak ada."
     )
 
 
@@ -146,8 +163,18 @@ def _ctx_suffix(question):
         return ""
 
 
+def _grounding(db_key):
+    if data_dict is None:
+        return ""
+    try:
+        return data_dict.grounding_text(db_key) or ""
+    except Exception:
+        return ""
+
+
 def answer_precise(question, page, db_key):
-    """Text-to-SQL read-only pada SATU database terdaftar (registry)."""
+    """Text-to-SQL read-only pada SATU database terdaftar (registry), dengan
+    grounding kamus data + mini-loop auto-retry untuk memperbaiki SQL."""
     sc = registry.get_schema(db_key)
     if not sc.get("ok"):
         return {"ok": False, "mode": "data",
@@ -165,17 +192,54 @@ def answer_precise(question, page, db_key):
         'LIMIT wajar, dan jangan mengarang tabel/kolom di luar skema.'
     )
     sys1 += _query_hints()
+    sys1 += _grounding(db_key)
     _scope = ASK_AGENTIC_SCOPES.get((page or "").strip().lower())
     if _scope:
         sys1 += "\n\n" + _scope
-    raw = llm_client.chat([{"role": "user", "content": pii_mask.mask_text(question)}],
-                          system=sys1, max_new_tokens=400, temperature=0.0)
-    sql = _extract_sql(raw)
-    res = registry.run_select(db_key, sql, max_rows=200)
-    if not res.get("ok"):
+
+    convo = [{"role": "user", "content": pii_mask.mask_text(question)}]
+    res = None
+    last_sql = ""
+    attempts = 0
+    for attempt in range(PRECISE_MAX_RETRIES + 1):
+        attempts += 1
+        raw = llm_client.chat(convo, system=sys1, max_new_tokens=400, temperature=0.0)
+        convo.append({"role": "assistant", "content": raw})
+        sql = _extract_sql(raw)
+        last_sql = sql
+        res = registry.run_select(db_key, sql, max_rows=200)
+        if res.get("ok") and res.get("rows"):
+            break
+        if attempt >= PRECISE_MAX_RETRIES:
+            break
+        # Susun umpan balik untuk percobaan berikutnya.
+        if not res.get("ok"):
+            err = res.get("error") or ""
+            fb = "Query GAGAL: " + str(err)
+            if "no such column" in err.lower():
+                try:
+                    cinfo = registry.get_columns(db_key)
+                    if cinfo.get("ok"):
+                        fb += "\nKolom NYATA per tabel: " + json.dumps(
+                            cinfo.get("columns"), ensure_ascii=False)
+                except Exception:
+                    pass
+                fb += ("\nIngat: isi percakapan ada di transkrip_json (chat) / stt_text "
+                       "(telepon); tidak ada conversation_text. ")
+            fb += "Perbaiki dan balas HANYA JSON {\"sql\":\"...\"}."
+            convo.append({"role": "user", "content": fb})
+        else:
+            convo.append({"role": "user", "content":
+                "Query valid tetapi 0 baris. Coba longgarkan filter (LIKE lebih "
+                "longgar, lepaskan filter tanggal, atau periksa nilai kategorikal "
+                "pada kamus data). Balas HANYA JSON {\"sql\":\"...\"}."})
+
+    if not res or not res.get("ok"):
         return {"ok": False, "mode": "data",
-                "error": res.get("error", "Query gagal."),
-                "sql": res.get("sql", sql), "db": db_key}
+                "error": (res or {}).get("error", "Query gagal."),
+                "sql": (res or {}).get("sql", last_sql), "db": db_key,
+                "attempts": attempts}
+
     preview = json.dumps({"columns": res.get("columns"),
                           "rows": res.get("rows", [])[:50]}, ensure_ascii=False)
     sys2 = (
@@ -187,9 +251,9 @@ def answer_precise(question, page, db_key):
         [{"role": "user", "content": pii_mask.mask_text("Pertanyaan: " + question +
           "\n\nHasil query (JSON):\n" + preview)}],
         system=pii_mask.mask_text(sys2), max_new_tokens=700, temperature=0.2)
-    return {"ok": True, "mode": "data", "answer": answer, "sql": res.get("sql", sql),
+    return {"ok": True, "mode": "data", "answer": answer, "sql": res.get("sql", last_sql),
             "columns": res.get("columns"), "rows": res.get("rows", [])[:50],
-            "db": db_key}
+            "db": db_key, "attempts": attempts}
 
 
 async def api_ask_precise(request: Request):
