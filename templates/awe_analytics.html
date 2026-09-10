@@ -39,6 +39,10 @@
   .loading{color:var(--text-muted,#8a8f98);padding:34px;text-align:center;}
   .btn-lihat{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:6px;padding:3px 10px;font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;}
   .btn-lihat:hover{opacity:.85;}
+  /* Filter daftar percakapan (client-side) */
+  .conv-filter{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;}
+  .conv-filter input{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:9px;color:var(--text-main,#e8e9ec);padding:7px 10px;font-size:12px;min-width:150px;}
+  .conv-filter input:focus{outline:none;border-color:var(--accent,#5a78ff);}
   /* Modal transkrip */
   #txModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);}
   #txModal.open{display:flex;align-items:center;justify-content:center;}
@@ -103,6 +107,7 @@
   var body=document.getElementById('aweBody');
   var rangeEl=document.getElementById('aweRange');
   var state={range:'7d',start:'',end:''};
+  var lastConvs=[];
   function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
   function pct(n,d){return d? Math.round(1000*n/d)/10:0;}
   function bars(items,color){
@@ -193,6 +198,50 @@
     });
   }
 
+  // ======= Filter daftar percakapan (client-side) =======
+  function convMatch(c,f){
+    function has(hay,needle){return String(hay==null?'':hay).toLowerCase().indexOf(needle)>=0;}
+    if(f.cust&&!has(c.customer,f.cust))return false;
+    if(f.sid&&!has(c.sid,f.sid))return false;
+    if(f.agent&&!has(c.agent_name,f.agent))return false;
+    if(f.kw){
+      var blob=[c.mapped_intent,c.case_label,c.topik,c.emotion,c.sentiment,c.coverage_band].join(' ').toLowerCase();
+      if(blob.indexOf(f.kw)<0)return false;
+    }
+    return true;
+  }
+  function convRowsHtml(list){
+    if(!list.length)return '<tr><td colspan="10" class="muted">Tidak ada data yang cocok.</td></tr>';
+    return list.map(function(c){
+      var lihatBtn=c.sid?'<button class="btn-lihat" data-sid="'+esc(c.sid)+'">Lihat</button>':'-';
+      return '<tr>'
+        +'<td>'+esc(c.tanggal)+'</td>'
+        +'<td>'+esc(c.sid)+'</td>'
+        +'<td>'+esc(c.customer)+'</td>'
+        +'<td>'+esc(c.agent_name)+'</td>'
+        +'<td>'+esc(c.mapped_intent)+'</td>'
+        +'<td>'+esc(c.coverage_band)+'</td>'
+        +'<td>'+esc(c.case_label)+'</td>'
+        +'<td>'+esc(c.sentiment)+'</td>'
+        +'<td>'+(c.deflection_gap?'<span class="pill">gap</span>':'')+'</td>'
+        +'<td>'+lihatBtn+'</td>'
+        +'</tr>';
+    }).join('');
+  }
+  function applyConvFilter(){
+    var f={
+      cust:((document.getElementById('fCust')||{}).value||'').trim().toLowerCase(),
+      sid:((document.getElementById('fSid')||{}).value||'').trim().toLowerCase(),
+      agent:((document.getElementById('fAgent')||{}).value||'').trim().toLowerCase(),
+      kw:((document.getElementById('fKw')||{}).value||'').trim().toLowerCase()
+    };
+    var list=lastConvs.filter(function(c){return convMatch(c,f);});
+    var tb=document.getElementById('convBody');
+    if(tb)tb.innerHTML=convRowsHtml(list);
+    var cnt=document.getElementById('convCount');
+    if(cnt)cnt.textContent=list.length+' dari '+lastConvs.length+' baris';
+  }
+
   function render(d){
     rangeEl.textContent='Rentang: '+(d.meta.date_min||d.range&&d.range.start||'—')+' s/d '+(d.meta.date_max||d.range&&d.range.end||'—')+' · '+d.meta.total+' percakapan · '+d.meta.customers+' pelanggan';
     var html='';
@@ -218,27 +267,28 @@
       var rows=d.agents.map(function(a){return '<tr><td>'+a.rank+'</td><td>'+esc(a.name)+'</td><td>'+a.count+'</td><td>'+a.avg_durasi+'</td><td>'+a.pos_rate+'%</td><td>'+a.neg_rate+'%</td><td><b>'+a.score+'</b></td></tr>';}).join('');
       html+='<div class="card"><h3>Kinerja agent</h3><div class="tbl-wrap"><table class="tbl"><thead><tr><th>#</th><th>Agent</th><th>Chat</th><th>Durasi rata²</th><th>Positif</th><th>Negatif</th><th>Skor</th></tr></thead><tbody>'+(rows||'<tr><td colspan="7" class="muted">Tidak ada data.</td></tr>')+'</tbody></table></div></div>';
     } else if(section==='percakapan'){
-      var rows=d.conversations.map(function(c){
-        var lihatBtn=c.sid?'<button class="btn-lihat" data-sid="'+esc(c.sid)+'">Lihat</button>':'-';
-        return '<tr>'
-          +'<td>'+esc(c.tanggal)+'</td>'
-          +'<td>'+esc(c.customer)+'</td>'
-          +'<td>'+esc(c.agent_name)+'</td>'
-          +'<td>'+esc(c.mapped_intent)+'</td>'
-          +'<td>'+esc(c.coverage_band)+'</td>'
-          +'<td>'+esc(c.case_label)+'</td>'
-          +'<td>'+esc(c.sentiment)+'</td>'
-          +'<td>'+(c.deflection_gap?'<span class="pill">gap</span>':'')+'</td>'
-          +'<td>'+lihatBtn+'</td>'
-          +'</tr>';
-      }).join('');
-      html+='<div class="card"><h3>Detail percakapan ('+d.conversations.length+' baris pertama)</h3>'
+      lastConvs=(d.conversations||[]);
+      html+='<div class="card"><h3>Detail percakapan</h3>'
+        +'<div class="conv-filter">'
+        +'<input id="fCust" type="text" placeholder="Nama pelanggan…">'
+        +'<input id="fSid" type="text" placeholder="SID…">'
+        +'<input id="fAgent" type="text" placeholder="Agent…">'
+        +'<input id="fKw" type="text" placeholder="Intent / kasus / topik…">'
+        +'<span class="muted" id="convCount"></span>'
+        +'</div>'
         +'<div class="tbl-wrap"><table class="tbl"><thead><tr>'
-        +'<th>Tanggal</th><th>Customer</th><th>Agent</th><th>Intent</th>'
+        +'<th>Tanggal</th><th>SID</th><th>Customer</th><th>Agent</th><th>Intent</th>'
         +'<th>Coverage</th><th>Kasus</th><th>Sentimen</th><th>Gap</th><th>Transkrip</th>'
-        +'</tr></thead><tbody>'+(rows||'<tr><td colspan="9" class="muted">Tidak ada data.</td></tr>')+'</tbody></table></div></div>';
+        +'</tr></thead><tbody id="convBody"></tbody></table></div></div>';
     }
     body.innerHTML=html;
+    if(section==='percakapan'){
+      ['fCust','fSid','fAgent','fKw'].forEach(function(id){
+        var e=document.getElementById(id);
+        if(e)e.addEventListener('input',applyConvFilter);
+      });
+      applyConvFilter();
+    }
   }
   function load(){
     body.innerHTML='<div class="loading">Memuat data…</div>';

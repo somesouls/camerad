@@ -15,6 +15,7 @@ Daftarkan dengan:
 """
 import re
 import json
+import datetime as _dt
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -58,6 +59,41 @@ PRECISION_DB = {
     "sop": "sop",
     "kamus": "kamus",
 }
+
+
+def _today_jkt():
+    """Tanggal hari ini zona Asia/Jakarta (fallback UTC+7)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return _dt.datetime.now(ZoneInfo("Asia/Jakarta")).date()
+    except Exception:
+        tz = _dt.timezone(_dt.timedelta(hours=7))
+        return _dt.datetime.now(tz).date()
+
+
+def _query_hints():
+    """Petunjuk umum text-to-SQL: sadar tanggal + pencocokan fuzzy identitas.
+
+    Ditambahkan ke prompt agar AI tidak 'buta': tahu tanggal hari ini untuk
+    pertanyaan relatif (hari ini/kemarin/minggu/bulan ini) dan memakai
+    pencocokan sebagian tidak peka huruf (LIKE + lower) untuk nama/SID/nomor,
+    sehingga data yang ada tidak terlewat karena kecocokan sama-persis.
+    """
+    today = _today_jkt().isoformat()
+    return (
+        "\n\nKonteks waktu: hari ini = " + today + " (zona Asia/Jakarta). "
+        "Pertanyaan relatif seperti 'hari ini', 'kemarin', 'minggu ini', "
+        "'bulan ini', atau '30 hari terakhir' dihitung dari tanggal tersebut. "
+        "Bila kolom tanggal bertipe TEXT, pakai substr(kolom,1,10) untuk filter "
+        "per hari (mis. substr(tanggal,1,10) >= '" + today + "').\n"
+        "Pencarian identitas/teks (nama pelanggan/customer, SID, nomor telepon/ANI, "
+        "nama agen, NIK, topik, intent): gunakan pencocokan SEBAGIAN & tidak peka "
+        "huruf besar-kecil, mis. WHERE lower(customer) LIKE lower('%kata%'). "
+        "JANGAN memakai kecocokan sama-persis (=) untuk nama/teks kecuali pengguna "
+        "memberi nilai yang jelas eksak (mis. SID/ID lengkap). Bila pengguna "
+        "menyebut sebuah nama/nomor/kata kunci, selalu cari dengan LIKE agar data "
+        "yang relevan tidak terlewat."
+    )
 
 
 def _extract_sql(raw):
@@ -106,6 +142,7 @@ def answer_precise(question, page, db_key):
         'Aturan: HANYA SELECT/WITH, satu statement tanpa ";", selalu sertakan '
         'LIMIT wajar, dan jangan mengarang tabel/kolom di luar skema.'
     )
+    sys1 += _query_hints()
     _scope = ASK_AGENTIC_SCOPES.get((page or "").strip().lower())
     if _scope:
         sys1 += "\n\n" + _scope

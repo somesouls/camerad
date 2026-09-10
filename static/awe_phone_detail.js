@@ -79,7 +79,7 @@
   var dtState={offset:0,limit:25,total:0};
   function fval(id){var e=el(id);return e?e.value:'';}
   function dtLimit(){var n=parseInt(fval('dt_limit'),10);return (isNaN(n)||n<1)?25:n;}
-  function listPayload(offset,withOpts){return {action:'list',date_from:fval('dt_from'),date_to:fval('dt_to'),limit_rows:dtLimit(),offset:offset||0,agent:fval('dt_agent'),sentiment:fval('dt_sentiment'),resolusi:fval('dt_resolusi'),frustrasi:fval('dt_frustrasi'),status:fval('dt_status'),with_options:!!withOpts};}
+  function listPayload(offset,withOpts){return {action:'list',date_from:fval('dt_from'),date_to:fval('dt_to'),limit_rows:dtLimit(),offset:offset||0,agent:fval('dt_agent'),sentiment:fval('dt_sentiment'),resolusi:fval('dt_resolusi'),frustrasi:fval('dt_frustrasi'),status:fval('dt_status'),sid:fval('dt_sid'),ani:fval('dt_ani'),customer:fval('dt_customer'),with_options:!!withOpts};}
   function fillSelect(id,vals,ph){var s=el(id);if(!s)return;var cur=s.value;var html='<option value="">'+ph+'</option>';(vals||[]).forEach(function(v){html+='<option value="'+esc(v)+'">'+esc(v)+'</option>';});s.innerHTML=html;s.value=cur;if(s.value!==cur)s.value='';}
   function populateOptions(o){if(!o)return;fillSelect('dt_agent',o.agents,'Semua agen');fillSelect('dt_sentiment',o.sentiments,'Semua sentimen');fillSelect('dt_resolusi',o.resolutions,'Semua resolusi');}
   function updatePager(){
@@ -110,12 +110,15 @@
       updatePager();
     }).catch(function(e){setStat('Gagal: '+e,'err');});
   }
+  var _dtSearchT=null;
+  function debouncedSearch(){clearTimeout(_dtSearchT);_dtSearchT=setTimeout(function(){loadList(true,false);},350);}
   function init(){
     var t0=iso(new Date()),t30=iso(new Date(Date.now()-29*864e5));
     if(el('dt_to')&&!el('dt_to').value)el('dt_to').value=t0;
     if(el('dt_from')&&!el('dt_from').value)el('dt_from').value=t30;
     if(el('dtLoad'))el('dtLoad').addEventListener('click',function(){loadList(true,true);});
     ['dt_agent','dt_sentiment','dt_resolusi','dt_frustrasi','dt_status'].forEach(function(id){var e=el(id);if(e)e.addEventListener('change',function(){loadList(true,false);});});
+    ['dt_sid','dt_ani','dt_customer'].forEach(function(id){var e=el(id);if(e){e.addEventListener('input',debouncedSearch);e.addEventListener('keydown',function(ev){if(ev.key==='Enter'||ev.keyCode===13){clearTimeout(_dtSearchT);loadList(true,false);}});}});
     if(el('dt_limit'))el('dt_limit').addEventListener('change',function(){loadList(true,false);});
     if(el('dtPrev'))el('dtPrev').addEventListener('click',function(){if(dtState.offset>0){dtState.offset=Math.max(dtState.offset-dtState.limit,0);loadList(false,false);}});
     if(el('dtNext'))el('dtNext').addEventListener('click',function(){if(dtState.offset+dtState.limit<dtState.total){dtState.offset+=dtState.limit;loadList(false,false);}});
