@@ -77,6 +77,22 @@ def _entitas_nama(a):
     return (_first_str(e.get("nama")) or None) if isinstance(e, dict) else None
 
 
+def _fmt_secs(v):
+    """Format detik (float/int) -> 'M:SS' atau 'H:MM:SS'. '' bila tak valid."""
+    try:
+        s = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if s < 0:
+        return ""
+    s = int(round(s))
+    h, rem = divmod(s, 3600)
+    m, sec = divmod(rem, 60)
+    if h:
+        return "%d:%02d:%02d" % (h, m, sec)
+    return "%d:%02d" % (m, sec)
+
+
 def _norm_dialog(dialog):
     out = []
     for m in dialog or []:
@@ -84,7 +100,25 @@ def _norm_dialog(dialog):
             role = m.get("role") or m.get("penutur") or m.get("speaker") or ""
             text = m.get("text") or m.get("teks") or m.get("isi") or ""
             if str(text).strip():
-                out.append({"role": str(role), "text": str(text)})
+                item = {"role": str(role), "text": str(text)}
+                # Waktu per-utterance: label waktu langsung, atau start/end (detik)
+                # dari STT. Hanya ditambahkan bila tersedia (struktur lama tetap).
+                waktu = (m.get("waktu") or m.get("time")
+                         or m.get("timestamp") or m.get("ts"))
+                if waktu in (None, ""):
+                    st = m.get("start")
+                    if st is None:
+                        st = m.get("mulai") or m.get("start_time") or m.get("offset")
+                    fs = _fmt_secs(st)
+                    if fs:
+                        en = m.get("end")
+                        if en is None:
+                            en = m.get("selesai") or m.get("end_time")
+                        fe = _fmt_secs(en)
+                        waktu = (fs + "-" + fe) if fe else fs
+                if waktu not in (None, ""):
+                    item["waktu"] = str(waktu)
+                out.append(item)
         elif isinstance(m, str) and m.strip():
             out.append({"role": "", "text": m})
     return out or None
