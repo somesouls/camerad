@@ -209,11 +209,16 @@ def coverage(day_from=None, day_to=None):
 
 def list_rows(day_from=None, day_to=None, limit=25, offset=0, agent=None,
               sentiment=None, resolusi=None, frustrasi=None, status=None,
-              with_options=False, sid=None, ani=None, customer=None):
+              with_options=False, sid=None, ani=None, customer=None,
+              content=None, mode="keyword"):
     """Daftar interaksi telepon: pagination sisi-server + filter opsional.
 
     Filter teks bebas sid/ani/customer memakai pencocokan sebagian (LIKE) yang
     tidak peka huruf besar-kecil (lihat phone_query.list_phone).
+
+    Bila `content` diisi, dijalankan pencarian ISI percakapan (transkrip + STT)
+    menurut `mode`: "keyword" (kata/frasa), "gmail_dot" (email trik-titik calo),
+    atau "email" (email apa pun). Diteruskan ke phone_query.list_phone.
     """
     conn = _conn()
     try:
@@ -222,7 +227,8 @@ def list_rows(day_from=None, day_to=None, limit=25, offset=0, agent=None,
                                  sentiment=sentiment, resolusi=resolusi,
                                  frustrasi=frustrasi, status=status,
                                  with_options=with_options,
-                                 sid=sid, ani=ani, customer=customer)
+                                 sid=sid, ani=ani, customer=customer,
+                                 content=content, mode=mode)
     finally:
         conn.close()
 
