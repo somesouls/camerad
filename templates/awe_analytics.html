@@ -44,6 +44,11 @@
   .conv-filter input{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:9px;color:var(--text-main,#e8e9ec);padding:7px 10px;font-size:12px;min-width:150px;}
   .conv-filter input:focus{outline:none;border-color:var(--accent,#5a78ff);}
   .conv-note{font-size:11px;color:var(--text-muted,#8a8f98);margin-bottom:10px;}
+  .conv-filter select{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:9px;color:var(--text-main,#e8e9ec);padding:7px 10px;font-size:12px;}
+  .conv-filter select:focus{outline:none;border-color:var(--accent,#5a78ff);}
+  .mail-chip{display:inline-block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;padding:1px 6px;margin:1px 3px 1px 0;border-radius:6px;background:rgba(240,163,90,.16);color:#f0a35a;white-space:nowrap;}
+  .mail-chip.dot{background:rgba(240,90,90,.18);color:#f2726f;}
+  .tx-time{font-size:10px;color:var(--text-muted,#8a8f98);font-weight:500;margin-left:6px;}
   /* Modal transkrip */
   #txModal{display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.55);}
   #txModal.open{display:flex;align-items:center;justify-content:center;}
@@ -166,7 +171,9 @@
         }
         var html=(d.transkrip||[]).map(function(m){
           var rc=roleCls(m.role);
-          return '<div class="tx-bubble"><div class="tx-role '+rc+'">'+esc(roleLabel(m.role))+'</div>'+
+          var w=(m.waktu||m.time||m.ts||'');
+          var wspan=w?'<span class="tx-time">'+esc(w)+'</span>':'';
+          return '<div class="tx-bubble"><div class="tx-role '+rc+'">'+esc(roleLabel(m.role))+wspan+'</div>'+
             '<div class="tx-text">'+esc(m.text||'')+'</div></div>';
         }).join('');
         txBody.innerHTML=html||'<div class="muted">Transkrip kosong.</div>';
@@ -203,8 +210,22 @@
   // Berbeda dari sebelumnya (filter client atas 500 baris teratas), pencarian
   // kini memanggil endpoint khusus yang menyaring SELURUH percakapan pada
   // rentang aktif, sehingga hasil tidak lagi terbatas pada 500 teratas.
+  function fmtDur(sec){
+    var s=parseInt(sec,10); if(isNaN(s)||s<0)return '';
+    var m=Math.floor(s/60), r=s%60;
+    if(m>=60){var h=Math.floor(m/60);return h+'j '+(m%60)+'m';}
+    return m+'m '+(r<10?'0':'')+r+'s';
+  }
+  function emailsHtml(list){
+    if(!list||!list.length)return '';
+    return list.map(function(e){
+      var cls='mail-chip'+(e.is_dot_variant?' dot':'');
+      var t=(e.raw||'')+(e.normalized&&e.normalized!==e.raw?(' → '+e.normalized):'');
+      return '<span class="'+cls+'" title="'+esc(t)+'">'+esc(e.raw||'')+'</span>';
+    }).join('');
+  }
   function convRowsHtml(list){
-    if(!list.length)return '<tr><td colspan="10" class="muted">Tidak ada data yang cocok.</td></tr>';
+    if(!list.length)return '<tr><td colspan="12" class="muted">Tidak ada data yang cocok.</td></tr>';
     return list.map(function(c){
       var lihatBtn=c.sid?'<button class="btn-lihat" data-sid="'+esc(c.sid)+'">Lihat</button>':'-';
       return '<tr>'
@@ -212,11 +233,13 @@
         +'<td>'+esc(c.sid)+'</td>'
         +'<td>'+esc(c.customer)+'</td>'
         +'<td>'+esc(c.agent_name)+'</td>'
+        +'<td>'+esc(fmtDur(c.durasi))+'</td>'
         +'<td>'+esc(c.mapped_intent)+'</td>'
         +'<td>'+esc(c.coverage_band)+'</td>'
         +'<td>'+esc(c.case_label)+'</td>'
         +'<td>'+esc(c.sentiment)+'</td>'
         +'<td>'+(c.deflection_gap?'<span class="pill">gap</span>':'')+'</td>'
+        +'<td>'+emailsHtml(c.emails)+'</td>'
         +'<td>'+lihatBtn+'</td>'
         +'</tr>';
     }).join('');
@@ -226,6 +249,8 @@
     if(state.range==='custom'){qs+='&start='+encodeURIComponent(state.start)+'&end='+encodeURIComponent(state.end);}
     function add(id,key){var e=document.getElementById(id);var v=e?e.value.trim():'';if(v)qs+='&'+key+'='+encodeURIComponent(v);}
     add('fCust','customer');add('fSid','sid');add('fAgent','agent');add('fKw','kw');
+    add('fContent','content');
+    var mEl=document.getElementById('fMode');var mode=mEl?mEl.value:'keyword';if(mode)qs+='&mode='+encodeURIComponent(mode);
     qs+='&limit=1000';
     return qs;
   }
@@ -233,13 +258,13 @@
     var tb=document.getElementById('convBody');
     var cnt=document.getElementById('convCount');
     if(!tb)return;
-    tb.innerHTML='<tr><td colspan="10" class="muted">Memuat…</td></tr>';
+    tb.innerHTML='<tr><td colspan="12" class="muted">Memuat…</td></tr>';
     fetch('/api/awe/analytics/conversations?'+convQS()).then(function(r){return r.json();}).then(function(d){
-      if(!d||d.ok===false){tb.innerHTML='<tr><td colspan="10" class="muted">Gagal memuat: '+esc((d&&d.error)||'')+'</td></tr>';return;}
+      if(!d||d.ok===false){tb.innerHTML='<tr><td colspan="12" class="muted">Gagal memuat: '+esc((d&&d.error)||'')+'</td></tr>';return;}
       var list=d.conversations||[];
       tb.innerHTML=convRowsHtml(list);
       if(cnt){var t=d.total||0;cnt.textContent=(d.truncated?('menampilkan '+list.length+' dari '+t+' baris cocok'):(t+' baris cocok'));}
-    }).catch(function(){tb.innerHTML='<tr><td colspan="10" class="muted">Gagal memuat data.</td></tr>';});
+    }).catch(function(){tb.innerHTML='<tr><td colspan="12" class="muted">Gagal memuat data.</td></tr>';});
   }
   function scheduleConvSearch(){if(convT)clearTimeout(convT);convT=setTimeout(loadConvSearch,350);}
 
@@ -274,20 +299,27 @@
         +'<input id="fSid" type="text" placeholder="SID…">'
         +'<input id="fAgent" type="text" placeholder="Agent…">'
         +'<input id="fKw" type="text" placeholder="Intent / kasus / topik…">'
+        +'<input id="fContent" type="text" placeholder="Isi percakapan (keyword)…">'
+        +'<select id="fMode" title="Mode pencarian isi">'
+        +'<option value="keyword">Keyword</option>'
+        +'<option value="gmail_dot">Email trik-titik Gmail (calo)</option>'
+        +'</select>'
         +'<span class="muted" id="convCount"></span>'
         +'</div>'
         +'<div class="conv-note">Pencarian berjalan di server — mencakup seluruh percakapan pada rentang ini, bukan hanya yang tampil.</div>'
         +'<div class="tbl-wrap"><table class="tbl"><thead><tr>'
-        +'<th>Tanggal</th><th>SID</th><th>Customer</th><th>Agent</th><th>Intent</th>'
-        +'<th>Coverage</th><th>Kasus</th><th>Sentimen</th><th>Gap</th><th>Transkrip</th>'
+        +'<th>Tanggal</th><th>SID</th><th>Customer</th><th>Agent</th><th>Durasi</th><th>Intent</th>'
+        +'<th>Coverage</th><th>Kasus</th><th>Sentimen</th><th>Gap</th><th>Email</th><th>Transkrip</th>'
         +'</tr></thead><tbody id="convBody"></tbody></table></div></div>';
     }
     body.innerHTML=html;
     if(section==='percakapan'){
-      ['fCust','fSid','fAgent','fKw'].forEach(function(id){
+      ['fCust','fSid','fAgent','fKw','fContent'].forEach(function(id){
         var e=document.getElementById(id);
         if(e){e.addEventListener('input',scheduleConvSearch);e.addEventListener('keydown',function(ev){if(ev.key==='Enter'){if(convT)clearTimeout(convT);loadConvSearch();}});}
       });
+      var modeEl=document.getElementById('fMode');
+      if(modeEl)modeEl.addEventListener('change',function(){if(convT)clearTimeout(convT);loadConvSearch();});
       loadConvSearch();
     }
   }
