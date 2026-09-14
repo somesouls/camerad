@@ -20,6 +20,7 @@ from collections import Counter, defaultdict
 
 import avaya.db as avdb
 import awe.botfilter as botfilter
+import awe.content_search as csearch
 from awe.botfilter import wants_exclude, exclude_bot_sql
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -74,6 +75,35 @@ def _norm_sent(s):
 
 def _truthy(v):
     return str(v).strip().lower() in ("1", "true", "ya", "yes", "y")
+
+
+def _conv_row(d):
+    """Bentuk satu baris hasil daftar percakapan (dipakai jalur cepat & isi)."""
+    behavior = (d.get("behavior") or "").strip().lower()
+    is_direct = behavior in ("direct", "langsung")
+    gap_val = d.get("deflection_gap")
+    if gap_val in (None, ""):
+        gap = 1 if is_direct else 0
+    else:
+        gap = 1 if _truthy(gap_val) else 0
+    topik = (str(d.get("topik")).strip() if d.get("topik") else "") \
+        or (d.get("mapped_intent") or "").strip() or "(tanpa topik)"
+    try:
+        dur = int(d.get("durasi") or 0)
+    except Exception:
+        dur = 0
+    return {
+        "tanggal": d.get("tanggal") or "", "sid": d.get("sid") or "",
+        "customer": (d.get("customer") or "").strip(),
+        "agent_name": (d.get("agent_name") or "").strip() or "(tanpa agent)",
+        "durasi": dur,
+        "mapped_intent": d.get("mapped_intent") or "",
+        "coverage_band": d.get("coverage_band") or "",
+        "case_label": d.get("case_label") or "",
+        "sentiment": _norm_sent(d.get("sentiment")),
+        "emotion": (d.get("emotion") or "").strip() or "Tidak diketahui",
+        "topik": topik, "deflection_gap": bool(gap),
+    }
 
 
 def analytics(conn, start=None, end=None, limit_conv=500, exclude_bot=True):
@@ -239,7 +269,8 @@ def analytics(conn, start=None, end=None, limit_conv=500, exclude_bot=True):
 
 
 def search_conversations(conn, start=None, end=None, customer="", sid="",
-                         agent="", kw="", limit=1000, exclude_bot=True):
+                         agent="", kw="", content="", mode="keyword",
+                         limit=1000, exclude_bot=True):
     """Pencarian daftar percakapan SISI-SERVER atas awe_conversations.
 
     Berbeda dari analytics() yang hanya menyertakan 500 percakapan pertama untuk
@@ -247,6 +278,11 @@ def search_conversations(conn, start=None, end=None, customer="", sid="",
     filter teks bebas (LIKE, tidak peka huruf) di kolom customer/sid/agent serta
     kata kunci lintas intent/kasus/topik. Kembalikan hingga `limit` baris
     (terbaru dulu) beserta jumlah total yang cocok.
+
+    Bila `content` diisi atau `mode` termasuk mode spesifik (mis. gmail_dot),
+    dilakukan pencarian ISI percakapan (scan transkrip_json) sisi-server via
+    modul awe.content_search: cocokkan keyword pada teks transkrip atau deteksi
+    email trik-titik Gmail (untuk feeding indikasi calo ke TIK).
     """
     where, params = [], []
     if start:
@@ -276,42 +312,66 @@ def search_conversations(conn, start=None, end=None, customer="", sid="",
             params.append("%" + kwn + "%")
 
     wsql = (" WHERE " + " AND ".join(where)) if where else ""
-    total = conn.execute(
-        "SELECT COUNT(*) FROM awe_conversations" + wsql, params).fetchone()[0]
-    lim = max(1, min(int(limit or 1000), 5000))
-    rows = conn.execute(
+
+    content_q = str(content or "").strip()
+    mode_n = (mode or "keyword").strip().lower()
+    specific = csearch.is_specific_mode(mode_n)
+    gmail_mode = mode_n in ("gmail_dot", "gmail-dot", "email_dot", "calo")
+    do_content = bool(content_q) or specific
+
+    if not do_content:
+        total = conn.execute(
+            "SELECT COUNT(*) FROM awe_conversations" + wsql, params).fetchone()[0]
+        lim = max(1, min(int(limit or 1000), 5000))
+        rows = conn.execute(
+            "SELECT sid, tanggal, customer, agent_name, durasi, behavior, "
+            "is_returning, mapped_intent, coverage_band, case_label, sentiment, "
+            "emotion, topik, deflection_gap "
+            "FROM awe_conversations" + wsql +
+            " ORDER BY tanggal DESC LIMIT ?", params + [lim]
+        ).fetchall()
+        out = [_conv_row(dict(r)) for r in rows]
+        return {"conversations": out, "total": int(total or 0),
+                "returned": len(out), "truncated": int(total or 0) > len(out)}
+
+    # --- Jalur pencarian ISI percakapan (scan transkrip_json sisi-server) ---
+    _MAX_SCAN = 20000
+    cwhere = list(where); cparams = list(params)
+    cwhere.append("transkrip_json IS NOT NULL AND transkrip_json != ''")
+    if gmail_mode:
+        cwhere.append("lower(transkrip_json) LIKE ?"); cparams.append("%gmail%")
+    elif content_q and (" " not in content_q) and ('"' not in content_q):
+        cwhere.append("lower(transkrip_json) LIKE ?")
+        cparams.append("%" + content_q.lower() + "%")
+    cwsql = " WHERE " + " AND ".join(cwhere)
+    scan_rows = conn.execute(
         "SELECT sid, tanggal, customer, agent_name, durasi, behavior, "
         "is_returning, mapped_intent, coverage_band, case_label, sentiment, "
-        "emotion, topik, deflection_gap "
-        "FROM awe_conversations" + wsql +
-        " ORDER BY tanggal DESC LIMIT ?", params + [lim]
+        "emotion, topik, deflection_gap, transkrip_json "
+        "FROM awe_conversations" + cwsql +
+        " ORDER BY tanggal DESC LIMIT ?", cparams + [_MAX_SCAN]
     ).fetchall()
 
+    lim = max(1, min(int(limit or 1000), 5000))
     out = []
-    for r in rows:
+    matched = 0
+    for r in scan_rows:
         d = dict(r)
-        behavior = (d.get("behavior") or "").strip().lower()
-        is_direct = behavior in ("direct", "langsung")
-        gap_val = d.get("deflection_gap")
-        if gap_val in (None, ""):
-            gap = 1 if is_direct else 0
-        else:
-            gap = 1 if _truthy(gap_val) else 0
-        topik = (str(d.get("topik")).strip() if d.get("topik") else "") \
-            or (d.get("mapped_intent") or "").strip() or "(tanpa topik)"
-        out.append({
-            "tanggal": d.get("tanggal") or "", "sid": d.get("sid") or "",
-            "customer": (d.get("customer") or "").strip(),
-            "agent_name": (d.get("agent_name") or "").strip() or "(tanpa agent)",
-            "mapped_intent": d.get("mapped_intent") or "",
-            "coverage_band": d.get("coverage_band") or "",
-            "case_label": d.get("case_label") or "",
-            "sentiment": _norm_sent(d.get("sentiment")),
-            "emotion": (d.get("emotion") or "").strip() or "Tidak diketahui",
-            "topik": topik, "deflection_gap": bool(gap),
-        })
-    return {"conversations": out, "total": int(total or 0),
-            "returned": len(out), "truncated": int(total or 0) > len(out)}
+        txt = csearch.transcript_text(d.get("transkrip_json") or "")
+        if not csearch.text_matches(txt, content_q, mode_n):
+            continue
+        matched += 1
+        if len(out) < lim:
+            row = _conv_row(d)
+            emails = csearch.find_emails(
+                txt, gmail_only=gmail_mode, dot_trick_only=gmail_mode)
+            if emails:
+                row["emails"] = emails
+            out.append(row)
+    return {"conversations": out, "total": matched,
+            "returned": len(out), "truncated": matched > len(out),
+            "scanned": len(scan_rows),
+            "scan_capped": len(scan_rows) >= _MAX_SCAN}
 
 
 _PAGES = [
@@ -443,6 +503,8 @@ def register(app, *, render_page):
         sid = q.get("sid") or ""
         agent = q.get("agent") or ""
         kw = q.get("kw") or ""
+        content = q.get("content") or ""
+        mode = q.get("mode") or "keyword"
         try:
             limit = int(q.get("limit") or 1000)
         except Exception:
@@ -454,7 +516,8 @@ def register(app, *, render_page):
                 s, e = resolve_range(preset, start, end)
                 data = search_conversations(
                     conn, s, e, customer=customer, sid=sid, agent=agent,
-                    kw=kw, limit=limit, exclude_bot=exclude_bot)
+                    kw=kw, content=content, mode=mode, limit=limit,
+                    exclude_bot=exclude_bot)
                 data["ok"] = True
                 data["range"] = {"start": s or "", "end": e or ""}
                 return data
