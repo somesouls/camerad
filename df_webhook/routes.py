@@ -380,3 +380,13 @@ def register(app):
     app.add_api_route("/api/df/webhook/config/save", api_df_webhook_save, methods=["POST"])
     app.add_api_route("/api/df/webhook/config/rotate", api_df_webhook_rotate, methods=["POST"])
     app.add_api_route("/api/df/webhook/test", api_df_webhook_test, methods=["POST"])
+
+    # --- Menu BARU: Detail Percakapan Dialogflow (halaman + API pencarian) ---
+    # Didaftarkan bersama webhook agar route ikut terpasang saat bootstrap
+    # memanggil register(app). Fail-soft: bila modul baru bermasalah, alur
+    # webhook/echo-replay lama TIDAK terganggu.
+    try:
+        import df_webhook.percakapan_routes as _percakapan
+        _percakapan.register(app)
+    except Exception as _pc_exc:  # pragma: no cover
+        print("[DF-PERCAKAPAN] registrasi route dilewati:", _pc_exc, flush=True)
