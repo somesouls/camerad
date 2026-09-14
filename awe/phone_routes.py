@@ -12,7 +12,8 @@ TERPISAH total dari alur Chat. Handler didaftarkan oleh awe/routes.py
     - job_progress  : status job berjalan (butuh job).
     - job_fetch     : status akhir job lalu buang dari memori (butuh job).
     - coverage      : ringkasan per hari (audio/transkrip/analisis) + stats.
-    - list          : daftar interaksi (rentang tanggal + pagination + filter).
+    - list          : daftar interaksi (rentang tanggal + pagination + filter
+                      + pencarian isi percakapan: content + mode).
     - detail        : satu interaksi lengkap (butuh sid).
     - daily_users   : agregasi Pengguna Harian per ANI + tema (pagination + filter).
     - daily_convs   : daftar panggilan satu nomor telepon (butuh ani).
@@ -111,7 +112,9 @@ async def awe_phone_probe(request: Request):
                 bool(body.get("with_options")),
                 (str(body.get("sid") or "").strip() or None),
                 (str(body.get("ani") or "").strip() or None),
-                (str(body.get("customer") or "").strip() or None))
+                (str(body.get("customer") or "").strip() or None),
+                (str(body.get("content") or "").strip() or None),
+                (str(body.get("mode") or "keyword").strip() or "keyword"))
             d["ok"] = True
             return JSONResponse(d)
         except Exception as e:
