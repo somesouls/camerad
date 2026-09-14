@@ -522,7 +522,12 @@ def _extract_transkrip(obj):
         if isinstance(m, dict):
             role = str(_g(m, "role", "speaker", "peran", "from", default="")).strip()
             text = _g(m, "text", "message", "isi", "pesan", "content", default="")
-            out.append({"role": role, "text": str(text)})
+            waktu = _g(m, "waktu", "time", "timestamp", "ts", "datetime",
+                       "date", "tanggal", "jam", default="")
+            item = {"role": role, "text": str(text)}
+            if waktu not in (None, ""):
+                item["waktu"] = str(waktu)
+            out.append(item)
         elif isinstance(m, str) and m.strip():
             out.append({"role": "", "text": m})
     return out or None
