@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Detail Percakapan AWE Phone · Camerad Studio{% endblock %}
+{% block title %}Detail Percakapan AWE Phone \u00b7 Camerad Studio{% endblock %}
 {% block head %}
 <style>
 .page-header{margin-bottom:24px;}
@@ -39,6 +39,7 @@
 .row-click{cursor:pointer;}
 .row-click:hover td{background:var(--accent-glow);}
 .chip{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;background:var(--panel-border);color:var(--text-main);margin:1px 2px;}
+.chip-dot{background:var(--c-red);color:var(--c-red-txt);font-weight:700;}
 .dt-field{font-size:13px;color:var(--text-main);line-height:1.9;}
 .dt-list{margin:6px 0;padding-left:20px;font-size:13.5px;color:var(--text-main);}
 .mono{font-family:'JetBrains Mono','Courier New',monospace;font-size:12.5px;white-space:pre-wrap;background:rgba(0,0,0,.15);border:1px solid var(--panel-border);border-radius:10px;padding:12px;line-height:1.55;color:var(--text-main);}
@@ -53,8 +54,8 @@
 {% endblock %}
 {% block content %}
 <div class="page-header">
-  <h1 class="page-title">Detail Percakapan — Phone</h1>
-  <p class="page-desc">Telusuri panggilan <b>Telepon</b> (Avaya) satu per satu. Klik baris untuk membuka transkrip, ringkasan, poin penting, entitas, dan hasil analisis LLM. Gunakan <b>pencarian</b> (Nama pelanggan/Nomor (ANI)/SID) dan <b>filter</b> (Agen/Sentimen/Resolusi/Frustrasi/Status), lalu navigasi <b>halaman</b> di bawah tabel — semuanya diproses di server. Terpisah total dari Chat.</p>
+  <h1 class="page-title">Detail Percakapan \u2014 Phone</h1>
+  <p class="page-desc">Telusuri panggilan <b>Telepon</b> (Avaya) satu per satu. Klik baris untuk membuka transkrip, ringkasan, poin penting, entitas, dan hasil analisis LLM. Gunakan <b>pencarian</b> (Nama pelanggan/Nomor (ANI)/SID), <b>pencarian isi percakapan</b> (keyword, atau email Gmail trik-titik yang biasa dipakai calo), dan <b>filter</b> (Agen/Sentimen/Resolusi/Frustrasi/Status), lalu navigasi <b>halaman</b> di bawah tabel \u2014 semuanya diproses di server. Terpisah total dari Chat.</p>
 </div>
 <section class="c-card">
   <div class="stage-head"><h2 class="stage-title">Daftar Panggilan</h2><span class="pill" id="dtPill">&mdash;</span></div>
@@ -65,9 +66,13 @@
     <div class="field"><button class="btn-modern" id="dtLoad">Muat</button></div>
   </div>
   <div class="form-row">
-    <div class="field"><label>Nama pelanggan</label><input type="text" id="dt_customer" placeholder="cari nama…"></div>
-    <div class="field"><label>Nomor (ANI)</label><input type="text" id="dt_ani" placeholder="cari nomor…"></div>
-    <div class="field"><label>SID</label><input type="text" id="dt_sid" placeholder="cari SID…"></div>
+    <div class="field"><label>Nama pelanggan</label><input type="text" id="dt_customer" placeholder="cari nama\u2026"></div>
+    <div class="field"><label>Nomor (ANI)</label><input type="text" id="dt_ani" placeholder="cari nomor\u2026"></div>
+    <div class="field"><label>SID</label><input type="text" id="dt_sid" placeholder="cari SID\u2026"></div>
+  </div>
+  <div class="form-row">
+    <div class="field" style="flex:1;min-width:280px;"><label>Cari isi percakapan</label><input type="text" id="dt_content" placeholder="kata kunci / &quot;frasa persis&quot; / bagian email\u2026"></div>
+    <div class="field"><label>Mode pencarian isi</label><select id="dt_mode"><option value="keyword">Keyword (kata/frasa)</option><option value="gmail_dot">Email Gmail trik-titik (calo)</option><option value="email">Email apa pun</option></select></div>
   </div>
   <div class="form-row">
     <div class="field"><label>Agen</label><select id="dt_agent"><option value="">Semua agen</option></select></div>
@@ -77,7 +82,7 @@
     <div class="field"><label>Status</label><select id="dt_status"><option value="">Semua status</option><option value="analisis">Sudah dianalisis</option><option value="transkrip">Transkrip saja</option><option value="belum">Belum</option></select></div>
   </div>
   <div style="overflow-x:auto;">
-    <table class="table-modern"><thead><tr><th>Tanggal</th><th>Nomor (ANI)</th><th>Agen</th><th>Durasi</th><th>Sentimen</th><th>Resolusi</th><th>Frustrasi</th><th>Status</th></tr></thead><tbody id="dtBody"><tr><td colspan="8" style="text-align:center;">&mdash;</td></tr></tbody></table>
+    <table class="table-modern"><thead><tr><th>Tanggal</th><th>Nomor (ANI)</th><th>Agen</th><th>Durasi</th><th>Sentimen</th><th>Resolusi</th><th>Frustrasi</th><th>Email</th><th>Status</th></tr></thead><tbody id="dtBody"><tr><td colspan="9" style="text-align:center;">&mdash;</td></tr></tbody></table>
   </div>
   <div class="pager" id="dtPager" style="display:none;">
     <button class="btn-modern btn-outline" id="dtPrev">&lsaquo; Sebelumnya</button>
@@ -94,5 +99,5 @@
 </div>
 {% endblock %}
 {% block scripts %}
-<script src="/static/awe_phone_detail.js?v=4"></script>
+<script src="/static/awe_phone_detail.js?v=5"></script>
 {% endblock %}
