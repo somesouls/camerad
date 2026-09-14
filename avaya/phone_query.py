@@ -7,6 +7,19 @@ try:
 except Exception:
     from phone_db import init_phone_db
 
+# Pencarian isi percakapan bersama (keyword + gmail dot-trick). Fail-soft: bila
+# modul tak tersedia, pencarian isi dilewati & daftar tetap jalan seperti biasa.
+try:
+    import awe.content_search as csearch
+except Exception:
+    try:
+        import content_search as csearch
+    except Exception:
+        csearch = None
+
+_GMAIL_MODES = ("gmail_dot", "gmail-dot", "email_dot", "calo")
+_MAX_SCAN = 20000  # batas baris yang dipindai isi-nya agar aman untuk web request
+
 _LIST_COLS = ("sid,day,tanggal,ani,dnis,call_id,durasi,hold_time_sec,has_audio,"
               "has_screen,audio_ref,customer,agent_name,transkrip_source,"
               "ringkasan,topik,jenis_layanan,sentiment,emotion,resolusi,frustrasi")
@@ -76,19 +89,79 @@ def _list_options(conn, day_from=None, day_to=None):
 
 def list_phone(conn, day_from=None, day_to=None, limit=25, offset=0, agent=None,
                sentiment=None, resolusi=None, frustrasi=None, status=None,
-               with_options=False, sid=None, ani=None, customer=None):
+               with_options=False, sid=None, ani=None, customer=None,
+               content=None, mode="keyword"):
     """Daftar interaksi telepon dengan pagination + filter sisi-server.
 
     Kembalikan {interactions, total, offset, limit, options?}. `total` = jumlah
     baris yang cocok filter (bukan hanya halaman ini) supaya pager akurat.
+
+    Bila `content` diisi, dijalankan pencarian ISI percakapan (memindai
+    transkrip + teks STT) menurut `mode`:
+      - "keyword"   : semua kata/frasa harus muncul.
+      - "gmail_dot" : email Gmail trik-titik (calo) - setiap baris cocok juga
+                      menyertakan daftar `emails` yang terdeteksi.
+      - "email"     : email apa pun.
+    Pencarian isi memindai SELURUH baris yang lolos filter (dibatasi _MAX_SCAN)
+    lalu dipotong per halaman, sehingga hasil menjangkau semua data.
     """
     init_phone_db(conn)
     wsql, p = _list_where(day_from, day_to, agent, sentiment, resolusi,
                           frustrasi, status, sid=sid, ani=ani, customer=customer)
-    total = conn.execute(
-        "SELECT COUNT(*) FROM awe_phone_interactions" + wsql, p).fetchone()[0]
     off = max(int(offset or 0), 0)
     lim = max(int(limit or 25), 1)
+
+    content = str(content or "").strip()
+    if content and csearch is not None:
+        # ---- Jalur pencarian ISI percakapan (server-side) ----
+        gmail_mode = str(mode or "").strip().lower() in _GMAIL_MODES
+        scan_where = wsql
+        scan_params = list(p)
+        if gmail_mode:
+            # Pra-saring agar baris yang dipindai lebih sedikit (butuh 'gmail').
+            scan_where += (" AND lower(coalesce(transkrip_json,'')"
+                           " || ' ' || coalesce(stt_text,'')) LIKE ?")
+            scan_params.append("%gmail%")
+        sql = ("SELECT " + _LIST_COLS +
+               ", transkrip_json, stt_text"
+               ", (transkrip_json IS NOT NULL) AS has_transkrip"
+               ", (analisis_json IS NOT NULL) AS has_analisis"
+               " FROM awe_phone_interactions" + scan_where +
+               " ORDER BY tanggal DESC, sid DESC")
+        rows = conn.execute(sql, scan_params).fetchall()
+        matched = []
+        scanned = 0
+        scan_capped = False
+        for r in rows:
+            if scanned >= _MAX_SCAN:
+                scan_capped = True
+                break
+            scanned += 1
+            d = dict(r)
+            txt = csearch.transcript_text(d.get("transkrip_json") or "")
+            stt = d.get("stt_text")
+            if stt:
+                txt = (txt + "\n" + str(stt)) if txt else str(stt)
+            if not csearch.text_matches(txt, content, mode):
+                continue
+            if gmail_mode:
+                d["emails"] = csearch.find_emails(txt, dot_trick_only=True)
+            elif csearch.is_specific_mode(mode):
+                d["emails"] = csearch.find_emails(txt)
+            d.pop("transkrip_json", None)
+            d.pop("stt_text", None)
+            matched.append(d)
+        total = len(matched)
+        out = {"interactions": matched[off:off + lim], "total": total,
+               "offset": off, "limit": lim, "scanned": scanned,
+               "scan_capped": scan_capped}
+        if with_options:
+            out["options"] = _list_options(conn, day_from, day_to)
+        return out
+
+    # ---- Jalur cepat (tanpa pencarian isi) ----
+    total = conn.execute(
+        "SELECT COUNT(*) FROM awe_phone_interactions" + wsql, p).fetchone()[0]
     sql = ("SELECT " + _LIST_COLS +
            ", (transkrip_json IS NOT NULL) AS has_transkrip"
            ", (analisis_json IS NOT NULL) AS has_analisis"
