@@ -8,11 +8,22 @@
   function truthy(v){v=String(v==null?'':v).trim().toLowerCase();return v==='1'||v==='true'||v==='ya'||v==='yes'||v==='y';}
   function fmtDur(s){s=parseInt(s,10);if(isNaN(s)||s<0)return '-';if(s<60)return s+'s';return Math.floor(s/60)+'m '+('0'+(s%60)).slice(-2)+'s';}
 
+  // Chip email hasil pencarian isi; varian trik-titik (calo) ditandai merah.
+  function emailsHtml(list){
+    if(!list||!list.length)return '';
+    return list.map(function(e){
+      var raw=esc(e.raw||'');var norm=esc(e.normalized||'');
+      var dot=e.is_dot_variant;
+      var title=norm?('\u2192 '+norm):'';
+      return '<span class="chip'+(dot?' chip-dot':'')+'"'+(title?(' title="'+title+'"'):'')+'>'+raw+'</span>';
+    }).join('');
+  }
+
   // Gaya bubble transkrip disuntik sekali; kelas lain sudah ada di template.
   (function(){
     if(el('dtTxCss'))return;
     var st=document.createElement('style');st.id='dtTxCss';
-    st.textContent='.chat-log{display:flex;flex-direction:column;gap:10px;margin:10px 0 4px;}.bubble{max-width:80%;padding:9px 13px;border-radius:14px;font-size:13.5px;line-height:1.5;}.bubble .who{font-size:11px;font-weight:700;opacity:.7;margin-bottom:3px;}.bubble.agen{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px;}.bubble.pel{align-self:flex-start;background:var(--panel-border);color:var(--text-main);border-bottom-left-radius:4px;}';
+    st.textContent='.chat-log{display:flex;flex-direction:column;gap:10px;margin:10px 0 4px;}.bubble{max-width:80%;padding:9px 13px;border-radius:14px;font-size:13.5px;line-height:1.5;}.bubble .who{font-size:11px;font-weight:700;opacity:.7;margin-bottom:3px;}.bubble .who .tx-time{font-weight:600;opacity:.85;margin-left:6px;}.bubble.agen{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:4px;}.bubble.pel{align-self:flex-start;background:var(--panel-border);color:var(--text-main);border-bottom-left-radius:4px;}';
     document.head.appendChild(st);
   })();
 
@@ -31,22 +42,24 @@
     return '<div class="chat-log">'+dialog.map(function(t){
       if(typeof t==='string')return '<div class="bubble pel">'+esc(t)+'</div>';
       var who=t.penutur||t.role||t.speaker||t.spk||'';var teks=t.teks||t.text||t.content||t.transcript||t.kalimat||'';
+      var wkt=t.waktu||t.time||t.ts||'';
       var side=sideFor(who);var label=who||(side==='agen'?'Agen':'Penelepon');
-      return '<div class="bubble '+side+'"><div class="who">'+esc(label)+'</div>'+esc(teks)+'</div>';
+      var whoHtml='<div class="who">'+esc(label)+(wkt?(' <span class="tx-time">'+esc(wkt)+'</span>'):'')+'</div>';
+      return '<div class="bubble '+side+'">'+whoHtml+esc(teks)+'</div>';
     }).join('')+'</div>';
   }
   function renderList(rows){
     var tb=el('dtBody');if(!tb)return;rows=rows||[];
-    if(!rows.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;">Belum ada panggilan pada rentang/filter ini.</td></tr>';return;}
+    if(!rows.length){tb.innerHTML='<tr><td colspan="9" style="text-align:center;">Belum ada panggilan pada rentang/filter ini.</td></tr>';return;}
     tb.innerHTML=rows.map(function(r){
       var badges=(r.has_transkrip?'<span class="chip">TX</span>':'')+(r.has_analisis?'<span class="chip">AI</span>':'');
-      return '<tr class="row-click" data-sid="'+esc(r.sid)+'"><td>'+esc(r.tanggal||r.day||'-')+'</td><td>'+esc(r.ani||'-')+'</td><td>'+esc(r.agent_name||'-')+'</td><td>'+esc(fmtDur(r.durasi))+'</td><td>'+esc(r.sentiment||'-')+'</td><td>'+esc(r.resolusi||'-')+'</td><td>'+(truthy(r.frustrasi)?'Ya':'-')+'</td><td>'+(badges||'-')+'</td></tr>';
+      return '<tr class="row-click" data-sid="'+esc(r.sid)+'"><td>'+esc(r.tanggal||r.day||'-')+'</td><td>'+esc(r.ani||'-')+'</td><td>'+esc(r.agent_name||'-')+'</td><td>'+esc(fmtDur(r.durasi))+'</td><td>'+esc(r.sentiment||'-')+'</td><td>'+esc(r.resolusi||'-')+'</td><td>'+(truthy(r.frustrasi)?'Ya':'-')+'</td><td>'+(emailsHtml(r.emails)||'-')+'</td><td>'+(badges||'-')+'</td></tr>';
     }).join('');
   }
   function renderDetail(it){
     it=it||{};var h=[];
     h.push('<h3 style="margin:0 0 4px;">Panggilan '+esc(it.ani||'-')+'</h3>');
-    h.push('<p class="muted-text">'+esc(it.tanggal||it.day||'-')+' · SID '+esc(it.sid||'-')+'</p>');
+    h.push('<p class="muted-text">'+esc(it.tanggal||it.day||'-')+' \u00b7 SID '+esc(it.sid||'-')+'</p>');
     h.push('<div class="kpi-grid" style="margin:12px 0;"><div class="kpi"><div class="n">'+esc(fmtDur(it.durasi))+'</div><div class="l">Durasi</div></div><div class="kpi"><div class="n">'+esc(it.sentiment||'-')+'</div><div class="l">Sentimen</div></div><div class="kpi"><div class="n">'+esc(it.resolusi||'-')+'</div><div class="l">Resolusi</div></div><div class="kpi"><div class="n">'+(truthy(it.frustrasi)?'Ya':'Tidak')+'</div><div class="l">Frustrasi</div></div></div>');
     h.push('<div class="dt-field"><b>Agen:</b> '+esc(it.agent_name||'-')+' &nbsp; <b>DNIS:</b> '+esc(it.dnis||'-')+' &nbsp; <b>Layanan:</b> '+esc(it.jenis_layanan||'-')+' &nbsp; <b>Topik:</b> '+esc(it.topik||'-')+'</div>');
     if(it.ringkasan){h.push('<div class="sec-h" style="margin-top:16px;">Ringkasan</div><p class="muted-text">'+esc(it.ringkasan)+'</p>');}
@@ -79,7 +92,7 @@
   var dtState={offset:0,limit:25,total:0};
   function fval(id){var e=el(id);return e?e.value:'';}
   function dtLimit(){var n=parseInt(fval('dt_limit'),10);return (isNaN(n)||n<1)?25:n;}
-  function listPayload(offset,withOpts){return {action:'list',date_from:fval('dt_from'),date_to:fval('dt_to'),limit_rows:dtLimit(),offset:offset||0,agent:fval('dt_agent'),sentiment:fval('dt_sentiment'),resolusi:fval('dt_resolusi'),frustrasi:fval('dt_frustrasi'),status:fval('dt_status'),sid:fval('dt_sid'),ani:fval('dt_ani'),customer:fval('dt_customer'),with_options:!!withOpts};}
+  function listPayload(offset,withOpts){return {action:'list',date_from:fval('dt_from'),date_to:fval('dt_to'),limit_rows:dtLimit(),offset:offset||0,agent:fval('dt_agent'),sentiment:fval('dt_sentiment'),resolusi:fval('dt_resolusi'),frustrasi:fval('dt_frustrasi'),status:fval('dt_status'),sid:fval('dt_sid'),ani:fval('dt_ani'),customer:fval('dt_customer'),content:fval('dt_content'),mode:(fval('dt_mode')||'keyword'),with_options:!!withOpts};}
   function fillSelect(id,vals,ph){var s=el(id);if(!s)return;var cur=s.value;var html='<option value="">'+ph+'</option>';(vals||[]).forEach(function(v){html+='<option value="'+esc(v)+'">'+esc(v)+'</option>';});s.innerHTML=html;s.value=cur;if(s.value!==cur)s.value='';}
   function populateOptions(o){if(!o)return;fillSelect('dt_agent',o.agents,'Semua agen');fillSelect('dt_sentiment',o.sentiments,'Semua sentimen');fillSelect('dt_resolusi',o.resolutions,'Semua resolusi');}
   function updatePager(){
@@ -117,8 +130,8 @@
     if(el('dt_to')&&!el('dt_to').value)el('dt_to').value=t0;
     if(el('dt_from')&&!el('dt_from').value)el('dt_from').value=t30;
     if(el('dtLoad'))el('dtLoad').addEventListener('click',function(){loadList(true,true);});
-    ['dt_agent','dt_sentiment','dt_resolusi','dt_frustrasi','dt_status'].forEach(function(id){var e=el(id);if(e)e.addEventListener('change',function(){loadList(true,false);});});
-    ['dt_sid','dt_ani','dt_customer'].forEach(function(id){var e=el(id);if(e){e.addEventListener('input',debouncedSearch);e.addEventListener('keydown',function(ev){if(ev.key==='Enter'||ev.keyCode===13){clearTimeout(_dtSearchT);loadList(true,false);}});}});
+    ['dt_agent','dt_sentiment','dt_resolusi','dt_frustrasi','dt_status','dt_mode'].forEach(function(id){var e=el(id);if(e)e.addEventListener('change',function(){loadList(true,false);});});
+    ['dt_sid','dt_ani','dt_customer','dt_content'].forEach(function(id){var e=el(id);if(e){e.addEventListener('input',debouncedSearch);e.addEventListener('keydown',function(ev){if(ev.key==='Enter'||ev.keyCode===13){clearTimeout(_dtSearchT);loadList(true,false);}});}});
     if(el('dt_limit'))el('dt_limit').addEventListener('change',function(){loadList(true,false);});
     if(el('dtPrev'))el('dtPrev').addEventListener('click',function(){if(dtState.offset>0){dtState.offset=Math.max(dtState.offset-dtState.limit,0);loadList(false,false);}});
     if(el('dtNext'))el('dtNext').addEventListener('click',function(){if(dtState.offset+dtState.limit<dtState.total){dtState.offset+=dtState.limit;loadList(false,false);}});
