@@ -753,6 +753,21 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
             ss_salam_penutup,
             ss_lengkap,
         ))
+    # --- Anti-dobel global (Tahap 2) ---------------------------------------
+    # Satu sid hanya boleh punya SATU baris di awe_conversations, LINTAS run.
+    # Baris milik run_id ini sudah dihapus di atas; di sini kita juga membuang
+    # baris ber-sid sama yang tertinggal di run LAIN (run yang sedang diproses
+    # menang). Ini mencegah dobel akibat memproses rentang yang tumpang-tindih
+    # atau berulang (mis. tarik bulan penuh lalu tarik harian pada bulan yang
+    # sama). Tanpa ini, PK (run_id,sid) mengizinkan sid muncul di banyak run.
+    _sids_now = [r[1] for r in rows if r[1]]
+    for _i in range(0, len(_sids_now), 400):
+        _chunk = _sids_now[_i:_i + 400]
+        _qs = ",".join("?" for _ in _chunk)
+        cur.execute(
+            "DELETE FROM awe_conversations WHERE sid IN (%s) AND run_id<>?" % _qs,
+            _chunk + [run_id],
+        )
     if rows:
         cur.executemany(
             """INSERT OR REPLACE INTO awe_conversations
@@ -1053,7 +1068,14 @@ def stage_mark_days(conn, convs, day_from=None, day_to=None, batch_id=None, pull
         d = _stage_day_of(c)
         if d:
             by_day[d] = by_day.get(d, 0) + 1
-    days = sorted(by_day) or [d for d in _days_in_range(day_from, day_to) if d]
+    # Selalu tandai SEMUA hari pada rentang yang diminta, bukan hanya hari yang
+    # ada percakapannya. Hari yang memang 0 chat pun ditandai (total_conv=0)
+    # supaya tidak selamanya dianggap "missing" oleh stage_coverage_for_range
+    # -> mencegah tarik-ulang berulang untuk hari yang sebenarnya kosong.
+    # Pemanggil melewatkan day_from/day_to = rentang yang benar-benar ditarik,
+    # jadi seluruh hari itu memang sudah dicek ke Avaya.
+    req_days = [d for d in _days_in_range(day_from, day_to) if d]
+    days = sorted(set(list(by_day.keys()) + req_days)) if req_days else sorted(by_day)
     cur = conn.cursor()
     for d in days:
         cur.execute(
@@ -1061,7 +1083,7 @@ def stage_mark_days(conn, convs, day_from=None, day_to=None, batch_id=None, pull
             " VALUES(?,?,?,?,?) ON CONFLICT(day) DO UPDATE SET"
             " batch_id=excluded.batch_id, total_conv=excluded.total_conv,"
             " pulled_by=excluded.pulled_by, pulled_at=excluded.pulled_at",
-            (d, batch_id or "", by_day.get(d), pulled_by or "", now),
+            (d, batch_id or "", by_day.get(d, 0), pulled_by or "", now),
         )
     conn.commit()
     return days
