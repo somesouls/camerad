@@ -532,6 +532,7 @@ class AvayaClient:
 
         return {
             "sid": rec.get("sid"),
+            "dbsid": rec.get("dbsid") or "",
             "tanggal": tanggal,
             "start": rec.get("start") or "",
             "agentId": rec.get("agentId") or "",
@@ -575,7 +576,7 @@ class AvayaClient:
         return [by_sig[s] for s in order]
 
     # ---------------- collector (auto-batch) ----------------
-    def collect_window(self, frm, to, acc, on_prog=None, should_stop=None):
+    def collect_window(self, frm, to, acc, on_prog=None, should_stop=None, count_by_day=None):
         if should_stop and should_stop():
             return
         sid = self.create_search(frm, to)
@@ -588,21 +589,81 @@ class AvayaClient:
                                                    " (terpotong, dipecah)" if capped else ""))
         if capped and (_parse_local(to) - _parse_local(frm)).total_seconds() > MIN_WINDOW_SEC:
             mid = _parse_local(frm) + (_parse_local(to) - _parse_local(frm)) / 2
-            self.collect_window(frm, _fmt_local(mid), acc, on_prog, should_stop)
-            self.collect_window(_fmt_local(mid + _dt.timedelta(seconds=1)), to, acc, on_prog, should_stop)
+            self.collect_window(frm, _fmt_local(mid), acc, on_prog, should_stop, count_by_day)
+            self.collect_window(_fmt_local(mid + _dt.timedelta(seconds=1)), to, acc, on_prog, should_stop, count_by_day)
             return
         cm = self.col_map(info["header"])
         for row in rows:
             rec = self.row_to_rec(row, cm)
             if rec["sid"]:
                 acc[rec["sid"]] = rec
+            # count_by_day = jumlah baris MENTAH per hari (baseline avaya_rows).
+            # Dihitung dari baris yang sama yang ditarik (sebelum dedup leg
+            # bot/agent) supaya konsisten dgn hitung-ulang day_counts (header).
+            if count_by_day is not None:
+                _d = str(rec.get("start") or "")[:10]
+                if _d:
+                    count_by_day[_d] = count_by_day.get(_d, 0) + 1
+
+    # ---------------- count-only (verifikasi kelengkapan) ----------------
+    def _count_window(self, frm, to, on_prog=None, should_stop=None):
+        """Hitung jumlah baris MENTAH pada satu rentang TANPA menarik data.
+
+        Memakai header RowsCount saja (tanpa get_data/get_interaction), memecah
+        rentang bila terpotong (>=2000) sama seperti collect_window, lalu
+        menjumlahkan. Dipakai untuk verifikasi kelengkapan tanpa menarik ulang
+        seluruh transkrip.
+        """
+        if should_stop and should_stop():
+            return 0
+        sid = self.create_search(frm, to)
+        self.exec_search(sid)
+        info = self.get_header(sid)
+        cnt = int(info.get("count") or 0)
+        capped = info["maxExceeded"] or cnt >= 2000
+        if on_prog:
+            on_prog("Hitung %s .. %s -> %d%s" % (frm[:16], to[11:16], cnt,
+                                                 " (terpotong, dipecah)" if capped else ""))
+        if capped and (_parse_local(to) - _parse_local(frm)).total_seconds() > MIN_WINDOW_SEC:
+            mid = _parse_local(frm) + (_parse_local(to) - _parse_local(frm)) / 2
+            a = self._count_window(frm, _fmt_local(mid), on_prog, should_stop)
+            b = self._count_window(_fmt_local(mid + _dt.timedelta(seconds=1)), to, on_prog, should_stop)
+            return a + b
+        return cnt
+
+    def day_counts(self, day_from, day_to, on_prog=None, should_stop=None):
+        """Kembalikan {tanggal: jumlah_baris_mentah} untuk tiap hari pada rentang.
+
+        Hitung ulang cepat ke Avaya (header saja) untuk memverifikasi apakah
+        jumlah di penyimpanan sementara sudah lengkap. Butuh login.
+        """
+        if not self._logged_in:
+            raise AvayaAuthError("Belum login.")
+        out = {}
+        d0 = _dt.datetime.strptime(str(day_from)[:10], "%Y-%m-%d").date()
+        d1 = _dt.datetime.strptime(str(day_to)[:10], "%Y-%m-%d").date()
+        if d1 < d0:
+            d0, d1 = d1, d0
+        cur = d0
+        while cur <= d1:
+            if should_stop and should_stop():
+                break
+            ds = cur.strftime("%Y-%m-%d")
+            frm = ds + "T00:00:00"
+            to = ds + "T23:59:59"
+            out[ds] = self._count_window(frm, to, on_prog, should_stop)
+            cur += _dt.timedelta(days=1)
+        return out
 
     # ---------------- public: pull_range ----------------
-    def pull_range(self, day_from, day_to, on_prog=None, should_stop=None, fetch_transcript=True):
+    def pull_range(self, day_from, day_to, on_prog=None, should_stop=None, fetch_transcript=True, count_out=None):
         """Tarik semua percakapan Chat pada rentang tanggal (inklusif).
 
         day_from/day_to: 'YYYY-MM-DD'. Mengembalikan list objek percakapan
         (berbentuk sama dgn ekspor extension) siap dianalisis run_pipeline.
+
+        count_out: bila diberi dict, diisi {tanggal: jumlah_baris_mentah} yang
+        ditarik per hari (baseline avaya_rows untuk verifikasi kelengkapan).
         """
         if not self._logged_in:
             raise AvayaAuthError("Belum login.")
@@ -611,7 +672,7 @@ class AvayaClient:
         acc = {}
         if on_prog:
             on_prog("Mengumpulkan daftar interaksi %s .. %s" % (day_from, day_to))
-        self.collect_window(frm, to, acc, on_prog, should_stop)
+        self.collect_window(frm, to, acc, on_prog, should_stop, count_out)
         recs = self._dedup_recs(list(acc.values()))
         if on_prog:
             on_prog("Ditemukan %d interaksi unik. Mengambil transkrip…" % len(recs))
@@ -742,6 +803,14 @@ if __name__ == "__main__":
     assert roles == ["customer", "bot", "agent"], roles
     assert cv["reachedAgent"] is True and cv["nBot"] == 1 and cv["nAgent"] == 1, cv
     assert cv["durasi"] == 120, cv
+    assert cv["dbsid"] == "DB1", cv
+    # PR2: hitung-ulang per hari (verifikasi kelengkapan) via header saja
+    dc = c.day_counts("2026-07-10", "2026-07-10")
+    assert dc == {"2026-07-10": 1}, dc
+    # PR2: count_out terisi saat pull_range (baseline avaya_rows per hari)
+    cnt = {}
+    convs2 = c.pull_range("2026-07-10", "2026-07-10", count_out=cnt)
+    assert len(convs2) == 1 and cnt == {"2026-07-10": 1}, cnt
     body = c.build_search_body("2026-07-10T00:00:00", "2026-07-10T23:59:59", "ID1")
     assert body["Type"] == "QMSearch"
     assert body["Sections"][2]["Categories"][0]["Elements"][0]["Params"]["Values"][0]["Id"] == "10"
