@@ -187,6 +187,66 @@
 
 <section class="c-card">
   <div class="stage-head">
+    <h2 class="stage-title">Verifikasi Kelengkapan (cek jumlah)</h2>
+    <span class="pill stage" id="vPill">&mdash;</span>
+  </div>
+  <p class="use-note">&#8505;&#65039; <b>Kapan dipakai:</b> memastikan data yang sudah ditarik ke penyimpanan sementara benar-benar <b>lengkap</b>. Sistem menghitung ulang jumlah baris di Avaya untuk tiap hari lalu membandingkannya dengan jumlah saat ditarik (baseline). Bila jumlah bertambah, hari itu ditandai <b>perlu tarik ulang</b>.</p>
+  <p class="muted-text">Pilih rentang tanggal lalu masukkan kredensial AWE (hanya untuk menghitung ulang; <b>tidak disimpan</b>).</p>
+
+  <div class="form-row">
+    <div class="field"><label>Dari tanggal</label><input type="date" id="v_from"></div>
+    <div class="field"><label>Sampai tanggal</label><input type="date" id="v_to"></div>
+  </div>
+  <div class="form-row">
+    <div class="field"><label>Username Avaya WFO</label><input type="text" id="v_user" autocomplete="off" placeholder="Masukkan username"></div>
+    <div class="field"><label>Password AWE</label><input type="password" id="v_pass" autocomplete="off" placeholder="Masukkan password"></div>
+  </div>
+  <div class="field">
+    <label>Base URL (opsional)</label>
+    <input type="text" id="v_base" placeholder="https://recapp.intranet.pajak.go.id">
+  </div>
+
+  <button class="btn-modern" id="vBtn">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+    Verifikasi Kelengkapan
+  </button>
+
+  <div id="vResultBox" style="display:none; overflow-x:auto;">
+    <table class="table-modern">
+      <thead>
+        <tr><th>Tanggal</th><th>Status</th><th>Baseline (saat ditarik)</th><th>Jumlah sekarang</th><th>Tersimpan (unik)</th></tr>
+      </thead>
+      <tbody id="vRows"></tbody>
+    </table>
+  </div>
+  <div class="status" id="vStat"></div>
+</section>
+
+<section class="c-card">
+  <div class="stage-head">
+    <h2 class="stage-title">Laporan Transkrip Kosong</h2>
+    <span class="pill stage" id="gapsPill">&mdash;</span>
+  </div>
+  <p class="use-note">&#8505;&#65039; <b>Kapan dipakai:</b> menemukan percakapan di database AWE yang <b>tidak punya transkrip</b> (kosong), agar bisa ditindaklanjuti (tarik/proses ulang). Kosongkan rentang untuk memeriksa seluruh database.</p>
+
+  <div class="form-row">
+    <div class="field"><label>Dari tanggal (opsional)</label><input type="date" id="g_from"></div>
+    <div class="field"><label>Sampai tanggal (opsional)</label><input type="date" id="g_to"></div>
+  </div>
+
+  <button class="btn-modern btn-outline" id="gapsBtn">Lihat Laporan Transkrip Kosong</button>
+
+  <div id="gapsResultBox" style="display:none; overflow-x:auto;">
+    <table class="table-modern">
+      <thead><tr><th>Tanggal</th><th>Total</th><th>Kosong</th></tr></thead>
+      <tbody id="gapsRows"></tbody>
+    </table>
+  </div>
+  <div class="status" id="gapsStat"></div>
+</section>
+
+<section class="c-card">
+  <div class="stage-head">
     <span class="stage-num">2</span>
     <h2 class="stage-title">Pemrosesan Bahasa &rarr; Database AWE</h2>
   </div>
@@ -358,6 +418,70 @@ function fetchStage(job){
     loadSummary();
   }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
 }
+
+/* ---- Verifikasi kelengkapan (bandingkan jumlah RAW baseline vs hitung ulang) ---- */
+function setV(msg,k){var s=el('vStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
+var V_LABEL={lengkap:'\u2705 Lengkap',kurang:'\u26a0\ufe0f Kurang (perlu tarik ulang)',berkurang:'\u2139\ufe0f Berkurang',belum_ditarik:'\u2014 Belum ditarik',tanpa_baseline:'\u2139\ufe0f Tanpa baseline',tak_terverifikasi:'\u2753 Tak terverifikasi'};
+function renderVerify(rep){
+  if(!rep){el('vResultBox').style.display='none';return;}
+  var rows=rep.days||[];
+  el('vPill').textContent=(rep.lengkap||0)+' lengkap \u2022 '+(rep.kurang||0)+' kurang';
+  el('vRows').innerHTML=rows.map(function(r){
+    return '<tr><td>'+esc(r.day)+'</td><td>'+esc(V_LABEL[r.status]||r.status)+'</td><td>'+(r.baseline==null?'-':r.baseline)+'</td><td>'+(r.avaya_now==null?'-':r.avaya_now)+'</td><td>'+(r.staged_conv==null?'-':r.staged_conv)+'</td></tr>';
+  }).join('') || '<tr><td colspan="5" class="muted-text" style="text-align:center;">Tidak ada hari pada rentang ini.</td></tr>';
+  el('vResultBox').style.display='block';
+}
+el('vBtn').addEventListener('click',function(){
+  var df=el('v_from').value,dt=el('v_to').value,u=el('v_user').value.trim(),pw=el('v_pass').value;
+  if(!df||!dt){setV('Isi rentang tanggal dulu.','err');return;}
+  if(!pw){setV('Password wajib diisi untuk menghitung ulang.','err');return;}
+  el('vBtn').disabled=true;setV('Menghitung ulang jumlah dari Avaya\u2026');
+  fetch('/api/awe/stage/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,username:u,password:pw,base_url:el('v_base').value.trim()})})
+   .then(function(r){return r.json();}).then(function(d){
+     if(!d.ok){setV('Gagal: '+esc(d.error||''),'err');el('vBtn').disabled=false;return;}
+     pollVerify(d.job);
+   }).catch(function(e){setV('Gagal: '+e,'err');el('vBtn').disabled=false;});
+});
+function pollVerify(job){
+  fetch('/api/awe/stage/verify/progress?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(res){
+    var p=res.progress||{};
+    if(!p.finished){setV(esc(p.message||'Memproses\u2026'));setTimeout(function(){pollVerify(job);},1500);return;}
+    fetchVerify(job);
+  }).catch(function(e){setV('Gagal: '+e,'err');el('vBtn').disabled=false;});
+}
+function fetchVerify(job){
+  fetch('/api/awe/stage/verify/fetch?job='+encodeURIComponent(job)).then(function(r){return r.json();}).then(function(d){
+    el('vBtn').disabled=false;
+    if(!d.ok){
+      if(d.need_login)setV('Login gagal: '+esc(d.error||'')+' \u2014 periksa kredensial.','err');
+      else setV('Gagal: '+esc(d.error||''),'err');
+      return;
+    }
+    var rep=d.report||{};
+    renderVerify(rep);
+    el('v_pass').value='';
+    if(rep.fully_complete)setV('\u2705 Semua hari lengkap.','ok');
+    else if((rep.perlu_tarik_ulang||[]).length)setV('\u26a0\ufe0f '+rep.perlu_tarik_ulang.length+' hari perlu tarik ulang: '+esc(rep.perlu_tarik_ulang.join(', ')),'err');
+    else setV('\u2139\ufe0f Verifikasi selesai.','ok');
+  }).catch(function(e){setV('Gagal: '+e,'err');el('vBtn').disabled=false;});
+}
+
+/* ---- Laporan transkrip kosong ---- */
+function setG(msg,k){var s=el('gapsStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
+el('gapsBtn').addEventListener('click',function(){
+  var df=el('g_from').value,dt=el('g_to').value;
+  el('gapsBtn').disabled=true;setG('Memuat laporan\u2026');
+  var qs=[];if(df)qs.push('date_from='+encodeURIComponent(df));if(dt)qs.push('date_to='+encodeURIComponent(dt));
+  fetch('/api/awe/transcript/gaps'+(qs.length?('?'+qs.join('&')):'')).then(function(r){return r.json();}).then(function(d){
+    el('gapsBtn').disabled=false;
+    if(!d.ok){setG('Gagal: '+esc(d.error||''),'err');return;}
+    el('gapsPill').textContent=(d.empty||0)+' / '+(d.total||0)+' kosong';
+    var rows=d.by_day||[];
+    el('gapsRows').innerHTML=rows.map(function(r){return '<tr><td>'+esc(r.day)+'</td><td>'+(r.total||0)+'</td><td>'+(r.empty||0)+'</td></tr>';}).join('') || '<tr><td colspan="3" class="muted-text" style="text-align:center;">Tidak ada transkrip kosong \u2014 semua terisi.</td></tr>';
+    el('gapsResultBox').style.display='block';
+    setG('\u2705 Total '+(d.total||0)+' percakapan \u2022 kosong '+(d.empty||0)+' \u2022 terisi '+(d.filled||0)+'.','ok');
+  }).catch(function(e){setG('Gagal: '+e,'err');el('gapsBtn').disabled=false;});
+});
 
 el('pRunBtn').addEventListener('click',function(){
   var df=el('p_from').value,dt=el('p_to').value,purge=el('p_purge').checked;
