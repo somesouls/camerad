@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 
 import avaya.db as avdb
 import avaya.client as avc
+import avaya.verify as avver
 from app_core import CONFIG, render_page
 
 # Helper pipeline studio yang di-inject dari web_app.py saat register() (lihat langkah 6).
@@ -249,7 +250,13 @@ def _awe_stage_worker(job_id, date_from, date_to, username, password, base_url, 
         username = None
         password = None
         _awe_job_set(job_id, status="pull", message="Menarik data ke penyimpanan sementara")
-        convs = client.pull_range(date_from, date_to, on_prog=prog)
+        count_out = {}
+        try:
+            convs = client.pull_range(date_from, date_to, on_prog=prog, count_out=count_out)
+        except TypeError:
+            # kompat: client versi lama tanpa parameter count_out
+            count_out = {}
+            convs = client.pull_range(date_from, date_to, on_prog=prog)
         batch_id = _uuid.uuid4().hex[:12]
         def _save():
             conn = avdb.init_db(avdb.connect())
@@ -257,6 +264,11 @@ def _awe_stage_worker(job_id, date_from, date_to, username, password, base_url, 
                 res = avdb.stage_upsert_convs(conn, convs, batch_id=batch_id, pulled_by=pulled_by)
                 avdb.stage_mark_days(conn, convs, date_from, date_to, batch_id=batch_id, pulled_by=pulled_by)
                 avdb.stage_add_batch(conn, batch_id, date_from, date_to, res["seen"], res["new"], pulled_by)
+                # PR2: rekam baseline jumlah baris RAW per hari untuk verifikasi kelengkapan
+                try:
+                    avver.record_baseline(conn, count_out)
+                except Exception:
+                    pass
                 return res
             finally:
                 conn.close()
@@ -352,6 +364,112 @@ async def awe_stage_purge(request: Request):
             conn.close()
     n = await run_in_threadpool(_do)
     return JSONResponse({"ok": True, "deleted": n})
+
+
+# =============================================================
+# KELOLA DATA AWE  — VERIFIKASI KELENGKAPAN (cek jumlah) + LAPORAN TRANSKRIP KOSONG (PR2)
+#   - stage_verify_range: bandingkan jumlah baris RAW baseline (saat ditarik)
+#     dengan hitung ulang (fresh) dari Avaya sekarang → status per hari.
+#   - Login-then-forget: kredensial hanya di memori worker, tidak disimpan.
+#   - empty_transcript_stats: laporan transkrip kosong di database AWE.
+#   Logika inti ada di avaya/verify.py (modul terpisah, db.py tidak diubah).
+# =============================================================
+_AWE_VERIFY_JOBS = {}
+
+
+def _verify_job_set(job_id, **kw):
+    with _AWE_PULL_LOCK:
+        j = _AWE_VERIFY_JOBS.setdefault(job_id, {})
+        j.update(kw)
+
+
+def _verify_job_get(job_id):
+    with _AWE_PULL_LOCK:
+        j = _AWE_VERIFY_JOBS.get(job_id)
+        return dict(j) if j else {}
+
+
+def _awe_verify_worker(job_id, date_from, date_to, username, password, base_url):
+    logs = []
+    def prog(m):
+        logs.append(m)
+        _verify_job_set(job_id, message=m, log=logs[-10:])
+    try:
+        _verify_job_set(job_id, status="login", message="Login ke Avaya WFO")
+        client = avc.AvayaClient(base_url=(base_url or None))
+        client.login(username, password)
+        username = None
+        password = None
+        _verify_job_set(job_id, status="count", message="Menghitung ulang jumlah dari Avaya")
+        fresh = client.day_counts(date_from, date_to, on_prog=prog)
+        def _do():
+            conn = avdb.init_db(avdb.connect())
+            try:
+                return avver.stage_verify_range(conn, date_from, date_to, fresh_counts=fresh)
+            finally:
+                conn.close()
+        rep = _do()
+        _verify_job_set(job_id, status="done", finished=True, ok=True, report=rep,
+                        message="Verifikasi selesai: %d hari lengkap, %d hari kurang." % (
+                            rep.get("lengkap", 0), rep.get("kurang", 0)))
+    except avc.AvayaAuthError as e:
+        _verify_job_set(job_id, status="error", finished=True, ok=False, need_login=True, error=str(e))
+    except Exception as e:
+        _verify_job_set(job_id, status="error", finished=True, ok=False, need_login=False, error=str(e))
+
+
+async def awe_stage_verify(request: Request):
+    body = await request.json() or {}
+    df = str(body.get("date_from") or "").strip()
+    dt = str(body.get("date_to") or "").strip()
+    username = body.get("username") or ""
+    password = body.get("password") or ""
+    base_url = str(body.get("base_url") or "").strip()
+    if not df or not dt:
+        return JSONResponse({"ok": False, "error": "Tanggal (dari & sampai) wajib diisi."}, status_code=400)
+    if not password:
+        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi.", "need_login": True}, status_code=400)
+    job_id = _uuid.uuid4().hex
+    _verify_job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan")
+    _threading.Thread(target=_awe_verify_worker,
+                      args=(job_id, df, dt, username, password, base_url),
+                      daemon=True).start()
+    return JSONResponse({"ok": True, "job": job_id})
+
+
+async def awe_stage_verify_progress(job: str = ""):
+    j = _verify_job_get(job)
+    if not j:
+        return JSONResponse({"ok": False, "error": "Job tidak ditemukan."}, status_code=404)
+    return JSONResponse({"ok": True, "progress": j})
+
+
+async def awe_stage_verify_fetch(job: str = ""):
+    j = _verify_job_get(job)
+    if not j:
+        return JSONResponse({"ok": False, "error": "Job tidak ditemukan."}, status_code=404)
+    if not j.get("finished"):
+        return JSONResponse({"ok": True, "pending": True, "progress": j})
+    with _AWE_PULL_LOCK:
+        _AWE_VERIFY_JOBS.pop(job, None)
+    return JSONResponse(j)
+
+
+async def awe_transcript_gaps(date_from: str = "", date_to: str = ""):
+    df = str(date_from or "").strip() or None
+    dt = str(date_to or "").strip() or None
+    def _do():
+        conn = avdb.init_db(avdb.connect())
+        try:
+            return avver.empty_transcript_stats(conn, df, dt)
+        finally:
+            conn.close()
+    try:
+        d = await run_in_threadpool(_do)
+        d["ok"] = True
+        return JSONResponse(d)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 # =============================================================
@@ -733,6 +851,10 @@ def register(app, *, save_artifact, load_state, save_state, Ctx,
     app.add_api_route("/api/awe/stage/fetch", awe_stage_fetch, methods=["GET"])
     app.add_api_route("/api/awe/stage/summary", awe_stage_summary, methods=["GET"])
     app.add_api_route("/api/awe/stage/purge", awe_stage_purge, methods=["POST"])
+    app.add_api_route("/api/awe/stage/verify", awe_stage_verify, methods=["POST"])
+    app.add_api_route("/api/awe/stage/verify/progress", awe_stage_verify_progress, methods=["GET"])
+    app.add_api_route("/api/awe/stage/verify/fetch", awe_stage_verify_fetch, methods=["GET"])
+    app.add_api_route("/api/awe/transcript/gaps", awe_transcript_gaps, methods=["GET"])
     app.add_api_route("/api/awe/process/start", awe_process_start, methods=["POST"])
     app.add_api_route("/api/awe/process/progress", awe_process_progress, methods=["GET"])
     app.add_api_route("/api/awe/process/fetch", awe_process_fetch, methods=["GET"])
