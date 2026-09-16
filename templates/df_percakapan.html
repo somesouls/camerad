@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Detail Percakapan · Camerad Studio{% endblock %}
 {% block head %}<style>
-.wrap{ max-width:1100px; margin:0 auto; padding:22px 18px 70px; }
+.wrap{ max-width:1180px; margin:0 auto; padding:22px 18px 70px; }
 header.pg{ display:flex; align-items:flex-start; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
 header.pg h1{ font-size:20px; margin:0; letter-spacing:-.01em; }
 header.pg .sub{ color:var(--muted); font-size:12.5px; margin-top:3px; max-width:760px; }
@@ -16,40 +16,48 @@ input,select{ background:var(--panel2); border:1px solid var(--line); color:var(
 .btn{ display:inline-flex; align-items:center; gap:7px; background:var(--panel2); border:1px solid var(--line); color:var(--text); padding:8px 13px; border-radius:10px; cursor:pointer; font-size:13px; }
 .btn:hover{ border-color:var(--brand); }
 .btn.primary{ background:var(--brand); color:#0b1020; border-color:transparent; font-weight:600; }
+.btn.sm{ padding:5px 9px; font-size:12px; border-radius:8px; }
+
 .kpis{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:20px; }
 .kpi{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:14px 16px; }
 .kpi .lbl{ font-size:11.5px; color:var(--muted); margin-bottom:6px; }
-.kpi .val{ font-size:22px; font-weight:800; letter-spacing:-.02em; }
+.kpi .val{ font-size:24px; font-weight:800; letter-spacing:-.02em; }
+.kpi .sub{ font-size:11.5px; color:var(--muted); margin-top:4px; }
 .kpi.blue .val{ color:var(--brand); } .kpi.good .val{ color:var(--green); } .kpi.red .val{ color:var(--red); } .kpi.warn .val{ color:var(--amber); }
-.list{ display:flex; flex-direction:column; gap:8px; }
-.acc{ background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
-.acc>.hd{ display:grid; grid-template-columns:26px 160px 1fr auto; gap:12px; align-items:center; padding:11px 14px; cursor:pointer; }
-.acc>.hd:hover{ background:var(--panel2); }
-.acc .caret{ transition:transform .15s; color:var(--muted); font-size:12px; }
-.acc.open .caret{ transform:rotate(90deg); }
-.acc .sid{ font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--muted); }
-.acc .ph{ font-size:13px; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.acc .meta{ font-size:11px; color:var(--muted); text-align:right; white-space:nowrap; }
-.acc>.bd{ display:none; border-top:1px solid var(--line); padding:14px 16px; background:var(--panel2); }
-.acc.open>.bd{ display:block; }
-.cat{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; padding:2px 8px; border-radius:20px; white-space:nowrap; text-align:center; }
+
+.card{ background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); padding:16px 18px; }
+.tbl{ width:100%; border-collapse:collapse; }
+.tbl th{ text-align:left; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; padding:8px 10px; border-bottom:1px solid var(--line); }
+.tbl td{ padding:9px 10px; border-bottom:1px solid var(--line); font-size:13px; vertical-align:top; }
+.tbl tr.clk{ cursor:pointer; } .tbl tr.clk:hover{ background:var(--panel2); }
+.mono{ font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--muted); }
+.ph{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:460px; }
+.cat{ font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em; padding:2px 8px; border-radius:20px; white-space:nowrap; }
 .cat.self{ background:rgba(34,197,94,.15); color:var(--green); }
 .cat.fb{ background:rgba(245,158,11,.15); color:var(--amber); }
 .cat.fb2{ background:rgba(234,179,8,.15); color:var(--amber); }
 .cat.agent{ background:rgba(239,68,68,.15); color:var(--red); }
 .cat.conn{ background:rgba(168,85,247,.16); color:#a855f7; }
-.turn{ margin:10px 0; }
-.turn .u{ background:var(--panel); border:1px solid var(--line); border-radius:12px 12px 12px 4px; padding:8px 12px; font-size:13px; display:inline-block; max-width:88%; }
-.turn .bt{ background:rgba(59,130,246,.08); border:1px solid var(--line); border-radius:12px 12px 4px 12px; padding:8px 12px; font-size:13px; margin-top:5px; margin-left:auto; max-width:88%; }
-.turn .meta{ font-size:10px; color:var(--muted); margin-top:3px; }
-.turn.fb .u{ border-color:var(--red); }
-.empty{ color:var(--muted); font-size:13px; padding:16px 4px; text-align:center; }
-.note{ font-size:11.5px; color:var(--muted); }
-.pager{ display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-top:14px; font-size:12px; color:var(--muted); }
+.pager{ display:flex; gap:6px; align-items:center; justify-content:flex-end; margin-top:12px; font-size:12px; color:var(--muted); }
 .pager button{ background:var(--panel2); border:1px solid var(--line); color:var(--text); border-radius:8px; padding:5px 10px; cursor:pointer; }
 .pager button:disabled{ opacity:.4; cursor:not-allowed; }
-.searchbox{ min-width:200px; }
-@media(max-width:820px){ .kpis{ grid-template-columns:repeat(2,1fr); } .acc>.hd{ grid-template-columns:22px 1fr auto; } .acc .sid{ display:none; } }
+.empty{ color:var(--muted); font-size:13px; padding:16px 4px; text-align:center; }
+.note{ font-size:11.5px; color:var(--muted); }
+.searchbox{ min-width:210px; }
+
+/* Modal */
+.backdrop2{ display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); backdrop-filter:blur(3px); z-index:100; }
+.backdrop2.show{ display:block; }
+.modal{ position:fixed; z-index:101; top:50%; left:50%; transform:translate(-50%,-50%); width:min(860px,94vw); max-height:88vh; overflow-y:auto; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:20px 22px; box-shadow:var(--shadow); display:none; }
+.modal.show{ display:block; }
+.modal h3{ margin:0 0 2px; font-size:16px; }
+.modal .x{ position:absolute; top:14px; right:16px; cursor:pointer; color:var(--muted); font-size:20px; background:none; border:0; }
+.turn{ margin:10px 0; }
+.turn .u{ background:var(--panel2); border:1px solid var(--line); border-radius:12px 12px 12px 4px; padding:8px 12px; font-size:13px; display:inline-block; max-width:86%; }
+.turn .bt{ background:rgba(59,130,246,.08); border:1px solid var(--line); border-radius:12px 12px 4px 12px; padding:8px 12px; font-size:13px; margin-top:5px; margin-left:auto; max-width:86%; }
+.turn .meta{ font-size:10px; color:var(--muted); margin-top:3px; }
+.turn.fb .u{ border-color:var(--red); }
+@media(max-width:900px){ .kpis{ grid-template-columns:repeat(2,1fr); } .ph{ max-width:200px; } }
 </style>{% endblock %}
 
 {% block content %}
@@ -57,7 +65,7 @@ input,select{ background:var(--panel2); border:1px solid var(--line); color:var(
   <header class="pg">
     <div>
       <h1>Detail Percakapan</h1>
-      <div class="sub">Telusuri percakapan (sesi) chatbot Dialogflow satu per satu. Klik sebuah baris untuk membuka transkrip lengkapnya (accordion). Gunakan filter untuk fokus ke sesi yang jatuh ke <em>fallback</em> atau yang tersambung ke agent.</div>
+      <div class="sub">Telusuri percakapan (sesi) chatbot Dialogflow. Gunakan filter untuk mempersempit daftar, lalu <b>klik satu baris</b> untuk melihat transkrip lengkapnya dalam jendela pop-up.</div>
     </div>
   </header>
 
@@ -92,18 +100,40 @@ input,select{ background:var(--panel2); border:1px solid var(--line); color:var(
       <input class="searchbox" id="q" placeholder="kata kunci di percakapan…">
     </div>
     <div class="spacer"></div>
-    <button class="btn primary" id="reloadBtn">Muat ulang</button>
+    <button class="btn primary" id="reloadBtn">Terapkan filter</button>
   </div>
 
   <div class="kpis">
-    <div class="kpi blue"><div class="lbl">Sesi ditemukan</div><div class="val" id="kTotal">–</div><div class="note" id="kRange"></div></div>
-    <div class="kpi good"><div class="lbl">Mandiri</div><div class="val" id="kSelf">–</div></div>
-    <div class="kpi warn"><div class="lbl">Ada fallback</div><div class="val" id="kFb">–</div></div>
-    <div class="kpi red"><div class="lbl">Ke agent</div><div class="val" id="kAgent">–</div></div>
+    <div class="kpi blue"><div class="lbl">Sesi ditemukan</div><div class="val" id="kTotal">–</div><div class="sub" id="kRange"></div></div>
+    <div class="kpi good"><div class="lbl">Mandiri</div><div class="val" id="kSelf">–</div><div class="sub">tanpa fallback</div></div>
+    <div class="kpi warn"><div class="lbl">Ada fallback</div><div class="val" id="kFb">–</div><div class="sub">minimal 1x fallback</div></div>
+    <div class="kpi red"><div class="lbl">Ke agent</div><div class="val" id="kAgent">–</div><div class="sub">tersambung agent</div></div>
   </div>
 
-  <div class="list" id="list"><div class="empty">Memuat…</div></div>
-  <div class="pager" id="pager"></div>
+  <div class="card">
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+      <span class="note" id="listCount"></span>
+    </div>
+    <table class="tbl">
+      <thead><tr>
+        <th style="width:44px">#</th>
+        <th>Percakapan (frasa pertama)</th>
+        <th style="width:130px">Kategori</th>
+        <th style="width:150px">Waktu mulai</th>
+        <th style="width:80px">Interaksi</th>
+        <th style="width:80px">Fallback</th>
+      </tr></thead>
+      <tbody id="listBody"><tr><td colspan="6" class="empty">Memuat…</td></tr></tbody>
+    </table>
+    <div class="pager" id="pager"></div>
+  </div>
+</div>
+
+<!-- Modal transkrip -->
+<div class="backdrop2" id="bd"></div>
+<div class="modal" id="modal">
+  <button class="x" id="mClose">&times;</button>
+  <div id="modalBody"></div>
 </div>
 {% endblock %}
 
@@ -113,17 +143,19 @@ let RANGE='7d', PAGE=1, PS=25, ITEMS=[];
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function num(n){ return (n==null?0:n).toLocaleString('id-ID'); }
 function fmtTs(s){ return esc((s||'').replace('T',' ').replace('Z',' UTC')); }
+const CAT={ self_served:['self','Mandiri'], fallback_abandon:['fb','Fallback'], fallback2_no_agent:['fb2','Fallback ganda'], agent_1500200:['agent','Ke agent'], agent_connector:['conn','Ke agent'] };
+
 function qs(){
   const p=new URLSearchParams(); p.set('range',RANGE);
   if(RANGE==='custom'){ const a=$('#startD').value,b=$('#endD').value; if(a)p.set('start',a); if(b)p.set('end',b); }
   const lg=$('#langSel').value; if(lg)p.set('lang',lg);
   const c=$('#catSel').value; if(c)p.set('filter',c);
   const q=$('#q').value.trim(); if(q)p.set('q',q);
-  p.set('limit','500');
+  p.set('limit','1000');
   return p.toString();
 }
-const CAT={ self_served:['self','Mandiri'], fallback_abandon:['fb','Fallback'], fallback2_no_agent:['fb2','Fallback ganda'], agent_1500200:['agent','Ke agent'], agent_connector:['conn','Ke agent'] };
 
+// ---- filter controls (server-side: setiap perubahan memicu fetch) ----
 $$('#rangeSeg button').forEach(b=>b.onclick=()=>{
   $$('#rangeSeg button').forEach(x=>x.classList.remove('active')); b.classList.add('active');
   RANGE=b.dataset.r; $$('.cust').forEach(x=>x.style.display=(RANGE==='custom'?'flex':'none'));
@@ -133,59 +165,68 @@ $('#reloadBtn').onclick=load; $('#langSel').onchange=load; $('#catSel').onchange
 $('#q').addEventListener('keydown',e=>{ if(e.key==='Enter') load(); });
 
 async function load(){
-  $('#list').innerHTML='<div class="empty">Memuat…</div>'; $('#pager').innerHTML='';
+  $('#listBody').innerHTML='<tr><td colspan="6" class="empty">Memuat…</td></tr>'; $('#pager').innerHTML='';
   let d;
   try{ const r=await fetch('/api/percakapan/list?'+qs()); d=await r.json(); }
   catch(e){ d={ok:false,error:String(e)}; }
-  if(!d||!d.ok){ $('#list').innerHTML='<div class="empty">Gagal memuat daftar percakapan.'+((d&&d.error)?(' '+esc(d.error)):'')+'</div>'; setKpis([]); return; }
+  if(!d||!d.ok){ $('#listBody').innerHTML='<tr><td colspan="6" class="empty">Gagal memuat daftar percakapan.'+((d&&d.error)?(' '+esc(d.error)):'')+'</td></tr>'; setKpis([],0); return; }
   ITEMS=d.items||[]; PAGE=1;
   $('#kRange').textContent=(d.range&&d.range.start?d.range.start:'')+' → '+(d.range&&d.range.end?d.range.end:'');
   setKpis(ITEMS, d.total);
   render();
 }
+
 function setKpis(items, total){
   $('#kTotal').textContent=num(total!=null?total:items.length);
   let self=0,fb=0,ag=0;
   for(const it of items){ if(it.category==='self_served')self++; if(it.fb_count>0)fb++; if(it.agent)ag++; }
   $('#kSelf').textContent=num(self); $('#kFb').textContent=num(fb); $('#kAgent').textContent=num(ag);
 }
+
 function render(){
   const tot=ITEMS.length, pages=Math.max(1,Math.ceil(tot/PS));
   if(PAGE>pages)PAGE=pages; const st=(PAGE-1)*PS; const pg=ITEMS.slice(st,st+PS);
-  if(!pg.length){ $('#list').innerHTML='<div class="empty">Tidak ada percakapan pada filter ini.</div>'; $('#pager').innerHTML=''; return; }
-  $('#list').innerHTML=pg.map(it=>{
+  $('#listCount').textContent=num(tot)+' percakapan';
+  $('#listBody').innerHTML = pg.length? pg.map((it,i)=>{
     const cm=CAT[it.category]||['self',it.category_label||''];
-    return '<div class="acc" data-sid="'+esc(it.session_id)+'">'+
-      '<div class="hd">'+
-        '<span class="caret">▶</span>'+
-        '<span class="cat '+cm[0]+'">'+esc(cm[1])+'</span>'+
-        '<span class="ph" title="'+esc(it.first_phrase)+'"><span class="sid">'+esc(it.session_id)+'</span> '+esc(it.first_phrase||'(tanpa teks)')+'</span>'+
-        '<span class="meta">'+fmtTs(it.ts_first)+' · '+num(it.n)+' interaksi'+(it.fb_count?(' · '+num(it.fb_count)+'× fallback'):'')+'</span>'+
-      '</div>'+
-      '<div class="bd"><div class="empty">Memuat transkrip…</div></div>'+
-    '</div>';
-  }).join('');
-  $$('#list .acc').forEach(acc=>{ acc.querySelector('.hd').onclick=()=>toggle(acc); });
-  $('#pager').innerHTML='<span>'+num(tot)+' sesi · Hal. '+PAGE+'/'+pages+'</span> <button '+(PAGE<=1?'disabled':'')+' id="pprev">‹</button> <button '+(PAGE>=pages?'disabled':'')+' id="pnext">›</button>';
+    return '<tr class="clk" data-sid="'+esc(it.session_id)+'">'+
+      '<td class="mono">'+(st+i+1)+'</td>'+
+      '<td><div class="ph" title="'+esc(it.first_phrase)+'">'+esc(it.first_phrase||'(tanpa teks)')+'</div><div class="mono">'+esc(it.session_id)+'</div></td>'+
+      '<td><span class="cat '+cm[0]+'">'+esc(cm[1])+'</span></td>'+
+      '<td class="note">'+fmtTs(it.ts_first)+'</td>'+
+      '<td><b>'+num(it.n)+'</b></td>'+
+      '<td>'+(it.fb_count?('<b style="color:var(--amber)">'+num(it.fb_count)+'</b>'):'<span class="note">0</span>')+'</td>'+
+    '</tr>';
+  }).join('') : '<tr><td colspan="6" class="empty">Tidak ada percakapan pada filter ini.</td></tr>';
+  $$('#listBody tr.clk').forEach(tr=>tr.onclick=()=>openTranscript(tr.dataset.sid));
+  $('#pager').innerHTML='<span>Hal. '+PAGE+'/'+pages+'</span> <button '+(PAGE<=1?'disabled':'')+' id="pprev">‹</button> <button '+(PAGE>=pages?'disabled':'')+' id="pnext">›</button>';
   const pv=$('#pprev'),nx=$('#pnext'); if(pv)pv.onclick=()=>{PAGE--;render();}; if(nx)nx.onclick=()=>{PAGE++;render();};
 }
-async function toggle(acc){
-  const open=acc.classList.toggle('open');
-  if(open && !acc.dataset.loaded){
-    acc.dataset.loaded='1';
-    const bd=acc.querySelector('.bd'); const sid=acc.dataset.sid;
-    let d;
-    try{ const r=await fetch('/api/deflection/transcript?session_id='+encodeURIComponent(sid)); d=await r.json(); }
-    catch(e){ d={ok:false}; }
-    if(!d||!d.ok){ bd.innerHTML='<div class="empty">Gagal memuat transkrip.</div>'; acc.dataset.loaded=''; return; }
-    const turns=d.turns||[];
-    bd.innerHTML = turns.length? turns.map(t=>
-      '<div class="turn '+(t.is_fallback?'fb':'')+'">'+
-        '<div class="u">'+esc(t.user_phrase||'')+'</div>'+
-        '<div class="bt">'+esc(t.bot_response||'')+'</div>'+
-        '<div class="meta">'+fmtTs(t.ts)+' · '+esc(t.intent||'')+(t.is_fallback?' · FALLBACK':'')+'</div>'+
-      '</div>').join('') : '<div class="empty">Tidak ada isi transkrip.</div>';
-  }
+
+// ---- modal transkrip ----
+function openModal(){ $('#bd').classList.add('show'); $('#modal').classList.add('show'); }
+function closeModal(){ $('#bd').classList.remove('show'); $('#modal').classList.remove('show'); }
+$('#bd').onclick=closeModal; $('#mClose').onclick=closeModal;
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeModal(); });
+
+async function openTranscript(sid){
+  openModal(); $('#modalBody').innerHTML='<div class="empty">Memuat transkrip…</div>';
+  let d;
+  try{ const r=await fetch('/api/deflection/transcript?session_id='+encodeURIComponent(sid)); d=await r.json(); }
+  catch(e){ d={ok:false}; }
+  if(!d||!d.ok){ $('#modalBody').innerHTML='<div class="empty">Gagal memuat transkrip.</div>'; return; }
+  const turns=d.turns||[];
+  $('#modalBody').innerHTML=
+    '<h3>Transkrip percakapan</h3>'+
+    '<div class="mono">'+esc(sid)+'</div>'+
+    '<div id="turns" style="margin-top:12px"></div>';
+  $('#turns').innerHTML = turns.length? turns.map(t=>
+    '<div class="turn '+(t.is_fallback?'fb':'')+'">'+
+      '<div class="u">'+esc(t.user_phrase||'')+'</div>'+
+      '<div class="bt">'+esc(t.bot_response||'')+'</div>'+
+      '<div class="meta">'+fmtTs(t.ts)+' · '+esc(t.intent||'')+(t.is_fallback?' · FALLBACK':'')+'</div>'+
+    '</div>').join('') : '<div class="empty">Tidak ada isi transkrip.</div>';
 }
+
 load();
 </script>{% endblock %}
