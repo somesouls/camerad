@@ -35,6 +35,31 @@ def init_phone_db(conn):
     return conn
 
 
+def existing_audio_sids(conn, day_from=None, day_to=None):
+    """Set sid yang audionya SUDAH tersimpan (audio_ref terisi) dlm rentang hari.
+
+    Dipakai pull_day(skip_existing=True) supaya tarik-ulang / verifikasi tidak
+    mengunduh ulang audio yang sudah ada (hemat waktu & bandwidth). Baris yang
+    audionya kosong (unduh gagal) TIDAK ikut, jadi tetap dicoba lagi saat pull.
+    """
+    init_phone_db(conn)
+    sql = ("SELECT sid FROM awe_phone_interactions "
+           "WHERE audio_ref IS NOT NULL AND audio_ref<>''")
+    p = []
+    df = str(day_from)[:10] if day_from else None
+    dt = str(day_to)[:10] if day_to else None
+    if df and dt:
+        sql += " AND day BETWEEN ? AND ?"
+        p += [df, dt]
+    elif df:
+        sql += " AND day=?"
+        p.append(df)
+    try:
+        return set(str(r[0]) for r in conn.execute(sql, p).fetchall())
+    except Exception:
+        return set()
+
+
 def _dumps_opt(v):
     if v in (None, "", [], {}):
         return None

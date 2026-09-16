@@ -93,6 +93,27 @@ def pending_phone(conn, day=None, limit=25, min_durasi=0):
     return [dict(r) for r in conn.execute(sql, p).fetchall()]
 
 
+def pending_empty(conn, day=None, limit=25, min_durasi=0):
+    """Baris yang transkripnya KOSONG (STT gagal/hening) untuk dicoba-ulang.
+
+    'kosong' = pernah di-STT tapi tak ada teks. Setelah dicoba-ulang & tetap
+    kosong, ditandai 'kosong-final' agar tidak dicoba lagi (hemat GPU).
+    """
+    init_phone_db(conn)
+    sql = ("SELECT sid, audio_ref, durasi FROM awe_phone_interactions "
+           "WHERE audio_ref IS NOT NULL AND audio_ref<>'' AND transkrip_source='kosong'")
+    p = []
+    if day:
+        sql += " AND day=?"
+        p.append(str(day)[:10])
+    if min_durasi:
+        sql += " AND (durasi IS NULL OR durasi>=?)"
+        p.append(int(min_durasi))
+    sql += " ORDER BY tanggal DESC, sid DESC LIMIT ?"
+    p.append(int(limit))
+    return [dict(r) for r in conn.execute(sql, p).fetchall()]
+
+
 def pending_llm(conn, day=None, limit=25):
     """Baris yang STT-nya sudah ada tapi analisis LLM belum jadi (mis. LLM gagal
     atau di-skip). Dipakai untuk mengulang HANYA tahap LLM tanpa STT ulang."""
@@ -244,6 +265,30 @@ def _int_env(name, default):
         return int(default)
 
 
+def _mark_source(conn, sid, source):
+    """Set transkrip_source untuk satu sid (mis. tandai 'kosong-final')."""
+    try:
+        conn.execute("UPDATE awe_phone_interactions SET transkrip_source=? WHERE sid=?",
+                     (source, str(sid)))
+        conn.commit()
+    except Exception:
+        pass
+
+
+def _count_empty(conn, day=None, min_durasi=0):
+    init_phone_db(conn)
+    sql = ("SELECT COUNT(*) FROM awe_phone_interactions WHERE audio_ref IS NOT NULL "
+           "AND audio_ref<>'' AND transkrip_source='kosong'")
+    p = []
+    if day:
+        sql += " AND day=?"
+        p.append(str(day)[:10])
+    if min_durasi:
+        sql += " AND (durasi IS NULL OR durasi>=?)"
+        p.append(int(min_durasi))
+    return int(conn.execute(sql, p).fetchone()[0] or 0)
+
+
 def _count_pending(conn, day=None, min_durasi=3):
     """(n_stt, n_llm): jumlah baris butuh STT & jumlah baris butuh LLM saja."""
     init_phone_db(conn)
@@ -272,9 +317,14 @@ def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
     """Ulang analyze_day per-batch SAMPAI HABIS (resumable). Fase dipilih lewat
     do_stt/do_llm: keduanya = transkrip + analisis semua; do_stt saja =
     'Transkrip semua'; do_llm saja = 'Analisis LLM semua' (ulang LLM utk baris
-    yang sudah ditranskrip). Berhenti bila antrean fase terkait habis, atau satu
+    yang sudah ditranskrip). Berhenti bila antrean fase terkait habis, satu
     putaran tanpa sisa STT tak menghasilkan LLM sukses (hindari loop pd baris yg
-    gagal terus), atau rounds >= max_batches (pengaman keras).
+    gagal terus), rounds >= max_batches (pengaman keras), should_stop() True
+    (mis. lewat batas jam), atau gagal STT beruntun >= AWE_PHONE_ANALYZE_MAXFAIL.
+
+    Batch yang gagal STT (worker error) TIDAK langsung mematikan seluruh antrean:
+    dilewati & dilanjut batch berikutnya; hanya berhenti bila gagal beruntun
+    melebihi ambang, agar satu error transien tak membatalkan ribuan panggilan.
     """
     batch = int(batch or _int_env("AWE_PHONE_STT_BATCH", 8))
     if batch < 1:
@@ -283,11 +333,14 @@ def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
         max_batches = _int_env("AWE_PHONE_ANALYZE_MAXBATCH", 500)
     if timeout is None:
         timeout = _int_env("AWE_PHONE_STT_BATCH_TIMEOUT", 2400)
+    max_fail = _int_env("AWE_PHONE_ANALYZE_MAXFAIL", 3)
     rounds = 0
     stt_ok = 0
     llm_ok = 0
     llm_err = ""
     last_err = None
+    fail_streak = 0
+    fail_batches = 0
     while True:
         if should_stop and should_stop():
             break
@@ -304,7 +357,13 @@ def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
         rounds += 1
         if not res.get("ok"):
             last_err = res.get("error") or "STT/analisis gagal"
-            break
+            fail_streak += 1
+            fail_batches += 1
+            if fail_streak >= max_fail:
+                break
+            continue
+        fail_streak = 0
+        last_err = None
         stt_ok += int(res.get("stt_ok") or 0)
         llm_ok += int(res.get("llm_ok") or 0)
         if res.get("llm_error") and not llm_err:
@@ -317,4 +376,79 @@ def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
     return {"ok": last_err is None, "all": True, "rounds": rounds,
             "stt_ok": stt_ok, "llm_ok": llm_ok, "pending": remaining,
             "remaining_stt": n_stt, "remaining_llm": n_llm,
+            "fail_batches": fail_batches, "stopped": bool(should_stop and should_stop()),
             "error": last_err, "llm_error": llm_err, "details": []}
+
+
+def retry_empty_stt(conn, day=None, min_durasi=0, batch=None, max_batches=None,
+                    do_llm=True, timeout=None, on_prog=None, should_stop=None):
+    """Coba-ulang STT utk baris transkrip 'kosong' (STT gagal/hening sebelumnya).
+
+    Jika kali ini ADA teks -> simpan sbg qwen3-asr (+LLM opsional). Jika TETAP
+    kosong -> tandai 'kosong-final' agar tidak dicoba lagi (hindari boros GPU
+    pada audio yang memang hening). Kembalikan ringkasan.
+    """
+    batch = int(batch or _int_env("AWE_PHONE_STT_BATCH", 8))
+    if batch < 1:
+        batch = 8
+    if max_batches is None:
+        max_batches = _int_env("AWE_PHONE_ANALYZE_MAXBATCH", 500)
+    if timeout is None:
+        timeout = _int_env("AWE_PHONE_STT_BATCH_TIMEOUT", 2400)
+    asr_ctx = ""
+    if _asr_context is not None:
+        try:
+            asr_ctx = _asr_context() or ""
+        except Exception:
+            asr_ctx = ""
+    rounds = 0
+    stt_ok = 0
+    llm_ok = 0
+    final_empty = 0
+    last_err = None
+    while True:
+        if should_stop and should_stop():
+            break
+        if rounds >= max_batches:
+            break
+        rows = pending_empty(conn, day=day, limit=batch, min_durasi=min_durasi)
+        if not rows:
+            break
+        if on_prog:
+            on_prog("Perbaikan transkrip kosong batch %d - %d baris..." % (rounds + 1, len(rows)))
+        stt = run_stt([r["audio_ref"] for r in rows], timeout=timeout, context=asr_ctx)
+        rounds += 1
+        if stt.get("error") and not stt.get("results"):
+            last_err = stt.get("error")
+            break
+        res_map = _by_basename(stt.get("results"))
+        progressed = False
+        for r in rows:
+            sid = r["sid"]
+            wr = res_map.get(os.path.basename(str(r["audio_ref"])))
+            text = (wr.get("text") or "").strip() if (wr and wr.get("ok")) else ""
+            if not text:
+                _mark_source(conn, sid, "kosong-final")
+                final_empty += 1
+                progressed = True
+                continue
+            is_dual = bool(wr.get("ok") and wr.get("dual") and wr.get("channels"))
+            seg_arg = _dual_segments(wr.get("channels")) if is_dual else None
+            info = {"model": wr.get("model"), "chunks": wr.get("chunks"),
+                    "elapsed": wr.get("elapsed"), "text": text, "dual": is_dual}
+            analisis = None
+            if do_llm:
+                a = pllm.analyze_transcript(text, segments=seg_arg)
+                if a.get("ok"):
+                    analisis = a.get("analysis")
+                    llm_ok += 1
+            save_phone_analysis(conn, sid, transkrip=(analisis or {}).get("dialog"),
+                                transkrip_source="qwen3-asr", stt=info, analisis=analisis)
+            stt_ok += 1
+            progressed = True
+        if not progressed:
+            break
+    return {"ok": last_err is None, "rounds": rounds, "stt_ok": stt_ok,
+            "llm_ok": llm_ok, "final_empty": final_empty,
+            "pending": _count_empty(conn, day=day, min_durasi=min_durasi),
+            "error": last_err}
