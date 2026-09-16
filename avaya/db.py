@@ -39,6 +39,22 @@ def _jkt_now_iso():
         return _dt.datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _fmt_ts(s):
+    """Normalisasi timestamp Avaya -> 'YYYY-MM-DD HH:MM:SS'.
+
+    Menerima '2026-07-31T00:00:03.9600000', '2026-07-31 00:00:03', atau
+    '2026-07-31'. Mengembalikan datetime penuh (19 char) bila ada komponen jam,
+    tanggal (10 char) bila hanya tanggal, atau '' bila kosong/invalid.
+    """
+    s = str(s or "").strip()
+    if len(s) < 10:
+        return ""
+    d = s[:10]
+    sep = s[10:11]
+    tm = s[11:19] if sep in ("T", " ") else ""
+    return (d + " " + tm) if len(tm) == 8 else d
+
+
 def connect(db_path=None):
     conn = sqlite3.connect(db_path or default_db_path())
     conn.row_factory = sqlite3.Row
@@ -653,6 +669,7 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
     # setiap objek percakapan hasil client.build_conv).
     tx_by_sid = {}
     nik_by_sid = {}
+    start_by_sid = {}
     for rec in records:
         if not isinstance(rec, dict):
             continue
@@ -667,6 +684,10 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
             rnik = _nik_of(rec)
             if rnik:
                 nik_by_sid[rsid] = rnik
+        if rsid not in start_by_sid:
+            rstart = _fmt_ts(_g(rec, "start", "audio_start_time", default=""))
+            if len(rstart) > 10:
+                start_by_sid[rsid] = rstart
     need = [str(_g(c, "sid", "Sid", default="")).strip() for c in convs if isinstance(c, dict)]
     need = [s for s in need if s and s not in tx_by_sid]
     for i in range(0, len(need), 400):
@@ -686,6 +707,10 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
                 _rn = _nik_of(_payload)
                 if _rn:
                     nik_by_sid[str(sr["sid"])] = _rn
+            if _payload and str(sr["sid"]) not in start_by_sid:
+                _ps = _fmt_ts(_g(_payload, "start", "audio_start_time", default=""))
+                if len(_ps) > 10:
+                    start_by_sid[str(sr["sid"])] = _ps
 
     rows = []
     for c in convs:
@@ -695,6 +720,17 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
         ctx       = tx_by_sid.get(csid.strip()) or _extract_transkrip(c)
         cust_raw  = str(_g(c, "customer", "pelanggan", default=""))
         cust_name = _name_wo_nik(cust_raw)
+        # Tanggal: pertahankan komponen jam. Prioritas: 'start' pada conv ->
+        # 'start' payload staging (by sid) -> 'tanggal'/'date' apa adanya.
+        c_tanggal = _fmt_ts(_g(c, "start", "audio_start_time", default=""))
+        if len(c_tanggal) <= 10:
+            _alt = _fmt_ts(start_by_sid.get(csid.strip(), ""))
+            if len(_alt) > 10:
+                c_tanggal = _alt
+        if len(c_tanggal) <= 10:
+            _alt2 = _fmt_ts(_g(c, "tanggal", "date", default=""))
+            if len(_alt2) > len(c_tanggal):
+                c_tanggal = _alt2
         c_nik     = (str(_g(c, "nik", "npwp", "NIK", "NPWP", default="")).strip()
                      or nik_by_sid.get(csid.strip(), "")
                      or _nik_from_str(cust_raw))
@@ -726,7 +762,7 @@ def save_run(conn, dashboard, records=None, label=None, n_files=0, source="uploa
         rows.append((
             run_id,
             csid,
-            str(_g(c, "tanggal", "date", "start", default="")),
+            c_tanggal,
             cust_name,
             str(_g(c, "agent_name", "agent", "agentName", default="")),
             str(_g(c, "agent_id", "agentId", default="")),
@@ -1209,8 +1245,10 @@ if __name__ == "__main__":
     # jenis layanan
     assert tx["jenis_layanan"] == "Lupa EFIN", tx["jenis_layanan"]
     # kolom nik terisi di awe_conversations
-    nrow = c.execute("SELECT nik, non_npwp, customer FROM awe_conversations WHERE sid='A1'").fetchone()
+    nrow = c.execute("SELECT nik, non_npwp, customer, tanggal FROM awe_conversations WHERE sid='A1'").fetchone()
     assert nrow["nik"] == "3210000000000001" and nrow["non_npwp"] == 0, dict(nrow)
+    # tanggal berjam dipertahankan (dari conv.tanggal berformat 'YYYY-MM-DD HH:MM:SS')
+    assert nrow["tanggal"] == "2026-07-02 09:15:00", nrow["tanggal"]
     # nama dgn kurung NIK harus ter-strip + NIK terekstraksi
     dash2 = {"meta": {"date_min": "2026-08-01", "date_max": "2026-08-01", "total_conv": 1},
              "conversations": [{"sid": "B1", "tanggal": "2026-08-01 10:00:00",
@@ -1218,9 +1256,28 @@ if __name__ == "__main__":
     save_run(c, dash2, records=[], n_files=1)
     brow = c.execute("SELECT nik, customer FROM awe_conversations WHERE sid='B1'").fetchone()
     assert brow["customer"] == "Handini Pratami" and brow["nik"] == "3275065503020007", dict(brow)
+    # REGRESI perbaikan hulu: conv tanpa 'tanggal' berjam tapi punya 'start' ISO ('T')
+    # harus tersimpan sebagai datetime penuh 'YYYY-MM-DD HH:MM:SS'.
+    dash3 = {"meta": {"date_min": "2026-08-03", "date_max": "2026-08-03", "total_conv": 1},
+             "conversations": [{"sid": "C1", "tanggal": "2026-08-03",
+                                "start": "2026-08-03T13:45:09.9600000",
+                                "customer": "Test Hulu"}]}
+    save_run(c, dash3, records=[], n_files=1)
+    crow = c.execute("SELECT tanggal FROM awe_conversations WHERE sid='C1'").fetchone()
+    assert crow["tanggal"] == "2026-08-03 13:45:09", crow["tanggal"]
+    # REGRESI perbaikan hulu (fallback staging): conv hanya punya 'tanggal' date-only,
+    # jam diambil dari payload staging 'start'.
+    stage_upsert_convs(c, [{"sid": "D1", "start": "2026-08-04T08:07:06.1230000",
+                             "customer": "Stg Hulu",
+                             "transkrip": [{"role": "agent", "text": "halo"}]}])
+    dash4 = {"meta": {"date_min": "2026-08-04", "date_max": "2026-08-04", "total_conv": 1},
+             "conversations": [{"sid": "D1", "tanggal": "2026-08-04", "customer": "Stg Hulu"}]}
+    save_run(c, dash4, records=[], n_files=1)
+    drow = c.execute("SELECT tanggal FROM awe_conversations WHERE sid='D1'").fetchone()
+    assert drow["tanggal"] == "2026-08-04 08:07:06", drow["tanggal"]
     # list_for_assess (default all)
     la = list_for_assess(c, range_="all")
-    assert la["total"] == 3, la["total"]
+    assert la["total"] == 5, la["total"]
     la2 = list_for_assess(c, range_="all", poro="tidak")
     assert la2["total"] >= 0
     # REGRESI: rentang custom hari-akhir tepat harus tetap menangkap baris
@@ -1232,8 +1289,8 @@ if __name__ == "__main__":
     assert get_transcript(c, "NOPE") is None
     r2 = save_run(c, dash, records=[{"sid": "A1"}], n_files=1)
     assert r2["new"] is False and r2["id"] == r["id"], r2
-    assert len(list_runs(c)) == 2
+    assert len(list_runs(c)) == 4
     st = stats(c)
-    assert st["runs"] == 2, st
+    assert st["runs"] == 4, st
     assert delete_run(c, r["id"]) >= 1
     print("AVAYA_DB_SMOKE_OK")
