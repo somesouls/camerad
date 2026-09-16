@@ -129,13 +129,21 @@ async def build_ctx(request: Request) -> Ctx:
     form_fields = {}
     files = {}
     if request.method == "POST":
-        form = await request.form()
-        for key, value in form.multi_items():
-            if isinstance(value, StarletteUploadFile):
-                data = await value.read()
-                files.setdefault(key, []).append((data, value.filename or ""))
-            else:
-                form_fields[key] = value  # last-wins, seperti $_POST
+        try:
+            form = await request.form()
+        except Exception:
+            # Body multipart kosong/rusak (mis. FormData tanpa field dari fetch
+            # -> Starlette melempar "Did not find CR at end of boundary").
+            # Perlakukan sebagai form kosong agar aksi tanpa input wajib
+            # (mis. Step 3/13 tanpa access_token) tetap berjalan.
+            form = None
+        if form is not None:
+            for key, value in form.multi_items():
+                if isinstance(value, StarletteUploadFile):
+                    data = await value.read()
+                    files.setdefault(key, []).append((data, value.filename or ""))
+                else:
+                    form_fields[key] = value  # last-wins, seperti $_POST
     # 'run' kini opsional (kunci dataset). Bila kosong, aksi memakai dataset
     # AKTIF (di-resolve saat dispatch). Bila diisi, harus format aman.
     run = query.get("run") or form_fields.get("run") or ""

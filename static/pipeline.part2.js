@@ -17,7 +17,7 @@ function runStep(n){
       if(currentMode('s2')==='prev'){ fd.append('from_step','1'); }
       else { const f=file('f_json'); if(!f) throw 'Pilih file JSON dulu.'; fd.append('json_file', f); }
     } else if(n===3){
-      if(val('f_token')) fd.append('access_token', val('f_token'));
+      fd.append('access_token', val('f_token'));
     } else if(n===4){
       if(val('f_ngrok')) STATE.ngrok_url = val('f_ngrok');
       fd.append('ngrok_url', val('f_ngrok'));
@@ -42,7 +42,7 @@ function runStep(n){
       if(!fs.length) throw 'Pilih minimal satu file JSON AWE Avaya.';
       for(let i=0;i<fs.length;i++) fd.append('json_files[]', fs[i]);
     } else if(n===13){
-      if(val('f_token')) fd.append('access_token', val('f_token'));
+      fd.append('access_token', val('f_token'));
     } else if(n===14){
       if(val('f_ngrok')) STATE.ngrok_url = val('f_ngrok');
       fd.append('ngrok_url', val('f_ngrok'));
