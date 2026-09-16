@@ -10,8 +10,15 @@ Pencarian dipecah per waktu secara rekursif meniru penarikan Livechat
 maxExceeded) rentang dibelah dua sampai muat, sehingga bisa menarik LEBIH dari
 2000 interaksi per hari. Argumen 'limit' HANYA membatasi jumlah audio yang
 benar-benar diunduh; None / 0 / negatif / 'semua' = TANPA batas (semua).
+
+Unduh audio dijalankan PARALEL (ThreadPoolExecutor, AWE_PHONE_PULL_WORKERS,
+default 4) karena unduh DASH terikat I/O jaringan; STT (GPU) tetap serial di
+tahap 2. skip_existing (default True) melewati sid yang audionya SUDAH ada di
+DB agar tarik-ulang / verifikasi murah (tak mengunduh ulang).
 """
 import datetime as _dt
+import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import avaya.phone_dash as pdash
 
@@ -20,12 +27,27 @@ try:
 except Exception:
     from phone_db import stage_phone_pull
 
+try:
+    from .phone_db import existing_audio_sids
+except Exception:
+    try:
+        from phone_db import existing_audio_sids
+    except Exception:
+        existing_audio_sids = None
+
 _ROW_KEYS = ("sid", "site_id", "audio_ch_num", "audio_module_num", "ani",
              "dnis", "call_id", "interaction_type_id", "personal_id",
              "personal_name")
 
 _DATA_CAP = 2000        # ambang "terpotong" (hasil pencarian maks ~2000 baris)
 _MIN_WINDOW_SEC = 120   # jangan belah rentang lebih halus dari 2 menit
+
+
+def _int_env(name, default):
+    try:
+        return int(os.environ.get(name) or default)
+    except Exception:
+        return int(default)
 
 
 def _agent_name(raw):
@@ -180,20 +202,66 @@ def _download_audio(client, r):
     return path, dur, note
 
 
+def _download_safe(client, r):
+    try:
+        return _download_audio(client, r)
+    except Exception as e:
+        return "", 0, "unduh error: %r" % e
+
+
 def pull_day(client, conn, day_from, day_to=None, limit=25, pulled_by=None,
-             download=True, on_prog=None):
-    """TARIK: cari baris audio (auto-pecah waktu), unduh, simpan metadata."""
+             download=True, on_prog=None, skip_existing=True, workers=None):
+    """TARIK: cari baris audio (auto-pecah waktu), unduh (paralel), simpan metadata.
+
+    skip_existing: lewati sid yang audionya SUDAH ada di DB (tarik-ulang murah /
+    verifikasi -> hanya sid baru/gagal yang diunduh).
+    workers: jumlah thread unduh audio paralel (default AWE_PHONE_PULL_WORKERS=4).
+    """
     day_to = day_to or day_from
     stats, rows = _rows_from_search(client, day_from, day_to, limit, on_prog)
     total = len(rows)
+    existing = set()
+    if skip_existing and existing_audio_sids is not None:
+        try:
+            existing = existing_audio_sids(conn, str(day_from)[:10], str(day_to)[:10]) or set()
+        except Exception:
+            existing = set()
+    todo = [r for r in rows if r.get("sid") not in existing]
+    skipped = total - len(todo)
     if on_prog and total:
-        on_prog("Ditemukan %d panggilan beraudio; mulai unduh audio..." % total)
+        msg = "Ditemukan %d panggilan beraudio" % total
+        if skipped:
+            msg += " (%d sudah ada, dilewati)" % skipped
+        on_prog(msg + "; mulai unduh audio...")
+    if workers is None:
+        workers = _int_env("AWE_PHONE_PULL_WORKERS", 4)
+    try:
+        workers = int(workers)
+    except Exception:
+        workers = 4
+    results = {}
+    if download and workers > 1 and len(todo) > 1:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(_download_safe, client, r): r for r in todo}
+            done = 0
+            for fut in as_completed(futs):
+                r = futs[fut]
+                try:
+                    results[r["sid"]] = fut.result()
+                except Exception as e:
+                    results[r["sid"]] = ("", 0, "unduh error: %r" % e)
+                done += 1
+                if on_prog and len(todo) > 20 and done % 10 == 0:
+                    on_prog("Unduh audio %d/%d..." % (done, len(todo)))
+    else:
+        for i, r in enumerate(todo):
+            results[r["sid"]] = _download_safe(client, r) if download else ("", 0, "unduh dilewati")
+            if on_prog and download and len(todo) > 20 and (i + 1) % 10 == 0:
+                on_prog("Unduh audio %d/%d..." % (i + 1, len(todo)))
     staged = []
     details = []
-    for i, r in enumerate(rows):
-        audio_ref, dur, note = ("", 0, "unduh dilewati")
-        if download:
-            audio_ref, dur, note = _download_audio(client, r)
+    for r in todo:
+        audio_ref, dur, note = results.get(r["sid"], ("", 0, "tak diproses"))
         rday = (str(r.get("gmt") or "")[:10]) or str(day_from)[:10]
         staged.append({
             "sid": r["sid"], "day": rday, "tanggal": r.get("gmt"),
@@ -204,10 +272,9 @@ def pull_day(client, conn, day_from, day_to=None, limit=25, pulled_by=None,
         })
         details.append({"sid": r["sid"], "audio": bool(audio_ref),
                         "durasi": dur, "note": note})
-        if on_prog and download and total > 20 and (i + 1) % 10 == 0:
-            on_prog("Unduh audio %d/%d..." % (i + 1, total))
     saved = stage_phone_pull(conn, str(day_from)[:10], staged, pulled_by=pulled_by)
     return {"ok": True, "day": str(day_from)[:10], "windows": stats.get("windows", 0),
             "n_rows_total": stats.get("scanned", 0), "n_audio_rows": total,
+            "skipped_existing": skipped,
             "staged": saved.get("staged", 0),
             "with_audio": sum(1 for d in details if d["audio"]), "details": details}

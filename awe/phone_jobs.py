@@ -186,13 +186,31 @@ def analyze_sync(day="", limit=25, min_durasi=3):
     return res
 
 
-def analyze_all_sync(day="", min_durasi=3):
+def analyze_all_sync(day="", min_durasi=3, should_stop=None):
     """Transkrip SEMUA (loop per-batch sampai habis) SINKRON; utk auto-pull
     penjadwal. SANGAT LAMBAT (bisa berjam-jam) - hanya dipanggil dari thread
-    latar penjadwal/pemicu manual, jangan dari request web."""
+    latar penjadwal/pemicu manual, jangan dari request web.
+
+    should_stop (opsional): callback tanpa argumen -> True untuk berhenti lebih
+    awal (mis. sudah lewat batas jam selesai). Sisa antrean dilanjut jadwal
+    berikutnya (catch-up).
+    """
     conn = _conn()
     try:
-        return panalyze.analyze_all(conn, day=day or None, min_durasi=min_durasi)
+        return panalyze.analyze_all(conn, day=day or None, min_durasi=min_durasi,
+                                    should_stop=should_stop)
+    finally:
+        conn.close()
+
+
+def retry_empty_sync(day="", min_durasi=0, should_stop=None):
+    """Coba-ulang STT utk baris transkrip 'kosong' SINKRON; utk auto-pull
+    penjadwal (opsional). Baris yang tetap kosong ditandai 'kosong-final'.
+    """
+    conn = _conn()
+    try:
+        return panalyze.retry_empty_stt(conn, day=day or None, min_durasi=min_durasi,
+                                        should_stop=should_stop)
     finally:
         conn.close()
 
