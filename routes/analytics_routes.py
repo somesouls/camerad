@@ -198,6 +198,100 @@ async def api_deflection_status_save(request: Request):
     except Exception as ex:
         return JSONResponse({"ok": False, "error": str(ex)})
 
+
+# =====================================================================
+# Menu "Detail Percakapan" (Dialogflow): daftar sesi percakapan + transkrip
+# ---------------------------------------------------------------------
+# Halaman df_percakapan.html menampilkan tiap sesi (session_id) sebagai
+# accordion; isi transkrip dimuat via /api/deflection/transcript. Endpoint
+# di bawah menyediakan DAFTAR sesi (read-only) dari tabel `interactions`,
+# lengkap dengan klasifikasi perjalanan (mandiri / fallback / ke agent),
+# frasa pertama, jumlah interaksi, dan jumlah fallback. Bersifat ADITIF &
+# non-breaking terhadap route lain.
+# =====================================================================
+async def api_percakapan_list(request: Request):
+    q = request.query_params
+    preset = q.get("range", "7d")
+    start = q.get("start") or None
+    end = q.get("end") or None
+    lang = q.get("lang") or None
+    term = (q.get("q") or "").strip()
+    cat = (q.get("filter") or "all").strip().lower()
+    try:
+        limit = int(q.get("limit", 500))
+    except Exception:
+        limit = 500
+    if limit <= 0 or limit > 2000:
+        limit = 500
+    s, e = adb.resolve_range(preset, start, end)
+
+    def _run():
+        conn = adb.init_db(adb.connect())
+        try:
+            where, params = adb._range_where(s, e)
+            where = adb._lang_where(where, params, lang)
+            if term:
+                where += (" AND " if where else " WHERE ") + \
+                    "session_id IN (SELECT session_id FROM interactions WHERE user_phrase LIKE ?)"
+                params.append("%" + term + "%")
+            sql = (
+                "SELECT session_id, COUNT(*) AS n, "
+                "MIN(ts) AS ts_first, MAX(ts) AS ts_last, "
+                "MAX(CASE WHEN intent_name=? THEN 1 ELSE 0 END) AS fb1, "
+                "MAX(CASE WHEN intent_name=? THEN 1 ELSE 0 END) AS fb2, "
+                "MAX(CASE WHEN intent_name=? THEN 1 ELSE 0 END) AS agent, "
+                "MAX(CASE WHEN intent_name=? THEN 1 ELSE 0 END) AS connector, "
+                "SUM(CASE WHEN is_fallback=1 THEN 1 ELSE 0 END) AS fb_count, "
+                "SUM(CASE WHEN is_fallback=0 AND substr(intent_name,1,7)<>'System_' "
+                "AND substr(intent_name,1,5)<>'Umum_' THEN 1 ELSE 0 END) AS clean_hits, "
+                "(SELECT user_phrase FROM interactions i2 WHERE i2.session_id=interactions.session_id "
+                "AND TRIM(COALESCE(i2.user_phrase,''))<>'' ORDER BY i2.ts ASC, i2.insert_id ASC LIMIT 1) AS first_phrase "
+                "FROM interactions" + where + " GROUP BY session_id"
+            )
+            head = [adb.FALLBACK_1, adb.FALLBACK_2, adb.AGENT_1500200, adb.AGENT_CONNECTOR]
+            rows = conn.execute(sql, head + params).fetchall()
+            items = []
+            for r in rows:
+                if r["agent"]:
+                    category = "agent_1500200"
+                elif r["connector"]:
+                    category = "agent_connector"
+                elif r["fb2"]:
+                    category = "fallback2_no_agent"
+                elif r["fb1"]:
+                    category = "fallback_abandon"
+                else:
+                    category = "self_served"
+                items.append({
+                    "session_id": r["session_id"],
+                    "n": r["n"],
+                    "ts_first": r["ts_first"], "ts_last": r["ts_last"],
+                    "fb_count": r["fb_count"] or 0,
+                    "clean_hits": r["clean_hits"] or 0,
+                    "agent": bool(r["agent"] or r["connector"]),
+                    "category": category,
+                    "category_label": adb.JOURNEY_LABELS.get(category, category),
+                    "first_phrase": r["first_phrase"] or "",
+                })
+            if cat == "fallback":
+                items = [it for it in items if it["fb_count"] > 0]
+            elif cat == "agent":
+                items = [it for it in items if it["agent"]]
+            elif cat == "self":
+                items = [it for it in items if it["category"] == "self_served"]
+            items.sort(key=lambda it: (it["ts_first"] or ""), reverse=True)
+            total = len(items)
+            items = items[:limit]
+            return {"ok": True, "range": {"start": s, "end": e},
+                    "total": total, "shown": len(items), "items": items}
+        finally:
+            conn.close()
+    try:
+        return JSONResponse(await run_in_threadpool(_run))
+    except Exception as ex:
+        return JSONResponse({"ok": False, "error": str(ex)})
+
+
 def register(app):
     app.add_api_route("/dashboard", dashboard, methods=["GET"])
     app.add_api_route("/api/analytics/summary", api_analytics_summary, methods=["GET"])
@@ -208,3 +302,4 @@ def register(app):
     app.add_api_route("/api/deflection/candidate", api_deflection_candidate, methods=["GET"])
     app.add_api_route("/api/deflection/transcript", api_deflection_transcript, methods=["GET"])
     app.add_api_route("/api/deflection/status/save", api_deflection_status_save, methods=["POST"])
+    app.add_api_route("/api/percakapan/list", api_percakapan_list, methods=["GET"])
