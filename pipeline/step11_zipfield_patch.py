@@ -39,6 +39,22 @@ import zipfile
 import pipeline.routes as pr
 
 
+# Regex pembersih suffix confidence pada nama intent, mis. " (97%)".
+# Hanya menghapus pola persen di UJUNG string agar nama intent yang sah tak berubah.
+_CONF_SUFFIX_RE = re.compile(r"\s*\(\s*\d{1,3}(?:[.,]\d+)?\s*%\s*\)\s*$")
+
+
+def _bersih_intent(name):
+    """Buang suffix confidence (mis. ' (97%)') di akhir nama intent supaya cocok
+    dengan nama file '<intent>_usersays_<lang>.json' di ZIP Dialogflow."""
+    s = (name or "").strip()
+    prev = None
+    while prev != s:
+        prev = s
+        s = _CONF_SUFFIX_RE.sub("", s).strip()
+    return s
+
+
 def _run_lang(b10):
     """Tentukan bahasa run ('id'/'en') dari workbook Step 10. Satu run = satu
     bahasa (Step 1). Pindai sheet upstream yang punya kolom 'lang'; ambil nilai
@@ -91,7 +107,7 @@ def _phrases_to_items(phrases, lang):
     items = []
     if isinstance(phrases, dict):
         for intent, tps in phrases.items():
-            intent = str(intent).strip()
+            intent = _bersih_intent(str(intent))
             if intent == "":
                 continue
             if isinstance(tps, (list, tuple, set)):
@@ -106,7 +122,7 @@ def _phrases_to_items(phrases, lang):
     elif isinstance(phrases, list):
         for it in phrases:
             if isinstance(it, dict):
-                iid = str(it.get("id", it.get("intent", ""))).strip()
+                iid = _bersih_intent(str(it.get("id", it.get("intent", ""))))
                 tp = str(it.get("tp", it.get("phrase", ""))).strip()
                 lg = str(it.get("lang", "") or lang).strip().lower() or lang
                 if iid and tp:

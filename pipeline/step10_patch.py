@@ -43,6 +43,28 @@ import datetime as _dt
 import pipeline.routes as pr
 import pipeline.steps as _ps
 
+
+# Regex pembersih suffix confidence pada nama intent, mis. " (97%)".
+# Hanya menghapus pola persen di UJUNG string agar nama intent yang sah
+# (yang kebetulan memuat kurung/angka di tengah) tidak ikut berubah.
+_CONF_SUFFIX_RE = re.compile(r"\s*\(\s*\d{1,3}(?:[.,]\d+)?\s*%\s*\)\s*$")
+
+
+def _bersih_intent(name):
+    """Buang suffix confidence (mis. ' (97%)') di akhir nama intent.
+
+    Nama intent harus sama persis dengan nama file
+    '<intent>_usersays_<lang>.json' di ZIP Dialogflow; suffix persen membuat
+    lookup file gagal di Step 11.
+    """
+    s = (name or "").strip()
+    prev = None
+    while prev != s:  # tangani bila ada lebih dari satu suffix, mis. " (90%) (97%)"
+        prev = s
+        s = _CONF_SUFFIX_RE.sub("", s).strip()
+    return s
+
+
 # Kandidat header identitas rekaman (Nomor Rekaman). Urutan = prioritas.
 ID_REKAMAN_HEADERS = ["ID Rekaman", "ID Percakapan", "id_rekaman", "ID trace", "ID Trace", "IDtrace"]
 
@@ -134,7 +156,7 @@ def _pem_mkta(wb):
         if rn == 1:
             continue
         cells = am["rows"][rn]
-        intent = pr._sv(cells, c_seharusnya).strip()
+        intent = _bersih_intent(pr._sv(cells, c_seharusnya))
         user = pr._sv(cells, c_user).strip()
         if intent == "" or user == "":
             continue
@@ -161,7 +183,7 @@ def _pem_fallback(wb):
         if rn == 1:
             continue
         cells = af["rows"][rn]
-        intent = pr._sv(cells, c_intent).strip()
+        intent = _bersih_intent(pr._sv(cells, c_intent))
         user = pr._sv(cells, c_user).strip()
         if intent == "" or user == "":
             continue
@@ -571,7 +593,7 @@ def _s11_derive_phrases(cfg, ctx):
         if rn == 1:
             continue
         cells = sh["rows"][rn]
-        intent = pr._sv(cells, c_intent).strip()
+        intent = _bersih_intent(pr._sv(cells, c_intent))
         phrase = pr._sv(cells, c_phrase).strip() if c_phrase else ""
         if phrase == "" and c_rangkuman:
             m = re.search(r"Menambahkan frasa '(.*)' sebagai training phrase intent ", pr._sv(cells, c_rangkuman))
