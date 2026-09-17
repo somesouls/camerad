@@ -11,14 +11,17 @@ CATATAN: app_core TIDAK boleh meng-import web_app (agar tidak circular import).
 Langkah 1 dari rencana pemecahan web_app.py.
 """
 import os
+import re as _re
 
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse, RedirectResponse
+from starlette.responses import Response as _Response
 from urllib.parse import quote as _quote
 
 import db.users_db as usr
+import db.menu_catalog as mc
 
 try:
     from dotenv import load_dotenv
@@ -114,6 +117,11 @@ def _page_user_ctx(request):
         "can_chat": usr.area_allowed(role_key, "chat", user_id=uid),
         # Peran 'agent' hanya boleh chat + profil (menu lain disembunyikan).
         "is_agent": role_key == "agent",
+        # Granularitas per-tautan menu (RBAC per-link). `menu` dipakai bila
+        # base.html memasang gerbang {% if menu.m_xxx %} (opsional, lihat diff);
+        # `menu_group` untuk menyembunyikan label grup accordion yang kosong.
+        "menu": mc.menu_state(role_key, user_id=uid),
+        "menu_group": mc.groups_state(role_key, user_id=uid),
     }
 
 
@@ -138,6 +146,8 @@ def _route_action(method, path):
     if path == "/users" or path.startswith("/api/users"):
         return "admin"
     if path == "/akses" or path.startswith("/api/roles"):
+        return "admin"
+    if path.startswith("/api/menu-access"):
         return "admin"
     if (path.startswith("/api/sosmed/import") or path.startswith("/api/sosmed/pull")
             or path == "/api/sosmed/purge" or path == "/api/sosmed/repair"):
@@ -225,6 +235,9 @@ def _route_area(path):
         return "users"
     if path == "/akses" or path.startswith("/api/roles"):
         return "users"
+    # Menu Kelola Akses per-tautan (RBAC per-link) = khusus admin (area users).
+    if path.startswith("/api/menu-access"):
+        return "users"
     if (path == "/awe/kelola" or path.startswith("/api/awe/pull")
             or path.startswith("/api/awe/stage") or path.startswith("/api/awe/process")
             or path.startswith("/api/awe/delete")):
@@ -253,6 +266,22 @@ def _route_area(path):
             or path.startswith("/api/chat")):
         return "common"
     return "dialogflow"
+
+
+def _route_menu(path):
+    """Kunci menu fine untuk rute HALAMAN (bukan /api/*). None bila tak dikenal."""
+    if not path or path.startswith("/api/"):
+        return None
+    return mc.menu_key_for_path(path)
+
+
+# Registrasi peta {menu_key: area_coarse} memakai _route_area sebagai SATU sumber
+# kebenaran, agar fallback kompatibilitas di menu_allowed konsisten dengan
+# enforcement API. Dijalankan sekali saat import modul.
+try:
+    mc.set_menu_areas({m["key"]: _route_area(m["path"]) for m in mc.MENU_CATALOG})
+except Exception as _mc_area_exc:
+    print("[MENU-RBAC] set area menu dilewati:", _mc_area_exc, flush=True)
 
 
 def _user_from_token(token):
@@ -304,7 +333,16 @@ async def _auth_middleware(request: Request, call_next):
         return RedirectResponse("/login?next=" + _quote(nxt, safe=""), status_code=302)
 
     role = user.get("role")
-    if not usr.area_allowed(role, _route_area(path), user_id=user.get("id")):
+    _uid = user.get("id")
+    # Rute HALAMAN yang punya tautan menu -> gerbang per-tautan (fine). Rute lain
+    # (termasuk /api/*) -> gerbang area coarse lama. Bila peran belum dikonfigurasi
+    # per-menu, menu_allowed jatuh ke area_allowed sehingga hasilnya identik.
+    _mkey = _route_menu(path)
+    if _mkey is not None:
+        _allowed = mc.menu_allowed(role, _mkey, user_id=_uid)
+    else:
+        _allowed = usr.area_allowed(role, _route_area(path), user_id=_uid)
+    if not _allowed:
         if path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "Akses ditolak untuk peran Anda."}, status_code=403)
         return RedirectResponse("/", status_code=302)
@@ -316,6 +354,71 @@ async def _auth_middleware(request: Request, call_next):
 
     request.state.user = user
     return await call_next(request)
+
+
+# =============================================================
+# Filter sidebar per-tautan menu (RBAC per-link) — server-side
+# =============================================================
+# base.html merender SEMUA tautan sidebar; middleware ini MENGHAPUS tautan yang
+# tidak diizinkan untuk (peran, user) berdasarkan menu_catalog.menu_allowed,
+# lalu menyuntik CSS untuk menyembunyikan label grup accordion yang jadi kosong.
+# Dibungkus try/except menyeluruh: bila apa pun gagal, respons ASLI dikembalikan
+# apa adanya sehingga aplikasi TIDAK PERNAH rusak oleh fitur ini. Pendekatan ini
+# membuat granularitas per-tautan bekerja TANPA mengubah templates/base.html.
+def _filter_sidebar_html(html, role, uid):
+    try:
+        if 'tool-side' not in html:
+            return html
+        for m in mc.MENU_CATALOG:
+            if mc.menu_allowed(role, m["key"], user_id=uid):
+                continue
+            esc = _re.escape(m["path"])
+            pat = _re.compile(
+                r'<a\b(?=[^>]*\btool-side\b)(?=[^>]*href="' + esc + r'")[^>]*>.*?</a>',
+                _re.DOTALL,
+            )
+            html = pat.sub("", html)
+        css = (
+            "<style>.acc-body:not(:has(.tool-side)){display:none!important}"
+            ".sec-label.acc-toggle:has(+ .acc-body:not(:has(.tool-side)))"
+            "{display:none!important}</style>"
+        )
+        if "</head>" in html:
+            html = html.replace("</head>", css + "</head>", 1)
+        return html
+    except Exception:
+        return html
+
+
+@app.middleware("http")
+async def _sidebar_filter_middleware(request: Request, call_next):
+    response = await call_next(request)
+    try:
+        ctype = response.headers.get("content-type", "")
+        if "text/html" not in ctype.lower():
+            return response
+        user = _user_from_token(request.cookies.get("session"))
+        if not user:
+            return response
+        body = b""
+        async for chunk in response.body_iterator:
+            body += chunk
+        try:
+            html = body.decode("utf-8", "replace")
+            html = _filter_sidebar_html(html, user.get("role"), user.get("id"))
+            new_body = html.encode("utf-8")
+        except Exception:
+            new_body = body
+        headers = dict(response.headers)
+        headers.pop("content-length", None)
+        return _Response(
+            content=new_body,
+            status_code=response.status_code,
+            headers=headers,
+            media_type=response.media_type or "text/html",
+        )
+    except Exception:
+        return response
 
 
 # =============================================================
@@ -333,6 +436,19 @@ try:
     print("[VOICEBOT] route terpasang (/voicebot, /voicebot/lab, /api/voicebot/*).", flush=True)
 except Exception as _voicebot_exc:
     print("[VOICEBOT] registrasi route dilewati:", _voicebot_exc, flush=True)
+
+
+# =============================================================
+# Kelola Akses per-tautan menu (RBAC per-link) — API admin
+# =============================================================
+# Endpoint /api/menu-access/* untuk mengatur menu per PERAN & override per USER.
+# Fail-soft: bila modul route bermasalah, route lain tetap boot.
+try:
+    import routes.menu_access_routes as _menu_access_routes
+    _menu_access_routes.register(app)
+    print("[MENU-RBAC] route Kelola Akses per-menu terpasang (/api/menu-access/*).", flush=True)
+except Exception as _menu_access_exc:
+    print("[MENU-RBAC] registrasi route menu-access dilewati:", _menu_access_exc, flush=True)
 
 
 # =============================================================
