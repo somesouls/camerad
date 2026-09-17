@@ -46,6 +46,9 @@
   .conv-note{font-size:11px;color:var(--text-muted,#8a8f98);margin-bottom:10px;}
   .conv-filter select{background:var(--bg,#111);border:1px solid var(--panel-border,#2a2b30);border-radius:9px;color:var(--text-main,#e8e9ec);padding:7px 10px;font-size:12px;}
   .conv-filter select:focus{outline:none;border-color:var(--accent,#5a78ff);}
+  .conv-export{background:var(--accent,#5a78ff);color:#fff;border:none;border-radius:9px;padding:8px 13px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;}
+  .conv-export:hover{opacity:.88;}
+  .conv-export:disabled{opacity:.55;cursor:default;}
   .mail-chip{display:inline-block;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10.5px;padding:1px 6px;margin:1px 3px 1px 0;border-radius:6px;background:rgba(240,163,90,.16);color:#f0a35a;white-space:nowrap;}
   .mail-chip.dot{background:rgba(240,90,90,.18);color:#f2726f;}
   .tx-time{font-size:10px;color:var(--text-muted,#8a8f98);font-weight:500;margin-left:6px;}
@@ -304,6 +307,7 @@
         +'<option value="keyword">Keyword</option>'
         +'<option value="gmail_dot">Email trik-titik Gmail (calo)</option>'
         +'</select>'
+        +'<button id="btnExport" class="conv-export" title="Ekspor hasil pencarian ke Excel (.xlsx)">⬇ Ekspor Excel</button>'
         +'<span class="muted" id="convCount"></span>'
         +'</div>'
         +'<div class="conv-note">Pencarian berjalan di server — mencakup seluruh percakapan pada rentang ini, bukan hanya yang tampil.</div>'
@@ -320,6 +324,14 @@
       });
       var modeEl=document.getElementById('fMode');
       if(modeEl)modeEl.addEventListener('change',function(){if(convT)clearTimeout(convT);loadConvSearch();});
+      var expEl=document.getElementById('btnExport');
+      if(expEl)expEl.addEventListener('click',function(){
+        // Unduh XLSX dengan filter yang SAMA seperti pencarian aktif. Backend
+        // mengekspor seluruh baris cocok (bukan hanya yang tampil).
+        var a=document.createElement('a');
+        a.href='/api/awe/analytics/conversations.xlsx?'+convQS();
+        document.body.appendChild(a);a.click();a.remove();
+      });
       loadConvSearch();
     }
   }
