@@ -87,6 +87,35 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
       <div class="msg" id="gmsg"></div>
     </div>
   </div>
+
+  <!-- ====== Granularitas per-tautan menu (per-link RBAC) ====== -->
+  <div class="card" style="margin-top:26px;">
+    <h2>🔗 Akses per-Tautan Menu (granular)</h2>
+    <p class="hint">Kontrol tampil/tidaknya SETIAP tautan menu sidebar per peran, plus timpaan per pengguna. Jika sebuah peran belum diatur di sini, peran itu tetap mengikuti aturan “Menu” area di atas (perilaku lama, kompatibel mundur). Menu beranda Studio selalu tampil.</p>
+    <div class="split" style="margin-top:6px;">
+      <div>
+        <h2 style="font-size:14px;">Per Peran</h2>
+        <div class="fld"><label>Pilih peran</label><select id="mrole"></select></div>
+        <div id="mrole_state" class="hint" style="margin-top:6px;"></div>
+        <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn" type="button" id="mrole_all">Centang semua</button>
+          <button class="btn" type="button" id="mrole_none">Kosongkan</button>
+        </div>
+        <div id="mrole_menus" style="margin-top:10px;"></div>
+        <button class="primary" id="mrole_save">Simpan Menu Peran</button>
+        <button class="btn" id="mrole_reset" style="margin-top:6px;">Ikuti aturan area (reset)</button>
+        <div class="msg" id="mrole_msg"></div>
+      </div>
+      <div>
+        <h2 style="font-size:14px;">Timpaan per Pengguna</h2>
+        <p class="hint">Untuk satu pengguna: “Ikuti peran”, “Tampilkan”, atau “Sembunyikan” tiap menu. Timpaan pengguna paling menentukan.</p>
+        <div class="fld"><label>Pilih pengguna</label><select id="muser"></select></div>
+        <div id="muser_menus" style="margin-top:10px;"></div>
+        <button class="primary" id="muser_save">Simpan Timpaan Menu</button>
+        <div class="msg" id="muser_msg"></div>
+      </div>
+    </div>
+  </div>
 </div>
 {% endblock %}
 {% block scripts %}
@@ -278,5 +307,126 @@ async function loadUsers() {
 }
 
 loadRoles().then(loadUsers);
+</script>
+<script>
+// ================= Akses per-Tautan Menu (per-link RBAC) =================
+// Skrip terpisah & mandiri: memuat data sendiri via /api/menu-access/* dan
+// /api/roles + /api/users. Bila skrip ini gagal, editor area di atas TIDAK
+// terpengaruh (tag <script> berbeda).
+(function () {
+  let MG = [], MM = [], MBASE = [];
+  function e2(s) { return (s || '').replace(/[&<>\"]/g, function (c) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;' }[c]); }); }
+  const mrole = document.getElementById('mrole');
+  const muser = document.getElementById('muser');
+  const mroleMenus = document.getElementById('mrole_menus');
+  const muserMenus = document.getElementById('muser_menus');
+  const mroleMsg = document.getElementById('mrole_msg');
+  const muserMsg = document.getElementById('muser_msg');
+  const mroleState = document.getElementById('mrole_state');
+  if (!mrole || !muser) return;
+
+  function mShow(el, t, ok) { el.textContent = t; el.className = 'msg ' + (ok ? 'ok' : 'no'); }
+  function byGroup() { const by = {}; MM.forEach(function (m) { (by[m.group] = by[m.group] || []).push(m); }); return by; }
+
+  function roleAccordion() {
+    const by = byGroup(); let html = '';
+    MG.forEach(function (g) {
+      const items = by[g.key] || []; if (!items.length) return;
+      html += '<details class="grp" open><summary>' + e2(g.label) + '</summary><div class="grp-body">';
+      items.forEach(function (m) {
+        const base = MBASE.indexOf(m.key) >= 0;
+        html += '<label class="chk"><input type="checkbox" data-mkey="' + m.key + '"' + (base ? ' checked disabled' : '') + '> ' + e2(m.label) + ' <span class="desc">(' + e2(m.path) + ')' + (base ? ' • selalu tampil' : '') + '</span></label>';
+      });
+      html += '</div></details>';
+    });
+    return html;
+  }
+  function userAccordion() {
+    const by = byGroup(); let html = '';
+    MG.forEach(function (g) {
+      const items = by[g.key] || []; if (!items.length) return;
+      html += '<details class="grp" open><summary>' + e2(g.label) + '</summary><div class="grp-body">';
+      items.forEach(function (m) {
+        const base = MBASE.indexOf(m.key) >= 0;
+        html += '<div class="chk"><span style="flex:1;">' + e2(m.label) + ' <span class="desc">(' + e2(m.path) + ')</span></span>' +
+          '<select data-mkey="' + m.key + '" style="max-width:150px;"' + (base ? ' disabled' : '') + '>' +
+          '<option value="">Ikuti peran</option><option value="1">Tampilkan</option><option value="0">Sembunyikan</option></select></div>';
+      });
+      html += '</div></details>';
+    });
+    return html;
+  }
+  function setRoleChecks(keys) {
+    const set = {}; (keys || []).forEach(function (k) { set[k] = true; });
+    mroleMenus.querySelectorAll('input[data-mkey]').forEach(function (c) { if (c.disabled) return; c.checked = !!set[c.dataset.mkey]; });
+  }
+
+  async function loadCatalog() {
+    try {
+      const r = await fetch('/api/menu-access/catalog'); const j = await r.json();
+      if (!j.ok) { mShow(mroleMsg, j.error || 'Gagal memuat katalog menu.', false); return false; }
+      MG = j.groups || []; MM = j.menus || []; MBASE = j.baseline || [];
+      mroleMenus.innerHTML = roleAccordion(); muserMenus.innerHTML = userAccordion();
+      return true;
+    } catch (e) { mShow(mroleMsg, 'Gagal memuat katalog menu.', false); return false; }
+  }
+  async function loadRoleOptions() {
+    try {
+      const r = await fetch('/api/roles'); const j = await r.json();
+      if (j.ok) { mrole.innerHTML = '<option value="">— pilih peran —</option>' + (j.roles || []).map(function (x) { return '<option value="' + e2(x.key) + '">' + e2(x.label || x.key) + '</option>'; }).join(''); }
+    } catch (e) {}
+  }
+  async function loadUserOptions() {
+    try {
+      const r = await fetch('/api/users'); const j = await r.json();
+      if (j.ok) { muser.innerHTML = '<option value="">— pilih pengguna —</option>' + (j.users || []).map(function (u) { return '<option value="' + u.id + '">' + e2(u.username) + (u.nama ? ' (' + e2(u.nama) + ')' : '') + '</option>'; }).join(''); }
+    } catch (e) {}
+  }
+  async function loadRoleMenus() {
+    setRoleChecks([]); mroleState.textContent = '';
+    const key = mrole.value; if (!key) return;
+    try {
+      const r = await fetch('/api/menu-access/role/' + encodeURIComponent(key)); const j = await r.json();
+      if (j.ok) { setRoleChecks(j.menus); mroleState.textContent = j.configured ? 'Peran ini SUDAH diatur per-menu.' : 'Peran ini belum diatur per-menu (mengikuti aturan area). Menyimpan akan mengaktifkan mode per-menu.'; }
+    } catch (e) {}
+  }
+  async function loadUserMenus() {
+    muserMenus.querySelectorAll('select[data-mkey]').forEach(function (s) { if (!s.disabled) s.value = ''; });
+    const uid = muser.value; if (!uid) return;
+    try {
+      const r = await fetch('/api/menu-access/user/' + encodeURIComponent(uid)); const j = await r.json();
+      if (j.ok && j.grants) { Object.keys(j.grants).forEach(function (k) { const s = muserMenus.querySelector('select[data-mkey=' + k + ']'); if (s) s.value = String(j.grants[k]); }); }
+    } catch (e) {}
+  }
+
+  mrole.addEventListener('change', loadRoleMenus);
+  muser.addEventListener('change', loadUserMenus);
+  document.getElementById('mrole_all').addEventListener('click', function () { mroleMenus.querySelectorAll('input[data-mkey]').forEach(function (c) { if (!c.disabled) c.checked = true; }); });
+  document.getElementById('mrole_none').addEventListener('click', function () { mroleMenus.querySelectorAll('input[data-mkey]').forEach(function (c) { if (!c.disabled) c.checked = false; }); });
+  document.getElementById('mrole_save').addEventListener('click', async function () {
+    const key = mrole.value; if (!key) { mShow(mroleMsg, 'Pilih peran dulu.', false); return; }
+    const menus = Array.from(mroleMenus.querySelectorAll('input[data-mkey]:checked')).map(function (c) { return c.dataset.mkey; });
+    const r = await fetch('/api/menu-access/role/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role_key: key, menus: menus }) });
+    const j = await r.json(); mShow(mroleMsg, j.ok ? 'Menu peran tersimpan.' : (j.error || 'Gagal.'), j.ok);
+    if (j.ok) { setRoleChecks(j.menus); mroleState.textContent = 'Peran ini SUDAH diatur per-menu.'; }
+  });
+  document.getElementById('mrole_reset').addEventListener('click', async function () {
+    const key = mrole.value; if (!key) { mShow(mroleMsg, 'Pilih peran dulu.', false); return; }
+    if (!confirm('Reset peran ' + key + ' ke aturan area (hapus konfigurasi per-menu)?')) return;
+    const r = await fetch('/api/menu-access/role/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role_key: key }) });
+    const j = await r.json(); mShow(mroleMsg, j.ok ? 'Dikembalikan ke aturan area.' : (j.error || 'Gagal.'), j.ok);
+    if (j.ok) { setRoleChecks(j.menus); mroleState.textContent = 'Peran ini belum diatur per-menu (mengikuti aturan area).'; }
+  });
+  document.getElementById('muser_save').addEventListener('click', async function () {
+    const uid = muser.value; if (!uid) { mShow(muserMsg, 'Pilih pengguna dulu.', false); return; }
+    const grants = {};
+    muserMenus.querySelectorAll('select[data-mkey]').forEach(function (s) { if (s.value === '1' || s.value === '0') grants[s.dataset.mkey] = +s.value; });
+    const r = await fetch('/api/menu-access/user/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ user_id: +uid, grants: grants }) });
+    const j = await r.json(); mShow(muserMsg, j.ok ? 'Timpaan menu tersimpan.' : (j.error || 'Gagal.'), j.ok);
+  });
+
+  function init() { loadCatalog().then(function (ok) { if (ok) { loadRoleOptions(); loadUserOptions(); } }); }
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', init); } else { init(); }
+})();
 </script>
 {% endblock %}
