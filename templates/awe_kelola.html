@@ -171,10 +171,20 @@
   <button class="btn-modern btn-outline" id="sCheckBtn">Cek Ketersediaan</button>
 
   <div id="sLoginBox" style="display:none; margin-top:20px; border-top:1px solid var(--panel-border); padding-top:20px;">
+    {% if awe_configured %}
+    <p class="use-note" style="margin-bottom:10px;">&#9989; Kredensial <span class="code-inline">.env</span> siap dipakai &mdash; tak perlu mengetik username/password untuk menarik. <a href="#" id="sToggleCred">Gunakan kredensial lain</a></p>
+    <div id="sCredFields" style="display:none;">
+      <div class="form-row">
+        <div class="field"><label>Username Avaya WFO</label><input type="text" id="s_user" autocomplete="off" placeholder="Masukkan username"></div>
+        <div class="field"><label>Password AWE</label><input type="password" id="s_pass" autocomplete="off" placeholder="Masukkan password"></div>
+      </div>
+    </div>
+    {% else %}
     <div class="form-row">
       <div class="field"><label>Username Avaya WFO</label><input type="text" id="s_user" autocomplete="off" placeholder="Masukkan username"></div>
       <div class="field"><label>Password AWE</label><input type="password" id="s_pass" autocomplete="off" placeholder="Masukkan password"></div>
     </div>
+    {% endif %}
     <button class="btn-modern" id="sPullBtn">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
       Tarik Tanggal yang Belum Ada
@@ -197,10 +207,20 @@
     <div class="field"><label>Dari tanggal</label><input type="date" id="v_from"></div>
     <div class="field"><label>Sampai tanggal</label><input type="date" id="v_to"></div>
   </div>
+  {% if awe_configured %}
+  <p class="use-note" style="margin-bottom:10px;">&#9989; Kredensial <span class="code-inline">.env</span> siap dipakai &mdash; tak perlu mengetik username/password. <a href="#" id="vToggleCred">Gunakan kredensial lain</a></p>
+  <div id="vCredFields" style="display:none;">
+    <div class="form-row">
+      <div class="field"><label>Username Avaya WFO</label><input type="text" id="v_user" autocomplete="off" placeholder="Masukkan username"></div>
+      <div class="field"><label>Password AWE</label><input type="password" id="v_pass" autocomplete="off" placeholder="Masukkan password"></div>
+    </div>
+  </div>
+  {% else %}
   <div class="form-row">
     <div class="field"><label>Username Avaya WFO</label><input type="text" id="v_user" autocomplete="off" placeholder="Masukkan username"></div>
     <div class="field"><label>Password AWE</label><input type="password" id="v_pass" autocomplete="off" placeholder="Masukkan password"></div>
   </div>
+  {% endif %}
   <div class="field">
     <label>Base URL (opsional)</label>
     <input type="text" id="v_base" placeholder="https://recapp.intranet.pajak.go.id">
@@ -295,6 +315,7 @@
 {% block scripts %}
 <script>
 (function(){
+var CONFIGURED = {{ 'true' if awe_configured else 'false' }};
 function el(id){return document.getElementById(id);}
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 function setS(msg,k){var s=el('sStat');s.className='status show'+(k?(' '+k):'');s.innerHTML=msg;}
@@ -383,13 +404,14 @@ el('sCheckBtn').addEventListener('click',function(){
      if(!d.ok){setS('Gagal: '+esc(d.error||''),'err');return;}
      var nm=(d.missing||[]).length,ns=(d.staged||[]).length;
      if(nm===0){setS('\u2705 Semua '+ns+' hari pada rentang ini sudah ada di penyimpanan sementara - tak perlu tarik ulang.','ok');el('sLoginBox').style.display='none';}
-     else{setS('\u2139\ufe0f '+ns+' hari sudah ada, <b>'+nm+' hari belum ada</b>. Masukkan kredensial untuk menariknya.');el('sLoginBox').style.display='block';}
+     else{setS('\u2139\ufe0f '+ns+' hari sudah ada, <b>'+nm+' hari belum ada</b>.'+(CONFIGURED?' Klik tombol di bawah untuk menariknya memakai kredensial .env.':' Masukkan kredensial untuk menariknya.'));el('sLoginBox').style.display='block';}
    }).catch(function(e){setS('Gagal: '+e,'err');});
 });
 
 el('sPullBtn').addEventListener('click',function(){
-  var df=el('s_from').value,dt=el('s_to').value,u=el('s_user').value.trim(),pw=el('s_pass').value;
-  if(!pw){setS('Password wajib diisi.','err');return;}
+  var df=el('s_from').value,dt=el('s_to').value,uEl=el('s_user'),pEl=el('s_pass');
+  var u=uEl?uEl.value.trim():'',pw=pEl?pEl.value:'';
+  if(!CONFIGURED && !pw){setS('Password wajib diisi.','err');return;}
   el('sPullBtn').disabled=true;setS('Menarik data\u2026');
   fetch('/api/awe/stage/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,username:u,password:pw,base_url:el('s_base').value.trim()})})
    .then(function(r){return r.json();}).then(function(d){
@@ -414,7 +436,7 @@ function fetchStage(job){
       else setS('Gagal: '+esc(d.error||''),'err');
       return;
     }
-    setS('\u2705 '+esc(d.message||'Selesai.'),'ok');el('s_pass').value='';el('sLoginBox').style.display='none';
+    setS('\u2705 '+esc(d.message||'Selesai.'),'ok');var _sp=el('s_pass');if(_sp)_sp.value='';el('sLoginBox').style.display='none';
     loadSummary();
   }).catch(function(e){setS('Gagal: '+e,'err');el('sPullBtn').disabled=false;});
 }
@@ -432,9 +454,10 @@ function renderVerify(rep){
   el('vResultBox').style.display='block';
 }
 el('vBtn').addEventListener('click',function(){
-  var df=el('v_from').value,dt=el('v_to').value,u=el('v_user').value.trim(),pw=el('v_pass').value;
+  var df=el('v_from').value,dt=el('v_to').value,uEl=el('v_user'),pEl=el('v_pass');
+  var u=uEl?uEl.value.trim():'',pw=pEl?pEl.value:'';
   if(!df||!dt){setV('Isi rentang tanggal dulu.','err');return;}
-  if(!pw){setV('Password wajib diisi untuk menghitung ulang.','err');return;}
+  if(!CONFIGURED && !pw){setV('Password wajib diisi untuk menghitung ulang.','err');return;}
   el('vBtn').disabled=true;setV('Menghitung ulang jumlah dari Avaya\u2026');
   fetch('/api/awe/stage/verify',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date_from:df,date_to:dt,username:u,password:pw,base_url:el('v_base').value.trim()})})
    .then(function(r){return r.json();}).then(function(d){
@@ -459,7 +482,7 @@ function fetchVerify(job){
     }
     var rep=d.report||{};
     renderVerify(rep);
-    el('v_pass').value='';
+    var _vp=el('v_pass');if(_vp)_vp.value='';
     if(rep.fully_complete)setV('\u2705 Semua hari lengkap.','ok');
     else if((rep.perlu_tarik_ulang||[]).length)setV('\u26a0\ufe0f '+rep.perlu_tarik_ulang.length+' hari perlu tarik ulang: '+esc(rep.perlu_tarik_ulang.join(', ')),'err');
     else setV('\u2139\ufe0f Verifikasi selesai.','ok');
@@ -536,6 +559,12 @@ el('nikFillBtn').addEventListener('click',function(){
      setN('\u2705 Selesai. '+(d.nik_filled||0)+' baris diisi NIK, '+(d.name_cleaned||0)+' nama dirapikan (dari '+(d.scanned||0)+' baris diperiksa).','ok');
    }).catch(function(e){setN('Gagal: '+e,'err');el('nikFillBtn').disabled=false;});
 });
+
+/* ---- Toggle 'Gunakan kredensial lain' (hanya muncul bila .env siap) ---- */
+var _sTog=el('sToggleCred');
+if(_sTog){_sTog.addEventListener('click',function(e){e.preventDefault();var f=el('sCredFields');if(f)f.style.display=(f.style.display==='none'?'block':'none');});}
+var _vTog=el('vToggleCred');
+if(_vTog){_vTog.addEventListener('click',function(e){e.preventDefault();var f=el('vCredFields');if(f)f.style.display=(f.style.display==='none'?'block':'none');});}
 
 loadSummary();
 loadNik();
