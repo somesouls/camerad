@@ -39,7 +39,10 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
 <div class="wrap">
   <div class="top">
     <h1>Pengguna &amp; Peran</h1>
-    <a class="back" href="/">← Kembali</a>
+    <div style="display:flex; gap:14px; align-items:center;">
+      <a class="back" href="/akses">⚙️ Kelola Akses &amp; Peran</a>
+      <a class="back" href="/">← Kembali</a>
+    </div>
   </div>
   <div class="card">
     <h3 id="ftitle" style="margin:0 0 14px; font-size:15px;">Tambah User Baru</h3>
@@ -51,13 +54,7 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
     <div class="row">
       <div class="fld">
         <label>Peran</label>
-        <select id="fr">
-          <option value="viewer">viewer — hanya lihat</option>
-          <option value="assessor">assessor — lihat + Penilaian QA (AWE)</option>
-          <option value="analis">analis — lihat, edit, setujui, ingest</option>
-          <option value="admin">admin — semua + kelola user</option>
-          <option value="agent">agent — Agent Kring Pajak (hanya chat + profil)</option>
-        </select>
+        <select id="fr"></select>
       </div>
       <div class="fld"><label>Sandi (min. 6 karakter)</label><input id="fp" type="password" /></div>
     </div>
@@ -95,12 +92,33 @@ function esc(s) {
   return (s || "").replace(/[&<>\"]/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]; });
 }
 
+// Peta peran diisi dinamis dari /api/roles (mendukung peran jenjang baru).
+var ROLE_LABELS = {};
 function badge(role) {
-  if (role === "admin") return '<span class="badge b-admin">admin</span>';
-  if (role === "analis") return '<span class="badge b-analis">analis</span>';
-  if (role === "assessor") return '<span class="badge b-assessor">assessor</span>';
-  if (role === "agent") return '<span class="badge b-agent">agent</span>';
-  return '<span class="badge b-viewer">viewer</span>';
+  var cls = role === "admin" ? "b-admin"
+    : role === "analis" ? "b-analis"
+    : role === "assessor" ? "b-assessor"
+    : role === "agent" ? "b-agent"
+    : "b-viewer";
+  var lbl = ROLE_LABELS[role] || role || "viewer";
+  return '<span class="badge ' + cls + '">' + esc(lbl) + '</span>';
+}
+
+async function loadRoles() {
+  try {
+    const r = await fetch("/api/roles");
+    const j = await r.json();
+    if (j.ok && j.roles) {
+      fr.innerHTML = "";
+      j.roles.forEach(function(role) {
+        ROLE_LABELS[role.key] = role.label || role.key;
+        var opt = document.createElement("option");
+        opt.value = role.key;
+        opt.textContent = (role.label || role.key) + " (L" + role.level + " · " + role.key + ")";
+        fr.appendChild(opt);
+      });
+    }
+  } catch (e) {}
 }
 
 function avatarCell(u) {
@@ -138,7 +156,7 @@ function resetForm() {
   fu.value = "";
   fu.disabled = false;
   fn.value = "";
-  fr.value = "viewer";
+  if (fr.querySelector('option[value="viewer"]')) fr.value = "viewer";
   fp.value = "";
   ftitle.textContent = "Tambah User Baru";
 }
@@ -183,6 +201,6 @@ document.getElementById("save").addEventListener("click", async () => {
   if (j.ok) { resetForm(); load(); }
 });
 
-load();
+loadRoles().then(load);
 </script>
 {% endblock %}

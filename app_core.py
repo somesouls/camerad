@@ -94,6 +94,7 @@ def _page_user_ctx(request):
     role_key = (user.get("role") if user and user.get("role") else "") or ""
     role_lbl = usr.role_label(role_key) if role_key else "Fungsional Penyuluh"
     avatar = (nama[0].upper() if nama else "A")
+    uid = user.get("id") if user else None
     return {
         "user_name": nama,
         "user_role": role_lbl,
@@ -101,16 +102,16 @@ def _page_user_ctx(request):
         "user_avatar": avatar,
         "user_avatar_img": (user.get("avatar") if user else "") or "",
         "user_username": (user.get("username") if user else "") or "",
-        "can_dialogflow": usr.area_allowed(role_key, "dialogflow"),
-        "can_awe": usr.area_allowed(role_key, "awe"),
-        "can_awe_manage": usr.area_allowed(role_key, "awe_manage"),
-        "can_assess": usr.area_allowed(role_key, "assess"),
-        "can_users": usr.area_allowed(role_key, "users"),
-        "can_sosmed": usr.area_allowed(role_key, "common"),
-        "can_sosmed_manage": usr.area_allowed(role_key, "awe_manage"),
-        "can_peraturan": usr.area_allowed(role_key, "peraturan"),
+        "can_dialogflow": usr.area_allowed(role_key, "dialogflow", user_id=uid),
+        "can_awe": usr.area_allowed(role_key, "awe", user_id=uid),
+        "can_awe_manage": usr.area_allowed(role_key, "awe_manage", user_id=uid),
+        "can_assess": usr.area_allowed(role_key, "assess", user_id=uid),
+        "can_users": usr.area_allowed(role_key, "users", user_id=uid),
+        "can_sosmed": usr.area_allowed(role_key, "common", user_id=uid),
+        "can_sosmed_manage": usr.area_allowed(role_key, "awe_manage", user_id=uid),
+        "can_peraturan": usr.area_allowed(role_key, "peraturan", user_id=uid),
         # Kanal chat RAG Agent Kring Pajak (semua peran, termasuk 'agent').
-        "can_chat": usr.area_allowed(role_key, "chat"),
+        "can_chat": usr.area_allowed(role_key, "chat", user_id=uid),
         # Peran 'agent' hanya boleh chat + profil (menu lain disembunyikan).
         "is_agent": role_key == "agent",
     }
@@ -135,6 +136,8 @@ _PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ic
 
 def _route_action(method, path):
     if path == "/users" or path.startswith("/api/users"):
+        return "admin"
+    if path == "/akses" or path.startswith("/api/roles"):
         return "admin"
     if (path.startswith("/api/sosmed/import") or path.startswith("/api/sosmed/pull")
             or path == "/api/sosmed/purge" or path == "/api/sosmed/repair"):
@@ -220,6 +223,8 @@ def _route_area(path):
         return "peraturan"
     if path == "/users" or path.startswith("/api/users"):
         return "users"
+    if path == "/akses" or path.startswith("/api/roles"):
+        return "users"
     if (path == "/awe/kelola" or path.startswith("/api/awe/pull")
             or path.startswith("/api/awe/stage") or path.startswith("/api/awe/process")
             or path.startswith("/api/awe/delete")):
@@ -299,7 +304,7 @@ async def _auth_middleware(request: Request, call_next):
         return RedirectResponse("/login?next=" + _quote(nxt, safe=""), status_code=302)
 
     role = user.get("role")
-    if not usr.area_allowed(role, _route_area(path)):
+    if not usr.area_allowed(role, _route_area(path), user_id=user.get("id")):
         if path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "Akses ditolak untuk peran Anda."}, status_code=403)
         return RedirectResponse("/", status_code=302)
