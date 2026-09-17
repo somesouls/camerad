@@ -23,8 +23,11 @@ import awe.botfilter as botfilter
 import awe.content_search as csearch
 from awe.botfilter import wants_exclude, exclude_bot_sql
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
+
+XLSX_MIME = ("application/vnd.openxmlformats-officedocument"
+             ".spreadsheetml.sheet")
 
 
 def _jkt_today():
@@ -374,6 +377,114 @@ def search_conversations(conn, start=None, end=None, customer="", sid="",
             "scan_capped": len(scan_rows) >= _MAX_SCAN}
 
 
+def _fmt_dur(sec):
+    """Format durasi (detik) -> '1j 05m' / '3m 07s' (mirror util di frontend)."""
+    try:
+        s = int(sec or 0)
+    except Exception:
+        return ""
+    if s < 0:
+        return ""
+    m, r = divmod(s, 60)
+    if m >= 60:
+        h, m = divmod(m, 60)
+        return "%dj %02dm" % (h, m)
+    return "%dm %02ds" % (m, r)
+
+
+# Kolom ekspor: (judul, key pada baris _conv_row). "durasi" & emails ditangani
+# khusus di build_conversations_xlsx agar formatnya ramah-Excel.
+_XLSX_COLS = [
+    ("Tanggal", "tanggal"),
+    ("SID", "sid"),
+    ("Customer", "customer"),
+    ("Agent", "agent_name"),
+    ("Durasi (detik)", "durasi"),
+    ("Durasi", "_durasi_fmt"),
+    ("Intent", "mapped_intent"),
+    ("Coverage", "coverage_band"),
+    ("Kasus", "case_label"),
+    ("Sentimen", "sentiment"),
+    ("Emosi", "emotion"),
+    ("Topik", "topik"),
+    ("Gap deflection", "_gap"),
+    ("Email", "_emails"),
+]
+
+
+def build_conversations_xlsx(conversations, meta=None):
+    """Bangun berkas XLSX (bytes) dari hasil pencarian percakapan.
+
+    Satu sheet "Detail Percakapan": baris meta rentang/filter di atas, lalu
+    tabel percakapan (kolom = _XLSX_COLS). Baris sentimen negatif disorot merah
+    (konsisten dengan ekspor Avaya di avaya/pipeline.py). Memakai openpyxl yang
+    sudah tercantum di requirements.txt.
+    """
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    meta = meta or {}
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Detail Percakapan"
+
+    # Info rentang & filter (agar ekspor swadaya/ dapat ditelusuri).
+    rng = meta.get("range") or {}
+    info = [
+        ("Rentang", "%s s/d %s" % (rng.get("start") or "—", rng.get("end") or "—")),
+        ("Total cocok", meta.get("total", len(conversations))),
+        ("Diekspor", len(conversations)),
+    ]
+    filt = meta.get("filters") or {}
+    label = {"customer": "Customer", "sid": "SID", "agent": "Agent",
+             "kw": "Intent/kasus/topik", "content": "Isi percakapan",
+             "mode": "Mode isi"}
+    for k in ("customer", "sid", "agent", "kw", "content", "mode"):
+        v = str(filt.get(k) or "").strip()
+        if v and not (k == "mode" and v == "keyword"):
+            info.append(("Filter " + label[k], v))
+    for r in info:
+        ws.append(list(r))
+    for cell in ws["A"][:len(info)]:
+        cell.font = Font(bold=True)
+    ws.append([""])  # baris pemisah
+
+    ws.append([c[0] for c in _XLSX_COLS])
+    header_row = ws.max_row
+    for cell in ws[header_row]:
+        cell.font = Font(bold=True)
+
+    red = PatternFill("solid", fgColor="FCE9E7")
+    for c in conversations:
+        emails = c.get("emails") or []
+        mail = "; ".join(
+            e.get("raw", "") for e in emails if isinstance(e, dict)) \
+            if emails else ""
+        extra = {
+            "_durasi_fmt": _fmt_dur(c.get("durasi")),
+            "_gap": "Ya" if c.get("deflection_gap") else "",
+            "_emails": mail,
+        }
+        row = []
+        for _title, key in _XLSX_COLS:
+            row.append(extra[key] if key in extra else c.get(key, ""))
+        ws.append(row)
+        if (c.get("sentiment") or "") == "Negatif":
+            for cell in ws[ws.max_row]:
+                cell.fill = red
+
+    widths = [12, 20, 22, 20, 12, 10, 22, 12, 18, 11, 14, 24, 14, 30]
+    from openpyxl.utils import get_column_letter
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = ws.cell(row=header_row + 1, column=1)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 _PAGES = [
     ("/awe/dasbor", "awe_dasbor", "Dashboard AWE", "dasbor"),
     ("/awe/coverage", "awe_coverage", "Coverage & Deflection", "coverage"),
@@ -532,6 +643,60 @@ def register(app, *, render_page):
 
     app.add_api_route("/api/awe/analytics/conversations",
                       api_awe_conversations, methods=["GET"])
+
+    async def api_awe_conversations_xlsx(request: Request):
+        """Ekspor hasil pencarian percakapan ke Excel (.xlsx).
+
+        Memakai filter yang SAMA dengan /api/awe/analytics/conversations (rentang,
+        customer/sid/agent/kw, pencarian isi + mode) sehingga isi berkas persis
+        seperti yang dilihat analis — tetapi mengekspor SELURUH baris cocok
+        (dibatasi 5000 oleh search_conversations), bukan hanya yang tampil.
+        """
+        q = request.query_params
+        preset = q.get("range") or "7d"
+        start = q.get("start"); end = q.get("end")
+        exclude_bot = wants_exclude(q)
+        customer = q.get("customer") or ""
+        sid = q.get("sid") or ""
+        agent = q.get("agent") or ""
+        kw = q.get("kw") or ""
+        content = q.get("content") or ""
+        mode = q.get("mode") or "keyword"
+
+        def _run():
+            conn = avdb.init_db(avdb.connect())
+            try:
+                s, e = resolve_range(preset, start, end)
+                data = search_conversations(
+                    conn, s, e, customer=customer, sid=sid, agent=agent,
+                    kw=kw, content=content, mode=mode, limit=5000,
+                    exclude_bot=exclude_bot)
+                data["range"] = {"start": s or "", "end": e or ""}
+                data["filters"] = {"customer": customer, "sid": sid,
+                                   "agent": agent, "kw": kw, "content": content,
+                                   "mode": mode}
+                return data
+            finally:
+                conn.close()
+
+        try:
+            data = await run_in_threadpool(_run)
+            xlsx = await run_in_threadpool(
+                build_conversations_xlsx, data.get("conversations", []), data)
+            rng = data.get("range") or {}
+            tag = (rng.get("start") or "") + "_" + (rng.get("end") or "")
+            tag = tag.strip("_") or _jkt_today().isoformat()
+            fname = "awe_percakapan_%s.xlsx" % tag.replace("/", "-")
+            return Response(
+                content=xlsx, media_type=XLSX_MIME,
+                headers={"Content-Disposition":
+                         'attachment; filename="%s"' % fname})
+        except Exception as ex:
+            return JSONResponse({"ok": False, "error": str(ex)},
+                                status_code=500)
+
+    app.add_api_route("/api/awe/analytics/conversations.xlsx",
+                      api_awe_conversations_xlsx, methods=["GET"])
 
     # Pasang modul Penilaian QA (Assessor): API transkrip percakapan.
     # Dilakukan di sini agar tidak perlu menyentuh web_app.py maupun
