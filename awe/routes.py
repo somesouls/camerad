@@ -24,6 +24,7 @@ from starlette.concurrency import run_in_threadpool
 
 import avaya.db as avdb
 import avaya.client as avc
+import avaya.creds as avcreds
 import avaya.verify as avver
 from app_core import CONFIG, render_page
 
@@ -40,7 +41,10 @@ curl_json_raw = None
 
 
 async def awe_kelola_page(request: Request):
-    return render_page(request, "awe_kelola.html", "awe_kelola")
+    # awe_configured = True bila kredensial .env siap (AVAYA_PASSWORD terisi),
+    # dipakai template untuk MENYEMBUNYIKAN form username/password bila tak perlu.
+    return render_page(request, "awe_kelola.html", "awe_kelola",
+                       {"awe_configured": avcreds.is_configured()})
 
 
 async def awe_penilaian_page(request: Request):
@@ -197,12 +201,15 @@ async def awe_pull_start(request: Request):
     username = body.get("username") or ""
     password = body.get("password") or ""
     base_url = str(body.get("base_url") or "").strip()
+    # Fallback .env: bila password tak diisi di form, pakai kredensial .env yang
+    # sudah dibersihkan (sama seperti login manual). Form boleh dikosongkan.
+    username, password, base_url = avcreds.resolve(username, password, base_url)
     if not re.match(r"^[A-Za-z0-9_\-]{1,64}$", run):
         return JSONResponse({"ok": False, "error": "Run ID tidak valid."}, status_code=400)
     if not df or not dt:
         return JSONResponse({"ok": False, "error": "Tanggal wajib diisi."}, status_code=400)
     if not password:
-        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi.", "need_login": True}, status_code=400)
+        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi (atau set AVAYA_USERNAME/AVAYA_PASSWORD di .env).", "need_login": True}, status_code=400)
     job_id = _uuid.uuid4().hex
     _awe_job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan…")
     _threading.Thread(
@@ -307,10 +314,12 @@ async def awe_stage_start(request: Request):
     username = body.get("username") or ""
     password = body.get("password") or ""
     base_url = str(body.get("base_url") or "").strip()
+    # Fallback .env bila form dikosongkan (kredensial .env sudah dibersihkan).
+    username, password, base_url = avcreds.resolve(username, password, base_url)
     if not df or not dt:
         return JSONResponse({"ok": False, "error": "Tanggal wajib diisi."}, status_code=400)
     if not password:
-        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi.", "need_login": True}, status_code=400)
+        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi (atau set AVAYA_USERNAME/AVAYA_PASSWORD di .env).", "need_login": True}, status_code=400)
     me = getattr(request.state, "user", None) or {}
     job_id = _uuid.uuid4().hex
     _awe_job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan")
@@ -425,10 +434,12 @@ async def awe_stage_verify(request: Request):
     username = body.get("username") or ""
     password = body.get("password") or ""
     base_url = str(body.get("base_url") or "").strip()
+    # Fallback .env bila form dikosongkan (kredensial .env sudah dibersihkan).
+    username, password, base_url = avcreds.resolve(username, password, base_url)
     if not df or not dt:
         return JSONResponse({"ok": False, "error": "Tanggal (dari & sampai) wajib diisi."}, status_code=400)
     if not password:
-        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi.", "need_login": True}, status_code=400)
+        return JSONResponse({"ok": False, "error": "Password AWE wajib diisi (atau set AVAYA_USERNAME/AVAYA_PASSWORD di .env).", "need_login": True}, status_code=400)
     job_id = _uuid.uuid4().hex
     _verify_job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan")
     _threading.Thread(target=_awe_verify_worker,
@@ -711,9 +722,11 @@ def awe_autopull_run(date_from=None, date_to=None, username=None, password=None,
     if not _AWE_AUTOPULL_LOCK.acquire(blocking=False):
         return {"ok": False, "skipped": True,
                 "error": "Auto-pull lain sedang berjalan; permintaan dilewati."}
-    username = (username or os.environ.get("AVAYA_USERNAME") or "").strip()
-    password = password or os.environ.get("AVAYA_PASSWORD") or ""
-    base_url = (base_url or os.environ.get("AVAYA_BASE_URL") or "").strip()
+    # Kredensial .env dibersihkan (buang kutip/spasi/CR-LF pembungkus) via
+    # avaya.creds supaya login penjadwal identik dgn login manual.
+    username = (username or avcreds.username() or "").strip()
+    password = password or avcreds.password() or ""
+    base_url = (base_url or avcreds.base_url() or "").strip()
     if not date_from or not date_to:
         y = _awe_yesterday()
         date_from = date_from or y
@@ -793,7 +806,7 @@ async def awe_autopull_status():
         "ok": True,
         "running": _AWE_AUTOPULL_LOCK.locked(),
         "enabled": _awe_env_flag("AWE_SCHEDULER", "0"),
-        "configured": bool((os.environ.get("AVAYA_PASSWORD") or "").strip()),
+        "configured": avcreds.is_configured(),
         "hour": os.environ.get("AWE_INGEST_HOUR", "5"),
         "minute": os.environ.get("AWE_INGEST_MINUTE", "0"),
         "process": _awe_env_flag("AWE_INGEST_PROCESS", "1"),
@@ -810,7 +823,7 @@ async def awe_autopull_now(request: Request):
     dt = str(body.get("date_to") or "").strip() or None
     if _AWE_AUTOPULL_LOCK.locked():
         return JSONResponse({"ok": False, "error": "Auto-pull sedang berjalan."}, status_code=409)
-    if not (os.environ.get("AVAYA_PASSWORD") or "").strip():
+    if not avcreds.is_configured():
         return JSONResponse({"ok": False, "need_login": True,
                              "error": "Kredensial AWE belum diset di .env (AVAYA_USERNAME/AVAYA_PASSWORD)."}, status_code=400)
     _threading.Thread(
