@@ -14,6 +14,7 @@ import uuid as _uuid
 
 import avaya.db as avdb
 import avaya.client as avc
+import avaya.creds as avcreds
 import avaya.phone as avphone
 import avaya.phone_pull as ppull
 import avaya.phone_analyze as panalyze
@@ -87,11 +88,10 @@ def _pull_worker(job_id, day_from, day_to, username, password, base_url, limit, 
 
 def start_pull(day_from, day_to, limit=25, pulled_by=""):
     # Kredensial diambil dari .env (AVAYA_USERNAME/AVAYA_PASSWORD/AVAYA_BASE_URL),
-    # sama seperti alur AWE Chat (auto-pull). Login-then-forget: dipakai di worker
-    # lalu dilupakan, tidak pernah ditulis ke disk/DB.
-    username = (os.environ.get("AVAYA_USERNAME") or "").strip()
-    password = os.environ.get("AVAYA_PASSWORD") or ""
-    base_url = (os.environ.get("AVAYA_BASE_URL") or "").strip()
+    # dibersihkan lewat avaya.creds (buang kutip/spasi/CR-LF pembungkus) supaya
+    # login .env berperilaku SAMA seperti login manual. Login-then-forget: dipakai
+    # di worker lalu dilupakan, tidak pernah ditulis ke disk/DB.
+    username, password, base_url = avcreds.credentials()
     job_id = _uuid.uuid4().hex
     _job_set(job_id, status="queued", finished=False, ok=None, message="Menyiapkan")
     _threading.Thread(target=_pull_worker,
@@ -163,11 +163,9 @@ def pull_sync(day_from, day_to, limit=25, pulled_by=""):
     """Tarik (Tahap 1) SINKRON - blok sampai selesai; utk auto-pull penjadwal.
 
     Sama seperti start_pull tetapi tanpa thread; kembalikan dict hasil job.
-    Kredensial dari .env (login-then-forget).
+    Kredensial dari .env (login-then-forget), dibersihkan lewat avaya.creds.
     """
-    username = (os.environ.get("AVAYA_USERNAME") or "").strip()
-    password = os.environ.get("AVAYA_PASSWORD") or ""
-    base_url = (os.environ.get("AVAYA_BASE_URL") or "").strip()
+    username, password, base_url = avcreds.credentials()
     job_id = _uuid.uuid4().hex
     _pull_worker(job_id, day_from, day_to, username, password, base_url, limit, pulled_by)
     res = job_get(job_id)

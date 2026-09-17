@@ -115,35 +115,89 @@ def run_stt(paths, timeout=1800, context=None):
 
     context (opsional): teks kosakata/hotwords domain (Glosarium Pajak) yang
     dikirim ke worker lewat env AWE_QWEN_CONTEXT untuk membiaskan Qwen3-ASR.
+
+    TAHAN-INTERUPSI: worker menulis hasil ke berkas JSON sementara; bila proses
+    worker mati SEBELUM menulis berkas (mis. KeyboardInterrupt saat inferensi
+    torch, server di-restart, atau mesin sleep), induk TIDAK lagi memuntahkan
+    traceback FileNotFoundError mentah. Sebagai gantinya dikembalikan pesan
+    'interrupted' yang jelas & BISA DIULANG; baris terkait tetap 'pending'
+    (transkrip_source NULL) sehingga otomatis dilanjutkan di batch berikutnya -
+    data tidak rusak/hilang.
     """
     paths = [p for p in (paths or []) if p]
     if not paths:
         return {"ok": False, "error": "tak ada berkas audio", "results": []}
     out_json = os.path.join(tempfile.gettempdir(), "awe_stt_out_%d.json" % os.getpid())
+    # Bersihkan sisa berkas keluaran lama (bila proses ber-PID sama pernah mati)
+    # agar tidak keliru terbaca sebagai hasil basi.
+    try:
+        if os.path.exists(out_json):
+            os.remove(out_json)
+    except Exception:
+        pass
     cmd = [_asr_python(), _worker_path(), "--out", out_json] + list(paths)
     env = dict(os.environ)
     ctx = (context or "").strip()
     if ctx:
         env["AWE_QWEN_CONTEXT"] = ctx
+
+    def _stderr_tail(n=400):
+        try:
+            return (proc.stderr or b"").decode("utf-8", "replace").strip()[-n:]
+        except Exception:
+            return ""
+
     try:
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=timeout, env=env)
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "interrupted": True,
+                "error": ("worker STT melebihi batas waktu %ss dan dihentikan; "
+                          "baris belum ditandai selesai dan akan dilanjutkan "
+                          "otomatis di batch berikutnya." % timeout),
+                "results": []}
     except Exception as e:
         return {"ok": False, "error": "worker gagal dijalankan: %r" % e, "results": []}
+
     data = None
+    read_err = None
     try:
         with open(out_json, "r", encoding="utf-8") as f:
             data = json.load(f)
     except Exception as e:
-        tail = ""
+        read_err = e
+    finally:
         try:
-            tail = (proc.stderr or b"").decode("utf-8", "replace")[-300:]
+            os.remove(out_json)
         except Exception:
             pass
-        data = {"ok": False, "error": "baca hasil worker gagal: %r | %s" % (e, tail), "results": []}
-    try:
-        os.remove(out_json)
-    except Exception:
-        pass
+
+    if data is None:
+        rc = proc.returncode
+        tail = _stderr_tail()
+        # Tidak ada berkas keluaran. Bila returncode != 0 (atau None), worker mati
+        # sebelum selesai menulis hasil -> perlakukan sebagai INTERUPSI yang bisa
+        # diulang, BUKAN kegagalan data. Tampilkan pesan jelas + cuplikan stderr,
+        # bukan traceback FileNotFoundError mentah.
+        interrupted = (rc is None) or (rc != 0)
+        if interrupted:
+            msg = ("worker STT terhenti sebelum selesai menulis hasil "
+                   "(kode keluar %r) - kemungkinan proses dihentikan/di-restart "
+                   "di tengah transkripsi. Data aman: baris belum ditandai selesai "
+                   "dan akan dilanjutkan otomatis di batch berikutnya." % (rc,))
+        else:
+            msg = "baca hasil worker gagal: %r" % (read_err,)
+        if tail:
+            msg += " | stderr: " + tail
+        return {"ok": False, "interrupted": bool(interrupted),
+                "returncode": rc, "error": msg, "results": []}
+
+    # Berkas keluaran ADA -> kembalikan hasil worker apa adanya (sertakan
+    # returncode utk info bila belum ada).
+    if isinstance(data, dict) and "returncode" not in data:
+        try:
+            data["returncode"] = proc.returncode
+        except Exception:
+            pass
     return data
 
 
@@ -181,6 +235,7 @@ def analyze_day(conn, day=None, limit=25, min_durasi=3, do_llm=True, do_stt=True
         if stt.get("error") and not stt.get("results"):
             return {"ok": False, "pending": len(rows) + len(llm_rows),
                     "stt_ok": 0, "llm_ok": 0, "error": stt.get("error"),
+                    "interrupted": bool(stt.get("interrupted")),
                     "llm_error": "", "details": []}
         res_map = _by_basename(stt.get("results"))
         for r in rows:
@@ -288,6 +343,7 @@ def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
     llm_ok = 0
     llm_err = ""
     last_err = None
+    interrupted = False
     while True:
         if should_stop and should_stop():
             break
@@ -304,6 +360,7 @@ def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
         rounds += 1
         if not res.get("ok"):
             last_err = res.get("error") or "STT/analisis gagal"
+            interrupted = bool(res.get("interrupted"))
             break
         stt_ok += int(res.get("stt_ok") or 0)
         llm_ok += int(res.get("llm_ok") or 0)
@@ -317,4 +374,5 @@ def analyze_all(conn, day=None, min_durasi=3, batch=None, max_batches=None,
     return {"ok": last_err is None, "all": True, "rounds": rounds,
             "stt_ok": stt_ok, "llm_ok": llm_ok, "pending": remaining,
             "remaining_stt": n_stt, "remaining_llm": n_llm,
-            "error": last_err, "llm_error": llm_err, "details": []}
+            "error": last_err, "interrupted": interrupted,
+            "llm_error": llm_err, "details": []}
