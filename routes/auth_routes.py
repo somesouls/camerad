@@ -234,6 +234,129 @@ def register(app):
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)})
 
+    # =========================================================
+    # Kelola Akses & Peran (RBAC dinamis) — halaman /akses + API
+    # =========================================================
+    # Semua endpoint di bawah area 'users' + aksi 'admin' (lihat _route_area &
+    # _route_action di app_core), jadi hanya bisa diakses peran ber-cap 'admin'.
+    @app.get("/akses")
+    async def akses_page(request: Request):
+        return render_page(request, "akses.html", "users")
+
+    @app.get("/api/roles")
+    async def api_roles_list(request: Request):
+        def _run():
+            c = usr.connect()
+            try:
+                usr.init_db(c)
+                cat = usr.access_catalog()
+                return {"roles": usr.list_roles(c), "areas": cat["areas"], "caps": cat["caps"]}
+            finally:
+                c.close()
+
+        try:
+            data = await run_in_threadpool(_run)
+            return JSONResponse({"ok": True, "roles": data["roles"], "areas": data["areas"], "caps": data["caps"]})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    @app.post("/api/roles/save")
+    async def api_roles_save(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+
+        def _run():
+            c = usr.connect()
+            try:
+                usr.init_db(c)
+                return usr.save_role(
+                    c,
+                    key=body.get("key"),
+                    orig_key=body.get("orig_key"),
+                    label=body.get("label", ""),
+                    level=body.get("level", 4),
+                    caps=body.get("caps") or [],
+                    areas=body.get("areas") or [],
+                )
+            finally:
+                c.close()
+
+        try:
+            return JSONResponse(await run_in_threadpool(_run))
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    @app.post("/api/roles/delete")
+    async def api_roles_delete(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        key = body.get("key") if isinstance(body, dict) else None
+        if not key:
+            return JSONResponse({"ok": False, "error": "key kosong."})
+
+        def _run():
+            c = usr.connect()
+            try:
+                usr.init_db(c)
+                return usr.delete_role(c, key)
+            finally:
+                c.close()
+
+        try:
+            return JSONResponse(await run_in_threadpool(_run))
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    @app.get("/api/users/grants")
+    async def api_user_grants_get(request: Request):
+        uid = request.query_params.get("user_id")
+        if not uid:
+            return JSONResponse({"ok": False, "error": "user_id kosong."})
+
+        def _run():
+            c = usr.connect()
+            try:
+                usr.init_db(c)
+                return usr.get_user_grants(c, int(uid))
+            finally:
+                c.close()
+
+        try:
+            return JSONResponse({"ok": True, "grants": await run_in_threadpool(_run)})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
+    @app.post("/api/users/grants")
+    async def api_user_grants_set(request: Request):
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        uid = body.get("user_id") or body.get("id")
+        if not uid:
+            return JSONResponse({"ok": False, "error": "user_id kosong."})
+
+        def _run():
+            c = usr.connect()
+            try:
+                usr.init_db(c)
+                return usr.set_user_grants(c, int(uid), body.get("grants") or {})
+            finally:
+                c.close()
+
+        try:
+            return JSONResponse(await run_in_threadpool(_run))
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)})
+
     # Seed admin awal (dipindah dari top-level web_app.py)
     try:
         _sc = usr.connect()

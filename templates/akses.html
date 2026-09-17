@@ -1,0 +1,282 @@
+{% extends "base.html" %}
+{% block title %}Kelola Akses & Peran — Camerad Studio{% endblock %}
+{% block head %}<style>
+.wrap { max-width:1080px; margin:0 auto; padding:24px 16px 80px; }
+.top { display:flex; align-items:center; justify-content:space-between; margin-bottom:18px; flex-wrap:wrap; gap:10px; }
+h1 { font-size:20px; margin:0; color:var(--text-main); }
+h2 { font-size:15px; margin:0 0 14px; color:var(--text-main); }
+a.back { color:var(--accent); text-decoration:none; font-size:13px; }
+a.back:hover { text-decoration:underline; }
+.card { background:var(--panel-bg); border:1px solid var(--panel-border); border-radius:12px; padding:18px; margin-top:18px; box-shadow:var(--shadow-sm); }
+table { width:100%; border-collapse:collapse; }
+th, td { padding:9px 10px; text-align:left; font-size:13px; border-bottom:1px solid var(--panel-border); color:var(--text-main); vertical-align:top; }
+th { color:var(--text-muted); font-weight:600; background:var(--bg-base); }
+tr:last-child td { border-bottom:none; }
+.badge { padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; background:var(--panel-border); color:var(--text-muted); }
+.sys { background:var(--c-orange); color:var(--c-orange-txt); }
+.pill { display:inline-block; padding:1px 7px; margin:2px 3px 2px 0; border-radius:6px; font-size:11px; background:var(--bg-base); border:1px solid var(--panel-border); color:var(--text-muted); }
+.btn { padding:6px 10px; border:1px solid var(--panel-border); border-radius:7px; background:var(--bg-base); color:var(--text-main); font-size:12px; cursor:pointer; }
+.btn:hover { border-color:var(--accent); color:var(--accent); }
+.btn.danger:hover { border-color:#ef4444; color:#f87171; }
+.row { display:flex; gap:12px; flex-wrap:wrap; }
+.fld { flex:1; min-width:150px; }
+label { display:block; font-size:12px; color:var(--text-muted); margin:0 0 6px; }
+input, select { width:100%; padding:9px 10px; border-radius:8px; border:1px solid var(--panel-border); background:var(--bg-base); color:var(--text-main); font-size:13px; outline:none; }
+input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-glow); }
+.primary { background:var(--accent); color:#fff; border:none; padding:10px 16px; border-radius:8px; font-weight:600; cursor:pointer; margin-top:6px; }
+.primary:hover { background:var(--accent-hover); }
+.grp { border:1px solid var(--panel-border); border-radius:10px; margin-top:12px; overflow:hidden; }
+.grp > summary { cursor:pointer; padding:10px 12px; font-size:13px; font-weight:600; background:var(--bg-base); color:var(--text-main); list-style:none; }
+.grp > summary::-webkit-details-marker { display:none; }
+.grp .grp-body { padding:10px 12px; }
+.chk { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:13px; color:var(--text-main); }
+.chk input { width:auto; }
+.chk .desc { color:var(--text-muted); font-size:11px; }
+.caps { display:flex; flex-wrap:wrap; gap:12px; }
+.caps .chk { min-width:120px; }
+.msg { margin-top:12px; font-size:13px; display:none; padding:9px 12px; border-radius:8px; }
+.msg.ok { background:rgba(16,185,129,0.15); color:var(--c-green-txt); display:block; }
+.msg.no { background:rgba(239,68,68,0.15); color:var(--c-red-txt); display:block; }
+.hint { font-size:12px; color:var(--text-muted); margin:6px 0 0; }
+.split { display:grid; grid-template-columns:1fr; gap:18px; }
+@media(min-width:900px){ .split { grid-template-columns:minmax(0,1fr) minmax(0,1fr); align-items:start; } }
+</style>{% endblock %}
+{% block content %}
+<div class="wrap">
+  <div class="top">
+    <h1>⚙️ Kelola Akses &amp; Peran</h1>
+    <div style="display:flex; gap:14px; align-items:center;">
+      <a class="back" href="/users">👥 Pengguna</a>
+      <a class="back" href="/">← Kembali</a>
+    </div>
+  </div>
+  <p class="hint">Atur peran (jenjang & menu yang boleh diakses) dan tambahan akses khusus per-pengguna. Menu beranda &amp; Profil selalu tersedia untuk semua peran. Perubahan langsung berlaku tanpa restart.</p>
+
+  <div class="card">
+    <h2>Daftar Peran</h2>
+    <table>
+      <thead><tr><th>Peran</th><th>Level</th><th>Kapabilitas</th><th>Menu</th><th>Pengguna</th><th></th></tr></thead>
+      <tbody id="rtb"></tbody>
+    </table>
+  </div>
+
+  <div class="split">
+    <div class="card">
+      <h2 id="rtitle">Tambah Peran Baru</h2>
+      <input type="hidden" id="orig_key" />
+      <div class="row">
+        <div class="fld"><label>Kunci (huruf/angka, mis. spv_analis)</label><input id="rkey" placeholder="spv_analis" /></div>
+        <div class="fld"><label>Nama tampilan</label><input id="rlabel" placeholder="SPV Analis" /></div>
+        <div class="fld" style="max-width:120px;"><label>Level</label><input id="rlevel" type="number" min="0" max="99" value="4" /></div>
+      </div>
+      <label style="margin-top:12px;">Kapabilitas (aksi)</label>
+      <div class="caps" id="rcaps"></div>
+      <label style="margin-top:12px;">Menu yang bisa diakses (dikelompokkan per accordion sidebar)</label>
+      <div id="rareas"></div>
+      <button class="primary" id="rsave">Simpan Peran</button>
+      <button class="btn" id="rreset" style="margin-top:6px;">Batal / Reset</button>
+      <div class="msg" id="rmsg"></div>
+    </div>
+
+    <div class="card">
+      <h2>Akses Khusus per-Pengguna</h2>
+      <p class="hint">Timpa akses menu untuk satu pengguna di atas perannya (mis. beri satu menu tambahan, atau cabut satu menu). Kosongkan ke “Ikuti peran” untuk mengembalikan ke bawaan peran.</p>
+      <div class="fld" style="margin-top:10px;"><label>Pengguna</label><select id="guser"></select></div>
+      <div id="gareas" style="margin-top:12px;"></div>
+      <button class="primary" id="gsave">Simpan Akses Khusus</button>
+      <div class="msg" id="gmsg"></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+// Pengelompokan area ke accordion, mengikuti sidebar base.html.
+const GROUPS = [
+  { group: "RAG Chatbot & Agent", areas: ["rag_config"] },
+  { group: "Dialogflow", areas: ["dialogflow", "df_webhook"] },
+  { group: "AWE Chat", areas: ["awe", "assess"] },
+  { group: "Kelola Data (AWE Chat / AWE Phone / Sosmed)", areas: ["awe_manage"] },
+  { group: "Sosmed & Laporan", areas: ["common"] },
+  { group: "Peraturan", areas: ["peraturan"] },
+  { group: "Voicebot", areas: ["voicebot"] },
+  { group: "Umum", areas: ["users"] }
+];
+
+let CATALOG = { areas: [], caps: [] };
+let AREA_LABEL = {};
+let ROLES = [];
+let USERS = [];
+
+const rtb = document.getElementById("rtb");
+const rmsg = document.getElementById("rmsg");
+const gmsg = document.getElementById("gmsg");
+const origKey = document.getElementById("orig_key");
+const rkey = document.getElementById("rkey");
+const rlabel = document.getElementById("rlabel");
+const rlevel = document.getElementById("rlevel");
+const rtitle = document.getElementById("rtitle");
+
+function esc(s) { return (s || "").replace(/[&<>\"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c])); }
+function showMsg(el, text, ok) { el.textContent = text; el.className = "msg " + (ok ? "ok" : "no"); }
+
+function capsBoxes(prefix) {
+  return CATALOG.caps.map(c =>
+    '<label class="chk"><input type="checkbox" data-cap="' + c + '" id="' + prefix + '_cap_' + c + '"> ' + esc(c) + '</label>'
+  ).join("");
+}
+
+// Bangun accordion area untuk editor peran (checkbox) atau grant user (select 3-state).
+function areaGroups(mode) {
+  let html = "";
+  GROUPS.forEach(g => {
+    const items = g.areas.filter(a => AREA_LABEL[a] !== undefined);
+    if (!items.length) return;
+    let body = items.map(a => {
+      const lbl = esc(AREA_LABEL[a] || a);
+      if (mode === "role") {
+        return '<label class="chk"><input type="checkbox" data-area="' + a + '"> ' + lbl +
+               ' <span class="desc">(' + a + ')</span></label>';
+      }
+      return '<div class="chk"><span style="flex:1;">' + lbl + ' <span class="desc">(' + a + ')</span></span>' +
+             '<select data-garea="' + a + '" style="max-width:150px;">' +
+             '<option value="">Ikuti peran</option>' +
+             '<option value="1">Izinkan</option>' +
+             '<option value="0">Tolak</option></select></div>';
+    }).join("");
+    html += '<details class="grp" open><summary>' + esc(g.group) + '</summary><div class="grp-body">' + body + '</div></details>';
+  });
+  return html;
+}
+
+function renderRoleList() {
+  rtb.innerHTML = "";
+  ROLES.forEach(r => {
+    const menus = (r.areas || []).map(a => '<span class="pill">' + esc(AREA_LABEL[a] || a) + '</span>').join("") || '<span class="desc">—</span>';
+    const caps = (r.caps || []).map(c => '<span class="pill">' + esc(c) + '</span>').join("");
+    const sys = r.is_system ? ' <span class="badge sys">sistem</span>' : "";
+    const delBtn = r.is_system
+      ? '<button class="btn" disabled title="Peran sistem tak bisa dihapus" style="opacity:.4;">Hapus</button>'
+      : '<button class="btn danger" data-del="' + esc(r.key) + '">Hapus</button>';
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td><b>' + esc(r.label || r.key) + '</b>' + sys + '<div class="desc" style="color:var(--text-muted);font-size:11px;">' + esc(r.key) + '</div></td>' +
+      '<td>' + r.level + '</td>' +
+      '<td>' + caps + '</td>' +
+      '<td>' + menus + '</td>' +
+      '<td>' + (r.user_count || 0) + '</td>' +
+      '<td style="text-align:right; white-space:nowrap;">' +
+      '<button class="btn" data-edit="' + esc(r.key) + '">Ubah</button> ' + delBtn + '</td>';
+    rtb.appendChild(tr);
+  });
+}
+
+function resetRoleForm() {
+  origKey.value = ""; rkey.value = ""; rkey.disabled = false;
+  rlabel.value = ""; rlevel.value = "4";
+  document.querySelectorAll('#rcaps input[type=checkbox]').forEach(c => c.checked = (c.dataset.cap === "read"));
+  document.querySelectorAll('#rareas input[type=checkbox]').forEach(c => c.checked = false);
+  rtitle.textContent = "Tambah Peran Baru";
+}
+
+function fillRoleForm(r) {
+  origKey.value = r.key; rkey.value = r.key; rkey.disabled = true;
+  rlabel.value = r.label || ""; rlevel.value = r.level;
+  document.querySelectorAll('#rcaps input[type=checkbox]').forEach(c => c.checked = (r.caps || []).indexOf(c.dataset.cap) >= 0);
+  document.querySelectorAll('#rareas input[type=checkbox]').forEach(c => c.checked = (r.areas || []).indexOf(c.dataset.area) >= 0);
+  rtitle.textContent = "Ubah Peran: " + (r.label || r.key);
+  window.scrollTo(0, document.body.scrollHeight);
+}
+
+rtb.addEventListener("click", async ev => {
+  const t = ev.target;
+  if (t.dataset.edit) {
+    const r = ROLES.find(x => x.key === t.dataset.edit);
+    if (r) fillRoleForm(r);
+  } else if (t.dataset.del) {
+    if (!confirm("Hapus peran " + t.dataset.del + "?")) return;
+    const res = await fetch("/api/roles/delete", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: t.dataset.del }) });
+    const j = await res.json();
+    showMsg(rmsg, j.ok ? "Peran dihapus." : (j.error || "Gagal."), j.ok);
+    if (j.ok) await loadRoles();
+  }
+});
+
+document.getElementById("rreset").addEventListener("click", resetRoleForm);
+
+document.getElementById("rsave").addEventListener("click", async () => {
+  const caps = Array.from(document.querySelectorAll('#rcaps input[type=checkbox]:checked')).map(c => c.dataset.cap);
+  const areas = Array.from(document.querySelectorAll('#rareas input[type=checkbox]:checked')).map(c => c.dataset.area);
+  const payload = { label: rlabel.value, level: +rlevel.value, caps: caps, areas: areas };
+  if (origKey.value) payload.orig_key = origKey.value;
+  else payload.key = rkey.value;
+  const res = await fetch("/api/roles/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const j = await res.json();
+  showMsg(rmsg, j.ok ? "Peran tersimpan." : (j.error || "Gagal menyimpan."), j.ok);
+  if (j.ok) { resetRoleForm(); await loadRoles(); }
+});
+
+// ---- Grant per-user ----
+const guser = document.getElementById("guser");
+guser.addEventListener("change", loadGrants);
+
+async function loadGrants() {
+  document.querySelectorAll('#gareas select[data-garea]').forEach(s => s.value = "");
+  const uid = guser.value;
+  if (!uid) return;
+  try {
+    const res = await fetch("/api/users/grants?user_id=" + encodeURIComponent(uid));
+    const j = await res.json();
+    if (j.ok && j.grants) {
+      Object.keys(j.grants).forEach(a => {
+        const s = document.querySelector('#gareas select[data-garea="' + a + '"]');
+        if (s) s.value = String(j.grants[a]);
+      });
+    }
+  } catch (e) {}
+}
+
+document.getElementById("gsave").addEventListener("click", async () => {
+  const uid = guser.value;
+  if (!uid) { showMsg(gmsg, "Pilih pengguna dulu.", false); return; }
+  const grants = {};
+  document.querySelectorAll('#gareas select[data-garea]').forEach(s => {
+    if (s.value === "1" || s.value === "0") grants[s.dataset.garea] = +s.value;
+  });
+  const res = await fetch("/api/users/grants", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ user_id: +uid, grants: grants }) });
+  const j = await res.json();
+  showMsg(gmsg, j.ok ? "Akses khusus tersimpan." : (j.error || "Gagal."), j.ok);
+});
+
+async function loadRoles() {
+  const res = await fetch("/api/roles");
+  const j = await res.json();
+  if (!j.ok) { showMsg(rmsg, j.error || "Gagal memuat peran.", false); return; }
+  CATALOG = { areas: j.areas || [], caps: j.caps || [] };
+  AREA_LABEL = {};
+  CATALOG.areas.forEach(a => { AREA_LABEL[a.key] = a.label; });
+  ROLES = j.roles || [];
+  if (!document.querySelector('#rcaps input')) {
+    document.getElementById("rcaps").innerHTML = capsBoxes("r");
+    document.getElementById("rareas").innerHTML = areaGroups("role");
+    document.getElementById("gareas").innerHTML = areaGroups("grant");
+    resetRoleForm();
+  }
+  renderRoleList();
+}
+
+async function loadUsers() {
+  try {
+    const res = await fetch("/api/users");
+    const j = await res.json();
+    if (j.ok) {
+      USERS = j.users || [];
+      guser.innerHTML = '<option value="">— pilih pengguna —</option>' +
+        USERS.map(u => '<option value="' + u.id + '">' + esc(u.username) + (u.nama ? ' (' + esc(u.nama) + ')' : '') + '</option>').join("");
+    }
+  } catch (e) {}
+}
+
+loadRoles().then(loadUsers);
+</script>
+{% endblock %}
