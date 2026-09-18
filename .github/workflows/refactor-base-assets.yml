@@ -1,0 +1,29 @@
+name: Refactor base template assets
+
+on:
+  push:
+    branches:
+      - refactor/base-html-assets-rbac
+
+permissions:
+  contents: write
+
+jobs:
+  split:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Split base template
+        run: python3 tools/split_base_assets.py
+      - name: Commit generated assets
+        run: |
+          if git diff --quiet; then
+            echo "No changes needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add templates/base.html static/base.css static/base.js
+          git commit -m "Split base template CSS and JavaScript"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
