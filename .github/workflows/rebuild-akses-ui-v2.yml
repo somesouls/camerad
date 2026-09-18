@@ -15,7 +15,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Rebuild access page
-        run: python3 tools/rebuild_akses_ui.py
+        run: |
+          set +e
+          python3 tools/rebuild_akses_ui.py > /tmp/rebuild_akses_ui.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            cat /tmp/rebuild_akses_ui.log
+            {
+              echo "workflow status: $status"
+              cat /tmp/rebuild_akses_ui.log
+            } > tools/rebuild_akses_ui_error.txt
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add tools/rebuild_akses_ui_error.txt
+            git commit -m "Capture access UI redesign error"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            exit "$status"
+          fi
+          cat /tmp/rebuild_akses_ui.log
       - name: Commit redesigned template
         run: |
           if git diff --quiet; then
