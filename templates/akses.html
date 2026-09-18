@@ -341,7 +341,7 @@ function fillRoleForm(r) {
   document.querySelectorAll('#rcaps input[type=checkbox]').forEach(c => c.checked = (r.caps || []).indexOf(c.dataset.cap) >= 0);
   document.querySelectorAll('#rareas input[type=checkbox]').forEach(c => c.checked = (r.areas || []).indexOf(c.dataset.area) >= 0);
   rtitle.textContent = "Ubah Peran: " + (r.label || r.key);
-  window.scrollTo(0, document.body.scrollHeight);
+  document.getElementById("rtitle").scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 rtb.addEventListener("click", async ev => {
