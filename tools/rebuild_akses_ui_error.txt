@@ -1,5 +1,0 @@
-workflow status: 1
-  File "/home/runner/work/camerad/camerad/tools/rebuild_akses_ui.py", line 263
-    '''
-    ^
-SyntaxError: unterminated triple-quoted string literal (detected at line 263)
