@@ -50,7 +50,7 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
       <a class="back" href="/">← Kembali</a>
     </div>
   </div>
-  <p class="hint">Atur peran (jenjang & menu yang boleh diakses) dan tambahan akses khusus per-pengguna. Menu beranda &amp; Profil selalu tersedia untuk semua peran. Perubahan langsung berlaku tanpa restart.</p>
+  <p class="hint">Atur identitas peran, kapabilitas, dan izin area/API dasar. Pengaturan sidebar per-tautan dilakukan di panel granular di bawah. Perubahan langsung berlaku tanpa restart.</p>
 
   <div class="card">
     <h2>Daftar Peran</h2>
@@ -71,7 +71,8 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
       </div>
       <label style="margin-top:12px;">Kapabilitas (aksi)</label>
       <div class="caps" id="rcaps"></div>
-      <label style="margin-top:12px;">Menu yang bisa diakses (dikelompokkan per accordion sidebar)</label>
+      <label style="margin-top:12px;">Izin area/API dasar</label>
+      <p class="hint">Dipakai untuk membatasi endpoint dan aksi backend secara coarse. Ini bukan sumber kebenaran tautan sidebar; pengaturan tautan ada di panel granular.</p>
       <div id="rareas"></div>
       <button class="primary" id="rsave">Simpan Peran</button>
       <button class="btn" id="rreset" style="margin-top:6px;">Batal / Reset</button>
@@ -79,8 +80,8 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
     </div>
 
     <div class="card">
-      <h2>Akses Khusus per-Pengguna</h2>
-      <p class="hint">Timpa akses menu untuk satu pengguna di atas perannya (mis. beri satu menu tambahan, atau cabut satu menu). Kosongkan ke “Ikuti peran” untuk mengembalikan ke bawaan peran.</p>
+      <h2>Override Area/API per Pengguna (opsional)</h2>
+      <p class="hint">Dipakai hanya untuk mengecualikan izin area/API dasar milik peran pada satu pengguna. Ini berbeda dari override menu sidebar granular di panel bawah.</p>
       <div class="fld" style="margin-top:10px;"><label>Pengguna</label><select id="guser"></select></div>
       <div id="gareas" style="margin-top:12px;"></div>
       <button class="primary" id="gsave">Simpan Akses Khusus</button>
@@ -89,9 +90,9 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
   </div>
 
   <!-- ====== Granularitas per-tautan menu (per-link RBAC) ====== -->
-  <div class="card" style="margin-top:26px;">
-    <h2>🔗 Akses per-Tautan Menu (granular)</h2>
-    <p class="hint">Kontrol tampil/tidaknya SETIAP tautan menu sidebar per peran, plus timpaan per pengguna. Jika sebuah peran belum diatur di sini, peran itu tetap mengikuti aturan “Menu” area di atas (perilaku lama, kompatibel mundur). Menu beranda Studio selalu tampil.</p>
+  <div class="card" style="margin-top:18px;">
+    <h2>🔗 Akses Sidebar per-Tautan Menu (utama)</h2>
+    <p class="hint">Ini adalah sumber kebenaran untuk visibilitas dan akses halaman sidebar. Peran menentukan default per-tautan; override pengguna dapat menampilkan atau menyembunyikan tautan tertentu. Jika belum dikonfigurasi, sistem tetap fallback ke izin area/API lama. Menu Studio selalu tampil.</p>
     <div class="split" style="margin-top:6px;">
       <div>
         <h2 style="font-size:14px;">Per Peran</h2>
@@ -107,8 +108,8 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
         <div class="msg" id="mrole_msg"></div>
       </div>
       <div>
-        <h2 style="font-size:14px;">Timpaan per Pengguna</h2>
-        <p class="hint">Untuk satu pengguna: “Ikuti peran”, “Tampilkan”, atau “Sembunyikan” tiap menu. Timpaan pengguna paling menentukan.</p>
+        <h2 style="font-size:14px;">Override Menu Sidebar per Pengguna</h2>
+        <p class="hint">Untuk satu pengguna: “Ikuti peran”, “Tampilkan”, atau “Sembunyikan” tiap tautan. Override ini hanya untuk sidebar/halaman menu dan paling menentukan pada level menu.</p>
         <div class="fld"><label>Pilih pengguna</label><select id="muser"></select></div>
         <div id="muser_menus" style="margin-top:10px;"></div>
         <button class="primary" id="muser_save">Simpan Timpaan Menu</button>
@@ -120,7 +121,7 @@ input:focus, select:focus { border-color:var(--accent); box-shadow:0 0 0 3px var
 {% endblock %}
 {% block scripts %}
 <script>
-// Pengelompokan area ke accordion, mengikuti sidebar base.html.
+// Pengelompokan izin area/API dasar; bukan daftar tautan sidebar.
 const GROUPS = [
   { group: "RAG Chatbot & Agent", areas: ["rag_config"] },
   { group: "Dialogflow", areas: ["dialogflow", "df_webhook"] },
