@@ -2,7 +2,7 @@ from pathlib import Path
 p=Path(__file__).resolve().parents[1]/'templates'/'akses.html'
 s=p.read_text(encoding='utf-8')
 r=[
-('Atur peran (jenjang &amp; menu yang boleh diakses) dan tambahan akses khusus per-pengguna. Menu beranda &amp; Profil selalu tersedia untuk semua peran. Perubahan langsung berlaku tanpa restart.','Atur identitas peran, kapabilitas, dan izin area/API dasar. Pengaturan sidebar per-tautan dilakukan di panel granular di bawah. Perubahan langsung berlaku tanpa restart.'),
+('Atur peran (jenjang & menu yang boleh diakses) dan tambahan akses khusus per-pengguna. Menu beranda &amp; Profil selalu tersedia untuk semua peran. Perubahan langsung berlaku tanpa restart.','Atur identitas peran, kapabilitas, dan izin area/API dasar. Pengaturan sidebar per-tautan dilakukan di panel granular di bawah. Perubahan langsung berlaku tanpa restart.'),
 ('Menu yang bisa diakses (dikelompokkan per accordion sidebar)','Izin area/API dasar'),
 ('      <div id="rareas"></div>','      <p class="hint">Dipakai untuk membatasi endpoint dan aksi backend secara coarse. Ini bukan sumber kebenaran tautan sidebar; pengaturan tautan ada di panel granular.</p>\n      <div id="rareas"></div>'),
 ('Akses Khusus per-Pengguna','Override Area/API per Pengguna (opsional)'),
