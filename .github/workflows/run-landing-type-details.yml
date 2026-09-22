@@ -1,0 +1,32 @@
+name: Run landing typography refinement
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'refine/landing-typography-details' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Run refinement script
+        run: |
+          awk '/^          python3 - <<'"'"'PY'"'"'$/{capture=1; next} capture && /^          PY$/{exit} capture{sub(/^          /, ""); print}' .github/workflows/apply-landing-type-details.yml > /tmp/apply_landing.py
+          python3 /tmp/apply_landing.py
+          python scripts/oneoff/check_structure.py
+          python -m unittest tests.test_landing
+      - name: Commit refined landing
+        run: |
+          rm .github/workflows/apply-landing-type-details.yml .github/workflows/run-landing-type-details.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add templates/landing/landing.html static/landing/landing.css tests/test_landing.py docs/changelog/2026-09-22-landing-typography.md .github/workflows/apply-landing-type-details.yml .github/workflows/run-landing-type-details.yml
+          git commit -m "refactor: refine landing typography and detail colors"
+          git push origin "HEAD:${{ github.head_ref }}"
