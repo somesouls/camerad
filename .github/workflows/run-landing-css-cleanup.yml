@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
-      - name: Fix validation and extract script
+      - name: Patch validation and compact rendering
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -24,28 +24,17 @@ jobs:
           text = path.read_text(encoding='utf-8')
           text = text.replace("if output.count(':root[data-theme=\"light\"]') != 1:", "if len(re.findall(r'(?m)^:root\\[data-theme=\"light\"\\]\\s*\\{', output)) != 1:")
           text = text.replace("self.assertEqual(css.count(':root[data-theme=\"light\"]'), 1)", "self.assertEqual(len(re.findall(r'(?m)^:root\\[data-theme=\"light\"\\]\\s*\\{', css)), 1)")
+          text = text.replace("readable = node['header'].startswith(':root')", "readable = False")
+          text = text.replace("declarations = ';'.join(f'{key}:{value}' for key, value in node['decls'].items())", "declarations = ';'.join(f'{key}: {value}' for key, value in node['decls'].items())")
           path.write_text(text, encoding='utf-8')
           PY
           awk '/^          cat > \/tmp\/cleanup_landing.py <<'"'"'PY'"'"'$/{capture=1; next} capture && /^          PY$/{exit} capture{sub(/^          /, ""); print}' .github/workflows/cleanup-landing-css.yml > /tmp/cleanup_landing.py
       - name: Apply canonical CSS cleanup
-        id: cleanup
-        continue-on-error: true
         run: |
-          python /tmp/cleanup_landing.py > /tmp/cleanup-v2.log 2>&1
-          python scripts/oneoff/check_structure.py >> /tmp/cleanup-v2.log 2>&1
-          python -m unittest tests.test_landing >> /tmp/cleanup-v2.log 2>&1
-      - name: Save corrected diagnostics
-        if: steps.cleanup.outcome == 'failure'
-        run: |
-          git reset --hard HEAD
-          cp /tmp/cleanup-v2.log docs/changelog/landing-css-cleanup-error-v2.log
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/changelog/landing-css-cleanup-error-v2.log
-          git commit -m "ci: capture corrected cleanup failure"
-          git push origin "HEAD:${{ github.head_ref }}"
+          python /tmp/cleanup_landing.py
+          python scripts/oneoff/check_structure.py
+          python -m unittest tests.test_landing
       - name: Commit cleaned stylesheet
-        if: steps.cleanup.outcome == 'success'
         run: |
           rm -f .github/workflows/cleanup-landing-css.yml .github/workflows/run-landing-css-cleanup.yml docs/changelog/landing-css-cleanup-error.log docs/changelog/landing-css-cleanup-error-v2.log
           git config user.name "github-actions[bot]"
