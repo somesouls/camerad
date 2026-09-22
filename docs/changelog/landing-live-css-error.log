@@ -1,2 +1,0 @@
-[guard] GAGAL:
-  - COMPILE-FAIL routes/landing_routes.py: Sorry: IndentationError: unindent does not match any outer indentation level (landing_routes.py, line 27)
