@@ -17,9 +17,10 @@ class LandingTest(unittest.TestCase):
   for x in ('#f07840','#b43a00','#ffe8d1','#23231a','#8d4b2d','#d84a05'): self.assertNotIn(x,t)
   self.assertEqual(t.count(':root{'),1);self.assertEqual(t.count(':root[data-theme="light"]{'),1)
  def test_shared_theme_and_login(self):
-  theme=self.read('static/design-system/theme.js');login=self.read('templates/login.html')
+  theme=self.read('static/design-system/theme.js');login=self.read('templates/login.html');js=self.read('static/auth/login.js')
   self.assertIn("'camerad-theme'",theme);self.assertIn('data-theme-icon="moon"',login);self.assertIn('data-theme-icon="star"',login)
-  self.assertIn('/static/auth/login.css?v=green-pink-v1',login);self.assertIn('/static/auth/login.js?v=green-pink-v1',login)
+  self.assertIn('/static/auth/login.css?v=green-pink-v2',login);self.assertIn('/static/auth/login.js?v=green-pink-v2',login)
+  self.assertIn('toggle-password',login);self.assertIn("password.type==='text'",js)
   self.assertNotIn('<style',login);self.assertNotIn('<script>',login);self.assertNotIn("localStorage.getItem('theme')",login)
  def test_quality(self):
   c=self.read('static/landing/landing.css');j=self.read('static/landing/landing.js');r=self.read('routes/landing_routes.py')
