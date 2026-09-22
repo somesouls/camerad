@@ -30,13 +30,26 @@ jobs:
           PY
           awk '/^          cat > \/tmp\/cleanup_landing.py <<'"'"'PY'"'"'$/{capture=1; next} capture && /^          PY$/{exit} capture{sub(/^          /, ""); print}' .github/workflows/cleanup-landing-css.yml > /tmp/cleanup_landing.py
       - name: Apply canonical CSS cleanup
+        id: cleanup
+        continue-on-error: true
         run: |
-          python /tmp/cleanup_landing.py
-          python scripts/oneoff/check_structure.py
-          python -m unittest tests.test_landing
+          python /tmp/cleanup_landing.py > /tmp/cleanup-v3.log 2>&1
+          python scripts/oneoff/check_structure.py >> /tmp/cleanup-v3.log 2>&1
+          python -m unittest tests.test_landing >> /tmp/cleanup-v3.log 2>&1
+      - name: Save compact diagnostics
+        if: steps.cleanup.outcome == 'failure'
+        run: |
+          git reset --hard HEAD
+          cp /tmp/cleanup-v3.log docs/changelog/landing-css-cleanup-error-v3.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/changelog/landing-css-cleanup-error-v3.log
+          git commit -m "ci: capture compact cleanup failure"
+          git push origin "HEAD:${{ github.head_ref }}"
       - name: Commit cleaned stylesheet
+        if: steps.cleanup.outcome == 'success'
         run: |
-          rm -f .github/workflows/cleanup-landing-css.yml .github/workflows/run-landing-css-cleanup.yml docs/changelog/landing-css-cleanup-error.log docs/changelog/landing-css-cleanup-error-v2.log
+          rm -f .github/workflows/cleanup-landing-css.yml .github/workflows/run-landing-css-cleanup.yml docs/changelog/landing-css-cleanup-error*.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A static/landing/landing.css templates/landing/landing.html tests/test_landing.py docs/changelog .github/workflows
