@@ -1,0 +1,22 @@
+.panda-wordmark{position:relative;isolation:isolate;min-height:68svh;padding:clamp(8rem,14vw,11rem) 0 clamp(3rem,7vw,6rem);display:grid;place-items:center;overflow:hidden;border-bottom:1px solid var(--lp-line,rgba(255,255,255,.14));background:var(--lp-bg,#071a14)}
+.panda-wordmark::before{content:"";position:absolute;inset:12% 8%;z-index:-2;background:radial-gradient(circle at 35% 50%,var(--lp-glow-secondary,rgba(112,224,176,.18)),transparent 31%),radial-gradient(circle at 65% 50%,var(--lp-glow-primary,rgba(255,79,163,.2)),transparent 34%);filter:blur(30px);opacity:.75}
+.panda-wordmark::after{content:"";position:absolute;inset:auto 4vw 11%;height:1px;z-index:-1;background:linear-gradient(90deg,transparent,var(--lp-line-strong,rgba(255,255,255,.28)) 18% 82%,transparent)}
+.panda-wordmark__inner{width:100%;display:grid;gap:clamp(1rem,2vw,1.5rem)}
+.panda-wordmark__label{margin:0;padding-inline:clamp(1rem,3vw,3rem);color:var(--lp-secondary,#70e0b0);font:700 clamp(.58rem,.75vw,.72rem)/1 Arial,sans-serif;letter-spacing:.22em;text-transform:uppercase}
+.panda-wordmark__stage{width:100%;display:flex;align-items:flex-end;justify-content:center;gap:0;color:var(--lp-heading-text,#fff);font-family:Arial,"Helvetica Neue",Helvetica,sans-serif;font-size:clamp(4.2rem,15.5vw,14.8rem);font-weight:900;line-height:.72;letter-spacing:-.095em;white-space:nowrap;text-transform:uppercase}
+.panda-wordmark__letter{display:inline-block;will-change:transform;text-shadow:0 .035em 0 var(--lp-surface-strong,#12382b)}
+.panda-wordmark__letter--c{animation:panda-c-enter 1.9s cubic-bezier(.2,.72,.14,1) both,panda-c-drift 5.6s ease-in-out 2.3s infinite}
+.panda-wordmark__tail{display:inline-flex;align-items:flex-end;animation:panda-tail-enter 1.9s cubic-bezier(.2,.72,.14,1) both,panda-tail-drift 5.6s ease-in-out 2.3s infinite}
+.panda-wordmark__panda{position:relative;width:.78em;height:1.04em;margin:0 .065em -.07em .03em;display:inline-grid;place-items:end center;flex:none;transform-origin:50% 84%;will-change:transform;animation:panda-roll-in 2.15s cubic-bezier(.18,.8,.18,1) .12s both,panda-idle 4.8s ease-in-out 2.45s infinite}
+.panda-wordmark__panda::before{content:"";position:absolute;left:10%;right:8%;bottom:-.035em;height:.07em;border-radius:50%;background:#000;filter:blur(.025em);opacity:.24;animation:panda-shadow-in 2.15s ease .12s both}
+.panda-wordmark__panda img{position:relative;z-index:1;display:block;width:100%;height:100%;object-fit:contain;object-position:center bottom;filter:drop-shadow(0 .04em .035em rgba(0,0,0,.28));user-select:none;pointer-events:none}
+.panda-wordmark__hint{margin:0;padding-inline:clamp(1rem,3vw,3rem);color:var(--lp-dim,#82aa99);font:600 clamp(.6rem,.8vw,.75rem)/1.45 Arial,sans-serif;letter-spacing:.08em;text-align:right}
+@keyframes panda-c-enter{0%{opacity:0;transform:translateX(34vw) skewX(-8deg)}52%{opacity:1;transform:translateX(12vw) skewX(-3deg)}100%{transform:none}}
+@keyframes panda-tail-enter{0%{opacity:0;transform:translateX(-32vw) skewX(8deg)}52%{opacity:1;transform:translateX(-10vw) skewX(3deg)}100%{transform:none}}
+@keyframes panda-roll-in{0%{opacity:0;transform:translateX(-54vw) translateY(-.1em) rotate(-720deg) scale(.68)}58%{opacity:1;transform:translateX(-.12em) translateY(-.13em) rotate(-42deg) scale(1.04)}73%{transform:translateX(.04em) translateY(0) rotate(12deg) scale(.98)}86%{transform:translateX(-.02em) rotate(-5deg) scale(1.01)}100%{transform:none}}
+@keyframes panda-shadow-in{0%,38%{opacity:0;transform:scaleX(.25)}72%{opacity:.34;transform:scaleX(1.12)}100%{opacity:.24;transform:none}}
+@keyframes panda-idle{0%,100%{transform:translateY(0) rotate(0)}22%{transform:translateY(-.035em) rotate(-2deg)}48%{transform:translateY(0) rotate(1.5deg)}72%{transform:translateY(-.018em) rotate(-1deg)}}
+@keyframes panda-c-drift{0%,100%{transform:translateX(0)}50%{transform:translateX(-.025em)}}
+@keyframes panda-tail-drift{0%,100%{transform:translateX(0)}50%{transform:translateX(.025em)}}
+@media(max-width:680px){.panda-wordmark{min-height:52svh;padding-top:7rem}.panda-wordmark__stage{font-size:clamp(3.3rem,15.8vw,6.8rem);letter-spacing:-.105em}.panda-wordmark__panda{width:.8em;margin-inline:.035em}.panda-wordmark__hint{display:none}}
+@media(prefers-reduced-motion:reduce){.panda-wordmark__letter--c,.panda-wordmark__tail,.panda-wordmark__panda,.panda-wordmark__panda::before{animation:none!important}.panda-wordmark__letter,.panda-wordmark__tail,.panda-wordmark__panda{transform:none!important}}
