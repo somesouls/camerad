@@ -45,9 +45,9 @@ class LandingContractTest(unittest.TestCase):
         self.assertIn('href="#main"', html)
         self.assertIn('aria-label="Navigasi utama"', html)
         self.assertIn('lp-theme-toggle', html)
-        for color in ('#080b12', '#111827', '#f8fafc', '#7c8cff', '#59d9c2', '#ff7a90'):
+        for color in ('#23231a', '#8d4b2d', '#2d2c22', '#f7eee4'):
             self.assertIn(color, css)
-        for color in ('#f6f8fc', '#ffffff', '#172033', '#5b6ee1', '#168f82', '#d94f6a'):
+        for color in ('#ffe8d1', '#d84a05', '#fff7ed', '#2d2018'):
             self.assertIn(color, css)
         self.assertIn('prefers-color-scheme: light', css)
         self.assertIn('prefers-reduced-motion', css)
