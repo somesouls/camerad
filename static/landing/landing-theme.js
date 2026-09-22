@@ -20,7 +20,7 @@
 
   const syncChrome = theme => {
     const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.content = theme === 'light' ? '#f6f8fc' : '#080b12';
+    if (meta) meta.content = theme === 'light' ? '#ffe8d1' : '#23231a';
   };
 
   syncChrome(currentTheme());
