@@ -1,0 +1,32 @@
+name: Run landing live contrast
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'fix/landing-live-css-contrast' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Apply live CSS patch
+        run: |
+          awk '/^          python - <<'"'"'PY'"'"'$/{capture=1; next} capture && /^          PY$/{exit} capture{sub(/^          /, ""); print}' .github/workflows/apply-landing-live-contrast.yml > /tmp/apply_live_contrast.py
+          python /tmp/apply_live_contrast.py
+          python scripts/oneoff/check_structure.py
+          python -m unittest tests.test_landing
+      - name: Commit live CSS changes
+        run: |
+          rm .github/workflows/apply-landing-live-contrast.yml .github/workflows/run-landing-live-contrast.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static/landing/landing.css templates/landing/landing.html routes/landing_routes.py tests/test_landing.py docs/changelog/2026-09-22-landing-live-css.md .github/workflows/apply-landing-live-contrast.yml .github/workflows/run-landing-live-contrast.yml
+          git commit -m "fix: serve live landing CSS with stronger contrast"
+          git push origin "HEAD:${{ github.head_ref }}"
