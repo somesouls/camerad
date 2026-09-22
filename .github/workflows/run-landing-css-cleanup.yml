@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
-      - name: Patch validation and compact rendering
+      - name: Patch cleanup implementation
         run: |
           python - <<'PY'
           from pathlib import Path
@@ -26,6 +26,12 @@ jobs:
           text = text.replace("self.assertEqual(css.count(':root[data-theme=\"light\"]'), 1)", "self.assertEqual(len(re.findall(r'(?m)^:root\\[data-theme=\"light\"\\]\\s*\\{', css)), 1)")
           text = text.replace("readable = node['header'].startswith(':root')", "readable = False")
           text = text.replace("declarations = ';'.join(f'{key}:{value}' for key, value in node['decls'].items())", "declarations = ';'.join(f'{key}: {value}' for key, value in node['decls'].items())")
+          text = text.replace("          header = text[i:opening].strip()\n          closing = matching_brace(text, opening)", "          header = text[i:opening].strip()\n          header = re.sub(r'\\s+', ' ', header)\n          header = re.sub(r'\\s*,\\s*', ',', header)\n          header = re.sub(r'\\s*>\\s*', '>', header)\n          if header.startswith('@media'):\n              condition = header[header.find('(') + 1:header.rfind(')')]\n              condition = re.sub(r'\\s*:\\s*', ': ', condition.strip())\n              header = f'@media ({condition})'\n          closing = matching_brace(text, opening)")
+          text = text.replace("('--lp-font', 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'),\n              ('--lp-label-font'", "('--lp-font', 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'),\n              ('--lp-display-font', 'Arial, \"Helvetica Neue\", Helvetica, sans-serif'),\n              ('--lp-label-font'")
+          text = text.replace("'#050510': 'var(--lp-on-accent)'", "'#050510': '#271a12'")
+          text = text.replace("              return value\n\n          def modernize(nodes):", "              value = value.replace('.575rem', '.625rem').replace('.6rem', '.625rem')\n              value = re.sub(r'(?<!\\d)710(?!\\d)', '700', value) if prop in ('font', 'font-weight') else value\n              return value\n\n          def modernize(nodes):")
+          text = text.replace("self.assertIn('font-variant-ligatures:none', css)", "self.assertIn('font-variant-ligatures: none', css)")
+          text = text.replace("self.assertIn('--lp-label-font: Arial,", "self.assertIn('--lp-display-font: Arial, \"Helvetica Neue\", Helvetica, sans-serif', css)\n        self.assertIn('--lp-label-font: Arial,")
           path.write_text(text, encoding='utf-8')
           PY
           awk '/^          cat > \/tmp\/cleanup_landing.py <<'"'"'PY'"'"'$/{capture=1; next} capture && /^          PY$/{exit} capture{sub(/^          /, ""); print}' .github/workflows/cleanup-landing-css.yml > /tmp/cleanup_landing.py
@@ -33,18 +39,18 @@ jobs:
         id: cleanup
         continue-on-error: true
         run: |
-          python /tmp/cleanup_landing.py > /tmp/cleanup-v3.log 2>&1
-          python scripts/oneoff/check_structure.py >> /tmp/cleanup-v3.log 2>&1
-          python -m unittest tests.test_landing >> /tmp/cleanup-v3.log 2>&1
-      - name: Save compact diagnostics
+          python /tmp/cleanup_landing.py > /tmp/cleanup-v4.log 2>&1
+          python scripts/oneoff/check_structure.py >> /tmp/cleanup-v4.log 2>&1
+          python -m unittest tests.test_landing >> /tmp/cleanup-v4.log 2>&1
+      - name: Save diagnostics
         if: steps.cleanup.outcome == 'failure'
         run: |
           git reset --hard HEAD
-          cp /tmp/cleanup-v3.log docs/changelog/landing-css-cleanup-error-v3.log
+          cp /tmp/cleanup-v4.log docs/changelog/landing-css-cleanup-error-v4.log
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/changelog/landing-css-cleanup-error-v3.log
-          git commit -m "ci: capture compact cleanup failure"
+          git add docs/changelog/landing-css-cleanup-error-v4.log
+          git commit -m "ci: capture final cleanup failure"
           git push origin "HEAD:${{ github.head_ref }}"
       - name: Commit cleaned stylesheet
         if: steps.cleanup.outcome == 'success'
