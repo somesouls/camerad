@@ -1,15 +1,5 @@
 (function(){
-  var root = document.documentElement;
   var body = document.body;
-  var saved = localStorage.getItem('theme') || 'dark';
-  if (saved === 'light') root.setAttribute('data-theme', 'light');
-  var tb = document.getElementById('theme-btn');
-  if (tb) tb.addEventListener('click', function(){
-    var c = root.getAttribute('data-theme') || 'dark';
-    var n = (c === 'dark') ? 'light' : 'dark';
-    root.setAttribute('data-theme', n);
-    localStorage.setItem('theme', n);
-  });
   var side = document.getElementById('side');
   var bd = document.getElementById('backdrop');
   var mb = document.getElementById('menuBtn');

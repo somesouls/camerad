@@ -5,10 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Camerad Studio{% endblock %}</title>
 <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-<link rel="stylesheet" href="/static/base.css">
+<script src="/static/design-system/theme.js?v=green-pink-v2"></script>
+<link rel="stylesheet" href="/static/design-system/tokens.css?v=green-pink-v1">
+<link rel="stylesheet" href="/static/base.css?v=app-shell-v1">
+<link rel="stylesheet" href="/static/app/app-shell.css?v=green-pink-v1">
 {% block head %}{% endblock %}
 </head>
-<body>
+<body class="app-shell">
   <div class="grid-bg"></div>
   <div class="app">
     <aside class="side" id="side">
@@ -16,10 +19,10 @@
       <div class="side-top">
         <div class="brand">
           <div class="logo"><img src="/static/logo-only.svg" alt="Camerad Studio"></div>
-          <div><b>Camerad Studio</b><span>Computer Automation for Monitoring, Evaluation, Research &amp; Development</span></div>
+          <div><b>Camerad Studio</b><span>Workspace internal · Analisis &amp; evaluasi</span></div>
         </div>
         <button class="newbtn" id="newBtn">
-          <span class="nb-label">Chat Baru</span>
+          <span class="nb-label">Percakapan baru</span>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
       </div>
@@ -220,28 +223,26 @@
         <div class="sec-label">Riwayat Percakapan</div>
         <div id="histList"></div>
       </div>
-      <div class="side-foot"><span class="dot"></span><span id="provChip">Engine Aktif</span><span style="margin-left:auto;font-size:10.5px;opacity:.7;">Build V9.1</span></div>
+      <div class="side-foot"><span class="dot"></span><span id="provChip">Sistem aktif</span><span class="build-label">Build V9.1</span></div>
     </aside>
     <div class="backdrop" id="backdrop"></div>
     <main class="main">
       <div class="topbar">
         <div class="topbar-left">
-          <button class="menu-btn" id="menuBtn"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
+          <button class="menu-btn" id="menuBtn" type="button" aria-label="Buka navigasi"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg></button>
+          <div class="workspace-label"><span>RUANG KERJA</span><b>{% block page_label %}Camerad Studio{% endblock %}</b></div>
         </div>
         <div class="topbar-right">
           <div class="user-info">
             <b>{{ user_name }}</b>
             <span>{{ user_role }}</span>
           </div>
-          <a href="/profil" class="user-avatar" title="Akun Saya" style="text-decoration:none;">{% if user_avatar_img %}<img src="{{ user_avatar_img }}" alt="avatar">{% else %}{{ user_avatar }}{% endif %}</a>
-          <a href="/credit" class="action-btn" title="Kredit &amp; Penghargaan" style="text-decoration:none;">
+          <a href="/profil" class="user-avatar" title="Akun Saya">{% if user_avatar_img %}<img src="{{ user_avatar_img }}" alt="avatar">{% else %}{{ user_avatar }}{% endif %}</a>
+          <a href="/credit" class="action-btn" title="Kredit &amp; Penghargaan">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M8.21 13.89L7 22l5-3 5 3-1.21-8.11"/></svg>
           </a>
-          <button class="action-btn theme-toggle" id="theme-btn" aria-label="Toggle Mode">
-            <svg xmlns="http://www.w3.org/2000/svg" class="icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3zm0-2V3M12 21v-4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
-            <svg xmlns="http://www.w3.org/2000/svg" class="icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
-          </button>
-          <a href="/api/logout" class="action-btn btn-logout" title="Keluar" style="text-decoration: none;">
+          <button class="action-btn theme-toggle" id="theme-btn" data-theme-toggle type="button" aria-label="Ganti tema"><span data-theme-icon="star" aria-hidden="true">✦</span><span data-theme-icon="moon" aria-hidden="true" hidden>☾</span></button>
+          <a href="/api/logout" class="action-btn btn-logout" title="Keluar">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
           </a>
         </div>
@@ -259,7 +260,8 @@
       {% endblock %}
     </main>
   </div>
-<script src="/static/base.js"></script>
+<script src="/static/base.js?v=app-shell-v1"></script>
+<script src="/static/app/app-shell.js?v=green-pink-v1"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>
