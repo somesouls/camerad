@@ -1,84 +1,107 @@
 :root {
   color-scheme: dark;
-  --lp-ink-black: #0b1020;
-  --lp-bubblegum-pink: #f7567c;
-  --lp-prussian-blue: #171d31;
-  --lp-pearl-aqua: #99e1d9;
-  --lp-lavender-grey: #8c8fa3;
-  --lp-white: #fcfcfc;
-  --lp-cornsilk: #fffae3;
-  --lp-taupe-grey: #5d576b;
 
-  --lp-bg: var(--lp-ink-black);
-  --lp-bg-soft: var(--lp-prussian-blue);
-  --lp-surface: rgba(23, 29, 49, .78);
-  --lp-surface-strong: var(--lp-prussian-blue);
-  --lp-text: var(--lp-white);
-  --lp-muted: var(--lp-lavender-grey);
-  --lp-dim: #74788f;
-  --lp-line: rgba(153, 225, 217, .16);
-  --lp-primary: var(--lp-bubblegum-pink);
-  --lp-secondary: var(--lp-pearl-aqua);
-  --lp-pink: var(--lp-bubblegum-pink);
-  --lp-green: var(--lp-pearl-aqua);
-  --lp-yellow: var(--lp-cornsilk);
-  --lp-on-accent: var(--lp-ink-black);
-  --lp-nav-bg: rgba(11, 16, 32, .84);
-  --lp-console-bg: rgba(11, 16, 32, .94);
-  --lp-soft-fill: rgba(153, 225, 217, .06);
-  --lp-grid-line: rgba(153, 225, 217, .045);
-  --lp-glow-pink: rgba(247, 86, 124, .25);
-  --lp-glow-aqua: rgba(153, 225, 217, .2);
-  --lp-gradient: linear-gradient(110deg, var(--lp-pearl-aqua), var(--lp-bubblegum-pink) 62%, #ff8aa5);
-  --lp-gradient-radial: radial-gradient(circle, var(--lp-bubblegum-pink), var(--lp-prussian-blue) 48%, var(--lp-pearl-aqua));
-  --lp-shadow: 0 28px 90px rgba(3, 6, 15, .48);
+  /* Nocturne: deep neutral canvas, restrained indigo, mint signal, coral warmth. */
+  --lp-dark-canvas: #080b12;
+  --lp-dark-surface: #111827;
+  --lp-dark-elevated: #182235;
+  --lp-dark-text: #f8fafc;
+  --lp-dark-muted: #a8b3c7;
+  --lp-indigo: #7c8cff;
+  --lp-mint: #59d9c2;
+  --lp-coral: #ff7a90;
+
+  /* Daybreak: cool paper rather than stark white. */
+  --lp-light-canvas: #f6f8fc;
+  --lp-light-surface: #ffffff;
+  --lp-light-soft: #edf2f8;
+  --lp-light-text: #172033;
+  --lp-light-muted: #5f6b7c;
+  --lp-light-indigo: #5b6ee1;
+  --lp-light-mint: #168f82;
+  --lp-light-coral: #d94f6a;
+
+  --lp-bg: var(--lp-dark-canvas);
+  --lp-bg-soft: var(--lp-dark-surface);
+  --lp-surface: rgba(17, 24, 39, .78);
+  --lp-surface-strong: var(--lp-dark-elevated);
+  --lp-text: var(--lp-dark-text);
+  --lp-muted: var(--lp-dark-muted);
+  --lp-dim: #748096;
+  --lp-line: rgba(168, 179, 199, .15);
+  --lp-primary: var(--lp-indigo);
+  --lp-secondary: var(--lp-mint);
+  --lp-pink: var(--lp-coral);
+  --lp-green: var(--lp-mint);
+  --lp-yellow: #f6c76e;
+  --lp-on-accent: #ffffff;
+  --lp-nav-bg: rgba(8, 11, 18, .84);
+  --lp-console-bg: rgba(11, 16, 27, .95);
+  --lp-soft-fill: rgba(124, 140, 255, .08);
+  --lp-grid-line: rgba(168, 179, 199, .045);
+  --lp-glow-primary: rgba(124, 140, 255, .24);
+  --lp-glow-secondary: rgba(89, 217, 194, .16);
+  --lp-glow-warm: rgba(255, 122, 144, .14);
+  --lp-gradient: linear-gradient(110deg, var(--lp-indigo), #a56bff 52%, var(--lp-coral));
+  --lp-gradient-radial: radial-gradient(circle, var(--lp-indigo), var(--lp-dark-surface) 52%, var(--lp-mint));
+  --lp-shadow: 0 28px 90px rgba(0, 0, 0, .48);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --lp-bg: var(--lp-white);
-  --lp-bg-soft: var(--lp-cornsilk);
-  --lp-surface: rgba(255, 250, 227, .82);
-  --lp-surface-strong: #fffaf0;
-  --lp-text: var(--lp-taupe-grey);
-  --lp-muted: #716a7e;
-  --lp-dim: #81798d;
-  --lp-line: rgba(93, 87, 107, .17);
-  --lp-on-accent: var(--lp-ink-black);
-  --lp-nav-bg: rgba(252, 252, 252, .88);
-  --lp-console-bg: rgba(255, 250, 227, .94);
-  --lp-soft-fill: rgba(153, 225, 217, .18);
-  --lp-grid-line: rgba(93, 87, 107, .06);
-  --lp-glow-pink: rgba(247, 86, 124, .18);
-  --lp-glow-aqua: rgba(153, 225, 217, .32);
-  --lp-gradient: linear-gradient(110deg, #5fb8ae, var(--lp-bubblegum-pink) 62%, #db3f67);
-  --lp-gradient-radial: radial-gradient(circle, var(--lp-cornsilk), var(--lp-bubblegum-pink) 46%, var(--lp-pearl-aqua));
-  --lp-shadow: 0 24px 70px rgba(93, 87, 107, .16);
+  --lp-bg: var(--lp-light-canvas);
+  --lp-bg-soft: var(--lp-light-soft);
+  --lp-surface: rgba(255, 255, 255, .82);
+  --lp-surface-strong: var(--lp-light-surface);
+  --lp-text: var(--lp-light-text);
+  --lp-muted: var(--lp-light-muted);
+  --lp-dim: #7a8698;
+  --lp-line: rgba(23, 32, 51, .12);
+  --lp-primary: var(--lp-light-indigo);
+  --lp-secondary: var(--lp-light-mint);
+  --lp-pink: var(--lp-light-coral);
+  --lp-green: var(--lp-light-mint);
+  --lp-yellow: #a56a12;
+  --lp-on-accent: #ffffff;
+  --lp-nav-bg: rgba(246, 248, 252, .88);
+  --lp-console-bg: rgba(255, 255, 255, .94);
+  --lp-soft-fill: rgba(91, 110, 225, .08);
+  --lp-grid-line: rgba(23, 32, 51, .05);
+  --lp-glow-primary: rgba(91, 110, 225, .16);
+  --lp-glow-secondary: rgba(22, 143, 130, .14);
+  --lp-glow-warm: rgba(217, 79, 106, .11);
+  --lp-gradient: linear-gradient(110deg, var(--lp-light-indigo), #7d5bd6 52%, var(--lp-light-coral));
+  --lp-gradient-radial: radial-gradient(circle, #ffffff, rgba(91, 110, 225, .16) 50%, rgba(22, 143, 130, .16));
+  --lp-shadow: 0 24px 70px rgba(23, 32, 51, .13);
 }
 
-:root[data-theme="dark"] {
-  color-scheme: dark;
-}
+:root[data-theme="dark"] { color-scheme: dark; }
 
 @media (prefers-color-scheme: light) {
   :root:not([data-theme]) {
     color-scheme: light;
-    --lp-bg: var(--lp-white);
-    --lp-bg-soft: var(--lp-cornsilk);
-    --lp-surface: rgba(255, 250, 227, .82);
-    --lp-surface-strong: #fffaf0;
-    --lp-text: var(--lp-taupe-grey);
-    --lp-muted: #716a7e;
-    --lp-dim: #81798d;
-    --lp-line: rgba(93, 87, 107, .17);
-    --lp-nav-bg: rgba(252, 252, 252, .88);
-    --lp-console-bg: rgba(255, 250, 227, .94);
-    --lp-soft-fill: rgba(153, 225, 217, .18);
-    --lp-grid-line: rgba(93, 87, 107, .06);
-    --lp-glow-pink: rgba(247, 86, 124, .18);
-    --lp-glow-aqua: rgba(153, 225, 217, .32);
-    --lp-gradient: linear-gradient(110deg, #5fb8ae, var(--lp-bubblegum-pink) 62%, #db3f67);
-    --lp-shadow: 0 24px 70px rgba(93, 87, 107, .16);
+    --lp-bg: var(--lp-light-canvas);
+    --lp-bg-soft: var(--lp-light-soft);
+    --lp-surface: rgba(255, 255, 255, .82);
+    --lp-surface-strong: var(--lp-light-surface);
+    --lp-text: var(--lp-light-text);
+    --lp-muted: var(--lp-light-muted);
+    --lp-dim: #7a8698;
+    --lp-line: rgba(23, 32, 51, .12);
+    --lp-primary: var(--lp-light-indigo);
+    --lp-secondary: var(--lp-light-mint);
+    --lp-pink: var(--lp-light-coral);
+    --lp-green: var(--lp-light-mint);
+    --lp-yellow: #a56a12;
+    --lp-nav-bg: rgba(246, 248, 252, .88);
+    --lp-console-bg: rgba(255, 255, 255, .94);
+    --lp-soft-fill: rgba(91, 110, 225, .08);
+    --lp-grid-line: rgba(23, 32, 51, .05);
+    --lp-glow-primary: rgba(91, 110, 225, .16);
+    --lp-glow-secondary: rgba(22, 143, 130, .14);
+    --lp-glow-warm: rgba(217, 79, 106, .11);
+    --lp-gradient: linear-gradient(110deg, var(--lp-light-indigo), #7d5bd6 52%, var(--lp-light-coral));
+    --lp-shadow: 0 24px 70px rgba(23, 32, 51, .13);
   }
 }
 
@@ -86,28 +109,24 @@ body { background: var(--lp-bg); color: var(--lp-text); }
 .lp-grid {
   background-image: linear-gradient(var(--lp-grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--lp-grid-line) 1px, transparent 1px);
 }
-.lp-ambient span:nth-child(1) { background: var(--lp-bubblegum-pink); }
-.lp-ambient span:nth-child(2) { background: var(--lp-pearl-aqua); }
-.lp-ambient span:nth-child(3) { background: var(--lp-lavender-grey); }
+.lp-ambient span:nth-child(1) { background: var(--lp-primary); }
+.lp-ambient span:nth-child(2) { background: var(--lp-secondary); }
+.lp-ambient span:nth-child(3) { background: var(--lp-pink); }
 .lp-header.scrolled .lp-nav { background: var(--lp-nav-bg); border-color: var(--lp-line); }
 .lp-window { background: var(--lp-console-bg); }
-.lp-query { background: color-mix(in srgb, var(--lp-bg) 88%, var(--lp-prussian-blue)); }
+.lp-query { background: color-mix(in srgb, var(--lp-bg) 90%, var(--lp-surface-strong)); }
 .lp-mini-logo, .lp-button-primary { color: var(--lp-on-accent); }
-.lp-brand-mark { background: var(--lp-white); }
+.lp-brand-mark { background: #ffffff; }
 .lp-links.open { background: var(--lp-surface-strong); }
-.lp-solution {
-  background: radial-gradient(circle at 80% 50%, var(--lp-glow-pink), transparent 34%), var(--lp-surface);
-}
-.lp-workflow {
-  background: linear-gradient(180deg, transparent, var(--lp-soft-fill), transparent);
-}
-.lp-final {
-  background: radial-gradient(circle at 50% 100%, var(--lp-glow-pink), transparent 52%), var(--lp-surface);
-}
-.lp-command-glow { background: linear-gradient(125deg, var(--lp-bubblegum-pink), var(--lp-pearl-aqua)); }
-.lp-kicker { border-color: color-mix(in srgb, var(--lp-pearl-aqua) 35%, transparent); background: var(--lp-soft-fill); }
-.lp-cap-icon { border-color: color-mix(in srgb, var(--lp-pearl-aqua) 45%, transparent); background: var(--lp-soft-fill); }
-.lp-stack-node.primary { border-color: color-mix(in srgb, var(--lp-pearl-aqua) 55%, transparent); }
+.lp-solution { background: radial-gradient(circle at 80% 50%, var(--lp-glow-primary), transparent 35%), var(--lp-surface); }
+.lp-workflow { background: linear-gradient(180deg, transparent, var(--lp-soft-fill), transparent); }
+.lp-final { background: radial-gradient(circle at 50% 100%, var(--lp-glow-primary), transparent 52%), var(--lp-surface); }
+.lp-command-glow { background: linear-gradient(125deg, var(--lp-primary), var(--lp-secondary)); }
+.lp-kicker { border-color: color-mix(in srgb, var(--lp-secondary) 34%, transparent); background: var(--lp-soft-fill); }
+.lp-cap-icon { border-color: color-mix(in srgb, var(--lp-secondary) 42%, transparent); background: var(--lp-soft-fill); }
+.lp-stack-node.primary { border-color: color-mix(in srgb, var(--lp-secondary) 50%, transparent); }
+.lp-button-primary { box-shadow: 0 14px 38px var(--lp-glow-primary); }
+.lp-button-primary:hover { box-shadow: 0 18px 52px var(--lp-glow-primary); }
 
 .lp-theme-toggle {
   width: 44px;
@@ -124,8 +143,8 @@ body { background: var(--lp-bg); color: var(--lp-text); }
   cursor: pointer;
   transition: transform .2s, border-color .2s, background .2s;
 }
-.lp-theme-toggle:hover { transform: translateY(-2px); border-color: var(--lp-bubblegum-pink); }
-.lp-theme-toggle:focus-visible { outline: 3px solid color-mix(in srgb, var(--lp-bubblegum-pink) 42%, transparent); outline-offset: 3px; }
+.lp-theme-toggle:hover { transform: translateY(-2px); border-color: var(--lp-primary); }
+.lp-theme-toggle:focus-visible { outline: 3px solid color-mix(in srgb, var(--lp-primary) 38%, transparent); outline-offset: 3px; }
 .lp-theme-icon { position: absolute; font-size: 18px; line-height: 1; transition: transform .28s, opacity .2s; }
 .lp-theme-icon-sun { opacity: 0; transform: rotate(-70deg) scale(.55); }
 .lp-theme-icon-moon { opacity: 1; transform: rotate(0) scale(1); }
