@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class LandingContractTest(unittest.TestCase):
     def test_assets_are_isolated_and_linked(self):
         html = (ROOT / "templates/landing/landing.html").read_text(encoding="utf-8")
-        self.assertIn('/static/landing/landing.css?v=earth-20260922', html)
+        self.assertIn('/static/landing/landing.css?v=earth-type-20260922', html)
         self.assertIn('/static/landing/landing.js', html)
         self.assertIn('/static/landing/landing-theme.js', html)
         self.assertNotIn('base.css', html)
@@ -66,3 +66,18 @@ class LandingStylesheetSourceTest(unittest.TestCase):
         self.assertIn("#d84a05", css)
         self.assertIn("#23231a", css)
         self.assertIn("#8d4b2d", css)
+
+
+class LandingTypographyContractTest(unittest.TestCase):
+    def test_balanced_type_scale_and_detail_colors(self):
+        html = (ROOT / "templates/landing/landing.html").read_text(encoding="utf-8")
+        css = (ROOT / "static/landing/landing.css").read_text(encoding="utf-8")
+        self.assertIn("lp-type-balanced", html)
+        self.assertIn("lp-display", html)
+        self.assertIn("lp-heading", html)
+        self.assertIn("lp-card-title", html)
+        self.assertIn("LANDING TYPOGRAPHY & DETAIL COLOR SYSTEM", css)
+        self.assertIn("--lp-heading-text", css)
+        self.assertIn("--lp-body-text", css)
+        self.assertIn("--lp-accent-text", css)
+        self.assertIn("clamp(2.75rem, 5.2vw, 4.5rem)", css)
