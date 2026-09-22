@@ -11,6 +11,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app_core import _load_html, _user_from_token, render_page
+import db.users_db as usr
 
 
 def _current_user(request):
@@ -27,7 +28,10 @@ def register(app):
 
     @app.get("/app")
     async def authenticated_home(request: Request):
-        if not _current_user(request):
+        user = _current_user(request)
+        if not user:
             target = quote("/app", safe="")
             return RedirectResponse(f"/login?next={target}", status_code=302)
+        if not usr.area_allowed(user.get("role"), "chat", user_id=user.get("id")):
+            return RedirectResponse("/profil", status_code=302)
         return render_page(request, "index.html", "")

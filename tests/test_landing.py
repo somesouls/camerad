@@ -20,6 +20,7 @@ class LandingContractTest(unittest.TestCase):
         self.assertIn('@app.get("/"', route)
         self.assertIn('@app.get("/app")', route)
         self.assertIn('render_page(request, "index.html"', route)
+        self.assertIn('usr.area_allowed(user.get("role"), "chat"', route)
         self.assertIn('_PUBLIC_PATHS.update({"/", "/app"})', package)
 
     def test_frontend_files_stay_within_source_size_policy(self):
