@@ -1,0 +1,58 @@
+name: Apply landing theme integration
+
+on:
+  push:
+    branches:
+      - feature/landing-theme-modes
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wire theme assets and switcher
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('templates/landing/landing.html')
+          text = path.read_text(encoding='utf-8')
+
+          replacements = [
+              (
+                  '<meta name="theme-color" content="#050510">',
+                  '<meta name="theme-color" content="#0b1020">\n  <meta name="color-scheme" content="dark light">',
+              ),
+              (
+                  '<link rel="stylesheet" href="/static/landing/landing.css">',
+                  '<script src="/static/landing/landing-theme.js"></script>\n  <link rel="stylesheet" href="/static/landing/landing.css">\n  <link rel="stylesheet" href="/static/landing/landing-theme.css">',
+              ),
+              (
+                  '      <a class="lp-button lp-button-sm" href="/login?next=%2Fapp"><span>Masuk Sistem</span><i aria-hidden="true">↗</i></a>',
+                  '      <button class="lp-theme-toggle" type="button" aria-label="Aktifkan mode terang" aria-pressed="false"><span class="lp-theme-icon lp-theme-icon-sun" aria-hidden="true">☀</span><span class="lp-theme-icon lp-theme-icon-moon" aria-hidden="true">☾</span></button>\n      <a class="lp-button lp-button-sm" href="/login?next=%2Fapp"><span>Masuk Sistem</span><i aria-hidden="true">↗</i></a>',
+              ),
+          ]
+
+          for old, new in replacements:
+              if text.count(old) != 1:
+                  raise SystemExit(f'Expected one match, got {text.count(old)}: {old[:60]}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text, encoding='utf-8')
+          PY
+      - name: Verify theme contract
+        run: |
+          python scripts/oneoff/check_structure.py
+          python -m unittest tests.test_landing
+      - name: Commit theme integration
+        run: |
+          rm .github/workflows/apply-landing-theme.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add templates/landing/landing.html static/landing/landing-theme.css static/landing/landing-theme.js tests/test_landing.py .github/workflows/apply-landing-theme.yml
+          git commit -m "feat: integrate dark and light landing themes"
+          git push origin "HEAD:${GITHUB_REF_NAME}"

@@ -1,0 +1,147 @@
+:root {
+  color-scheme: dark;
+  --lp-ink-black: #0b1020;
+  --lp-bubblegum-pink: #f7567c;
+  --lp-prussian-blue: #171d31;
+  --lp-pearl-aqua: #99e1d9;
+  --lp-lavender-grey: #8c8fa3;
+  --lp-white: #fcfcfc;
+  --lp-cornsilk: #fffae3;
+  --lp-taupe-grey: #5d576b;
+
+  --lp-bg: var(--lp-ink-black);
+  --lp-bg-soft: var(--lp-prussian-blue);
+  --lp-surface: rgba(23, 29, 49, .78);
+  --lp-surface-strong: var(--lp-prussian-blue);
+  --lp-text: var(--lp-white);
+  --lp-muted: var(--lp-lavender-grey);
+  --lp-dim: #74788f;
+  --lp-line: rgba(153, 225, 217, .16);
+  --lp-primary: var(--lp-bubblegum-pink);
+  --lp-secondary: var(--lp-pearl-aqua);
+  --lp-pink: var(--lp-bubblegum-pink);
+  --lp-green: var(--lp-pearl-aqua);
+  --lp-yellow: var(--lp-cornsilk);
+  --lp-on-accent: var(--lp-ink-black);
+  --lp-nav-bg: rgba(11, 16, 32, .84);
+  --lp-console-bg: rgba(11, 16, 32, .94);
+  --lp-soft-fill: rgba(153, 225, 217, .06);
+  --lp-grid-line: rgba(153, 225, 217, .045);
+  --lp-glow-pink: rgba(247, 86, 124, .25);
+  --lp-glow-aqua: rgba(153, 225, 217, .2);
+  --lp-gradient: linear-gradient(110deg, var(--lp-pearl-aqua), var(--lp-bubblegum-pink) 62%, #ff8aa5);
+  --lp-gradient-radial: radial-gradient(circle, var(--lp-bubblegum-pink), var(--lp-prussian-blue) 48%, var(--lp-pearl-aqua));
+  --lp-shadow: 0 28px 90px rgba(3, 6, 15, .48);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --lp-bg: var(--lp-white);
+  --lp-bg-soft: var(--lp-cornsilk);
+  --lp-surface: rgba(255, 250, 227, .82);
+  --lp-surface-strong: #fffaf0;
+  --lp-text: var(--lp-taupe-grey);
+  --lp-muted: #716a7e;
+  --lp-dim: #81798d;
+  --lp-line: rgba(93, 87, 107, .17);
+  --lp-on-accent: var(--lp-ink-black);
+  --lp-nav-bg: rgba(252, 252, 252, .88);
+  --lp-console-bg: rgba(255, 250, 227, .94);
+  --lp-soft-fill: rgba(153, 225, 217, .18);
+  --lp-grid-line: rgba(93, 87, 107, .06);
+  --lp-glow-pink: rgba(247, 86, 124, .18);
+  --lp-glow-aqua: rgba(153, 225, 217, .32);
+  --lp-gradient: linear-gradient(110deg, #5fb8ae, var(--lp-bubblegum-pink) 62%, #db3f67);
+  --lp-gradient-radial: radial-gradient(circle, var(--lp-cornsilk), var(--lp-bubblegum-pink) 46%, var(--lp-pearl-aqua));
+  --lp-shadow: 0 24px 70px rgba(93, 87, 107, .16);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    color-scheme: light;
+    --lp-bg: var(--lp-white);
+    --lp-bg-soft: var(--lp-cornsilk);
+    --lp-surface: rgba(255, 250, 227, .82);
+    --lp-surface-strong: #fffaf0;
+    --lp-text: var(--lp-taupe-grey);
+    --lp-muted: #716a7e;
+    --lp-dim: #81798d;
+    --lp-line: rgba(93, 87, 107, .17);
+    --lp-nav-bg: rgba(252, 252, 252, .88);
+    --lp-console-bg: rgba(255, 250, 227, .94);
+    --lp-soft-fill: rgba(153, 225, 217, .18);
+    --lp-grid-line: rgba(93, 87, 107, .06);
+    --lp-glow-pink: rgba(247, 86, 124, .18);
+    --lp-glow-aqua: rgba(153, 225, 217, .32);
+    --lp-gradient: linear-gradient(110deg, #5fb8ae, var(--lp-bubblegum-pink) 62%, #db3f67);
+    --lp-shadow: 0 24px 70px rgba(93, 87, 107, .16);
+  }
+}
+
+body { background: var(--lp-bg); color: var(--lp-text); }
+.lp-grid {
+  background-image: linear-gradient(var(--lp-grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--lp-grid-line) 1px, transparent 1px);
+}
+.lp-ambient span:nth-child(1) { background: var(--lp-bubblegum-pink); }
+.lp-ambient span:nth-child(2) { background: var(--lp-pearl-aqua); }
+.lp-ambient span:nth-child(3) { background: var(--lp-lavender-grey); }
+.lp-header.scrolled .lp-nav { background: var(--lp-nav-bg); border-color: var(--lp-line); }
+.lp-window { background: var(--lp-console-bg); }
+.lp-query { background: color-mix(in srgb, var(--lp-bg) 88%, var(--lp-prussian-blue)); }
+.lp-mini-logo, .lp-button-primary { color: var(--lp-on-accent); }
+.lp-brand-mark { background: var(--lp-white); }
+.lp-links.open { background: var(--lp-surface-strong); }
+.lp-solution {
+  background: radial-gradient(circle at 80% 50%, var(--lp-glow-pink), transparent 34%), var(--lp-surface);
+}
+.lp-workflow {
+  background: linear-gradient(180deg, transparent, var(--lp-soft-fill), transparent);
+}
+.lp-final {
+  background: radial-gradient(circle at 50% 100%, var(--lp-glow-pink), transparent 52%), var(--lp-surface);
+}
+.lp-command-glow { background: linear-gradient(125deg, var(--lp-bubblegum-pink), var(--lp-pearl-aqua)); }
+.lp-kicker { border-color: color-mix(in srgb, var(--lp-pearl-aqua) 35%, transparent); background: var(--lp-soft-fill); }
+.lp-cap-icon { border-color: color-mix(in srgb, var(--lp-pearl-aqua) 45%, transparent); background: var(--lp-soft-fill); }
+.lp-stack-node.primary { border-color: color-mix(in srgb, var(--lp-pearl-aqua) 55%, transparent); }
+
+.lp-theme-toggle {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  border: 1px solid var(--lp-line);
+  border-radius: 14px;
+  background: var(--lp-soft-fill);
+  color: var(--lp-text);
+  cursor: pointer;
+  transition: transform .2s, border-color .2s, background .2s;
+}
+.lp-theme-toggle:hover { transform: translateY(-2px); border-color: var(--lp-bubblegum-pink); }
+.lp-theme-toggle:focus-visible { outline: 3px solid color-mix(in srgb, var(--lp-bubblegum-pink) 42%, transparent); outline-offset: 3px; }
+.lp-theme-icon { position: absolute; font-size: 18px; line-height: 1; transition: transform .28s, opacity .2s; }
+.lp-theme-icon-sun { opacity: 0; transform: rotate(-70deg) scale(.55); }
+.lp-theme-icon-moon { opacity: 1; transform: rotate(0) scale(1); }
+:root[data-theme="light"] .lp-theme-icon-sun { opacity: 1; transform: rotate(0) scale(1); }
+:root[data-theme="light"] .lp-theme-icon-moon { opacity: 0; transform: rotate(70deg) scale(.55); }
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) .lp-theme-icon-sun { opacity: 1; transform: rotate(0) scale(1); }
+  :root:not([data-theme]) .lp-theme-icon-moon { opacity: 0; transform: rotate(70deg) scale(.55); }
+}
+
+@media (max-width: 680px) {
+  .lp-theme-toggle { width: 40px; height: 40px; margin-left: auto; }
+  .lp-menu { margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-theme-toggle, .lp-theme-icon { transition: none; }
+}
