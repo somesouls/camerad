@@ -1,0 +1,32 @@
+name: Run landing CSS cleanup
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.head_ref == 'refactor/landing-css-cleanup' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+      - name: Apply canonical CSS cleanup
+        run: |
+          awk '/^          cat > \/tmp\/cleanup_landing.py <<'"'"'PY'"'"'$/{capture=1; next} capture && /^          PY$/{exit} capture{sub(/^          /, ""); print}' .github/workflows/cleanup-landing-css.yml > /tmp/cleanup_landing.py
+          python /tmp/cleanup_landing.py
+          python scripts/oneoff/check_structure.py
+          python -m unittest tests.test_landing
+      - name: Commit cleaned stylesheet
+        run: |
+          rm .github/workflows/cleanup-landing-css.yml .github/workflows/run-landing-css-cleanup.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add static/landing/landing.css templates/landing/landing.html tests/test_landing.py docs/changelog/2026-09-22-landing-css-cleanup.md .github/workflows/cleanup-landing-css.yml .github/workflows/run-landing-css-cleanup.yml
+          git commit -m "refactor: consolidate landing theme and typography"
+          git push origin "HEAD:${{ github.head_ref }}"
