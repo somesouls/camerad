@@ -1,0 +1,30 @@
+name: redesign-base-shell
+on:
+  push:
+    branches: [redesign/base-app-shell]
+    paths:
+      - tools/redesign_base_shell.py
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: redesign/base-app-shell
+          fetch-depth: 0
+      - name: Apply safe base shell patch
+        run: python tools/redesign_base_shell.py
+      - name: Validate shell contracts
+        run: |
+          python -m unittest tests.test_base_shell
+          python scripts/oneoff/check_structure.py
+      - name: Commit generated changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add templates/base.html static/base.js
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Terapkan shell aplikasi ke base"
+          git push
