@@ -5,6 +5,7 @@ The landing experience is isolated from the legacy application shell. Existing
 application routes stay unchanged; authenticated users enter the current chat
 home through `/app`.
 """
+import time
 from urllib.parse import quote
 
 from fastapi import Request
@@ -24,7 +25,15 @@ def register(app):
     async def public_landing(request: Request):
         if _current_user(request):
             return RedirectResponse("/app", status_code=302)
-        return HTMLResponse(_load_html("landing/landing.html"))
+        landing_html = _load_html("landing/landing.html")
+        landing_html = landing_html.replace(
+            "contrast-live-20260922-1",
+            f"contrast-live-{time.time_ns()}",
+        )
+        return HTMLResponse(
+            landing_html,
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+        )
 
     @app.get("/app")
     async def authenticated_home(request: Request):

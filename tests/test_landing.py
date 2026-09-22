@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class LandingContractTest(unittest.TestCase):
     def test_assets_are_isolated_and_linked(self):
         html = (ROOT / "templates/landing/landing.html").read_text(encoding="utf-8")
-        self.assertIn('/static/landing/landing.css?v=earth-clean-20260922', html)
+        self.assertIn('/static/landing/landing.css?v=contrast-live-20260922-1', html)
         self.assertIn('/static/landing/landing.js', html)
         self.assertIn('/static/landing/landing-theme.js', html)
         self.assertNotIn('base.css', html)
@@ -43,9 +43,9 @@ class LandingContractTest(unittest.TestCase):
         self.assertIn('href="#main"', html)
         self.assertIn('aria-label="Navigasi utama"', html)
         self.assertIn('lp-theme-toggle', html)
-        for color in ('#23231a', '#8d4b2d', '#2d2c22', '#f7eee4'):
+        for color in ('#23231a', '#f07840', '#2d2c22', '#f7eee4'):
             self.assertIn(color, css)
-        for color in ('#ffe8d1', '#d84a05', '#fff7ed', '#2d2018'):
+        for color in ('#ffe8d1', '#b43a00', '#fff7ed', '#2d2018'):
             self.assertIn(color, css)
         self.assertIn('prefers-color-scheme: light', css)
         self.assertIn('prefers-reduced-motion', css)
@@ -61,11 +61,11 @@ class LandingStylesheetSourceTest(unittest.TestCase):
         html = (ROOT / "templates/landing/landing.html").read_text(encoding="utf-8")
         css = (ROOT / "static/landing/landing.css").read_text(encoding="utf-8")
         self.assertNotIn("landing-theme.css", html)
-        self.assertIn("LANDING TOKENS: CANONICAL EARTH THEME", css)
+        self.assertIn("LIVE THEME:", css)
         self.assertIn("#ffe8d1", css)
-        self.assertIn("#d84a05", css)
+        self.assertIn("#b43a00", css)
         self.assertIn("#23231a", css)
-        self.assertIn("#8d4b2d", css)
+        self.assertIn("#f07840", css)
 
 
 class LandingTypographyContractTest(unittest.TestCase):
@@ -76,7 +76,7 @@ class LandingTypographyContractTest(unittest.TestCase):
         self.assertIn("lp-display", html)
         self.assertIn("lp-heading", html)
         self.assertIn("lp-card-title", html)
-        self.assertIn("LANDING TOKENS: CANONICAL EARTH THEME", css)
+        self.assertIn("LIVE THEME:", css)
         self.assertIn("--lp-heading-text", css)
         self.assertIn("--lp-body-text", css)
         self.assertIn("--lp-accent-text", css)
@@ -95,3 +95,15 @@ class LandingCssCleanupContractTest(unittest.TestCase):
         self.assertIn('font-variant-ligatures: none', css)
         for legacy in ('#050510', '#7c5cff', '#00e5ff', '#ff3cac', '#58f6ad', '--lp-mono', 'Segoe UI Variable', 'Aptos'):
             self.assertNotIn(legacy, css)
+
+
+class LandingLiveCssContractTest(unittest.TestCase):
+    def test_landing_assets_are_uncached_and_visibly_contrasted(self):
+        css = (ROOT / "static/landing/landing.css").read_text(encoding="utf-8")
+        route = (ROOT / "routes/landing_routes.py").read_text(encoding="utf-8")
+        self.assertIn("Cache-Control", route)
+        self.assertIn("no-store, no-cache, must-revalidate, max-age=0", route)
+        self.assertIn("#f07840", css)
+        self.assertIn("#b43a00", css)
+        self.assertIn("height:4px;background:var(--lp-gradient)", css)
+        self.assertNotIn(" !important", css)
