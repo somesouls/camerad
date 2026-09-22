@@ -14,13 +14,13 @@ class LandingContractTest(unittest.TestCase):
         self.assertNotIn('base.js', html)
         self.assertNotIn('{% extends', html)
 
-    def test_public_and_authenticated_routes_are_separate(self):
-        landing_routes = (ROOT / "routes/landing_routes.py").read_text(encoding="utf-8")
-        pipeline_routes = (ROOT / "pipeline/routes.py").read_text(encoding="utf-8")
-        app_core = (ROOT / "app_core.py").read_text(encoding="utf-8")
-        self.assertIn('@app.get("/"', landing_routes)
-        self.assertIn('app.add_api_route("/app"', pipeline_routes)
-        self.assertIn('"/", "/login"', app_core)
+    def test_public_and_authenticated_entries_are_separate(self):
+        route = (ROOT / "routes/landing_routes.py").read_text(encoding="utf-8")
+        package = (ROOT / "routes/__init__.py").read_text(encoding="utf-8")
+        self.assertIn('@app.get("/"', route)
+        self.assertIn('@app.get("/app")', route)
+        self.assertIn('render_page(request, "index.html"', route)
+        self.assertIn('_PUBLIC_PATHS.update({"/", "/app"})', package)
 
     def test_frontend_files_stay_within_source_size_policy(self):
         paths = [

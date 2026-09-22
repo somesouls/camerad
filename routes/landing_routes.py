@@ -1,16 +1,33 @@
 # -*- coding: utf-8 -*-
-"""Public landing page routes.
+"""Public landing and authenticated application entry routes.
 
-The landing experience is deliberately isolated from the authenticated
-application shell so it can evolve into Camerad's next design system without
-changing existing product screens.
+The landing experience is isolated from the legacy application shell. Existing
+application routes stay unchanged; authenticated users enter the current chat
+home through `/app`.
 """
-from fastapi.responses import HTMLResponse
+from urllib.parse import quote
 
-from app_core import _load_html
+from fastapi import Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+
+from app_core import _load_html, _user_from_token, render_page
+
+
+def _current_user(request):
+    token = request.cookies.get("session")
+    return _user_from_token(token) if token else None
 
 
 def register(app):
     @app.get("/", response_class=HTMLResponse)
-    async def public_landing():
+    async def public_landing(request: Request):
+        if _current_user(request):
+            return RedirectResponse("/app", status_code=302)
         return HTMLResponse(_load_html("landing/landing.html"))
+
+    @app.get("/app")
+    async def authenticated_home(request: Request):
+        if not _current_user(request):
+            target = quote("/app", safe="")
+            return RedirectResponse(f"/login?next={target}", status_code=302)
+        return render_page(request, "index.html", "")

@@ -1,0 +1,27 @@
+name: landing-ci
+
+on:
+  push:
+    branches:
+      - feature/futuristic-public-landing
+  pull_request:
+    paths:
+      - "routes/landing_routes.py"
+      - "routes/__init__.py"
+      - "templates/landing/**"
+      - "static/landing/**"
+      - "tests/test_landing.py"
+      - ".github/workflows/landing-ci.yml"
+
+jobs:
+  landing-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check Python structure
+        run: python scripts/oneoff/check_structure.py
+      - name: Test landing contract
+        run: python -m unittest tests.test_landing
