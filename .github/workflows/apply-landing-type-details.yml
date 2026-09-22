@@ -1,0 +1,150 @@
+name: Apply landing typography details
+
+on:
+  push:
+    branches:
+      - refine/landing-typography-details
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refine typography and detail colors
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          css_path = Path('static/landing/landing.css')
+          html_path = Path('templates/landing/landing.html')
+          test_path = Path('tests/test_landing.py')
+
+          css = css_path.read_text(encoding='utf-8').rstrip()
+          marker = '/* === LANDING TYPOGRAPHY & DETAIL COLOR SYSTEM === */'
+          if marker in css:
+              raise SystemExit('Typography marker already exists')
+          detail_css = r'''
+/* === LANDING TYPOGRAPHY & DETAIL COLOR SYSTEM === */
+:root {
+  --lp-font: "Segoe UI Variable Text", "Aptos", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --lp-display-font: "Segoe UI Variable Display", "Aptos Display", "Segoe UI Variable Text", "Aptos", Inter, ui-sans-serif, system-ui, sans-serif;
+  --lp-heading-text: #fff8f0;
+  --lp-body-text: #d6cabc;
+  --lp-subtle-text: #b5a895;
+  --lp-micro-text: #c9bba8;
+  --lp-accent-text: #d89a77;
+}
+:root[data-theme="light"] {
+  --lp-heading-text: #271a12;
+  --lp-body-text: #4c372a;
+  --lp-subtle-text: #6f5341;
+  --lp-micro-text: #765b49;
+  --lp-accent-text: #9f3604;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --lp-heading-text: #271a12;
+    --lp-body-text: #4c372a;
+    --lp-subtle-text: #6f5341;
+    --lp-micro-text: #765b49;
+    --lp-accent-text: #9f3604;
+  }
+}
+body { font-family: var(--lp-font); font-size: 16px; line-height: 1.65; color: var(--lp-body-text); text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4, .lp-brand b { font-family: var(--lp-display-font); color: var(--lp-heading-text); text-wrap: balance; }
+p { text-wrap: pretty; }
+.lp-display { max-width: 760px; margin: 22px 0 20px; font-size: clamp(2.75rem, 5.2vw, 4.5rem); line-height: 1.01; letter-spacing: -.052em; font-weight: 720; }
+.lp-heading { margin-top: 13px !important; font-size: clamp(2.1rem, 4vw, 3.5rem) !important; line-height: 1.07 !important; letter-spacing: -.042em !important; font-weight: 700; }
+.lp-card-title { color: var(--lp-heading-text); font-size: clamp(1.12rem, 1.6vw, 1.4rem) !important; line-height: 1.28; letter-spacing: -.018em; font-weight: 680; }
+.lp-lead { max-width: 660px !important; color: var(--lp-body-text) !important; font-size: clamp(1rem, 1.25vw, 1.125rem) !important; line-height: 1.72 !important; }
+.lp-section-head > p, .lp-demo-copy > p, .lp-arch-copy > p { color: var(--lp-body-text); font-size: .975rem; line-height: 1.72; }
+.lp-problem p, .lp-solution p, .lp-cap p, .lp-govern-grid p, .lp-flow p, .lp-message p, .lp-faq details p { color: var(--lp-body-text); font-size: .9rem; line-height: 1.68; }
+.lp-links a { color: var(--lp-subtle-text); font-size: .82rem; font-weight: 620; }
+.lp-links a:hover, .lp-links a.active { color: var(--lp-heading-text); }
+.lp-button { font-size: .875rem; font-weight: 700; letter-spacing: 0; }
+.lp-button-ghost, .lp-button-sm { background: color-mix(in srgb, var(--lp-surface-strong) 52%, transparent); color: var(--lp-heading-text); }
+.lp-button:hover { border-color: color-mix(in srgb, var(--lp-primary) 55%, var(--lp-line)); }
+.lp-brand b { font-size: .88rem; font-weight: 760; letter-spacing: .13em; }
+.lp-brand small { margin-top: 2px; color: var(--lp-subtle-text); font: 600 .625rem/1.3 var(--lp-mono); letter-spacing: .1em; }
+.lp-kicker, .lp-index { color: var(--lp-accent-text); font: 700 .68rem/1.25 var(--lp-mono); letter-spacing: .11em; }
+.lp-kicker { color: var(--lp-secondary); }
+.lp-trust { color: var(--lp-subtle-text); font: 600 .68rem/1.45 var(--lp-mono); letter-spacing: .035em; }
+.lp-marquee span { color: var(--lp-subtle-text); font: 720 .7rem/1 var(--lp-mono); letter-spacing: .12em; }
+.lp-window-bar p, .lp-window-bar em { font: 650 .625rem/1 var(--lp-mono); letter-spacing: .09em; }
+.lp-console-head span { color: var(--lp-heading-text); font-size: .84rem; font-weight: 700; }
+.lp-console-head small { color: var(--lp-micro-text); font: 600 .625rem/1.3 var(--lp-mono); }
+.lp-kpis small { color: var(--lp-micro-text); font: 650 .575rem/1.25 var(--lp-mono); letter-spacing: .035em; }
+.lp-kpis b { color: var(--lp-heading-text); font: 760 1.18rem/1.15 var(--lp-mono); }
+.lp-kpis span { color: var(--lp-subtle-text); font-size: .625rem; }
+.lp-signal-title { color: var(--lp-heading-text); font-size: .72rem; }
+.lp-signal-title small { font: 650 .575rem/1 var(--lp-mono); }
+.lp-query { color: var(--lp-subtle-text); font: 600 .66rem/1.4 var(--lp-mono); }
+.lp-float small { color: var(--lp-micro-text); font: 650 .575rem/1.2 var(--lp-mono); }
+.lp-float b { color: var(--lp-heading-text); font-size: .72rem; font-weight: 680; }
+.lp-cap > span, .lp-solution small, .lp-flow small { color: var(--lp-accent-text); font: 700 .65rem/1.3 var(--lp-mono); letter-spacing: .09em; }
+.lp-cap li, .lp-tag { color: var(--lp-subtle-text); font: 650 .625rem/1.25 var(--lp-mono); }
+.lp-flow h3 { color: var(--lp-heading-text); font-size: 1.18rem; font-weight: 680; }
+.lp-checks { color: var(--lp-body-text); font-size: .84rem; }
+.lp-chat-head, .lp-chat-foot { color: var(--lp-micro-text); font: 650 .625rem/1.4 var(--lp-mono); }
+.lp-message small { color: var(--lp-accent-text); font: 700 .6rem/1.3 var(--lp-mono); letter-spacing: .06em; }
+.lp-message.bot span { color: var(--lp-secondary); font-size: .625rem; }
+.lp-arch-copy li { color: var(--lp-heading-text); font-size: .82rem; }
+.lp-arch-copy li span { color: var(--lp-subtle-text); }
+.lp-stack-node, .lp-stack-row span { color: var(--lp-body-text); font: 650 .625rem/1.25 var(--lp-mono); }
+.lp-stack > small { color: var(--lp-micro-text); font: 650 .625rem/1.3 var(--lp-mono); letter-spacing: .09em; }
+.lp-faq summary { color: var(--lp-heading-text); font-size: 1rem; font-weight: 680; }
+.lp-final h2 { max-width: 900px; margin: 18px auto; font-size: clamp(2.35rem, 4.8vw, 3.85rem); line-height: 1.05; letter-spacing: -.048em; font-weight: 710; }
+.lp-final > span { color: var(--lp-accent-text); font: 700 .68rem/1.2 var(--lp-mono); letter-spacing: .12em; }
+.lp-final p { color: var(--lp-body-text); font-size: 1rem; }
+.lp-footer { color: var(--lp-subtle-text); font-size: .78rem; }
+.lp-footer > small { color: var(--lp-micro-text); font: 600 .625rem/1.4 var(--lp-mono); }
+.lp-problem:hover, .lp-cap:hover, .lp-govern-grid article:hover { border-color: color-mix(in srgb, var(--lp-primary) 52%, var(--lp-line)); }
+.lp-message.user { background: var(--lp-soft-fill); }
+.lp-message.bot span, .lp-chat-head i { background: color-mix(in srgb, var(--lp-secondary) 11%, transparent); }
+.lp-top { background: var(--lp-nav-bg); color: var(--lp-heading-text); }
+@media (max-width: 680px) {
+  .lp-display { font-size: clamp(2.35rem, 11vw, 2.85rem); line-height: 1.04; letter-spacing: -.045em; }
+  .lp-heading { font-size: clamp(1.95rem, 9vw, 2.4rem) !important; line-height: 1.1 !important; }
+  .lp-card-title { font-size: 1.14rem !important; }
+  .lp-final h2 { font-size: clamp(2rem, 10vw, 2.65rem); }
+  .lp-section-head > p, .lp-demo-copy > p, .lp-arch-copy > p, .lp-lead { font-size: .97rem !important; }
+}
+'''.strip()
+          css_path.write_text(css + '\n\n' + detail_css + '\n', encoding='utf-8')
+
+          html = html_path.read_text(encoding='utf-8')
+          replacements = [
+              ('/static/landing/landing.css?v=earth-20260922', '/static/landing/landing.css?v=earth-type-20260922'),
+              ('<body class="lp-shell">', '<body class="lp-shell lp-type-balanced">'),
+              ('<h1 id="hero-title">', '<h1 class="lp-display" id="hero-title">'),
+              ('<p>Camerad menghubungkan RAG peraturan pajak, Dialogflow, Avaya, analitik, dan tata kelola pengetahuan—agar data yang terpencar berubah menjadi tindakan yang dapat dipertanggungjawabkan.</p>', '<p class="lp-lead">Camerad menghubungkan RAG peraturan pajak, Dialogflow, Avaya, analitik, dan tata kelola pengetahuan—agar data yang terpencar berubah menjadi tindakan yang dapat dipertanggungjawabkan.</p>'),
+          ]
+          for old, new in replacements:
+              if html.count(old) != 1:
+                  raise SystemExit(f'Expected one HTML match, got {html.count(old)}: {old[:55]}')
+              html = html.replace(old, new, 1)
+          html = html.replace('<h2>', '<h2 class="lp-heading">')
+          html = html.replace('<h3>', '<h3 class="lp-card-title">')
+          html_path.write_text(html, encoding='utf-8')
+
+          tests = test_path.read_text(encoding='utf-8')
+          tests = tests.replace('/static/landing/landing.css?v=earth-20260922', '/static/landing/landing.css?v=earth-type-20260922')
+          tests += '\n\nclass LandingTypographyContractTest(unittest.TestCase):\n    def test_balanced_type_scale_and_detail_colors(self):\n        html = (ROOT / "templates/landing/landing.html").read_text(encoding="utf-8")\n        css = (ROOT / "static/landing/landing.css").read_text(encoding="utf-8")\n        self.assertIn("lp-type-balanced", html)\n        self.assertIn("lp-display", html)\n        self.assertIn("lp-heading", html)\n        self.assertIn("lp-card-title", html)\n        self.assertIn("LANDING TYPOGRAPHY & DETAIL COLOR SYSTEM", css)\n        self.assertIn("--lp-heading-text", css)\n        self.assertIn("--lp-body-text", css)\n        self.assertIn("--lp-accent-text", css)\n        self.assertIn("clamp(2.75rem, 5.2vw, 4.5rem)", css)\n'
+          test_path.write_text(tests, encoding='utf-8')
+          PY
+      - name: Verify typography contract
+        run: |
+          python scripts/oneoff/check_structure.py
+          python -m unittest tests.test_landing
+      - name: Commit typography refinement
+        run: |
+          rm .github/workflows/apply-landing-type-details.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add templates/landing/landing.html static/landing/landing.css tests/test_landing.py .github/workflows/apply-landing-type-details.yml
+          git commit -m "refactor: refine landing typography and detail colors"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
