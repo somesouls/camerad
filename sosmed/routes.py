@@ -777,6 +777,23 @@ async def api_monitor_post(request: Request):
     return JSONResponse(r, status_code=code)
 
 
+async def api_monitor_post_export(request: Request):
+    """Data ekspor satu postingan: seluruh baris dan kolom fisik database."""
+    platform = _qp(request, "platform")
+    conv = _qp(request, "conversation_id") or _qp(request, "conv")
+    if not conv:
+        return JSONResponse({"ok": False, "error": "conversation_id wajib."}, status_code=400)
+
+    def _do():
+        c = _conn()
+        try:
+            return smon.monitor_post_export(c, platform, conv)
+        finally:
+            c.close()
+    result = await run_in_threadpool(_do)
+    return JSONResponse(result, status_code=200 if result.get("ok") else 404)
+
+
 # ---------------------------------------------------------------------------
 # SLA & Analitik (gabungan Coverage & SLA + Analitik)
 # ---------------------------------------------------------------------------
@@ -957,6 +974,7 @@ def register(app):
     app.add_api_route("/api/sosmed/monitor-thread", api_monitor_thread, methods=["GET"])
     app.add_api_route("/api/sosmed/monitor-posts", api_monitor_posts, methods=["GET"])
     app.add_api_route("/api/sosmed/monitor-post", api_monitor_post, methods=["GET"])
+    app.add_api_route("/api/sosmed/monitor-post-export", api_monitor_post_export, methods=["GET"])
     # SLA & Analitik
     app.add_api_route("/api/sosmed/coverage", api_coverage, methods=["GET"])
     app.add_api_route("/api/sosmed/analytics", api_analytics, methods=["GET"])

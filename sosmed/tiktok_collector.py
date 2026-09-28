@@ -905,12 +905,22 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
                 pass
         _close(browser, ctx)
 
-    # Parsing hasil akhir
+    # Parsing hasil akhir + metadata posting untuk Pengawasan SPV.
     items = list(by_id.values())
+    _url_by_id = {u.rstrip("/").split("/")[-1].split("?")[0]: u for u in valid_links}
     for it in items:
-        # Jika API komentar tidak membawa permalink, bentuk manual
-        if it.get("conversation_id") and not it.get("permalink"):
-            it["permalink"] = "https://www.tiktok.com/@%s/video/%s" % (tgt, it["conversation_id"])
+        _conv = it.get("conversation_id") or ""
+        _post_url = _url_by_id.get(_conv) or ""
+        if "/photo/" in _post_url:
+            it["post_type"] = "Carousel"
+        elif "/video/" in _post_url:
+            it["post_type"] = "Video"
+        _aw = awemes.get(_conv) or {}
+        if _aw.get("create_time"):
+            it["post_created_at"] = _epoch_to_iso(_aw.get("create_time"))
+        # Jika API komentar tidak membawa permalink, bentuk manual.
+        if _conv and not it.get("permalink"):
+            it["permalink"] = _post_url or "https://www.tiktok.com/@%s/video/%s" % (tgt, _conv)
 
     dumped = False
     if dump_path:

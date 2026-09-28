@@ -208,7 +208,10 @@ def extract_media_codes(obj, out=None, depth=0):
                    if isinstance(_own, dict) else "")
             out[str(pk).split("_")[0]] = {"code": str(code),
                                           "taken_at": obj.get("taken_at") or 0,
-                                          "owner": _oh}
+                                          "owner": _oh,
+                                          "media_type": obj.get("media_type"),
+                                          "product_type": obj.get("product_type") or "",
+                                          "has_carousel": bool(obj.get("carousel_media"))}
         for v in obj.values():
             if isinstance(v, (dict, list)):
                 extract_media_codes(v, out, depth + 1)
@@ -1111,6 +1114,17 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
         _close(browser, ctx)
 
     items = list(by_id.values())
+    _meta_by_code = {d.get("code"): d for d in media_codes.values() if d.get("code")}
+    for _it in items:
+        _md = _meta_by_code.get(_it.get("conversation_id")) or {}
+        if _md.get("taken_at"):
+            _it["post_created_at"] = _epoch_to_iso(_md.get("taken_at"))
+        _mt = str(_md.get("media_type") or "").lower()
+        _pt = str(_md.get("product_type") or "").lower()
+        if _mt == "2" or "clip" in _pt or "video" in _pt:
+            _it["post_type"] = "Video"
+        elif _mt in ("1", "8") or _md.get("has_carousel"):
+            _it["post_type"] = "Carousel"
     dumped = False
     if dump_path:
         dumped = _write_dump(dump_path, items, tgt)

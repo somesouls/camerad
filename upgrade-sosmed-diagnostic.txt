@@ -1,0 +1,16 @@
+SOSMED_MONITOR_UPGRADE_OK
+F..
+======================================================================
+FAIL: test_auto_labels_and_post_date (tests.test_sosmed_monitor.SosmedMonitorPostTest.test_auto_labels_and_post_date)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/runner/work/camerad/camerad/tests/test_sosmed_monitor.py", line 34, in test_auto_labels_and_post_date
+    self.assertEqual(posts["post-video"]["post_label"], "Januari Video")
+AssertionError: '' != 'Januari Video'
++ Januari Video
+
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.075s
+
+FAILED (failures=1)

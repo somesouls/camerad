@@ -86,6 +86,9 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
 .pttl { font-weight: 800; font-size: 14px; }
 .pname-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .pname { max-width: 360px; }
+.pactions { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.pmeta { display:flex; gap:8px 16px; flex-wrap:wrap; margin-top:8px; font-size:11.5px; color:var(--text-muted); }
+.pmeta strong { color:var(--text-main); }
 .pstats { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--text-muted); background: var(--bg-base); padding: 10px; border-radius: 8px;}
 .pstats b { color: var(--text-main); }
 .pgroup .tbl-wrap { border-radius: 0 0 14px 14px; border-top: none; }
@@ -292,6 +295,7 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
   }
 
   function refresh(){
+    $('#btnExport').innerHTML=VIEW==='postingan'?'📚 Export semua postingan':'📥 Export XLS';
     if(VIEW==='postingan'){
       $('#tblWrap').style.display='none';$('#postWrap').style.display='';loadPosts();
     }else{
@@ -380,6 +384,8 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
           var card=g.querySelector('.pcard');
           var ps=card.querySelector('.psave');
           if(ps)ps.onclick=function(){savePostLabel(g);};
+          var pe=card.querySelector('.pexport');
+          if(pe)pe.onclick=function(){exportOnePost(g.dataset.plat,g.dataset.conv,card.dataset.label||g.dataset.conv);};
           g.querySelectorAll('tr[data-id]').forEach(bindRow);
         });
       }
@@ -387,78 +393,57 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
   }
 
 // ---- EXPORT TO EXCEL (.xlsx) ----
+  function cleanName(s){return String(s||'postingan').replace(/[\\/:*?"<>|\[\]]/g,'-').slice(0,80);}
+  function exportUrl(platform,conv){
+    var p=new URLSearchParams();p.set('platform',platform||'');p.set('conversation_id',conv||'');
+    return '/api/sosmed/monitor-post-export?'+p.toString();
+  }
+  function sheetFromExport(d){
+    var rows=d.items||[], columns=d.columns||[];
+    var ws=XLSX.utils.json_to_sheet(rows,{header:columns});
+    ws['!cols']=columns.map(function(c){return {wch:c==='text'||c==='raw_json'?55:Math.max(12,Math.min(24,c.length+3))};});
+    return ws;
+  }
+  function exportOnePost(platform,conv,label){
+    toast('Menyiapkan ekspor postingan…');
+    jget(exportUrl(platform,conv)).then(function(d){
+      if(!d||!d.ok){toast((d&&d.error)||'Gagal mengekspor postingan');return;}
+      var wb=XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb,sheetFromExport(d),'Semua Kolom');
+      XLSX.writeFile(wb,'Sosmed_'+cleanName(label||d.post_label||conv)+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+      toast('Ekspor postingan selesai');
+    }).catch(function(){toast('Gagal mengekspor postingan');});
+  }
+  function exportAllPosts(){
+    toast('Menyiapkan workbook semua postingan…');
+    Promise.all(currentData.map(function(p){return jget(exportUrl(p.platform,p.conversation_id));})).then(function(all){
+      var wb=XLSX.utils.book_new(),used={};
+      all.forEach(function(d,i){
+        if(!d||!d.ok)return;
+        var base=cleanName(d.post_label||('Postingan '+(i+1))).slice(0,27)||('Post '+(i+1));
+        var name=base,n=2;while(used[name]){name=(base.slice(0,27)+' '+n++).slice(0,31);}used[name]=true;
+        XLSX.utils.book_append_sheet(wb,sheetFromExport(d),name);
+      });
+      if(!wb.SheetNames.length){toast('Tidak ada data untuk diekspor');return;}
+      XLSX.writeFile(wb,'Sosmed_Semua_Postingan_'+new Date().toISOString().slice(0,10)+'.xlsx');
+      toast('Ekspor semua postingan selesai');
+    }).catch(function(){toast('Gagal mengekspor semua postingan');});
+  }
   $('#btnExport').onclick = function() {
-    if (!currentData || !currentData.length) {
-      toast('Tidak ada data untuk diexport');
-      return;
-    }
-    
-    // Siapkan array data untuk Excel
-    var ws_data = [];
-    
-    if (VIEW === 'interaksi') {
-      // Header Sheet Interaksi
-      ws_data.push(["Platform", "Akun Nanya", "Waktu", "Isi Komentar", "Jenis", "Status", "Tgl Dijawab", "SLA", "Tiket CRM"]);
-      
-      currentData.forEach(function(it) {
-        var st = it.eff_status || 'belum';
-        var stTxt = st === 'ya' ? 'Sudah Dijawab' : (st === 'itd' ? 'ITD' : 'Belum Dijawab');
-        var jenis = Number(it.is_nimbrung || 0) === 1 ? 'Nimbrung' : 'Utama';
-        
-        // Isi baris
-        ws_data.push([
-          it.platform || '',
-          "@" + (it.author_handle || ''),
-          it.created_at || '',
-          it.text || '',
-          jenis,
-          stTxt,
-          it.eff_answered_at || '',
-          gap(it.eff_gap_s),
-          it.crm_url || ''
-        ]);
-      });
-    } else {
-      // Header Sheet Postingan
-      ws_data.push(["Platform", "Judul Postingan", "URL Postingan", "Total Ditarik", "Komentar Utama", "Komentar Tambahan", "Balasan Resmi", "Nimbrung", "Belum Dijawab", "Sudah Dijawab", "ITD", "Waktu Terakhir"]);
-      
-      currentData.forEach(function(p) {
-        ws_data.push([
-          p.platform || '',
-          p.post_label || '',
-          p.post_url || '',
-          p.n_items || 0,
-          p.n_main || 0,
-          p.n_addition || 0,
-          p.n_official || 0,
-          p.n_nimbrung || 0,
-          p.n_unanswered || 0,
-          p.n_answered || 0,
-          p.n_itd || 0,
-          p.last_at || ''
-        ]);
-      });
-    }
-
-    // Buat Workbook dan Worksheet baru
-    var wb = XLSX.utils.book_new();
-    var ws = XLSX.utils.aoa_to_sheet(ws_data);
-    
-    // Atur lebar kolom (opsional agar rapi)
-    var wscols = [
-      {wch: 10}, // Platform
-      {wch: 15}, // Akun / Judul
-      {wch: 20}, // Waktu / URL
-      {wch: 50}, // Isi (Lebar)
-      {wch: 15}, // Jenis
-      {wch: 15}  // Status
-    ];
-    ws['!cols'] = wscols;
-
-    XLSX.utils.book_append_sheet(wb, ws, "Data Sosmed");
-    
-    // Unduh sebagai file .xlsx
-    XLSX.writeFile(wb, `Report_Sosmed_${VIEW}_${new Date().toISOString().slice(0,10)}.xlsx`);
+    if (!currentData || !currentData.length) {toast('Tidak ada data untuk diexport');return;}
+    if(VIEW==='postingan'){exportAllPosts();return;}
+    var ws_data=[["Platform","Akun Nanya","Waktu","Isi Komentar","Jenis","Status","Tgl Dijawab","SLA","Tiket CRM"]];
+    currentData.forEach(function(it){
+      var st=it.eff_status||'belum';
+      ws_data.push([it.platform||'',"@"+(it.author_handle||''),it.created_at||'',it.text||'',
+        Number(it.is_nimbrung||0)===1?'Nimbrung':'Utama',
+        st==='ya'?'Sudah Dijawab':(st==='itd'?'ITD':'Belum Dijawab'),
+        it.eff_answered_at||'',gap(it.eff_gap_s),it.crm_url||'']);
+    });
+    var wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(ws_data);
+    ws['!cols']=[{wch:10},{wch:18},{wch:20},{wch:55},{wch:14},{wch:18},{wch:20},{wch:12},{wch:28}];
+    XLSX.utils.book_append_sheet(wb,ws,'Data Sosmed');
+    XLSX.writeFile(wb,'Report_Sosmed_interaksi_'+new Date().toISOString().slice(0,10)+'.xlsx');
   };
   
   // ---- HTML GENERATORS ----
@@ -500,9 +485,10 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
     var body = rows.length?('<div class="tbl-wrap"><table class="mon"><thead>'+THEAD+'</thead><tbody>'+rows.map(rowHtml).join('')+'</tbody></table></div>'):'<div class="tbl-wrap" style="padding:16px"><span class="muted" style="font-size:12.5px; text-align:center; display:block;">Tidak ada komentar yang cocok filter untuk postingan ini.</span></div>';
     
     return '<div class="pgroup" data-plat="'+esc(p.platform)+'" data-conv="'+esc(p.conversation_id)+'">'+
-      '<div class="pcard">'+
-        '<div class="ph"><span class="badge '+pc(p.platform)+'">'+esc(p.platform)+'</span>'+(p.post_label?'<span class="pttl">'+esc(p.post_label)+'</span>':'')+link+'<span class="muted mono" style="margin-left:auto;">'+esc(p.last_at||'')+'</span></div>'+
-        '<div class="pname-row"><input class="cell-in pname" placeholder="Beri nama postingan (mis. P1 Lupa Kata Sandi)" value="'+esc(p.post_label||'')+'"><button class="btn sm psave">Simpan nama</button></div>'+
+      '<div class="pcard" data-label="'+esc(p.post_label||p.conversation_id)+'">'+
+        '<div class="ph"><span class="badge '+pc(p.platform)+'">'+esc(p.platform)+'</span>'+(p.post_label?'<span class="pttl">'+esc(p.post_label)+'</span>':'')+link+'</div>'+
+        '<div class="pmeta"><span>Tanggal posting: <strong class="mono">'+esc(p.post_date||'—')+'</strong>'+(p.post_date_source==='komentar_pertama'?' <em>(fallback komentar pertama)</em>':'')+'</span><span>Jenis: <strong>'+esc(p.post_type||'Belum terdeteksi')+'</strong></span><span>Tarikan terakhir: <strong class="mono">'+esc(p.last_at||'—')+'</strong></span></div>'+
+        '<div class="pname-row"><input class="cell-in pname" placeholder="Ubah label otomatis bila perlu" value="'+esc(p.post_label||'')+'"><div class="pactions"><button class="btn sm psave">Simpan label</button><button class="btn sm ghost pexport">📥 Export postingan</button></div></div>'+
         '<div class="pstats">'+
           '<span>Total ditarik: <b>'+p.n_items+'</b></span>'+
           '<span>Utama: '+p.n_main+'</span>'+
@@ -549,8 +535,8 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
     var btn=card.querySelector('.psave');
     btn.disabled=true;btn.textContent='…';
     jpost('/api/sosmed/post-label',{platform:g.dataset.plat,conversation_id:g.dataset.conv,label:inp.value}).then(function(r){
-      btn.disabled=false;btn.textContent='Simpan nama';
-      if(r&&r.ok){toast('Nama postingan tersimpan');var ttl=card.querySelector('.pttl');if(ttl)ttl.textContent=inp.value;}
+      btn.disabled=false;btn.textContent='Simpan label';
+      if(r&&r.ok){toast('Label postingan tersimpan');var ttl=card.querySelector('.pttl');if(ttl)ttl.textContent=inp.value;}
       else{toast((r&&r.error)||'Gagal menyimpan');}
     });
   }
