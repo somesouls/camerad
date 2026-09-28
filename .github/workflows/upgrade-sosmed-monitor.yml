@@ -14,13 +14,13 @@ jobs:
       - name: Apply focused upgrade
         id: apply
         continue-on-error: true
-        run: python tools/upgrade_sosmed_monitor.py > upgrade-sosmed.log 2>&1
+        run: python tools/upgrade_sosmed_monitor.py > upgrade-sosmed-diagnostic.txt 2>&1
       - name: Commit diagnostic on failure
         if: steps.apply.outcome == 'failure'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add upgrade-sosmed.log
+          git add upgrade-sosmed-diagnostic.txt
           git commit -m "Catat kegagalan migrasi sosmed [skip ci]"
           git push
           exit 1
