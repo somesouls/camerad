@@ -1,0 +1,27 @@
+name: Refine Sosmed Post Filter
+on:
+  push:
+    branches: [feature/sosmed-post-month-filter]
+permissions:
+  contents: write
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply focused refinement
+        run: python tools/refine_sosmed_post_filter.py
+      - name: Validate focused behavior
+        run: |
+          python -m py_compile sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py
+          python -m unittest tests.test_sosmed_monitor
+          git diff --check
+      - name: Commit generated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py templates/sosmed_monitor.html tests/test_sosmed_monitor.py
+          git diff --cached --quiet || git commit -m "Tambah filter bulan postingan dan fallback URL IG [skip ci]"
+          git push
