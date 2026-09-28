@@ -618,6 +618,7 @@ def monitor_posts(conn, platform="", range_="all", start="", end="", q="",
     tautan postingan, dan nama (label) postingan bila sudah diberi SPV.
     """
     ensure_review_columns(conn)
+    ensure_auto_post_labels(conn)
     off = _off_set()
     labels = _all_post_labels(conn)
     norm_plat = sdb._norm_platform(platform) if platform else ""
