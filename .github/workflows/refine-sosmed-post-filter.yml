@@ -12,7 +12,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Apply focused refinement
-        run: python tools/refine_sosmed_post_filter.py
+        run: |
+          python tools/refine_sosmed_post_filter.py
+          python tools/refine_sosmed_post_filter_v2.py
       - name: Validate focused behavior
         run: |
           python -m py_compile sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py
