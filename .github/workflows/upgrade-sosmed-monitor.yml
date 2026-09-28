@@ -11,32 +11,30 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Apply and validate focused upgrade
-        id: validate
-        continue-on-error: true
+      - name: Fix monitor initialization
         run: |
-          set -o pipefail
-          {
-            python tools/upgrade_sosmed_monitor.py
-            python -m py_compile sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py sosmed/tiktok_collector.py
-            python -m unittest tests.test_sosmed_monitor
-            git diff --check
-          } > upgrade-sosmed-diagnostic.txt 2>&1
-      - name: Commit diagnostic on failure
-        if: steps.validate.outcome == 'failure'
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('sosmed/monitor.py')
+          s=p.read_text(encoding='utf-8')
+          anchor='def monitor_posts(conn, platform="", range_="all", start="", end="", q="",\n                  limit=300):'
+          pos=s.index(anchor)
+          tail=s[pos:]
+          old='    ensure_review_columns(conn)\n    off = _off_set()\n    labels = _all_post_labels(conn)\n'
+          if old not in tail:
+              raise SystemExit('blok monitor_posts tidak ditemukan')
+          tail=tail.replace(old,'    ensure_review_columns(conn)\n    ensure_auto_post_labels(conn)\n    off = _off_set()\n    labels = _all_post_labels(conn)\n',1)
+          p.write_text(s[:pos]+tail,encoding='utf-8')
+          PY
+      - name: Validate focused upgrade
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -f upgrade-sosmed-diagnostic.txt
-          git add sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py sosmed/tiktok_collector.py templates/sosmed_monitor.html tests/test_sosmed_monitor.py || true
-          git commit -m "Catat hasil validasi upgrade sosmed [skip ci]"
-          git push
-          exit 1
-      - name: Commit generated files
-        if: steps.validate.outcome == 'success'
+          python -m py_compile sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py sosmed/tiktok_collector.py
+          python -m unittest tests.test_sosmed_monitor
+          git diff --check
+      - name: Commit fix
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py sosmed/tiktok_collector.py templates/sosmed_monitor.html tests/test_sosmed_monitor.py
-          git diff --cached --quiet || git commit -m "Tambah ekspor dan label otomatis per postingan [skip ci]"
+          git add sosmed/monitor.py
+          git diff --cached --quiet || git commit -m "Aktifkan label otomatis pada daftar postingan [skip ci]"
           git push
