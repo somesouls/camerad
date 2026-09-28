@@ -753,7 +753,8 @@ async def api_monitor_posts(request: Request):
                 c, platform=_qp(request, "platform"),
                 range_=_qp(request, "range", "all"),
                 start=_qp(request, "start"), end=_qp(request, "end"),
-                q=_qp(request, "q"), limit=limit)
+                q=_qp(request, "q"), post_month=_qp(request, "post_month"),
+                limit=limit)
         finally:
             c.close()
     return JSONResponse(await run_in_threadpool(_do))

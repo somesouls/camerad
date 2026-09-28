@@ -142,6 +142,7 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
 
   <div class="fp"><div class="fr">
     <div class="fld"><label>Platform</label><select id="fPlatform"><option value="">Semua</option><option value="x">X</option><option value="ig">Instagram</option><option value="tiktok">TikTok</option></select></div>
+    <div class="fld" id="fPostMonthWrap" style="display:none"><label>Bulan posting</label><input type="month" id="fPostMonth" aria-label="Bulan dan tahun postingan"></div>
     <div class="fld" id="fAnsWrap"><label>Status jawab</label><select id="fAns"><option value="">Semua</option><option value="belum">Belum dijawab</option><option value="ya">Sudah dijawab</option><option value="itd">ITD</option></select></div>
     <div class="fld grow"><label>Cari teks / akun</label><input id="fQ" placeholder="kata kunci pertanyaan atau @handle…"></div>
     
@@ -259,10 +260,12 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
   $('#btnGo').onclick=refresh;
   $('#fUtama').addEventListener('change',refresh);
   $('#fNimbrung').addEventListener('change',refresh);
+  $('#fPostMonth').addEventListener('change',function(){if(VIEW==='postingan')refresh();});
   $('#fQ').addEventListener('keydown',function(e){if(e.key==='Enter')refresh();});
   
   $('#btnReset').onclick=function(){
       $('#fPlatform').value='';
+      $('#fPostMonth').value='';
       $('#fAns').value='';
       $('#fQ').value='';
       $('#fUtama').checked=true;
@@ -287,6 +290,7 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
     var p=new URLSearchParams();
     p.set('range',RANGE);if(RANGE==='custom'){p.set('start',CS);p.set('end',CE);}
     if($('#fPlatform').value)p.set('platform',$('#fPlatform').value);
+    if(VIEW==='postingan'&&$('#fPostMonth').value)p.set('post_month',$('#fPostMonth').value);
     if($('#fAns').value)p.set('answered',$('#fAns').value);
     if($('#fQ').value)p.set('q',$('#fQ').value);
     p.set('include_nimbrung','1'); 
@@ -296,6 +300,7 @@ table.mon td.txt { white-space: pre-wrap; line-height: 1.5; }
 
   function refresh(){
     $('#btnExport').innerHTML=VIEW==='postingan'?'📚 Export semua postingan':'📥 Export XLS';
+    $('#fPostMonthWrap').style.display=VIEW==='postingan'?'':'none';
     if(VIEW==='postingan'){
       $('#tblWrap').style.display='none';$('#postWrap').style.display='';loadPosts();
     }else{
