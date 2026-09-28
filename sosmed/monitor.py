@@ -46,6 +46,8 @@ Deteksi resmi di modul ini memakai kolom is_official ATAU pencocokan handle live
 sehingga cukup set env + restart tanpa perlu impor ulang.
 """
 import re as _re
+import json as _json
+import datetime as _dt
 
 import sosmed.db as sdb
 
@@ -105,21 +107,24 @@ def get_post_label(conn, plat, conv):
         return ""
 
 
+def _pl_source_key(plat, conv):
+    return "postlabelsource:%s:%s" % ((plat or ""), (conv or ""))
+
+
 def set_post_label(conn, plat, conv, label):
-    """Simpan/hapus nama postingan. label kosong = hapus."""
+    """Simpan/hapus label manual. Label manual selalu menang atas label otomatis."""
     label = (label or "").strip()
     key = _pl_key(plat, conv)
-    if label:
-        try:
+    skey = _pl_source_key(plat, conv)
+    try:
+        if label:
             sdb.set_meta(conn, key, label)
-        except Exception:
-            pass
-    else:
-        try:
-            conn.execute("DELETE FROM sosmed_meta WHERE key=?", (key,))
+            sdb.set_meta(conn, skey, "manual")
+        else:
+            conn.execute("DELETE FROM sosmed_meta WHERE key IN (?,?)", (key, skey))
             conn.commit()
-        except Exception:
-            pass
+    except Exception:
+        pass
     return True
 
 
@@ -133,6 +138,139 @@ def _all_post_labels(conn):
     except Exception:
         pass
     return out
+
+
+# ---------------------------------------------------------------------------
+# Metadata postingan + label otomatis (label manual tetap menang)
+# ---------------------------------------------------------------------------
+_MONTH_NAMES = ("", "Januari", "Februari", "Maret", "April", "Mei", "Juni",
+                "Juli", "Agustus", "September", "Oktober", "November", "Desember")
+
+
+def _raw_dict(row):
+    raw = row.get("raw_json") if isinstance(row, dict) else None
+    if not raw:
+        return {}
+    try:
+        val = _json.loads(raw) if isinstance(raw, str) else raw
+        return val if isinstance(val, dict) else {}
+    except Exception:
+        return {}
+
+
+def _meta_date(value):
+    if value in (None, ""):
+        return ""
+    try:
+        if isinstance(value, (int, float)) or str(value).strip().isdigit():
+            n = int(float(value))
+            if n > 100000000000:
+                n //= 1000
+            return _dt.datetime.fromtimestamp(n, _dt.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        pass
+    try:
+        return sdb._iso(value)
+    except Exception:
+        return str(value or "")
+
+
+def _normal_post_type(value, raw=None):
+    v = str(value or "").strip().lower()
+    if v in ("2", "video", "reel", "reels", "clips") or "video" in v or "reel" in v:
+        return "Video"
+    if v in ("1", "8", "carousel", "album", "photo", "image", "sidecar"):
+        return "Carousel"
+    if "carousel" in v or "photo" in v or "image" in v or "sidecar" in v:
+        return "Carousel"
+    if isinstance(raw, dict) and raw.get("carousel_media"):
+        return "Carousel"
+    return ""
+
+
+def _post_metadata(rows, plat="", conv=""):
+    explicit_date = ""
+    post_type = ""
+    for row in rows:
+        raw = _raw_dict(row)
+        if not explicit_date:
+            for key in ("post_created_at", "post_date", "published_at", "taken_at", "create_time"):
+                if raw.get(key) not in (None, ""):
+                    explicit_date = _meta_date(raw.get(key))
+                    if explicit_date:
+                        break
+        if not post_type:
+            for key in ("post_type", "product_type", "media_type"):
+                post_type = _normal_post_type(raw.get(key), raw)
+                if post_type:
+                    break
+        link = str(row.get("permalink") or "").lower()
+        if not post_type and ("/reel/" in link or "/video/" in link):
+            post_type = "Video"
+        elif not post_type and "/photo/" in link:
+            post_type = "Carousel"
+    times = sorted(str(r.get("created_at") or "") for r in rows if r.get("created_at"))
+    post_date = explicit_date or (times[0] if times else "")
+    return {
+        "post_date": post_date,
+        "post_date_source": "metadata" if explicit_date else "komentar_pertama",
+        "post_type": post_type,
+    }
+
+
+def ensure_auto_post_labels(conn):
+    """Isi/perbarui label otomatis; label lama/manual tidak pernah ditimpa."""
+    pairs = conn.execute(
+        "SELECT DISTINCT platform, conversation_id FROM sosmed_items "
+        "WHERE conversation_id IS NOT NULL AND conversation_id!=''"
+    ).fetchall()
+    posts = []
+    for plat, conv in pairs:
+        rows = [dict(x) for x in conn.execute(
+            "SELECT created_at,permalink,raw_json FROM sosmed_items "
+            "WHERE platform=? AND conversation_id=? ORDER BY datetime(created_at),id",
+            (plat, conv)).fetchall()]
+        meta = _post_metadata(rows, plat, conv)
+        posts.append((meta.get("post_date") or "", plat, conv, meta))
+    posts.sort(key=lambda x: (x[0], x[1], x[2]))
+
+    groups = {}
+    for post_date, plat, conv, meta in posts:
+        month_key = (post_date[:7] if len(post_date) >= 7 else "0000-00")
+        kind = meta.get("post_type") or ""
+        groups.setdefault((month_key, kind), []).append((post_date, plat, conv, meta))
+
+    changed = False
+    for (month_key, kind), members in groups.items():
+        try:
+            month_num = int(month_key[5:7])
+        except Exception:
+            month_num = 0
+        month = _MONTH_NAMES[month_num] if 0 < month_num < 13 else "Tanpa Tanggal"
+        for idx, (_date, plat, conv, _meta) in enumerate(members):
+            old = get_post_label(conn, plat, conv)
+            src = sdb.get_meta(conn, _pl_source_key(plat, conv), "") or ""
+            if old and src != "auto":
+                continue
+            suffix = chr(65 + idx) if idx < 26 else str(idx + 1)
+            if kind:
+                label = "%s %s" % (month, kind)
+                if len(members) > 1:
+                    label += " " + suffix
+            else:
+                label = "%s %s" % (month, suffix)
+            if old != label or src != "auto":
+                conn.execute(
+                    "INSERT INTO sosmed_meta(key,value) VALUES(?,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (_pl_key(plat, conv), label))
+                conn.execute(
+                    "INSERT INTO sosmed_meta(key,value) VALUES(?,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    (_pl_source_key(plat, conv), "auto"))
+                changed = True
+    if changed:
+        conn.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -387,6 +525,7 @@ def monitor_list(conn, platform="", range_="all", start="", end="",
     resmi yang membalasnya langsung. SLA komentar utama TIDAK berubah.
     """
     ensure_review_columns(conn)
+    ensure_auto_post_labels(conn)
     off = _off_set()
     labels = _all_post_labels(conn)
     norm_plat = sdb._norm_platform(platform) if platform else ""
@@ -479,6 +618,7 @@ def monitor_posts(conn, platform="", range_="all", start="", end="", q="",
     tautan postingan, dan nama (label) postingan bila sudah diberi SPV.
     """
     ensure_review_columns(conn)
+    ensure_auto_post_labels(conn)
     off = _off_set()
     labels = _all_post_labels(conn)
     norm_plat = sdb._norm_platform(platform) if platform else ""
@@ -519,11 +659,16 @@ def monitor_posts(conn, platform="", range_="all", start="", end="", q="",
                 else:
                     n_belum += 1
         times.sort()
+        meta = _post_metadata(rows, plat, conv)
         out.append({
             "platform": plat,
             "conversation_id": conv,
             "post_url": _post_url(plat, conv, rows),
             "post_label": labels.get(_pl_key(plat, conv), ""),
+            "post_label_source": sdb.get_meta(conn, _pl_source_key(plat, conv), "") or "manual",
+            "post_date": meta.get("post_date") or "",
+            "post_date_source": meta.get("post_date_source") or "",
+            "post_type": meta.get("post_type") or "",
             "n_items": len(rows),
             "n_main": n_main,
             "n_addition": n_add,
@@ -621,6 +766,25 @@ def monitor_post(conn, platform, conversation_id):
             "post_url": _post_url(plat, conversation_id, rows),
             "post_label": get_post_label(conn, plat, conversation_id),
             "n_items": len(rows), "items": items}
+
+
+def monitor_post_export(conn, platform, conversation_id):
+    """Semua baris dan semua kolom fisik sosmed_items untuk satu postingan."""
+    ensure_review_columns(conn)
+    plat = sdb._norm_platform(platform) if platform else ""
+    columns = [r[1] for r in conn.execute(
+        'PRAGMA table_info("sosmed_items")').fetchall()]
+    rows = [dict(r) for r in conn.execute(
+        "SELECT * FROM sosmed_items WHERE platform=? AND conversation_id=? "
+        "ORDER BY datetime(created_at) ASC, id ASC", (plat, conversation_id)).fetchall()]
+    if not rows:
+        return {"ok": False, "error": "Postingan tidak ditemukan."}
+    meta = _post_metadata(rows, plat, conversation_id)
+    return {"ok": True, "platform": plat, "conversation_id": conversation_id,
+            "post_label": get_post_label(conn, plat, conversation_id),
+            "post_date": meta.get("post_date") or "",
+            "post_type": meta.get("post_type") or "",
+            "columns": columns, "items": rows, "total": len(rows)}
 
 
 def monitor_thread(conn, item_id):
