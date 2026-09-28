@@ -1,0 +1,27 @@
+name: Upgrade Sosmed Monitor
+on:
+  push:
+    branches: [feature/sosmed-monitor-post-export]
+permissions:
+  contents: write
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply focused upgrade
+        run: python tools/upgrade_sosmed_monitor.py
+      - name: Validate Python and focused tests
+        run: |
+          python -m py_compile sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py sosmed/tiktok_collector.py
+          python -m unittest tests.test_sosmed_monitor
+          git diff --check
+      - name: Commit generated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py sosmed/tiktok_collector.py templates/sosmed_monitor.html tests/test_sosmed_monitor.py
+          git diff --cached --quiet || git commit -m "Tambah ekspor dan label otomatis per postingan [skip ci]"
+          git push
