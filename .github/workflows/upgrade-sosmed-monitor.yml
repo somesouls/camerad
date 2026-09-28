@@ -12,13 +12,26 @@ jobs:
         with:
           fetch-depth: 0
       - name: Apply focused upgrade
-        run: python tools/upgrade_sosmed_monitor.py
+        id: apply
+        continue-on-error: true
+        run: python tools/upgrade_sosmed_monitor.py > upgrade-sosmed.log 2>&1
+      - name: Commit diagnostic on failure
+        if: steps.apply.outcome == 'failure'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add upgrade-sosmed.log
+          git commit -m "Catat kegagalan migrasi sosmed [skip ci]"
+          git push
+          exit 1
       - name: Validate Python and focused tests
+        if: steps.apply.outcome == 'success'
         run: |
           python -m py_compile sosmed/monitor.py sosmed/routes.py sosmed/ig_collector.py sosmed/tiktok_collector.py
           python -m unittest tests.test_sosmed_monitor
           git diff --check
       - name: Commit generated files
+        if: steps.apply.outcome == 'success'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
