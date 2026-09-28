@@ -1,9 +1,11 @@
 import os
 import tempfile
+from pathlib import Path
 import unittest
 
 import sosmed.db as sdb
 import sosmed.monitor as smon
+import sosmed.ig_collector as igc
 
 
 class SosmedMonitorPostTest(unittest.TestCase):
@@ -37,6 +39,29 @@ class SosmedMonitorPostTest(unittest.TestCase):
         self.assertEqual(posts["unknown-a"]["post_label"], "Februari A")
         self.assertEqual(posts["unknown-b"]["post_label"], "Februari B")
         self.assertEqual(posts["unknown-a"]["post_date_source"], "komentar_pertama")
+
+    def test_post_month_filter_uses_publication_month(self):
+        jan = smon.monitor_posts(self.conn, post_month="2026-01")
+        self.assertEqual({p["conversation_id"] for p in jan["posts"]},
+                         {"post-video", "post-carousel"})
+        feb = smon.monitor_posts(self.conn, post_month="2026-02")
+        self.assertEqual({p["conversation_id"] for p in feb["posts"]},
+                         {"unknown-a", "unknown-b"})
+        invalid = smon.monitor_posts(self.conn, post_month="2026-99")
+        self.assertEqual(len(invalid["posts"]), 4)
+
+    def test_instagram_original_url_hints(self):
+        self.assertEqual(igc._post_type_hint(
+            "https://www.instagram.com/reels/Dc-kZ1DJHpH/"), "Video")
+        self.assertEqual(igc._post_type_hint(
+            "https://www.instagram.com/p/DdiTp8gicmM/?img_index=1"), "Carousel")
+        self.assertEqual(igc._post_type_hint(
+            "https://www.instagram.com/p/Dc-kZ1DJHpH/"), "")
+
+    def test_month_filter_ui_contract(self):
+        html = Path("templates/sosmed_monitor.html").read_text(encoding="utf-8")
+        self.assertIn('type="month" id="fPostMonth"', html)
+        self.assertIn("p.set('post_month',$('#fPostMonth').value)", html)
 
     def test_manual_label_is_not_overwritten(self):
         smon.set_post_label(self.conn, "ig", "post-video", "Kampanye EFIN")

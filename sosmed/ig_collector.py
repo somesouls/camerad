@@ -98,6 +98,16 @@ def _post_code(s):
     return s
 
 
+def _post_type_hint(value):
+    """Petunjuk jenis dari URL input IG; /p/ tanpa query tetap ambigu."""
+    value = str(value or "").strip().lower()
+    if re.search(r"/(?:reel|reels|tv)/", value):
+        return "Video"
+    if "img_index=" in value or "image_index=" in value:
+        return "Carousel"
+    return ""
+
+
 def _is_ig_comment(n):
     """True bila node terlihat seperti komentar IG (punya text + user.username + pk)."""
     if not isinstance(n, dict):
@@ -1048,10 +1058,13 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
         # Mode "Tarik postingan ini": bila only_codes diberikan, LEWATI pembukaan
         # profil & pendaftaran postingan; buka persis shortcode yang diminta.
         _only = []
+        _input_type_hints = {}
         for _c in (only_codes or []):
             _cc = _post_code(_c)
             if _cc and _cc not in _only:
                 _only.append(_cc)
+            if _cc and _post_type_hint(_c):
+                _input_type_hints[_cc] = _post_type_hint(_c)
         if _only:
             codes = _only
         else:
@@ -1125,6 +1138,8 @@ def collect_range(date_from=None, date_to=None, official_handles=None,
             _it["post_type"] = "Video"
         elif _mt in ("1", "8") or _md.get("has_carousel"):
             _it["post_type"] = "Carousel"
+        elif _input_type_hints.get(_it.get("conversation_id")):
+            _it["post_type"] = _input_type_hints[_it.get("conversation_id")]
     dumped = False
     if dump_path:
         dumped = _write_dump(dump_path, items, tgt)

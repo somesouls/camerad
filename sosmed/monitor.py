@@ -610,7 +610,7 @@ def monitor_list(conn, platform="", range_="all", start="", end="",
 
 
 def monitor_posts(conn, platform="", range_="all", start="", end="", q="",
-                  limit=300):
+                  post_month="", limit=300):
     """Ringkasan PER POSTINGAN (conversation) untuk verifikasi data tarikan.
 
     Tiap postingan membawa hitungan: total komentar ditarik, jumlah utama,
@@ -628,12 +628,18 @@ def monitor_posts(conn, platform="", range_="all", start="", end="", q="",
     else:
         s, e = sdb.resolve_range(rng)
     convs = _candidate_convs(conn, norm_plat, s, e, q)
+    post_month = (post_month or "").strip()
+    if not _re.match(r"^\d{4}-(0[1-9]|1[0-2])$", post_month):
+        post_month = ""
     out = []
     for (plat, conv) in convs:
         rows = [dict(x) for x in conn.execute(
             "SELECT * FROM sosmed_items WHERE platform=? AND conversation_id=? "
             "ORDER BY datetime(created_at) ASC, id ASC", (plat, conv)).fetchall()]
         if not rows:
+            continue
+        meta = _post_metadata(rows, plat, conv)
+        if post_month and (meta.get("post_date") or "")[:7] != post_month:
             continue
         role, main_of, officials_of = _classify_conv(rows, off)
         by_ext = {r["external_id"]: r for r in rows if r.get("external_id")}
@@ -659,7 +665,6 @@ def monitor_posts(conn, platform="", range_="all", start="", end="", q="",
                 else:
                     n_belum += 1
         times.sort()
-        meta = _post_metadata(rows, plat, conv)
         out.append({
             "platform": plat,
             "conversation_id": conv,
