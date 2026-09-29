@@ -81,6 +81,9 @@ MENU_CATALOG = [
 _BY_KEY = {m["key"]: m for m in MENU_CATALOG}
 _BY_PATH = {m["path"]: m["key"] for m in MENU_CATALOG}
 MENU_KEYS = [m["key"] for m in MENU_CATALOG]
+# Penanda internal agar daftar kosong tetap berarti "sudah dikonfigurasi",
+# bukan jatuh kembali ke izin area/API lama.
+_CONFIG_MARKER = "__configured__"
 
 # Menu yang SELALU tampil untuk user yang sudah login (beranda Studio/chat).
 _BASELINE_MENUS = {"m_studio"}
@@ -233,7 +236,7 @@ def get_role_menus(role_key):
     rm = snap["role_menus"].get(role_key or "")
     return {
         "configured": bool(rm),
-        "menus": sorted(rm) if rm else menus_for(role_key, None),
+        "menus": sorted(k for k in rm if k in _BY_KEY) if rm else menus_for(role_key, None),
     }
 
 
@@ -244,6 +247,10 @@ def set_role_menus(role_key, menu_keys):
     conn = _conn()
     try:
         conn.execute("DELETE FROM role_menus WHERE role_key=?", (role_key,))
+        conn.execute(
+            "INSERT OR IGNORE INTO role_menus (role_key,menu_key) VALUES (?,?)",
+            (role_key, _CONFIG_MARKER),
+        )
         for k in keys:
             conn.execute(
                 "INSERT OR IGNORE INTO role_menus (role_key,menu_key) VALUES (?,?)",
