@@ -1,0 +1,29 @@
+name: Patch Users Workspace
+on:
+  push:
+    branches: [feature/redesign-users-workspace]
+permissions:
+  contents: write
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply backend safety patch
+        run: python tools/patch_users_workspace.py
+      - name: Validate users workspace
+        run: |
+          python -m py_compile db/users_db.py routes/auth_routes.py
+          node --check static/app/users.js
+          node --check static/app/access.js
+          python -m unittest tests.test_users_workspace tests.test_users_security
+          git diff --check
+      - name: Commit generated patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/users_db.py routes/auth_routes.py static/app/access.js
+          git diff --cached --quiet || git commit -m "Perkuat keamanan pengelolaan pengguna [skip ci]"
+          git push
