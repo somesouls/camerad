@@ -1,0 +1,28 @@
+name: Patch Access Workspace
+on:
+  push:
+    branches: [feature/redesign-access-workspace]
+permissions:
+  contents: write
+jobs:
+  patch-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Patch empty role configuration
+        run: python tools/patch_menu_empty_config.py
+      - name: Validate access workspace
+        run: |
+          python -m py_compile db/menu_catalog.py
+          node --check static/app/access.js
+          python -m unittest tests.test_access_workspace tests.test_menu_access
+          git diff --check
+      - name: Commit backend patch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add db/menu_catalog.py
+          git diff --cached --quiet || git commit -m "Pertahankan konfigurasi menu kosong [skip ci]"
+          git push
