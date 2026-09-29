@@ -134,7 +134,24 @@ def get_user_by_id(conn, uid):
 
 def list_users(conn):
     rows = conn.execute("SELECT * FROM users ORDER BY role, username").fetchall()
-    return [_pub(r) for r in rows]
+    out = []
+    has_menu_grants = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_menu_grants'"
+    ).fetchone() is not None
+    for row in rows:
+        item = _pub(row)
+        area = conn.execute(
+            "SELECT COUNT(*) c FROM user_area_grants WHERE user_id=?", (row["id"],)
+        ).fetchone()
+        item["override_area_count"] = int(area["c"] if area else 0)
+        item["override_menu_count"] = 0
+        if has_menu_grants:
+            menu = conn.execute(
+                "SELECT COUNT(*) c FROM user_menu_grants WHERE user_id=?", (row["id"],)
+            ).fetchone()
+            item["override_menu_count"] = int(menu["c"] if menu else 0)
+        out.append(item)
+    return out
 
 
 def _count_active_admins(conn, exclude_id=None):
@@ -254,6 +271,10 @@ def delete_user(conn, uid):
         return {"ok": False, "error": "Tidak bisa menghapus admin aktif terakhir."}
     conn.execute("DELETE FROM sessions WHERE user_id=?", (row["id"],))
     conn.execute("DELETE FROM user_area_grants WHERE user_id=?", (row["id"],))
+    try:
+        conn.execute("DELETE FROM user_menu_grants WHERE user_id=?", (row["id"],))
+    except Exception:
+        pass
     conn.execute("DELETE FROM users WHERE id=?", (row["id"],))
     conn.commit()
     return {"ok": True}
