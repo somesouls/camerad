@@ -187,6 +187,12 @@ def register(app):
         if not isinstance(body, dict):
             body = {}
         uid = body.get("id")
+        me = getattr(request.state, "user", None) or {}
+        if uid and int(uid) == int(me.get("id") or 0):
+            if "aktif" in body and not bool(body.get("aktif")):
+                return JSONResponse({"ok": False, "error": "Tidak dapat menonaktifkan akun yang sedang digunakan."})
+            if body.get("role") and body.get("role") != me.get("role"):
+                return JSONResponse({"ok": False, "error": "Tidak dapat mengubah peran akun yang sedang digunakan."})
 
         def _run():
             c = usr.connect()
@@ -220,6 +226,9 @@ def register(app):
         uid = body.get("id") if isinstance(body, dict) else None
         if not uid:
             return JSONResponse({"ok": False, "error": "id kosong."})
+        me = getattr(request.state, "user", None) or {}
+        if int(uid) == int(me.get("id") or 0):
+            return JSONResponse({"ok": False, "error": "Tidak dapat menghapus akun yang sedang digunakan."})
 
         def _run():
             c = usr.connect()
