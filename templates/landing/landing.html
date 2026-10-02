@@ -7,10 +7,10 @@
   <meta name="description" content="Portal internal Camerad untuk analisis percakapan, pengelolaan pengetahuan, evaluasi AI, dan tata kelola akses.">
   <title>Camerad — Portal Internal</title>
   <script src="/static/design-system/theme.js?v=green-pink-v2"></script>
-  <link rel="stylesheet" href="/static/design-system/tokens.css?v=green-pink-v1">
-  <link rel="stylesheet" href="/static/landing/landing.css?v=green-pink-v2">
-  <link rel="stylesheet" href="/static/landing/panda-motion.css?v=panda-motion-v1">
-  <script defer src="/static/landing/landing.js?v=green-pink-v1"></script>
+  <link rel="stylesheet" href="/static/design-system/tokens.css?v=green-pink-v2">
+  <link rel="stylesheet" href="/static/landing/landing.css?v=green-pink-v16">
+  <link rel="stylesheet" href="/static/landing/panda-motion.css?v=panda-motion-v39">
+  <script defer src="/static/landing/landing.js?v=green-pink-v2"></script>
 </head>
 <body><a class="skip" href="#main">Lewati ke konten utama</a><i class="sentinel" aria-hidden="true"></i>
   <header>
@@ -21,13 +21,33 @@
   <main id="main">
     <section class="panda-wordmark" aria-label="Camerad dengan panda sebagai huruf A">
       <div class="panda-wordmark__inner">
-        <p class="panda-wordmark__label">Kenalkan · Camerad</p>
+        <p class="panda-wordmark__label"> </p>
         <div class="panda-wordmark__stage" role="img" aria-label="CAMERAD">
           <span class="panda-wordmark__letter panda-wordmark__letter--c" aria-hidden="true">C</span>
-          <span class="panda-wordmark__panda" aria-hidden="true"><img src="/static/landing/panda-camerad.webp" alt="" width="512" height="768" decoding="async" fetchpriority="high"></span>
+          <span class="panda-wordmark__panda" aria-hidden="true">
+            <img class="panda-effect panda-effect--rolling" src="/static/landing/panda/rolling.webp" alt="" decoding="async">
+            <img class="panda-effect panda-effect--impact" src="/static/landing/panda/impact.webp" alt="" decoding="async">
+            <img class="panda-effect panda-effect--impact-out" src="/static/landing/panda/impact-out.webp" alt="" decoding="async">
+            <span class="panda-runner" aria-hidden="true">
+              <img src="/static/landing/panda/run-a.webp" alt="" decoding="async">
+              <img src="/static/landing/panda/run-b.webp" alt="" decoding="async">
+            </span>
+            <span class="panda-part panda-part--body"><img src="/static/landing/panda/body.webp" alt="" decoding="async"></span>
+            <span class="panda-part panda-part--weapon"><img src="/static/landing/panda/arm-weapon.webp" alt="" decoding="async"></span>
+            <span class="panda-part panda-part--head"><img src="/static/landing/panda/head-helmet.webp" alt="" decoding="async" fetchpriority="high"></span>
+          </span>
           <span class="panda-wordmark__tail" aria-hidden="true"><span class="panda-wordmark__letter">M</span><span class="panda-wordmark__letter">E</span><span class="panda-wordmark__letter">R</span><span class="panda-wordmark__letter">A</span><span class="panda-wordmark__letter">D</span></span>
         </div>
-        <p class="panda-wordmark__hint" aria-hidden="true">C · panda sebagai A · MERAD</p>
+        <div class="panda-wordmark__expansion" aria-label="Computer Automation for Monitoring, Evaluation, Research And Development">
+          <span style="--exp-delay:0s">Computer</span>
+          <span style="--exp-delay:.12s">Automation</span>
+          <span style="--exp-delay:.24s">for Monitoring</span>
+          <span style="--exp-delay:.36s">Evaluation</span>
+          <span style="--exp-delay:.48s">Research</span>
+          <span style="--exp-delay:.60s">And</span>
+          <span style="--exp-delay:.72s">Development</span>
+        </div>
+        <p class="panda-wordmark__hint" aria-hidden="true"> </p>
       </div>
     </section>
     <section class="hero" id="top">

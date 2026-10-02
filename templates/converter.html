@@ -1,0 +1,1021 @@
+{% extends "base.html" %}
+{% block title %}Converter Dokumen — Camerad Studio{% endblock %}
+{% block page_label %}Converter Dokumen{% endblock %}
+
+{% block head %}
+<style>
+  .cv-wrap { max-width: 1080px; margin: 0 auto; padding: 22px 18px 60px; }
+  .cv-head { margin-bottom: 22px; }
+  .cv-head h1 { margin: 0 0 6px; font-size: 22px; font-weight: 800; color: var(--text-main); }
+  .cv-head p { margin: 0; color: var(--text-muted); font-size: 14px; max-width: 780px; line-height: 1.5; }
+  .cv-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .cv-badge { font-size: 11.5px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid var(--panel-border); background: var(--panel-bg); color: var(--text-muted); }
+  .cv-badge.accent { color: var(--accent); border-color: var(--accent); background: var(--accent-glow); }
+
+  /* Tab Navigation */
+  .cv-tabs { display: flex; flex-wrap: wrap; gap: 8px; border-bottom: 1px solid var(--panel-border); margin-bottom: 20px; padding-bottom: 2px; }
+  .cv-tab {
+    padding: 10px 16px; border: 1px solid transparent; border-bottom: none; border-radius: 10px 10px 0 0;
+    background: transparent; color: var(--text-muted); font-size: 13.5px; font-weight: 600; cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px; transition: all .15s ease;
+  }
+  .cv-tab:hover { color: var(--text-main); background: var(--ui-hover); }
+  .cv-tab.active {
+    color: var(--accent); background: var(--panel-bg); border-color: var(--panel-border);
+    border-bottom: 2px solid var(--accent); margin-bottom: -1px;
+  }
+  .cv-tab:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Panels */
+  .cv-panel { display: none; }
+  .cv-panel.active { display: block; }
+
+  /* Card */
+  .cv-card {
+    padding: 22px 24px; border: 1px solid var(--panel-border); border-radius: var(--radius);
+    background: var(--panel-bg); box-shadow: var(--shadow-sm); margin-bottom: 18px;
+  }
+  .cv-card-title { font-size: 15px; font-weight: 700; color: var(--text-main); margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; }
+
+  /* Dropzone */
+  .cv-drop {
+    border: 2px dashed var(--panel-border); border-radius: 14px; padding: 32px 20px; text-align: center;
+    transition: all .15s ease; background: var(--bg-base, transparent); cursor: pointer;
+  }
+  .cv-drop:hover, .cv-drop.hot { border-color: var(--accent); background: var(--accent-glow); }
+  .cv-drop .icon { font-size: 32px; margin-bottom: 8px; }
+  .cv-drop .big { font-size: 15px; color: var(--text-main); font-weight: 600; margin-bottom: 4px; }
+  .cv-drop .sub { font-size: 13px; color: var(--text-muted); }
+  .cv-drop .formats { font-size: 11.5px; color: var(--text-muted); margin-top: 10px; }
+
+  /* File Info Box */
+  .cv-file-box {
+    display: none; padding: 14px 16px; border: 1px solid var(--panel-border); border-radius: 10px;
+    background: var(--ui-hover); margin-top: 14px; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .cv-file-box.show { display: flex; flex-wrap: wrap; }
+  .cv-file-meta { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .cv-file-meta .icon-tag {
+    font-size: 12px; font-weight: 700; padding: 6px 10px; border-radius: 8px; background: var(--accent); color: #fff;
+  }
+  .cv-file-name { font-size: 13.5px; font-weight: 700; color: var(--text-main); word-break: break-all; }
+  .cv-file-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+  /* Options Grid */
+  .cv-opt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-top: 16px; }
+  .cv-opt-group { display: flex; flex-direction: column; gap: 6px; }
+  .cv-opt-label { font-size: 12.5px; font-weight: 600; color: var(--text-main); }
+  .cv-select, .cv-input {
+    width: 100%; padding: 9px 12px; border: 1px solid var(--panel-border); border-radius: 9px;
+    background: var(--panel-bg); color: var(--text-main); font-size: 13.5px;
+  }
+  .cv-select:focus, .cv-input:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+  .cv-check-label {
+    display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--text-main);
+    cursor: pointer; user-select: none; margin-top: 12px;
+  }
+  .cv-check-label input { margin-top: 3px; accent-color: var(--accent); }
+
+  /* Button Styles */
+  .cv-btn {
+    border: none; border-radius: 10px; padding: 10px 20px; background: var(--accent); color: #fff;
+    font-weight: 700; font-size: 13.5px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
+    transition: opacity .15s ease;
+  }
+  .cv-btn:hover:not(:disabled) { opacity: 0.92; }
+  .cv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .cv-btn.ghost { background: transparent; border: 1px solid var(--panel-border); color: var(--text-main); }
+  .cv-btn.ghost:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .cv-btn.danger { background: transparent; border: 1px solid var(--panel-border); color: var(--c-red-txt, #e53e3e); }
+  .cv-btn.danger:hover:not(:disabled) { border-color: var(--c-red-txt, #e53e3e); background: rgba(229,62,62,.08); }
+
+  /* PDF Merge list */
+  .cv-list { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+  .cv-list-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px;
+    border: 1px solid var(--panel-border); border-radius: 9px; background: var(--panel-bg);
+  }
+  .cv-list-num {
+    font-size: 12px; font-weight: 700; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--ui-hover); color: var(--text-muted); display: inline-flex; align-items: center; justify-content: center;
+  }
+  .cv-list-info { flex: 1; min-width: 0; }
+  .cv-list-info .t { font-size: 13px; font-weight: 600; color: var(--text-main); word-break: break-all; }
+  .cv-list-info .m { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+  .cv-list-acts { display: flex; gap: 4px; }
+  .cv-icon-btn {
+    width: 28px; height: 28px; border: 1px solid var(--panel-border); border-radius: 6px; background: transparent;
+    color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .cv-icon-btn:hover { border-color: var(--accent); color: var(--accent); }
+  .cv-icon-btn.del:hover { border-color: var(--c-red-txt, #e53e3e); color: var(--c-red-txt, #e53e3e); }
+
+  /* Radio Option Cards (for split mode) */
+  .cv-mode-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 12px; }
+  .cv-mode-card {
+    border: 1px solid var(--panel-border); border-radius: 10px; padding: 14px; cursor: pointer;
+    background: var(--panel-bg); transition: all .15s ease;
+  }
+  .cv-mode-card:hover { border-color: var(--accent); }
+  .cv-mode-card.selected { border-color: var(--accent); background: var(--accent-glow); }
+  .cv-mode-card .ttl { font-size: 13.5px; font-weight: 700; color: var(--text-main); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .cv-mode-card .desc { font-size: 12px; color: var(--text-muted); line-height: 1.4; }
+
+  /* Result / Preview Box */
+  .cv-result {
+    display: none; padding: 18px 20px; border: 1px solid var(--panel-border); border-radius: var(--radius);
+    background: var(--panel-bg); box-shadow: var(--shadow-sm); margin-top: 18px;
+  }
+  .cv-result.show { display: block; }
+  .cv-result-hd { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+  .cv-result-hd b { font-size: 15px; color: var(--text-main); }
+  .cv-table-scroll { overflow-x: auto; max-height: 380px; border: 1px solid var(--panel-border); border-radius: 8px; margin-top: 12px; }
+  .cv-table { width: 100%; border-collapse: collapse; font-size: 12.5px; text-align: left; }
+  .cv-table th, .cv-table td { padding: 7px 11px; border: 1px solid var(--panel-border); white-space: nowrap; }
+  .cv-table th { background: var(--c-blue, rgba(0,102,204,.1)); color: var(--c-blue-txt, var(--text-main)); position: sticky; top: 0; z-index: 1; }
+
+  /* Spinners & Messages */
+  .cv-spin {
+    display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.4);
+    border-top-color: #fff; border-radius: 50%; animation: cvspin .7s linear infinite;
+  }
+  @keyframes cvspin { to { transform: rotate(360deg); } }
+  .cv-alert {
+    padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-top: 14px; display: none; line-height: 1.4;
+  }
+  .cv-alert.show { display: block; }
+  .cv-alert.error { background: rgba(229,62,62,.1); border: 1px solid rgba(229,62,62,.3); color: var(--c-red-txt, #e53e3e); }
+  .cv-alert.success { background: rgba(40,167,69,.1); border: 1px solid rgba(40,167,69,.3); color: var(--c-green-txt, #28a745); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="cv-wrap">
+  <div class="cv-head">
+    <h1>Converter Dokumen &amp; Data</h1>
+    <p>Utilitas konversi dan manipulasi berkas lokal (Excel, CSV, PDF) yang dijalankan murni di server internal tanpa mengirim data ke pihak ketiga. Cepat, aman, dan menjaga kerahasiaan dokumen.</p>
+    <div class="cv-badges">
+      <span class="cv-badge accent">✓ 4 Alat Aktif</span>
+      <span class="cv-badge">🔒 100% Server Lokal &amp; Privat</span>
+      <span class="cv-badge">⚡ Maksimum 50 MB / proses</span>
+    </div>
+  </div>
+
+  <!-- TAB SWITCHER -->
+  <div class="cv-tabs" role="tablist">
+    <button class="cv-tab active" data-target="tab-xl2csv" type="button" role="tab">
+      <span>📊</span> Excel ke CSV
+    </button>
+    <button class="cv-tab" data-target="tab-csv2xl" type="button" role="tab">
+      <span>📑</span> CSV ke Excel
+    </button>
+    <button class="cv-tab" data-target="tab-pdfmerge" type="button" role="tab">
+      <span>📄</span> Gabung PDF
+    </button>
+    <button class="cv-tab" data-target="tab-pdfsplit" type="button" role="tab">
+      <span>✂️</span> Pisah PDF
+    </button>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 1: EXCEL KE CSV -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel active" id="tab-xl2csv">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas Excel (.xlsx / .xls)</span>
+      </div>
+
+      <div class="cv-drop" id="xlDrop">
+        <input type="file" id="xlFile" hidden accept=".xlsx,.xls">
+        <div class="icon">📊</div>
+        <div class="big">Tarik &amp; letakkan berkas Excel ke sini</div>
+        <div class="sub">atau klik untuk memilih dari komputer</div>
+        <div class="formats">Mendukung format .xlsx dan .xls (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="xlFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">XLSX</span>
+          <div>
+            <div class="cv-file-name" id="xlFileName">nama_berkas.xlsx</div>
+            <div class="cv-file-desc" id="xlFileDesc">Memeriksa isi berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="xlChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="xlOptions" style="display:none;margin-top:16px;">
+        <div class="cv-opt-grid">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="xlSheetSelect">Pilih Lembar Kerja (Sheet):</label>
+            <select class="cv-select" id="xlSheetSelect"></select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="xlDelimiter">Pemisah Kolom (Delimiter):</label>
+            <select class="cv-select" id="xlDelimiter">
+              <option value="semicolon">Titik Koma (;) — Standar Excel Regional Indonesia</option>
+              <option value="comma">Koma (,) — Standar Internasional</option>
+              <option value="tab">Tab (\t) — Format TSV</option>
+              <option value="pipe">Garis Tegak (|) — Format Pipe</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="xlEncoding">Format Karakter (Encoding):</label>
+            <select class="cv-select" id="xlEncoding">
+              <option value="utf-8-sig">UTF-8 dengan BOM (Rekomendasi Excel Windows)</option>
+              <option value="utf-8">UTF-8 Standar</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:10px;">
+          <button class="cv-btn" id="xlConvertBtn" type="button">
+            <span>Konversi &amp; Unduh CSV</span>
+          </button>
+          <span id="xlConvertStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="xlAlert"></div>
+    </section>
+
+    <!-- Hasil / Pratinjau Excel -->
+    <section class="cv-result" id="xlResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Pratinjau Hasil Konversi</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="xlResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="xlDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+      <div class="cv-table-scroll">
+        <table class="cv-table" id="xlTable"></table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 2: CSV KE EXCEL -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-csv2xl">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas CSV (.csv / .tsv / .txt)</span>
+      </div>
+
+      <div class="cv-drop" id="csvDrop">
+        <input type="file" id="csvFile" hidden accept=".csv,.tsv,.txt">
+        <div class="icon">📑</div>
+        <div class="big">Tarik &amp; letakkan berkas CSV ke sini</div>
+        <div class="sub">atau klik untuk memilih berkas dari komputer</div>
+        <div class="formats">Mendukung format .csv, .tsv, dan teks berpemisah (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="csvFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">CSV</span>
+          <div>
+            <div class="cv-file-name" id="csvFileName">nama_berkas.csv</div>
+            <div class="cv-file-desc" id="csvFileDesc">Mendeteksi format berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="csvChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="csvOptions" style="display:none;margin-top:16px;">
+        <div class="cv-opt-grid">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="csvDelimiter">Pemisah Kolom (Delimiter):</label>
+            <select class="cv-select" id="csvDelimiter">
+              <option value="auto">Deteksi Otomatis</option>
+              <option value="comma">Koma (,)</option>
+              <option value="semicolon">Titik Koma (;)</option>
+              <option value="tab">Tab (\t)</option>
+              <option value="pipe">Garis Tegak (|)</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="csvSheetName">Nama Lembar Kerja (Sheet):</label>
+            <input class="cv-input" id="csvSheetName" type="text" value="Data" maxlength="31">
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="csvEncoding">Encoding Teks:</label>
+            <select class="cv-select" id="csvEncoding">
+              <option value="auto">Deteksi Otomatis</option>
+              <option value="utf-8-sig">UTF-8 / UTF-8 BOM</option>
+              <option value="latin-1">ANSI / Windows-1252 / Latin-1</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="cv-check-label">
+          <input type="checkbox" id="csvPreserveText" checked>
+          <span><b>Pertahankan format teks untuk data berawalan nol</b> (mis. NPWP, NIK, No. HP, No. Faktur agar angka 0 di depan tidak terhapus oleh Excel)</span>
+        </label>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:10px;">
+          <button class="cv-btn" id="csvConvertBtn" type="button">
+            <span>Konversi &amp; Unduh Excel (.xlsx)</span>
+          </button>
+          <span id="csvConvertStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="csvAlert"></div>
+    </section>
+
+    <!-- Pratinjau CSV -->
+    <section class="cv-result" id="csvResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Pratinjau Data CSV Terbaca</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="csvResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="csvDownloadBtn" type="button">Unduh Lagi (.xlsx)</button>
+      </div>
+      <div class="cv-table-scroll">
+        <table class="cv-table" id="csvTable"></table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 3: GABUNG PDF (MERGE) -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-pdfmerge">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Beberapa Berkas PDF untuk Digabungkan</span>
+      </div>
+
+      <div class="cv-drop" id="pdfMergeDrop">
+        <input type="file" id="pdfMergeFiles" hidden multiple accept=".pdf">
+        <div class="icon">📄</div>
+        <div class="big">Tarik &amp; letakkan beberapa berkas PDF di sini</div>
+        <div class="sub">atau klik untuk memilih 2 atau lebih berkas PDF</div>
+        <div class="formats">Urutan penggabungan dapat diatur di bawah (maks 50 MB total)</div>
+      </div>
+
+      <div id="pdfMergeListWrap" style="display:none;margin-top:18px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <b style="font-size:13.5px;color:var(--text-main);">Daftar Berkas &amp; Urutan Penggabungan</b>
+          <div style="display:flex;gap:8px;">
+            <button class="cv-btn ghost" id="pdfAddMoreBtn" type="button" style="padding:5px 10px;font-size:12px;">+ Tambah Berkas</button>
+            <button class="cv-btn danger" id="pdfClearBtn" type="button" style="padding:5px 10px;font-size:12px;">Kosongkan</button>
+          </div>
+        </div>
+
+        <div class="cv-list" id="pdfFileList"></div>
+
+        <div class="cv-opt-grid" style="margin-top:18px;">
+          <div class="cv-opt-group" style="grid-column: 1 / -1;">
+            <label class="cv-opt-label" for="pdfMergeOutputName">Nama Berkas Keluaran (Opsional):</label>
+            <input class="cv-input" id="pdfMergeOutputName" type="text" value="dokumen_gabungan.pdf" placeholder="dokumen_gabungan.pdf">
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="pdfMergeBtn" type="button">
+            <span>Gabungkan Semua PDF</span>
+          </button>
+          <span id="pdfMergeStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="pdfMergeAlert"></div>
+    </section>
+
+    <!-- Hasil Merge -->
+    <section class="cv-result" id="pdfMergeResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>PDF Berhasil Digabungkan!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="pdfMergeResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="pdfMergeDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 4: PISAH PDF (SPLIT) -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-pdfsplit">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas PDF untuk Dipisahkan</span>
+      </div>
+
+      <div class="cv-drop" id="pdfSplitDrop">
+        <input type="file" id="pdfSplitFile" hidden accept=".pdf">
+        <div class="icon">✂️</div>
+        <div class="big">Tarik &amp; letakkan berkas PDF ke sini</div>
+        <div class="sub">atau klik untuk memilih berkas dari komputer</div>
+        <div class="formats">Mendukung pemisahan semua halaman, rentang halaman, atau per N halaman</div>
+      </div>
+
+      <div class="cv-file-box" id="pdfSplitFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">PDF</span>
+          <div>
+            <div class="cv-file-name" id="pdfSplitFileName">dokumen.pdf</div>
+            <div class="cv-file-desc" id="pdfSplitFileDesc">Menghitung jumlah halaman…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="pdfSplitChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="pdfSplitOptions" style="display:none;margin-top:18px;">
+        <label class="cv-opt-label">Pilih Mode Pemisahan:</label>
+        <div class="cv-mode-grid">
+          <div class="cv-mode-card selected" data-mode="all" id="modeCardAll">
+            <div class="ttl"><span>📄</span> Pisah Semua Halaman</div>
+            <div class="desc">Setiap halaman diekstrak menjadi berkas PDF mandiri, dikemas dalam 1 arsip ZIP.</div>
+          </div>
+          <div class="cv-mode-card" data-mode="range" id="modeCardRange">
+            <div class="ttl"><span>📑</span> Ekstrak Rentang Halaman</div>
+            <div class="desc">Pilih halaman atau rentang tertentu (misal: 1-3, 5, 8-10) untuk diekstrak.</div>
+          </div>
+          <div class="cv-mode-card" data-mode="step" id="modeCardStep">
+            <div class="ttl"><span>📦</span> Bagi per N Halaman</div>
+            <div class="desc">Pecah dokumen setiap N halaman secara berkala ke dalam berkas ZIP.</div>
+          </div>
+        </div>
+
+        <!-- Opsi Mode Range -->
+        <div id="rangeOptWrap" style="display:none;margin-top:16px;">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="pdfRangeInput">Ketik Rentang Halaman:</label>
+            <input class="cv-input" id="pdfRangeInput" type="text" placeholder="Contoh: 1-3, 5, 8-10">
+            <div style="font-size:12px;color:var(--text-muted);" id="pdfRangeHint">Dokumen memiliki total halaman yang valid.</div>
+          </div>
+          <label class="cv-check-label">
+            <input type="checkbox" id="pdfMergeRangeCheck" checked>
+            <span>Gabungkan rentang terpilih menjadi satu berkas PDF tunggal (jika tidak dicentang, akan diunduh sebagai berkas terpisah dalam ZIP)</span>
+          </label>
+        </div>
+
+        <!-- Opsi Mode Step -->
+        <div id="stepOptWrap" style="display:none;margin-top:16px;">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="pdfStepInput">Pecah Dokumen Setiap Berapa Halaman (N):</label>
+            <input class="cv-input" id="pdfStepInput" type="number" min="1" max="100" value="1" style="max-width:140px;">
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="pdfSplitBtn" type="button">
+            <span>Proses Pemisahan PDF</span>
+          </button>
+          <span id="pdfSplitStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="pdfSplitAlert"></div>
+    </section>
+
+    <!-- Hasil Split -->
+    <section class="cv-result" id="pdfSplitResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Pemisahan PDF Selesai!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="pdfSplitResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="pdfSplitDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const esc = s => (s == null ? '' : String(s)).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\'':'&#39;','"':'&quot;'}[c]));
+  const fmtBytes = bytes => {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024, dm = 1, sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
+
+  // ---------------------------------------------------------------------------
+  // TAB NAVIGATION
+  // ---------------------------------------------------------------------------
+  const tabs = document.querySelectorAll('.cv-tab');
+  const panels = document.querySelectorAll('.cv-panel');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      tabs.forEach(t => t.classList.remove('active'));
+      panels.forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      const target = $(tab.dataset.target);
+      if (target) target.classList.add('active');
+    });
+  });
+
+  // Helper trigger download from blob
+  function triggerDownload(blob, filename) {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'download';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => window.URL.revokeObjectURL(url), 2000);
+  }
+
+  // Render HTML preview table
+  function renderPreviewTable(targetEl, rows) {
+    if (!rows || !rows.length) {
+      targetEl.innerHTML = '<tr><td style="padding:12px;color:var(--text-muted);">Tidak ada data pratinjau.</td></tr>';
+      return;
+    }
+    let html = '<thead><tr>';
+    const header = rows[0];
+    header.forEach(h => html += `<th>${esc(h)}</th>`);
+    html += '</tr></thead><tbody>';
+    for (let i = 1; i < rows.length; i++) {
+      html += '<tr>';
+      rows[i].forEach(cell => html += `<td>${esc(cell)}</td>`);
+      html += '</tr>';
+    }
+    html += '</tbody>';
+    targetEl.innerHTML = html;
+  }
+
+  // Setup generic drag & drop
+  function setupDrop(dropEl, inputEl, onFileSelected) {
+    dropEl.addEventListener('click', () => inputEl.click());
+    inputEl.addEventListener('change', e => {
+      if (e.target.files && e.target.files.length) onFileSelected(e.target.files);
+    });
+    ['dragenter', 'dragover'].forEach(name => {
+      dropEl.addEventListener(name, e => { e.preventDefault(); e.stopPropagation(); dropEl.classList.add('hot'); });
+    });
+    ['dragleave', 'drop'].forEach(name => {
+      dropEl.addEventListener(name, e => { e.preventDefault(); e.stopPropagation(); dropEl.classList.remove('hot'); });
+    });
+    dropEl.addEventListener('drop', e => {
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) {
+        onFileSelected(e.dataTransfer.files);
+      }
+    });
+  }
+
+  // ===========================================================================
+  // 1. EXCEL KE CSV LOGIC
+  // ===========================================================================
+  let currentXlFile = null;
+  let lastXlBlob = null;
+  let lastXlFilename = '';
+
+  setupDrop($('xlDrop'), $('xlFile'), files => {
+    currentXlFile = files[0];
+    handleExcelFile(currentXlFile);
+  });
+  $('xlChangeBtn').addEventListener('click', () => $('xlFile').click());
+
+  async function handleExcelFile(file) {
+    $('xlAlert').classList.remove('show');
+    $('xlResult').classList.remove('show');
+    $('xlFileName').textContent = file.name;
+    $('xlFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa daftar sheet…`;
+    $('xlFileBox').classList.add('show');
+    $('xlDrop').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/excel/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas Excel.');
+
+      const sheets = data.info.sheets || [];
+      $('xlFileDesc').textContent = `${fmtBytes(file.size)} • ${sheets.length} sheet ditemukan`;
+
+      const select = $('xlSheetSelect');
+      select.innerHTML = '';
+      if (sheets.length > 1) {
+        select.innerHTML += '<option value="__all__">Semua Sheet (Download ZIP)</option>';
+      }
+      sheets.forEach(s => {
+        select.innerHTML += `<option value="${esc(s.name)}">${esc(s.name)} (~${s.estimated_rows} baris)</option>`;
+      });
+
+      $('xlOptions').style.display = 'block';
+
+      // Show preview of first sheet immediately
+      if (sheets.length && sheets[0].preview && sheets[0].preview.length) {
+        $('xlResult').classList.add('show');
+        $('xlResultMeta').textContent = `Menampilkan cuplikan sheet: ${sheets[0].name}`;
+        renderPreviewTable($('xlTable'), sheets[0].preview);
+      }
+    } catch (err) {
+      $('xlAlert').textContent = err.message;
+      $('xlAlert').classList.add('show');
+      $('xlFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('xlConvertBtn').addEventListener('click', async () => {
+    if (!currentXlFile) return;
+    const btn = $('xlConvertBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengonversi…';
+    $('xlAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentXlFile);
+    fd.append('sheet_name', $('xlSheetSelect').value);
+    fd.append('delimiter', $('xlDelimiter').value);
+    fd.append('encoding', $('xlEncoding').value);
+
+    try {
+      const res = await fetch('/api/converter/excel/convert', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Konversi gagal.');
+      }
+
+      // Get filename from header
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'hasil_konversi.csv';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastXlBlob = await res.blob();
+      lastXlFilename = filename;
+      triggerDownload(lastXlBlob, filename);
+
+      $('xlConvertStatus').textContent = `✓ Berkas ${filename} berhasil diunduh.`;
+      setTimeout(() => $('xlConvertStatus').textContent = '', 5000);
+    } catch (err) {
+      $('xlAlert').textContent = err.message;
+      $('xlAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Konversi &amp; Unduh CSV</span>';
+    }
+  });
+
+  $('xlDownloadBtn').addEventListener('click', () => {
+    if (lastXlBlob && lastXlFilename) triggerDownload(lastXlBlob, lastXlFilename);
+  });
+
+  // ===========================================================================
+  // 2. CSV KE EXCEL LOGIC
+  // ===========================================================================
+  let currentCsvFile = null;
+  let lastCsvBlob = null;
+  let lastCsvFilename = '';
+
+  setupDrop($('csvDrop'), $('csvFile'), files => {
+    currentCsvFile = files[0];
+    handleCsvFile(currentCsvFile);
+  });
+  $('csvChangeBtn').addEventListener('click', () => $('csvFile').click());
+
+  async function handleCsvFile(file) {
+    $('csvAlert').classList.remove('show');
+    $('csvResult').classList.remove('show');
+    $('csvFileName').textContent = file.name;
+    $('csvFileDesc').textContent = `${fmtBytes(file.size)} • Mendeteksi format…`;
+    $('csvFileBox').classList.add('show');
+    $('csvDrop').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/csv/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas CSV.');
+
+      const info = data.info;
+      const delName = info.detected_delimiter === ',' ? 'Koma (,)' : (info.detected_delimiter === ';' ? 'Titik Koma (;)' : (info.detected_delimiter === '\t' ? 'Tab' : info.detected_delimiter));
+      $('csvFileDesc').textContent = `${fmtBytes(file.size)} • Terdeteksi pemisah: ${delName}, encoding: ${info.detected_encoding.toUpperCase()}`;
+
+      // Default sheet name from file name
+      const baseName = file.name.replace(/\.[^.]+$/, '').substring(0, 31);
+      $('csvSheetName').value = baseName || 'Data';
+
+      $('csvOptions').style.display = 'block';
+
+      if (info.preview && info.preview.length) {
+        $('csvResult').classList.add('show');
+        $('csvResultMeta').textContent = `Pratinjau ~${info.estimated_rows} baris data CSV yang terdeteksi`;
+        renderPreviewTable($('csvTable'), info.preview);
+      }
+    } catch (err) {
+      $('csvAlert').textContent = err.message;
+      $('csvAlert').classList.add('show');
+      $('csvFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('csvConvertBtn').addEventListener('click', async () => {
+    if (!currentCsvFile) return;
+    const btn = $('csvConvertBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengonversi…';
+    $('csvAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentCsvFile);
+    fd.append('delimiter', $('csvDelimiter').value);
+    fd.append('sheet_name', $('csvSheetName').value);
+    fd.append('encoding', $('csvEncoding').value);
+    fd.append('preserve_text', $('csvPreserveText').checked ? '1' : '0');
+
+    try {
+      const res = await fetch('/api/converter/csv/convert', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Konversi CSV ke Excel gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'converted_data.xlsx';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastCsvBlob = await res.blob();
+      lastCsvFilename = filename;
+      triggerDownload(lastCsvBlob, filename);
+
+      $('csvConvertStatus').textContent = `✓ Berkas ${filename} berhasil diunduh.`;
+      setTimeout(() => $('csvConvertStatus').textContent = '', 5000);
+    } catch (err) {
+      $('csvAlert').textContent = err.message;
+      $('csvAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Konversi &amp; Unduh Excel (.xlsx)</span>';
+    }
+  });
+
+  $('csvDownloadBtn').addEventListener('click', () => {
+    if (lastCsvBlob && lastCsvFilename) triggerDownload(lastCsvBlob, lastCsvFilename);
+  });
+
+  // ===========================================================================
+  // 3. GABUNG PDF (MERGE) LOGIC
+  // ===========================================================================
+  let pdfMergeFilesList = [];
+  let lastPdfMergeBlob = null;
+  let lastPdfMergeFilename = '';
+
+  setupDrop($('pdfMergeDrop'), $('pdfMergeFiles'), files => {
+    addPdfFiles(Array.from(files));
+  });
+  $('pdfAddMoreBtn').addEventListener('click', () => $('pdfMergeFiles').click());
+  $('pdfClearBtn').addEventListener('click', () => {
+    pdfMergeFilesList = [];
+    renderPdfMergeList();
+  });
+
+  async function addPdfFiles(newFiles) {
+    for (const f of newFiles) {
+      if (!f.name.toLowerCase().endsWith('.pdf')) continue;
+      // Fetch inspect for page count
+      let pages = '?';
+      try {
+        const fd = new FormData();
+        fd.append('file', f);
+        const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (data.ok && data.info) pages = data.info.page_count;
+      } catch (_) {}
+      pdfMergeFilesList.push({ file: f, pages: pages });
+    }
+    renderPdfMergeList();
+  }
+
+  function renderPdfMergeList() {
+    const listEl = $('pdfFileList');
+    listEl.innerHTML = '';
+    if (!pdfMergeFilesList.length) {
+      $('pdfMergeListWrap').style.display = 'none';
+      $('pdfMergeDrop').style.display = 'block';
+      return;
+    }
+
+    $('pdfMergeDrop').style.display = 'none';
+    $('pdfMergeListWrap').style.display = 'block';
+
+    pdfMergeFilesList.forEach((item, idx) => {
+      const row = document.createElement('div');
+      row.className = 'cv-list-item';
+      row.innerHTML = `
+        <span class="cv-list-num">${idx + 1}</span>
+        <div class="cv-list-info">
+          <div class="t">${esc(item.file.name)}</div>
+          <div class="m">${fmtBytes(item.file.size)} • ${item.pages} halaman</div>
+        </div>
+        <div class="cv-list-acts">
+          <button class="cv-icon-btn up" type="button" title="Pindah ke Atas" ${idx === 0 ? 'disabled' : ''}>↑</button>
+          <button class="cv-icon-btn down" type="button" title="Pindah ke Bawah" ${idx === pdfMergeFilesList.length - 1 ? 'disabled' : ''}>↓</button>
+          <button class="cv-icon-btn del" type="button" title="Hapus">✕</button>
+        </div>
+      `;
+
+      row.querySelector('.up').addEventListener('click', () => {
+        if (idx > 0) {
+          const temp = pdfMergeFilesList[idx];
+          pdfMergeFilesList[idx] = pdfMergeFilesList[idx - 1];
+          pdfMergeFilesList[idx - 1] = temp;
+          renderPdfMergeList();
+        }
+      });
+      row.querySelector('.down').addEventListener('click', () => {
+        if (idx < pdfMergeFilesList.length - 1) {
+          const temp = pdfMergeFilesList[idx];
+          pdfMergeFilesList[idx] = pdfMergeFilesList[idx + 1];
+          pdfMergeFilesList[idx + 1] = temp;
+          renderPdfMergeList();
+        }
+      });
+      row.querySelector('.del').addEventListener('click', () => {
+        pdfMergeFilesList.splice(idx, 1);
+        renderPdfMergeList();
+      });
+
+      listEl.appendChild(row);
+    });
+  }
+
+  $('pdfMergeBtn').addEventListener('click', async () => {
+    if (pdfMergeFilesList.length < 2) {
+      $('pdfMergeAlert').textContent = 'Pilih minimal 2 berkas PDF untuk digabungkan.';
+      $('pdfMergeAlert').classList.add('show');
+      return;
+    }
+
+    const btn = $('pdfMergeBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Menggabungkan PDF…';
+    $('pdfMergeAlert').classList.remove('show');
+
+    const fd = new FormData();
+    pdfMergeFilesList.forEach(item => fd.append('files', item.file));
+    fd.append('output_name', $('pdfMergeOutputName').value.trim() || 'dokumen_gabungan.pdf');
+
+    try {
+      const res = await fetch('/api/converter/pdf/merge', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Gagal menggabungkan berkas PDF.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'dokumen_gabungan.pdf';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastPdfMergeBlob = await res.blob();
+      lastPdfMergeFilename = filename;
+      triggerDownload(lastPdfMergeBlob, filename);
+
+      $('pdfMergeResult').classList.add('show');
+      $('pdfMergeResultMeta').textContent = `Total ${pdfMergeFilesList.length} berkas PDF berhasil digabungkan menjadi ${filename} (${fmtBytes(lastPdfMergeBlob.size)})`;
+
+      $('pdfMergeStatus').textContent = `✓ Berkas berhasil diunduh.`;
+      setTimeout(() => $('pdfMergeStatus').textContent = '', 5000);
+    } catch (err) {
+      $('pdfMergeAlert').textContent = err.message;
+      $('pdfMergeAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Gabungkan Semua PDF</span>';
+    }
+  });
+
+  $('pdfMergeDownloadBtn').addEventListener('click', () => {
+    if (lastPdfMergeBlob && lastPdfMergeFilename) triggerDownload(lastPdfMergeBlob, lastPdfMergeFilename);
+  });
+
+  // ===========================================================================
+  // 4. PISAH PDF (SPLIT) LOGIC
+  // ===========================================================================
+  let currentPdfSplitFile = null;
+  let pdfSplitTotalPages = 0;
+  let currentSplitMode = 'all';
+  let lastPdfSplitBlob = null;
+  let lastPdfSplitFilename = '';
+
+  setupDrop($('pdfSplitDrop'), $('pdfSplitFile'), files => {
+    currentPdfSplitFile = files[0];
+    handlePdfSplitFile(currentPdfSplitFile);
+  });
+  $('pdfSplitChangeBtn').addEventListener('click', () => $('pdfSplitFile').click());
+
+  // Mode Selection
+  const modeCards = document.querySelectorAll('.cv-mode-card');
+  modeCards.forEach(c => {
+    c.addEventListener('click', () => {
+      modeCards.forEach(m => m.classList.remove('selected'));
+      c.classList.add('selected');
+      currentSplitMode = c.dataset.mode;
+      $('rangeOptWrap').style.display = currentSplitMode === 'range' ? 'block' : 'none';
+      $('stepOptWrap').style.display = currentSplitMode === 'step' ? 'block' : 'none';
+    });
+  });
+
+  async function handlePdfSplitFile(file) {
+    $('pdfSplitAlert').classList.remove('show');
+    $('pdfSplitResult').classList.remove('show');
+    $('pdfSplitFileName').textContent = file.name;
+    $('pdfSplitFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa berkas PDF…`;
+    $('pdfSplitFileBox').classList.add('show');
+    $('pdfSplitDrop').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas PDF.');
+
+      pdfSplitTotalPages = data.info.page_count;
+      if (data.info.is_encrypted) {
+        throw new Error('Berkas PDF ini dilindungi kata sandi. Harap buka kunci terlebih dahulu.');
+      }
+
+      $('pdfSplitFileDesc').textContent = `${fmtBytes(file.size)} • Total ${pdfSplitTotalPages} halaman`;
+      $('pdfRangeHint').textContent = `Dokumen memiliki total ${pdfSplitTotalPages} halaman (rentang valid: 1 s.d. ${pdfSplitTotalPages}).`;
+      $('pdfRangeInput').placeholder = `Contoh: 1-${Math.min(3, pdfSplitTotalPages)}${pdfSplitTotalPages > 3 ? ', ' + pdfSplitTotalPages : ''}`;
+      $('pdfSplitOptions').style.display = 'block';
+    } catch (err) {
+      $('pdfSplitAlert').textContent = err.message;
+      $('pdfSplitAlert').classList.add('show');
+      $('pdfSplitFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('pdfSplitBtn').addEventListener('click', async () => {
+    if (!currentPdfSplitFile) return;
+
+    if (currentSplitMode === 'range' && !$('pdfRangeInput').value.trim()) {
+      $('pdfSplitAlert').textContent = 'Ketik nomor atau rentang halaman yang ingin diekstrak.';
+      $('pdfSplitAlert').classList.add('show');
+      $('pdfRangeInput').focus();
+      return;
+    }
+
+    const btn = $('pdfSplitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Memproses Pemisahan…';
+    $('pdfSplitAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentPdfSplitFile);
+    fd.append('mode', currentSplitMode);
+    fd.append('range_str', $('pdfRangeInput').value.trim());
+    fd.append('step_n', $('pdfStepInput').value || '1');
+    fd.append('merge_range', $('pdfMergeRangeCheck').checked ? '1' : '0');
+
+    try {
+      const res = await fetch('/api/converter/pdf/split', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Pemisahan PDF gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'hasil_split.zip';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastPdfSplitBlob = await res.blob();
+      lastPdfSplitFilename = filename;
+      triggerDownload(lastPdfSplitBlob, filename);
+
+      $('pdfSplitResult').classList.add('show');
+      $('pdfSplitResultMeta').textContent = `Berkas ${filename} (${fmtBytes(lastPdfSplitBlob.size)}) berhasil dibuat dan diunduh.`;
+
+      $('pdfSplitStatus').textContent = `✓ Berkas berhasil diunduh.`;
+      setTimeout(() => $('pdfSplitStatus').textContent = '', 5000);
+    } catch (err) {
+      $('pdfSplitAlert').textContent = err.message;
+      $('pdfSplitAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Proses Pemisahan PDF</span>';
+    }
+  });
+
+  $('pdfSplitDownloadBtn').addEventListener('click', () => {
+    if (lastPdfSplitBlob && lastPdfSplitFilename) triggerDownload(lastPdfSplitBlob, lastPdfSplitFilename);
+  });
+
+})();
+</script>
+{% endblock %}
+

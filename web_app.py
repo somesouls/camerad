@@ -449,6 +449,9 @@ studio_routes.register(
     xlsx_mime=XLSX_MIME,
 )
 
+import routes.converter_routes as converter_routes
+converter_routes.register(app, render_page=render_page)
+
 
 if __name__ == "__main__":
     import uvicorn

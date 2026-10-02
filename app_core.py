@@ -262,6 +262,9 @@ def _route_area(path):
     # peran yang bisa menjalankan Tanya AI dapat menyimpan & membuka laporannya.
     if path == "/laporan" or path.startswith("/api/laporan"):
         return "common"
+    # Menu Converter (Accordion Umum) = area 'common'
+    if path == "/converter" or path.startswith("/api/converter"):
+        return "common"
     if (path.startswith("/api/ask") or path.startswith("/api/config")
             or path.startswith("/api/chat")):
         return "common"

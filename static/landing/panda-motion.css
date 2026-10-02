@@ -1,22 +1,235 @@
-.panda-wordmark{position:relative;isolation:isolate;min-height:68svh;padding:clamp(8rem,14vw,11rem) 0 clamp(3rem,7vw,6rem);display:grid;place-items:center;overflow:hidden;border-bottom:1px solid var(--lp-line,rgba(255,255,255,.14));background:var(--lp-bg,#071a14)}
+.panda-wordmark{--pw-loop:13s;position:relative;isolation:isolate;min-height:68svh;padding:clamp(8rem,14vw,11rem) 0 clamp(3rem,7vw,6rem);display:grid;place-items:center;overflow:hidden;border-bottom:1px solid var(--lp-line,rgba(255,255,255,.14));background:var(--lp-bg,#071a14)}
 .panda-wordmark::before{content:"";position:absolute;inset:12% 8%;z-index:-2;background:radial-gradient(circle at 35% 50%,var(--lp-glow-secondary,rgba(112,224,176,.18)),transparent 31%),radial-gradient(circle at 65% 50%,var(--lp-glow-primary,rgba(255,79,163,.2)),transparent 34%);filter:blur(30px);opacity:.75}
 .panda-wordmark::after{content:"";position:absolute;inset:auto 4vw 11%;height:1px;z-index:-1;background:linear-gradient(90deg,transparent,var(--lp-line-strong,rgba(255,255,255,.28)) 18% 82%,transparent)}
 .panda-wordmark__inner{width:100%;display:grid;gap:clamp(1rem,2vw,1.5rem)}
 .panda-wordmark__label{margin:0;padding-inline:clamp(1rem,3vw,3rem);color:var(--lp-secondary,#70e0b0);font:700 clamp(.58rem,.75vw,.72rem)/1 Arial,sans-serif;letter-spacing:.22em;text-transform:uppercase}
-.panda-wordmark__stage{width:100%;display:flex;align-items:flex-end;justify-content:center;gap:0;color:var(--lp-heading-text,#fff);font-family:Arial,"Helvetica Neue",Helvetica,sans-serif;font-size:clamp(4.2rem,15.5vw,14.8rem);font-weight:900;line-height:.72;letter-spacing:-.095em;white-space:nowrap;text-transform:uppercase}
-.panda-wordmark__letter{display:inline-block;will-change:transform;text-shadow:0 .035em 0 var(--lp-surface-strong,#12382b)}
-.panda-wordmark__letter--c{animation:panda-c-enter 1.9s cubic-bezier(.2,.72,.14,1) both,panda-c-drift 5.6s ease-in-out 2.3s infinite}
-.panda-wordmark__tail{display:inline-flex;align-items:flex-end;animation:panda-tail-enter 1.9s cubic-bezier(.2,.72,.14,1) both,panda-tail-drift 5.6s ease-in-out 2.3s infinite}
-.panda-wordmark__panda{position:relative;width:.78em;height:1.04em;margin:0 .065em -.07em .03em;display:inline-grid;place-items:end center;flex:none;transform-origin:50% 84%;will-change:transform;animation:panda-roll-in 2.15s cubic-bezier(.18,.8,.18,1) .12s both,panda-idle 4.8s ease-in-out 2.45s infinite}
-.panda-wordmark__panda::before{content:"";position:absolute;left:10%;right:8%;bottom:-.035em;height:.07em;border-radius:50%;background:#000;filter:blur(.025em);opacity:.24;animation:panda-shadow-in 2.15s ease .12s both}
-.panda-wordmark__panda img{position:relative;z-index:1;display:block;width:100%;height:100%;object-fit:contain;object-position:center bottom;filter:drop-shadow(0 .04em .035em rgba(0,0,0,.28));user-select:none;pointer-events:none}
+.panda-wordmark__stage{width:100%;display:flex;overflow:visible;align-items:flex-end;justify-content:center;gap:0;color:var(--lp-heading-text,#fff);font-family:Arial,"Helvetica Neue",Helvetica,sans-serif;font-size:clamp(4.2rem,15.5vw,14.8rem);font-weight:900;line-height:.72;letter-spacing:-.095em;white-space:nowrap;text-transform:uppercase}
+.panda-wordmark__letter{display:inline-block;flex:0 0 auto;will-change:transform;text-shadow:0 .035em 0 var(--lp-surface-strong,#12382b)}
+
+/* ---- C : rolls in slowly from far left once the panda is standing, then gets pushed back out ---- */
+.panda-wordmark__letter--c{transform-origin:50% 92%;backface-visibility:hidden;animation:panda-c-loop var(--pw-loop) cubic-bezier(.32,.06,.24,1) infinite}
+
+/* ---- MERAD : walks in from the right first, holds, then runs off fast ---- */
+.panda-wordmark__tail{display:inline-flex;flex:0 0 auto;align-items:flex-end;will-change:transform;animation:panda-tail-loop var(--pw-loop) cubic-bezier(.22,.68,.2,1) infinite}
+
+/* ---- panda : rolls in like a ball, crashes into the M, bounces, stands, looks around, later pushes C out and rolls off itself ---- */
+.panda-wordmark__panda{position:relative;overflow:visible;width:.84em;height:1.22em;margin:0 .12em -.13em .12em;flex:none;transform-origin:50% 84%;backface-visibility:hidden;will-change:transform;animation:panda-loop-move var(--pw-loop) cubic-bezier(.25,.65,.2,1) infinite}
+.panda-wordmark__panda::before{content:"";position:absolute;left:10%;right:8%;bottom:-.035em;height:.07em;border-radius:50%;background:#000;filter:blur(.025em);animation:panda-shadow-loop var(--pw-loop) cubic-bezier(.25,.65,.2,1) infinite}
+.panda-wordmark__panda::after{content:"";position:absolute;left:50%;bottom:.02em;width:.05em;height:.05em;border-radius:50%;background:radial-gradient(circle,var(--lp-glow-primary,rgba(255,79,163,.55)),transparent 70%);opacity:0;pointer-events:none;animation:panda-impact-loop var(--pw-loop) linear infinite}
+.panda-part{position:absolute;pointer-events:none;will-change:transform;animation:panda-parts-visibility var(--pw-loop) linear infinite}
+.panda-part img{display:block;width:100%;height:100%;object-fit:contain;user-select:none;pointer-events:none;filter:drop-shadow(0 .04em .035em rgba(0,0,0,.28))}
+.panda-effect{position:absolute;z-index:5;display:block;pointer-events:none;opacity:0;user-select:none}
+.panda-effect--rolling {
+  width: 1.35em;
+  height: 1.35em;
+
+  /* Geser sedikit ke kiri, lalu turunkan ke garis tanah */
+  left: -0.14em;
+  bottom: -0.18em;
+
+  object-fit: contain;
+  transform-origin: 50% 50%;
+  animation: panda-rolling-ball-loop var(--pw-loop) linear infinite;
+}
+
+.panda-effect--impact{width:1.05em;height:auto;left:50%;bottom:-.02em;transform:translateX(-50%) scale(.2);animation:panda-impact-image-loop var(--pw-loop) linear infinite}
+.panda-effect--impact-out{width:.82em;height:auto;left:50%;bottom:-.015em;transform:translateX(-50%) scale(.2);animation:panda-impact-out-loop var(--pw-loop) linear infinite}
+.panda-runner{position:absolute;inset:0;z-index:6;display:block;opacity:0;pointer-events:none;animation:panda-runner-visibility var(--pw-loop) linear infinite, panda-runner-bounce 360ms ease-in-out infinite}
+.panda-runner img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;opacity:0;user-select:none;pointer-events:none;filter:drop-shadow(0 .04em .035em rgba(0,0,0,.28))}
+.panda-runner img:first-child{animation:panda-run-frame-a 360ms steps(1,end) infinite}
+.panda-runner img:last-child{animation:panda-run-frame-b 360ms steps(1,end) infinite}
+/* Posisi layer asli—dipertahankan agar susunan panda tetap seperti versi yang sudah pas. */
+.panda-part--body{left:1.7%;top:46.72%;width:87.01%;height:54.72%;z-index:1}
+.panda-part--weapon{left:5.13%;top:29.13%;width:104.26%;height:54.51%;z-index:3;display:block;visibility:visible}
+
+.panda-part--head {
+  left: -5%;
+  top: -3.5%;
+  width: 104%;
+  height: 60%;
+  z-index: 4;
+  transform-origin: 50% 88%;
+}
+.panda-part--body{animation:panda-body-loop var(--pw-loop) cubic-bezier(.25,.65,.2,1) infinite, panda-parts-visibility var(--pw-loop) linear infinite}
+.panda-part--weapon{transform-origin:35% 40%;animation:panda-weapon-loop var(--pw-loop) cubic-bezier(.4,0,.2,1) infinite, panda-parts-visibility var(--pw-loop) linear infinite}
+.panda-part--head{transform-origin:50% 88%;animation:panda-head-loop var(--pw-loop) cubic-bezier(.4,0,.2,1) infinite, panda-parts-visibility var(--pw-loop) linear infinite}
 .panda-wordmark__hint{margin:0;padding-inline:clamp(1rem,3vw,3rem);color:var(--lp-dim,#82aa99);font:600 clamp(.6rem,.8vw,.75rem)/1.45 Arial,sans-serif;letter-spacing:.08em;text-align:right}
-@keyframes panda-c-enter{0%{opacity:0;transform:translateX(34vw) skewX(-8deg)}52%{opacity:1;transform:translateX(12vw) skewX(-3deg)}100%{transform:none}}
-@keyframes panda-tail-enter{0%{opacity:0;transform:translateX(-32vw) skewX(8deg)}52%{opacity:1;transform:translateX(-10vw) skewX(3deg)}100%{transform:none}}
-@keyframes panda-roll-in{0%{opacity:0;transform:translateX(-54vw) translateY(-.1em) rotate(-720deg) scale(.68)}58%{opacity:1;transform:translateX(-.12em) translateY(-.13em) rotate(-42deg) scale(1.04)}73%{transform:translateX(.04em) translateY(0) rotate(12deg) scale(.98)}86%{transform:translateX(-.02em) rotate(-5deg) scale(1.01)}100%{transform:none}}
-@keyframes panda-shadow-in{0%,38%{opacity:0;transform:scaleX(.25)}72%{opacity:.34;transform:scaleX(1.12)}100%{opacity:.24;transform:none}}
-@keyframes panda-idle{0%,100%{transform:translateY(0) rotate(0)}22%{transform:translateY(-.035em) rotate(-2deg)}48%{transform:translateY(0) rotate(1.5deg)}72%{transform:translateY(-.018em) rotate(-1deg)}}
-@keyframes panda-c-drift{0%,100%{transform:translateX(0)}50%{transform:translateX(-.025em)}}
-@keyframes panda-tail-drift{0%,100%{transform:translateX(0)}50%{transform:translateX(.025em)}}
-@media(max-width:680px){.panda-wordmark{min-height:52svh;padding-top:7rem}.panda-wordmark__stage{font-size:clamp(3.3rem,15.8vw,6.8rem);letter-spacing:-.105em}.panda-wordmark__panda{width:.8em;margin-inline:.035em}.panda-wordmark__hint{display:none}}
-@media(prefers-reduced-motion:reduce){.panda-wordmark__letter--c,.panda-wordmark__tail,.panda-wordmark__panda,.panda-wordmark__panda::before{animation:none!important}.panda-wordmark__letter,.panda-wordmark__tail,.panda-wordmark__panda{transform:none!important}}
+.panda-wordmark__expansion{width:min(94vw,1180px);margin:clamp(.8rem,1.7vw,1.4rem) auto 0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:clamp(.2rem,1vw,.8rem);padding-inline:clamp(.5rem,2vw,1.5rem);color:var(--lp-dim,#82aa99);font:700 clamp(.48rem,.72vw,.72rem)/1.1 Arial,sans-serif;letter-spacing:.06em;text-align:center;text-transform:uppercase}
+.panda-wordmark__expansion span{opacity:0;transform:translateY(-.35rem);animation:panda-expansion-loop var(--pw-loop) ease-in-out var(--exp-delay) infinite}
+
+
+/* pause the loop while the section is scrolled out of view (toggled by landing.js) */
+.panda-wordmark.is-offscreen .panda-wordmark__letter--c,
+.panda-wordmark.is-offscreen .panda-wordmark__tail,
+.panda-wordmark.is-offscreen .panda-wordmark__panda,
+.panda-wordmark.is-offscreen .panda-wordmark__panda::before,
+.panda-wordmark.is-offscreen .panda-wordmark__panda::after,
+.panda-wordmark.is-offscreen .panda-effect,
+.panda-wordmark.is-offscreen .panda-runner,
+.panda-wordmark.is-offscreen .panda-part--head,
+.panda-wordmark.is-offscreen .panda-part--weapon{animation-play-state:paused}
+
+/*
+Timeline (13s loop):
+ 0%  -11%  MERAD walks in from the right
+ 0%  -15%  panda rolls in like a ball from the left, crashes into the M at 15%
+ 15% -23%  bounce back, pop up, land standing facing forward
+ 23% -35%  panda looks left, then right, then settles forward
+ 35% -61%  full word "C-panda-MERAD" holds (C rolls in slowly, arrives ~46%)
+ 61% -71%  MERAD runs off fast to the right and disappears
+ 71% -95%  panda pushes C back out to the far left, then rolls off-screen itself
+ 95% -100% empty stage beat before the loop repeats
+*/
+
+@keyframes panda-tail-loop{
+  0%,2%{transform:translateX(55vw);opacity:0}
+  4%{opacity:1}
+  11%,60%{transform:translateX(0);opacity:1}
+  65%{transform:translateX(1.5vw);opacity:1}
+  71%,99%{transform:translateX(92vw);opacity:0}
+  100%{transform:translateX(55vw);opacity:0}
+}
+
+@keyframes panda-c-loop{
+  0%,38%{transform:translateX(-72vw) rotate(0deg);opacity:0}
+  39%{opacity:1}
+  46%{transform:translateX(0) rotate(370deg);opacity:1}
+  50%,75%{transform:translateX(0) rotate(360deg);opacity:1}
+  77%{transform:translateX(-3vw) rotate(330deg);opacity:1}
+  87%{transform:translateX(-72vw) rotate(-30deg);opacity:1}
+  89%,99%{transform:translateX(-72vw) rotate(0deg);opacity:0}
+  100%{transform:translateX(-72vw) rotate(0deg);opacity:0}
+}
+
+@keyframes panda-loop-move{
+  /* rolling.webp benar-benar bergerak dari kiri sebelum impact */
+  0%{transform:translateX(-62vw) translateY(0);opacity:1}
+  3%{transform:translateX(-48vw) translateY(0);opacity:1}
+  10%{transform:translateX(-12vw) translateY(0);opacity:1}
+  14%{transform:translateX(-1vw) translateY(0);opacity:1}
+  /* boom / impact terjadi setelah rolling tiba */
+  15%,22%{transform:translateX(-1vw) translateY(0);opacity:1}
+  23%,72%{transform:translateX(0) translateY(0);opacity:1}
+  /* Panda berdiri tetap di tempat sementara body blink menghilang. */
+  73%,75%{transform:translateX(0) translateY(0);opacity:1}
+  /* rolling.webp baru bergerak setelah bola benar-benar muncul. */
+  78%{transform:translateX(-8vw) translateY(0);opacity:1}
+  88%{transform:translateX(-36vw) translateY(0);opacity:1}
+  96%{transform:translateX(-64vw) translateY(0);opacity:1}
+  100%{transform:translateX(-68vw) translateY(0);opacity:1}
+}
+
+/* head rides rigidly with the body while rolling/crashing/pushing, but gets its own
+   subtle turn during the "look around" beat and a little lean while pushing the C */
+@keyframes panda-head-loop{
+  0%,23%{transform:none}
+  27%{transform:rotate(-5deg)}
+  31%{transform:rotate(5deg)}
+  36%{transform:rotate(0deg)}
+  36%,74%{transform:rotate(0deg)}
+  80%{transform:rotate(-4deg) translateY(-.01em)}
+  87%,100%{transform:none}
+}
+
+/* the paws + bamboo get a small independent recoil on impact, then lead slightly
+   ahead of the body while shoving the C back out to the left */
+@keyframes panda-weapon-loop{
+  0%,13%{transform:none}
+  15%{transform:translate(1.5%,-1%) rotate(-3deg) scale(1.04)}
+  17%{transform:translate(-1%,.5%) rotate(1deg) scale(.98)}
+  19%,100%{transform:none}
+}
+
+@keyframes panda-shadow-loop{
+  0%,14%{opacity:0;transform:scaleX(.45)}
+  19%{opacity:.16;transform:scaleX(.72)}
+  23%,72%{opacity:.28;transform:scaleX(1)}
+  75%{opacity:.12;transform:scaleX(.65)}
+  92%{opacity:.07;transform:scaleX(.4)}
+  100%{opacity:0;transform:scaleX(.25)}
+}
+
+@keyframes panda-impact-loop{
+  0%,13.5%{opacity:0;transform:translateX(-50%) scale(.2)}
+  15%{opacity:.85;transform:translateX(-50%) scale(1.6)}
+  17%,100%{opacity:0;transform:translateX(-50%) scale(2.1)}
+}
+
+/* Transparent effect assets: rolling streaks on entry and a one-beat landing impact. */
+@keyframes panda-body-loop{
+  0%,18%{transform:translateY(0) scaleY(1)}
+  20%{transform:translateY(.035em) scaleY(.96)}
+  23%{transform:translateY(-.012em) scaleY(1.01)}
+  27%,72%{transform:translateY(0) scaleY(1)}
+  75%,100%{transform:translateY(0) scaleY(1)}
+}
+
+@keyframes panda-parts-visibility{
+  0%,17%{opacity:0}
+  19%,72%{opacity:1}
+  75%,100%{opacity:0}
+}
+
+@keyframes panda-rolling-ball-loop {
+  /* Masuk lurus dari kiri ke kanan */
+  0% {
+    opacity: 1;
+    transform: translateX(-2.5em) translateY(0) rotate(0deg);
+  }
+
+  /* Satu lintasan linear penuh dengan putaran konstan */
+  13% {
+    opacity: 1;
+    transform: translateX(0.1em) translateY(0) rotate(1080deg);
+  }
+
+  /* Menghilang tepat sebelum impact */
+  14%,
+  100% {
+    opacity: 0;
+    transform: translateX(0.1em) translateY(0) rotate(1080deg);
+  }
+}
+
+@keyframes panda-rolling-loop{
+  0%,1%{opacity:0;transform:translateX(-2.5em) scale(.6)}
+  3%{opacity:.9}
+  11%{opacity:.8;transform:translateX(-.15em) scale(1)}
+  14%,17%{opacity:0;transform:translateX(.25em) scale(1.05)}
+  100%{opacity:0;transform:translateX(.25em) scale(1.05)}
+}
+@keyframes panda-impact-image-loop{
+  0%,13.5%{opacity:0;transform:translateX(-50%) translateY(.02em) scale(.2)}
+  15%{opacity:.95;transform:translateX(-50%) translateY(0) scale(1)}
+  18%,100%{opacity:0;transform:translateX(-50%) translateY(.02em) scale(1.18)}
+}
+
+@keyframes panda-runner-bounce{
+  0%,100%{transform:translateY(0)}
+  25%{transform:translateY(-.035em)}
+  50%{transform:translateY(.018em)}
+  75%{transform:translateY(-.025em)}
+}
+
+@keyframes panda-runner-visibility{
+  0%,72%{opacity:0}
+  74%,100%{opacity:1}
+}
+
+@keyframes panda-run-frame-a{
+  0%,49%{opacity:1}
+  50%,100%{opacity:0}
+}
+
+@keyframes panda-run-frame-b{
+  0%,49%{opacity:0}
+  50%,100%{opacity:1}
+}
+
+@keyframes panda-expansion-loop{
+  0%,39%{opacity:0;transform:translateY(-.35rem)}
+  45%,63%{opacity:1;transform:translateY(0)}
+  70%,100%{opacity:0;transform:translateY(.2rem)}
+}
+
+@media(max-width:680px){.panda-wordmark{min-height:52svh;padding-top:7rem}.panda-wordmark__stage{font-size:clamp(3.3rem,15.8vw,6.8rem);letter-spacing:-.105em}.panda-wordmark__panda{width:.84em;height:1.22em;margin-inline:.12em;margin-bottom:-.13em}.panda-wordmark__hint{display:none}.panda-wordmark__expansion{width:100%;gap:.08rem;padding-inline:.3rem;font-size:clamp(.34rem,1.7vw,.52rem);letter-spacing:.015em}}
