@@ -99,6 +99,7 @@ def _page_user_ctx(request):
     avatar = (nama[0].upper() if nama else "A")
     uid = user.get("id") if user else None
     return {
+        "is_logged_in": bool(user),
         "user_name": nama,
         "user_role": role_lbl,
         "user_role_key": role_key,
@@ -139,7 +140,7 @@ def render_page(request, template_name, active_page="", extra=None):
 # judge_web_bootstrap.py); autentikasinya via header X-API-Key di dalam handler,
 # bukan cookie sesi, jadi harus lolos middleware sesi ini.
 _JUDGE_PATHS = {"/api/judge-xlsx", "/api/analyze-fallback", "/api/mkta-analyze", "/api/mkta-verdict", "/api/update-usersays"}
-_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico", "/credit", "/api/df/webhook", "/api/chat/detect", "/livechat"} | _JUDGE_PATHS
+_PUBLIC_PATHS = {"/login", "/api/login", "/api/logout", "/healthz", "/favicon.ico", "/credit", "/api/df/webhook", "/api/chat/detect", "/livechat", "/converter", "/converter/"} | _JUDGE_PATHS
 
 
 def _route_action(method, path):
@@ -302,7 +303,7 @@ def _user_from_token(token):
 @app.middleware("http")
 async def _auth_middleware(request: Request, call_next):
     path = request.url.path
-    if path in _PUBLIC_PATHS or path.startswith("/static"):
+    if path in _PUBLIC_PATHS or path.startswith("/static") or path.startswith("/api/converter"):
         return await call_next(request)
 
     # Panggilan internal server-ke-server ke /api/avaya-* (worker AWE Tahap 2 &
@@ -401,14 +402,14 @@ async def _sidebar_filter_middleware(request: Request, call_next):
         if "text/html" not in ctype.lower():
             return response
         user = _user_from_token(request.cookies.get("session"))
-        if not user:
-            return response
+        role = user.get("role") if user else ""
+        uid = user.get("id") if user else None
         body = b""
         async for chunk in response.body_iterator:
             body += chunk
         try:
             html = body.decode("utf-8", "replace")
-            html = _filter_sidebar_html(html, user.get("role"), user.get("id"))
+            html = _filter_sidebar_html(html, role, uid)
             new_body = html.encode("utf-8")
         except Exception:
             new_body = body

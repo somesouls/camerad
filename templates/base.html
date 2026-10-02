@@ -21,10 +21,12 @@
           <div class="logo"><img src="/static/logo-only.svg" alt="Camerad Studio"></div>
           <div><b>Camerad Studio</b><span>Workspace internal · Analisis &amp; evaluasi</span></div>
         </div>
+        {% if is_logged_in %}
         <button class="newbtn" id="newBtn">
           <span class="nb-label">Percakapan baru</span>
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
+        {% endif %}
       </div>
       <div class="side-scroll">
         {% if menu_group is not defined or menu_group.rag_chatbot %}<div class="sec-label">RAG Chatbot</div>{% endif %}
@@ -224,8 +226,10 @@
           <div class="ic c-purple"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>
           <b>Pengguna &amp; Peran</b>
         </a>{% endif %}
+        {% if is_logged_in %}
         <div class="sec-label">Riwayat Percakapan</div>
         <div id="histList"></div>
+        {% endif %}
       </div>
       <div class="side-foot"><span class="dot"></span><span id="provChip">Sistem aktif</span><span class="build-label">Build V9.1</span></div>
     </aside>
@@ -237,18 +241,27 @@
           <div class="workspace-label"><span>RUANG KERJA</span><b>{% block page_label %}Camerad Studio{% endblock %}</b></div>
         </div>
         <div class="topbar-right">
+          {% if is_logged_in %}
           <div class="user-info">
             <b>{{ user_name }}</b>
             <span>{{ user_role }}</span>
           </div>
           <a href="/profil" class="user-avatar" title="Akun Saya">{% if user_avatar_img %}<img src="{{ user_avatar_img }}" alt="avatar">{% else %}{{ user_avatar }}{% endif %}</a>
+          {% else %}
+          <a href="/login?next=%2Fconverter" class="action-btn" title="Masuk ke Sistem" style="text-decoration:none; font-weight:600; font-size:13px; padding:0 12px; gap:6px; display:inline-flex; align-items:center; color:var(--text-main); border:1px solid var(--panel-border); border-radius:8px;">
+            <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+            Masuk
+          </a>
+          {% endif %}
           <a href="/credit" class="action-btn" title="Kredit &amp; Penghargaan">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M8.21 13.89L7 22l5-3 5 3-1.21-8.11"/></svg>
           </a>
           <button class="action-btn theme-toggle" id="theme-btn" data-theme-toggle type="button" aria-label="Ganti tema"><span data-theme-icon="star" aria-hidden="true">✦</span><span data-theme-icon="moon" aria-hidden="true" hidden>☾</span></button>
+          {% if is_logged_in %}
           <a href="/api/logout" class="action-btn btn-logout" title="Keluar">
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
           </a>
+          {% endif %}
         </div>
       </div>
       {% block main %}

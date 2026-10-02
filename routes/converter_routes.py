@@ -469,3 +469,102 @@ def register(app, *, render_page):
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
+    # ---------- 11. SUSUN & URUTKAN HALAMAN PDF (ORGANIZE / REORDER) ----------
+    @app.post("/api/converter/pdf/reorder")
+    async def api_pdf_reorder(request: Request):
+        try:
+            form = await request.form()
+            up = form.get("file")
+            content = await _read_upload(up)
+
+            order_str = str(form.get("order") or "").strip()
+            # Bisa format JSON array "[3, 1, 2]" atau string koma "3, 1, 2"
+            page_order = []
+            if order_str.startswith("["):
+                try:
+                    page_order = [int(x) for x in json.loads(order_str)]
+                except Exception:
+                    pass
+            if not page_order and order_str:
+                for part in re.split(r"[,;\s]+", order_str):
+                    if part.isdigit():
+                        page_order.append(int(part))
+
+            if not page_order:
+                return JSONResponse({"ok": False, "error": "Urutan halaman baru tidak boleh kosong."}, status_code=400)
+
+            base_name = re.sub(r"\.[^.]+$", "", up.filename or "dokumen")
+
+            out_bytes, fname, mime, meta = await run_in_threadpool(
+                engine.reorder_pdf_pages,
+                content,
+                page_order=page_order,
+                base_filename=base_name,
+            )
+
+            headers = {
+                "Content-Disposition": f'attachment; filename="{fname}"',
+            }
+            return Response(content=out_bytes, media_type=mime, headers=headers)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    # ---------- 12. PDF KE WORD (.docx) ----------
+    @app.post("/api/converter/pdf-to-docx")
+    async def api_pdf_to_docx(request: Request):
+        try:
+            form = await request.form()
+            up = form.get("file")
+            content = await _read_upload(up)
+
+            base_name = re.sub(r"\.[^.]+$", "", up.filename or "dokumen")
+
+            out_bytes, fname, mime, meta = await run_in_threadpool(
+                engine.pdf_to_docx,
+                content,
+                base_filename=base_name,
+            )
+
+            headers = {
+                "Content-Disposition": f'attachment; filename="{fname}"',
+            }
+            return Response(content=out_bytes, media_type=mime, headers=headers)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    # ---------- 13. WORD (.docx) KE PDF ----------
+    @app.post("/api/converter/docx/inspect")
+    async def api_docx_inspect(request: Request):
+        try:
+            form = await request.form()
+            up = form.get("file")
+            content = await _read_upload(up)
+            info = await run_in_threadpool(engine.inspect_docx, content)
+            return JSONResponse({"ok": True, "filename": up.filename, "info": info})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/converter/docx-to-pdf")
+    async def api_docx_to_pdf(request: Request):
+        try:
+            form = await request.form()
+            up = form.get("file")
+            content = await _read_upload(up)
+
+            base_name = re.sub(r"\.[^.]+$", "", up.filename or "dokumen")
+
+            out_bytes, fname, mime, meta = await run_in_threadpool(
+                engine.docx_to_pdf,
+                content,
+                base_filename=base_name,
+            )
+
+            headers = {
+                "Content-Disposition": f'attachment; filename="{fname}"',
+            }
+            return Response(content=out_bytes, media_type=mime, headers=headers)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+
+

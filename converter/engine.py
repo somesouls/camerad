@@ -17,12 +17,19 @@ import csv
 import base64
 import zipfile
 import datetime
+import html
 from typing import List, Tuple, Dict, Any, Optional, Iterator
 
 import openpyxl
 import pypdf
 import fitz
 from PIL import Image
+
+try:
+    import docx
+    HAVE_DOCX = True
+except ImportError:
+    HAVE_DOCX = False
 
 try:
     import xlrd
@@ -1331,4 +1338,364 @@ def delete_pages_pdf(
             "remaining_pages": new_page_count,
         },
     )
+
+
+# ==============================================================================
+# 11. SUSUN & URUTKAN HALAMAN PDF (ORGANIZE / REORDER PDF)
+# ==============================================================================
+
+def reorder_pdf_pages(
+    data: bytes,
+    page_order: List[int],
+    base_filename: str = "dokumen",
+) -> Tuple[bytes, str, str, Dict[str, Any]]:
+    """Menyusun ulang urutan halaman dokumen PDF berdasarkan daftar urutan baru (1-indexed)."""
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+    except Exception as e:
+        raise ValueError(f"Gagal membuka berkas PDF: {e}")
+
+    if doc.is_encrypted:
+        doc.close()
+        raise ValueError("Berkas PDF dilindungi kata sandi. Harap buka kunci terlebih dahulu.")
+
+    total_pages = len(doc)
+    if total_pages == 0:
+        doc.close()
+        raise ValueError("Dokumen PDF tidak memiliki halaman.")
+
+    # Validasi urutan halaman baru
+    valid_order = []
+    for p in page_order:
+        try:
+            p_int = int(p)
+            if 1 <= p_int <= total_pages:
+                valid_order.append(p_int - 1)  # 0-indexed untuk fitz
+        except (ValueError, TypeError):
+            continue
+
+    if not valid_order:
+        doc.close()
+        raise ValueError("Daftar urutan halaman baru tidak valid.")
+
+    doc.select(valid_order)
+    out_bytes = doc.tobytes(garbage=3, deflate=True)
+    new_page_count = len(doc)
+    doc.close()
+
+    safe_base = re.sub(r'[\\/*?:"<>|]', "_", base_filename.replace(".pdf", "")).strip() or "dokumen"
+    return (
+        out_bytes,
+        f"{safe_base}_susun.pdf",
+        "application/pdf",
+        {
+            "original_pages": total_pages,
+            "new_order": [p + 1 for p in valid_order],
+            "total_pages": new_page_count,
+        },
+    )
+
+
+# ==============================================================================
+# 12. KONVERSI PDF <-> WORD (.docx)
+# ==============================================================================
+
+def inspect_docx(data: bytes) -> Dict[str, Any]:
+    """Inspeksi cepat dokumen Word (.docx) untuk informasi ringkasan."""
+    if not HAVE_DOCX:
+        raise RuntimeError("Pustaka python-docx belum terpasang.")
+    try:
+        doc = docx.Document(io.BytesIO(data))
+    except Exception as e:
+        raise ValueError(f"Gagal membaca berkas Word: {e}")
+
+    p_count = len(doc.paragraphs)
+    t_count = len(doc.tables)
+    total_words = sum(len(p.text.split()) for p in doc.paragraphs)
+    for t in doc.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                total_words += len(cell.text.split())
+
+    # Estimasi halaman (~300 kata per halaman standar naskah dinas)
+    est_pages = max(1, round(total_words / 300)) if total_words > 0 else 1
+
+    # Cuplikan 3 paragraf pertama yang tidak kosong
+    preview_paras = []
+    for p in doc.paragraphs:
+        t = p.text.strip()
+        if t:
+            preview_paras.append(t[:120] + ("…" if len(t) > 120 else ""))
+            if len(preview_paras) >= 3:
+                break
+
+    return {
+        "paragraph_count": p_count,
+        "table_count": t_count,
+        "word_count": total_words,
+        "estimated_pages": est_pages,
+        "preview_snippets": preview_paras,
+    }
+
+
+def pdf_to_docx(
+    data: bytes,
+    base_filename: str = "dokumen",
+) -> Tuple[bytes, str, str, Dict[str, Any]]:
+    """Konversi berkas PDF menjadi dokumen Microsoft Word (.docx) murni in-memory.
+
+    Mengekstrak teks, heading, dan tabel secara terstruktur.
+    """
+    if not HAVE_DOCX:
+        raise RuntimeError("Pustaka python-docx belum terpasang.")
+
+    try:
+        doc_pdf = fitz.open(stream=data, filetype="pdf")
+    except Exception as e:
+        raise ValueError(f"Gagal membuka berkas PDF: {e}")
+
+    if doc_pdf.is_encrypted:
+        doc_pdf.close()
+        raise ValueError("Berkas PDF dilindungi kata sandi. Harap buka kunci terlebih dahulu.")
+
+    total_pages = len(doc_pdf)
+    if total_pages == 0:
+        doc_pdf.close()
+        raise ValueError("Dokumen PDF tidak memiliki halaman.")
+
+    doc_word = docx.Document()
+
+    # Set standard 1-inch margins
+    for section in doc_word.sections:
+        section.top_margin = docx.shared.Inches(1)
+        section.bottom_margin = docx.shared.Inches(1)
+        section.left_margin = docx.shared.Inches(1)
+        section.right_margin = docx.shared.Inches(1)
+
+    total_tables_extracted = 0
+    total_paragraphs_extracted = 0
+
+    for pno, page in enumerate(doc_pdf):
+        if pno > 0:
+            doc_word.add_page_break()
+
+        # 1. Cari tabel di halaman
+        try:
+            tab_finder = page.find_tables()
+            tables = tab_finder.tables if tab_finder else []
+        except Exception:
+            tables = []
+
+        table_bboxes = [fitz.Rect(t.bbox) for t in tables]
+
+        # 2. Ambil blok-blok teks
+        blocks = page.get_text("blocks")
+
+        items_to_render = []
+
+        # Masukkan tabel
+        for t in tables:
+            items_to_render.append({
+                "type": "table",
+                "y0": t.bbox[1],
+                "x0": t.bbox[0],
+                "data": t.extract(),
+            })
+
+        # Masukkan teks blocks yang bukan di dalam tabel
+        for b in blocks:
+            if len(b) >= 7 and b[6] != 0:
+                continue
+            rect = fitz.Rect(b[0], b[1], b[2], b[3])
+            text = (b[4] or "").strip()
+            if not text:
+                continue
+
+            inside_table = False
+            for tb in table_bboxes:
+                intersect = rect & tb
+                if intersect.is_valid and intersect.get_area() > 0.5 * rect.get_area():
+                    inside_table = True
+                    break
+
+            if not inside_table:
+                items_to_render.append({
+                    "type": "text",
+                    "y0": b[1],
+                    "x0": b[0],
+                    "text": text,
+                    "height": b[3] - b[1],
+                })
+
+        # Urutkan berdasarkan posisi vertikal dari atas ke bawah
+        items_to_render.sort(key=lambda item: (round(item["y0"], 1), round(item["x0"], 1)))
+
+        # Tulis ke dokumen Word
+        for item in items_to_render:
+            if item["type"] == "table":
+                t_data = item["data"]
+                if not t_data:
+                    continue
+                num_rows = len(t_data)
+                num_cols = max(len(row) for row in t_data) if num_rows else 0
+                if num_rows == 0 or num_cols == 0:
+                    continue
+
+                w_table = doc_word.add_table(rows=num_rows, cols=num_cols)
+                try:
+                    w_table.style = 'Table Grid'
+                except Exception:
+                    pass
+
+                for r_idx, row in enumerate(t_data):
+                    for c_idx, cell_val in enumerate(row):
+                        if c_idx < num_cols:
+                            cell_text = str(cell_val or "").strip()
+                            w_table.cell(r_idx, c_idx).text = cell_text
+                total_tables_extracted += 1
+
+            elif item["type"] == "text":
+                txt = item["text"]
+                lines = [l.strip() for l in txt.split("\n") if l.strip()]
+                joined = " ".join(lines)
+                if not joined:
+                    continue
+
+                if len(joined) < 80 and (joined.isupper() or item.get("height", 0) > 20):
+                    doc_word.add_heading(joined, level=2)
+                else:
+                    doc_word.add_paragraph(joined)
+                total_paragraphs_extracted += 1
+
+    doc_pdf.close()
+
+    buf = io.BytesIO()
+    doc_word.save(buf)
+    out_bytes = buf.getvalue()
+
+    safe_base = re.sub(r'[\\/*?:"<>|]', "_", base_filename.replace(".pdf", "")).strip() or "dokumen"
+    return (
+        out_bytes,
+        f"{safe_base}.docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        {
+            "total_pages": total_pages,
+            "total_tables": total_tables_extracted,
+            "total_paragraphs": total_paragraphs_extracted,
+        },
+    )
+
+
+def docx_to_pdf(
+    data: bytes,
+    base_filename: str = "dokumen",
+) -> Tuple[bytes, str, str, Dict[str, Any]]:
+    """Konversi dokumen Microsoft Word (.docx) menjadi berkas PDF murni in-memory.
+
+    Menggunakan python-docx untuk parsing dan fitz.Story untuk rendering PDF A4.
+    """
+    if not HAVE_DOCX:
+        raise RuntimeError("Pustaka python-docx belum terpasang.")
+    try:
+        doc = docx.Document(io.BytesIO(data))
+    except Exception as e:
+        raise ValueError(f"Gagal membaca berkas Word: {e}")
+
+    html_parts = ['''
+    <style>
+    @page { size: A4; margin: 20mm; }
+    body { font-family: sans-serif; font-size: 11pt; line-height: 1.45; color: #111111; margin: 0; }
+    h1 { font-size: 17pt; color: #003366; margin-top: 14px; margin-bottom: 8px; font-weight: bold; }
+    h2 { font-size: 14pt; color: #222222; margin-top: 12px; margin-bottom: 6px; font-weight: bold; }
+    h3 { font-size: 12pt; color: #333333; margin-top: 10px; margin-bottom: 4px; font-weight: bold; }
+    p { margin-top: 4px; margin-bottom: 7px; text-align: justify; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; margin-bottom: 12px; }
+    th, td { border: 1px solid #444444; padding: 6px 9px; font-size: 10pt; text-align: left; vertical-align: top; }
+    th { background-color: #f1f5f9; font-weight: bold; }
+    </style>
+    ''']
+
+    p_count = 0
+    t_count = 0
+
+    for el in doc.element.body:
+        tag = el.tag.split("}")[-1]
+        if tag == "p":
+            p_obj = docx.text.paragraph.Paragraph(el, doc)
+            txt = p_obj.text.strip()
+            if not txt:
+                continue
+            p_count += 1
+            style_name = (p_obj.style.name or "").lower()
+            if "heading 1" in style_name or "title" in style_name:
+                html_parts.append(f"<h1>{html.escape(txt)}</h1>")
+            elif "heading 2" in style_name:
+                html_parts.append(f"<h2>{html.escape(txt)}</h2>")
+            elif "heading 3" in style_name:
+                html_parts.append(f"<h3>{html.escape(txt)}</h3>")
+            else:
+                runs_html = ""
+                for r in p_obj.runs:
+                    r_txt = html.escape(r.text)
+                    if not r_txt:
+                        continue
+                    if r.bold and r.italic:
+                        runs_html += f"<b><i>{r_txt}</i></b>"
+                    elif r.bold:
+                        runs_html += f"<b>{r_txt}</b>"
+                    elif r.italic:
+                        runs_html += f"<i>{r_txt}</i>"
+                    elif r.underline:
+                        runs_html += f"<u>{r_txt}</u>"
+                    else:
+                        runs_html += r_txt
+                if runs_html:
+                    html_parts.append(f"<p>{runs_html}</p>")
+        elif tag == "tbl":
+            t_obj = docx.table.Table(el, doc)
+            t_count += 1
+            tbl_html = "<table>"
+            for r_idx, row in enumerate(t_obj.rows):
+                tbl_html += "<tr>"
+                for cell in row.cells:
+                    tag_name = "th" if r_idx == 0 else "td"
+                    c_txt = html.escape(cell.text.strip())
+                    tbl_html += f"<{tag_name}>{c_txt}</{tag_name}>"
+                tbl_html += "</tr>"
+            tbl_html += "</table>"
+            html_parts.append(tbl_html)
+
+    full_html = "\n".join(html_parts)
+
+    try:
+        story = fitz.Story(html=full_html)
+        pdf_buf = io.BytesIO()
+        writer = fitz.DocumentWriter(pdf_buf)
+
+        def rectfn(rect_num, filled):
+            return fitz.Rect(0, 0, 595.32, 841.92), fitz.Rect(48, 48, 595.32 - 48, 841.92 - 48), fitz.Matrix(1, 1)
+
+        story.write(writer, rectfn)
+        writer.close()
+        out_bytes = pdf_buf.getvalue()
+    except Exception as e:
+        raise ValueError(f"Gagal merender PDF dari dokumen Word: {e}")
+
+    out_doc = fitz.open(stream=out_bytes, filetype="pdf")
+    total_pages = len(out_doc)
+    out_doc.close()
+
+    safe_base = re.sub(r'[\\/*?:"<>|]', "_", base_filename.replace(".docx", "").replace(".doc", "")).strip() or "dokumen"
+    return (
+        out_bytes,
+        f"{safe_base}.pdf",
+        "application/pdf",
+        {
+            "total_pages": total_pages,
+            "paragraphs_processed": p_count,
+            "tables_processed": t_count,
+        },
+    )
+
+
 

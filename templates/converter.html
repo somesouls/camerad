@@ -94,7 +94,25 @@
   .cv-list-item {
     display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 14px;
     border: 1px solid var(--panel-border); border-radius: 9px; background: var(--panel-bg);
+    cursor: grab; transition: transform 0.15s ease, opacity 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    user-select: none;
   }
+  .cv-list-item:active { cursor: grabbing; }
+  .cv-list-item.dragging {
+    opacity: 0.35;
+    background: var(--ui-hover);
+    border: 2px dashed var(--accent);
+  }
+  .cv-list-item.drag-over {
+    border-top: 2px solid var(--accent);
+    background: rgba(0, 102, 204, 0.06);
+    transform: translateY(2px);
+  }
+  .cv-drag-handle {
+    cursor: grab; color: var(--text-muted); font-size: 15px; padding: 2px 4px;
+    user-select: none; line-height: 1; display: inline-flex; align-items: center;
+  }
+  .cv-drag-handle:hover { color: var(--accent); }
   .cv-list-num {
     font-size: 12px; font-weight: 700; width: 26px; height: 26px; border-radius: 50%;
     background: var(--ui-hover); color: var(--text-muted); display: inline-flex; align-items: center; justify-content: center;
@@ -152,18 +170,31 @@
   .cv-img-card {
     position: relative; border: 1px solid var(--panel-border); border-radius: 9px; overflow: hidden;
     background: var(--panel-bg); display: flex; flex-direction: column; text-align: center;
+    cursor: grab; transition: transform 0.15s ease, opacity 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+    user-select: none;
   }
-  .cv-img-card img { width: 100%; height: 95px; object-fit: cover; background: #1a1a1a; display: block; }
+  .cv-img-card:active { cursor: grabbing; }
+  .cv-img-card.dragging {
+    opacity: 0.35; border: 2px dashed var(--accent);
+  }
+  .cv-img-card.drag-over {
+    border-color: var(--accent); transform: scale(1.04);
+    box-shadow: 0 4px 14px rgba(0, 102, 204, 0.28);
+  }
+  .cv-img-card img { width: 100%; height: 95px; object-fit: cover; background: #1a1a1a; display: block; pointer-events: none; }
   .cv-img-card .cv-img-name { font-size: 11px; padding: 4px 6px; word-break: break-all; color: var(--text-main); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cv-img-card .cv-img-del {
     position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%;
     background: rgba(0,0,0,0.65); color: #fff; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1;
+    z-index: 2;
   }
   .cv-img-card .cv-img-del:hover { background: #e53e3e; }
   .cv-img-card .cv-img-order {
     position: absolute; top: 4px; left: 4px; padding: 1px 6px; border-radius: 4px;
     background: rgba(0,0,0,0.65); color: #fff; font-size: 10px; font-weight: bold;
+    z-index: 2;
   }
+
 
   /* Stat / Savings box for compression */
   .cv-stat-box {
@@ -282,6 +313,16 @@
     border-top: 1px solid var(--panel-border);
     background: var(--panel-bg);
   }
+  .cv-page-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 4px 8px;
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    box-sizing: border-box;
+  }
 
   /* State: Selected (for Split PDF) */
   .cv-page-card.selected {
@@ -320,7 +361,25 @@
     z-index: 3;
   }
 
+  /* State: Draggable Card (for Organize / Reorder Pages) */
+  .cv-page-card.draggable {
+    cursor: grab;
+  }
+  .cv-page-card.draggable:active {
+    cursor: grabbing;
+  }
+  .cv-page-card.dragging {
+    opacity: 0.35;
+    border: 2px dashed var(--accent) !important;
+  }
+  .cv-page-card.drag-over {
+    border-color: var(--accent) !important;
+    transform: scale(1.05) !important;
+    box-shadow: 0 6px 18px rgba(0, 102, 204, 0.3) !important;
+  }
+
   /* Live Watermark Canvas Box */
+
   .cv-wm-preview-wrap {
     position: relative;
     max-width: 280px;
@@ -389,7 +448,7 @@
     <h1>Converter Dokumen &amp; Data</h1>
     <p>Utilitas konversi dan manipulasi berkas lokal (Excel, CSV, PDF, Gambar) yang dijalankan murni di server internal tanpa mengirim data ke pihak ketiga. Cepat, aman, dan menjaga kerahasiaan dokumen.</p>
     <div class="cv-badges">
-      <span class="cv-badge accent">✓ 11 Alat Aktif</span>
+      <span class="cv-badge accent">✓ 14 Alat Aktif</span>
       <span class="cv-badge">🔒 100% Server Lokal &amp; Privat</span>
       <span class="cv-badge">⚡ Maksimum 50 MB / proses</span>
     </div>
@@ -430,7 +489,17 @@
     <button class="cv-tab" data-target="tab-pdfdelpages" type="button" role="tab">
       <span>🗑️</span> Hapus Halaman
     </button>
+    <button class="cv-tab" data-target="tab-pdforganize" type="button" role="tab">
+      <span>📑</span> Susun Halaman
+    </button>
+    <button class="cv-tab" data-target="tab-pdf2word" type="button" role="tab">
+      <span>📄</span> PDF ke Word
+    </button>
+    <button class="cv-tab" data-target="tab-word2pdf" type="button" role="tab">
+      <span>📝</span> Word ke PDF
+    </button>
   </div>
+
 
   <!-- ========================================================================= -->
   <!-- TAB 1: EXCEL KE CSV -->
@@ -1369,8 +1438,197 @@
       </div>
     </section>
   </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 12: SUSUN & URUTKAN HALAMAN PDF (ORGANIZE PDF) -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-pdforganize">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas PDF untuk Menyusun Ulang Urutan Halaman</span>
+      </div>
+
+      <div class="cv-drop" id="organizeDrop">
+        <input type="file" id="organizeFile" hidden accept=".pdf">
+        <div class="icon">📑</div>
+        <div class="big">Tarik &amp; letakkan berkas PDF ke sini</div>
+        <div class="sub">atau klik untuk memilih dari komputer</div>
+        <div class="formats">Ubah susunan halaman dengan menarik dan menggeser kartu halaman (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="organizeFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">PDF</span>
+          <div>
+            <div class="cv-file-name" id="organizeFileName">nama_berkas.pdf</div>
+            <div class="cv-file-desc" id="organizeFileDesc">Memeriksa isi berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="organizeChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="organizeOptions" style="display:none;margin-top:18px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div>
+            <b style="font-size:13px;color:var(--text-main);">Tarik &amp; Geser Kartu Halaman (Drag &amp; Drop Reorder):</b>
+            <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;" id="organizeHint">Tarik kartu ke posisi yang diinginkan untuk mengubah urutan halaman dokumen.</div>
+          </div>
+          <div style="display:flex;gap:6px;">
+            <button class="cv-btn ghost" id="organizeReverseBtn" type="button" style="padding:4px 9px;font-size:11px;">Balik Urutan ⮌</button>
+            <button class="cv-btn ghost" id="organizeResetBtn" type="button" style="padding:4px 9px;font-size:11px;">Reset Asli ↺</button>
+          </div>
+        </div>
+
+        <div class="cv-page-grid" id="organizePreviewGrid" style="display:none;"></div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="organizeBtn" type="button">
+            <span>Simpan &amp; Unduh PDF Baru</span>
+          </button>
+          <span id="organizeStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="organizeAlert"></div>
+    </section>
+
+    <!-- Hasil Susun Halaman -->
+    <section class="cv-result" id="organizeResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Susunan Halaman PDF Berhasil Diperbarui!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="organizeResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="organizeDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 13: PDF KE WORD (.docx) -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-pdf2word">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas PDF untuk Dikonversi ke Microsoft Word (.docx)</span>
+      </div>
+
+      <div class="cv-drop" id="p2wDrop">
+        <input type="file" id="p2wFile" hidden accept=".pdf">
+        <div class="icon">📄</div>
+        <div class="big">Tarik &amp; letakkan berkas PDF ke sini</div>
+        <div class="sub">atau klik untuk memilih dari komputer</div>
+        <div class="formats">Ubah PDF menjadi berkas Microsoft Word (.docx) yang dapat diedit (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="p2wFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">PDF</span>
+          <div>
+            <div class="cv-file-name" id="p2wFileName">nama_berkas.pdf</div>
+            <div class="cv-file-desc" id="p2wFileDesc">Memeriksa isi berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="p2wChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="p2wOptions" style="display:none;margin-top:18px;">
+        <div style="font-size:12.5px;color:var(--text-muted);background:var(--ui-hover);padding:12px 16px;border-radius:8px;border:1px solid var(--panel-border);">
+          💡 <b>Fitur Ekstraksi Pintar:</b> Teks, judul, dan tabel berbingkai di dalam dokumen PDF akan otomatis diidentifikasi dan ditata ke format dokumen Word (.docx) siap edit.
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="p2wBtn" type="button">
+            <span>Konversi &amp; Unduh Word (.docx)</span>
+          </button>
+          <span id="p2wStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="p2wAlert"></div>
+    </section>
+
+    <!-- Hasil PDF ke Word -->
+    <section class="cv-result" id="p2wResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Dokumen Word (.docx) Berhasil Dibuat!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="p2wResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="p2wDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 14: WORD (.docx) KE PDF -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-word2pdf">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas Microsoft Word (.docx) untuk Dikonversi ke PDF</span>
+      </div>
+
+      <div class="cv-drop" id="w2pDrop">
+        <input type="file" id="w2pFile" hidden accept=".docx,.doc">
+        <div class="icon">📝</div>
+        <div class="big">Tarik &amp; letakkan berkas Word (.docx) ke sini</div>
+        <div class="sub">atau klik untuk memilih dari komputer</div>
+        <div class="formats">Ubah naskah Word ke format PDF standar cetak A4 kedinasan (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="w2pFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">DOCX</span>
+          <div>
+            <div class="cv-file-name" id="w2pFileName">naskah_dinas.docx</div>
+            <div class="cv-file-desc" id="w2pFileDesc">Memeriksa struktur naskah…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="w2pChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="w2pOptions" style="display:none;margin-top:18px;">
+        <div class="cv-stat-box" id="w2pStatBox" style="margin-top:0;">
+          <div class="cv-stat-item">
+            <span class="cv-stat-val" id="w2pParasVal">0</span>
+            <span class="cv-stat-lbl">Paragraf Terbaca</span>
+          </div>
+          <div class="cv-stat-item">
+            <span class="cv-stat-val" id="w2pTablesVal">0</span>
+            <span class="cv-stat-lbl">Tabel Terdeteksi</span>
+          </div>
+          <div class="cv-stat-item">
+            <span class="cv-stat-val" id="w2pWordsVal">0</span>
+            <span class="cv-stat-lbl">Perkiraan Kata</span>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="w2pBtn" type="button">
+            <span>Konversi &amp; Unduh PDF</span>
+          </button>
+          <span id="w2pStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="w2pAlert"></div>
+    </section>
+
+    <!-- Hasil Word ke PDF -->
+    <section class="cv-result" id="w2pResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Berkas PDF Berhasil Dibuat!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="w2pResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="w2pDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
 </div>
 {% endblock %}
+
 
 {% block scripts %}
 <script>
@@ -1846,6 +2104,8 @@
     renderPdfMergeList();
   }
 
+  let draggedMergeIdx = null;
+
   function renderPdfMergeList() {
     const listEl = $('pdfFileList');
     listEl.innerHTML = '';
@@ -1861,11 +2121,15 @@
     pdfMergeFilesList.forEach((item, idx) => {
       const row = document.createElement('div');
       row.className = 'cv-list-item';
+      row.draggable = true;
+      row.dataset.idx = idx;
+
       const thumbHtml = item.thumbUrl
         ? `<img class="cv-merge-thumb" src="${item.thumbUrl}" alt="Cover" loading="lazy">`
         : `<div class="cv-merge-thumb" style="display:flex;align-items:center;justify-content:center;font-size:20px;">📄</div>`;
 
       row.innerHTML = `
+        <span class="cv-drag-handle" title="Tarik kartu untuk memindahkan urutan">⋮⋮</span>
         <span class="cv-list-num">${idx + 1}</span>
         ${thumbHtml}
         <div class="cv-list-info">
@@ -1878,6 +2142,37 @@
           <button class="cv-icon-btn del" type="button" title="Hapus">✕</button>
         </div>
       `;
+
+      // Drag and Drop Reordering
+      row.addEventListener('dragstart', e => {
+        draggedMergeIdx = idx;
+        row.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', idx);
+      });
+      row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        listEl.querySelectorAll('.cv-list-item').forEach(el => el.classList.remove('drag-over'));
+      });
+      row.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        row.classList.add('drag-over');
+      });
+      row.addEventListener('dragleave', () => {
+        row.classList.remove('drag-over');
+      });
+      row.addEventListener('drop', e => {
+        e.preventDefault();
+        row.classList.remove('drag-over');
+        if (draggedMergeIdx !== null && draggedMergeIdx !== idx) {
+          const moved = pdfMergeFilesList.splice(draggedMergeIdx, 1)[0];
+          pdfMergeFilesList.splice(idx, 0, moved);
+          draggedMergeIdx = null;
+          renderPdfMergeList();
+        }
+      });
+
 
       row.querySelector('.up').addEventListener('click', () => {
         if (idx > 0) {
@@ -2186,6 +2481,8 @@
     renderImgGrid();
   }
 
+  let imgDragSrcIdx = null;
+
   function renderImgGrid() {
     const grid = $('imgPreviewGrid');
     const clearBtn = $('imgClearBtn');
@@ -2214,6 +2511,8 @@
     imgFilesList.forEach((file, idx) => {
       const card = document.createElement('div');
       card.className = 'cv-img-card';
+      card.draggable = true;
+      card.dataset.idx = idx;
 
       const thumbUrl = URL.createObjectURL(file);
       card.innerHTML = `
@@ -2222,6 +2521,36 @@
         <img src="${thumbUrl}" alt="Preview" loading="lazy">
         <div class="cv-img-name" title="${esc(file.name)}">${esc(file.name)}</div>
       `;
+
+      // Drag and Drop reordering
+      card.addEventListener('dragstart', e => {
+        imgDragSrcIdx = idx;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', idx);
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        grid.querySelectorAll('.cv-img-card').forEach(el => el.classList.remove('drag-over'));
+      });
+      card.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        card.classList.add('drag-over');
+      });
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('drag-over');
+      });
+      card.addEventListener('drop', e => {
+        e.preventDefault();
+        card.classList.remove('drag-over');
+        if (imgDragSrcIdx !== null && imgDragSrcIdx !== idx) {
+          const moved = imgFilesList.splice(imgDragSrcIdx, 1)[0];
+          imgFilesList.splice(idx, 0, moved);
+          imgDragSrcIdx = null;
+          renderImgGrid();
+        }
+      });
 
       card.querySelector('.cv-img-del').addEventListener('click', e => {
         e.stopPropagation();
@@ -2233,6 +2562,7 @@
       grid.appendChild(card);
     });
   }
+
 
   $('imgConvertBtn').addEventListener('click', async () => {
     if (!imgFilesList.length) return;
@@ -3020,6 +3350,385 @@
 
   $('delPagesDownloadBtn').addEventListener('click', () => {
     if (lastDelPagesBlob && lastDelPagesFilename) triggerDownload(lastDelPagesBlob, lastDelPagesFilename);
+  });
+
+  // ===========================================================================
+  // 12. SUSUN & URUTKAN HALAMAN PDF (ORGANIZE / REORDER PDF) LOGIC
+  // ===========================================================================
+  let currentOrganizeFile = null;
+  let organizeTotalPages = 0;
+  let organizePagesList = []; // array of { page: original_page_num, thumb: data_uri }
+  let lastOrganizeBlob = null;
+  let lastOrganizeFilename = '';
+  let draggedOrganizeIdx = null;
+
+  setupDrop($('organizeDrop'), $('organizeFile'), files => {
+    currentOrganizeFile = files[0];
+    handleOrganizeFile(currentOrganizeFile);
+  });
+  $('organizeChangeBtn').addEventListener('click', () => $('organizeFile').click());
+
+  function renderOrganizeGrid() {
+    const grid = $('organizePreviewGrid');
+    grid.innerHTML = '';
+    if (!organizePagesList.length) {
+      grid.style.display = 'none';
+      return;
+    }
+    grid.style.display = 'grid';
+
+    organizePagesList.forEach((item, idx) => {
+      const card = document.createElement('div');
+      card.className = 'cv-page-card draggable';
+      card.draggable = true;
+      card.dataset.idx = idx;
+
+      card.innerHTML = `
+        <div class="cv-page-thumb-wrap">
+          <img src="${item.thumb}" alt="Halaman ${item.page}" loading="lazy">
+          <div class="cv-page-badge">#${idx + 1} (Hal ${item.page})</div>
+        </div>
+        <div class="cv-page-actions">
+          <button type="button" class="cv-icon-btn left" title="Geser ke Kiri" ${idx === 0 ? 'disabled' : ''}>←</button>
+          <span style="font-size:11px;color:var(--text-muted);user-select:none;">⋮⋮</span>
+          <button type="button" class="cv-icon-btn right" title="Geser ke Kanan" ${idx === organizePagesList.length - 1 ? 'disabled' : ''}>→</button>
+        </div>
+      `;
+
+      // Drag and Drop reordering
+      card.addEventListener('dragstart', e => {
+        draggedOrganizeIdx = idx;
+        card.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', idx);
+      });
+      card.addEventListener('dragend', () => {
+        card.classList.remove('dragging');
+        grid.querySelectorAll('.cv-page-card').forEach(el => el.classList.remove('drag-over'));
+      });
+      card.addEventListener('dragover', e => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+        card.classList.add('drag-over');
+      });
+      card.addEventListener('dragleave', () => {
+        card.classList.remove('drag-over');
+      });
+      card.addEventListener('drop', e => {
+        e.preventDefault();
+        card.classList.remove('drag-over');
+        if (draggedOrganizeIdx !== null && draggedOrganizeIdx !== idx) {
+          const moved = organizePagesList.splice(draggedOrganizeIdx, 1)[0];
+          organizePagesList.splice(idx, 0, moved);
+          draggedOrganizeIdx = null;
+          renderOrganizeGrid();
+        }
+      });
+
+      // Manual buttons fallback
+      const btnLeft = card.querySelector('.left');
+      if (btnLeft) {
+        btnLeft.addEventListener('click', e => {
+          e.stopPropagation();
+          if (idx > 0) {
+            const temp = organizePagesList[idx];
+            organizePagesList[idx] = organizePagesList[idx - 1];
+            organizePagesList[idx - 1] = temp;
+            renderOrganizeGrid();
+          }
+        });
+      }
+      const btnRight = card.querySelector('.right');
+      if (btnRight) {
+        btnRight.addEventListener('click', e => {
+          e.stopPropagation();
+          if (idx < organizePagesList.length - 1) {
+            const temp = organizePagesList[idx];
+            organizePagesList[idx] = organizePagesList[idx + 1];
+            organizePagesList[idx + 1] = temp;
+            renderOrganizeGrid();
+          }
+        });
+      }
+
+      grid.appendChild(card);
+    });
+  }
+
+  $('organizeReverseBtn').addEventListener('click', () => {
+    organizePagesList.reverse();
+    renderOrganizeGrid();
+  });
+
+  $('organizeResetBtn').addEventListener('click', () => {
+    organizePagesList.sort((a, b) => a.page - b.page);
+    renderOrganizeGrid();
+  });
+
+  async function handleOrganizeFile(file) {
+    $('organizeAlert').classList.remove('show');
+    $('organizeResult').classList.remove('show');
+    $('organizeFileName').textContent = file.name;
+    $('organizeFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa berkas PDF…`;
+    $('organizeFileBox').classList.add('show');
+    $('organizeDrop').style.display = 'none';
+
+    organizePagesList = [];
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas PDF.');
+
+      organizeTotalPages = data.info.page_count;
+      if (data.info.is_encrypted) {
+        throw new Error('Berkas PDF ini dilindungi kata sandi. Harap buka kunci terlebih dahulu.');
+      }
+
+      $('organizeFileDesc').textContent = `${fmtBytes(file.size)} • Total ${organizeTotalPages} halaman`;
+      $('organizeHint').textContent = `Dokumen memiliki total ${organizeTotalPages} halaman. Tarik kartu halaman atau gunakan tombol panah untuk mengatur urutan baru.`;
+      $('organizeOptions').style.display = 'block';
+
+      // Muat pratinjau thumbnail kartu halaman
+      fetchPdfThumbnails(file, 60).then(resThumb => {
+        if (resThumb && resThumb.thumbnails) {
+          organizePagesList = resThumb.thumbnails.map(t => ({ page: t.page, thumb: t.thumb }));
+          renderOrganizeGrid();
+        }
+      }).catch(err => {
+        $('organizeAlert').textContent = 'Gagal memuat pratinjau thumbnail: ' + err.message;
+        $('organizeAlert').classList.add('show');
+      });
+    } catch (err) {
+      $('organizeAlert').textContent = err.message;
+      $('organizeAlert').classList.add('show');
+      $('organizeFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('organizeBtn').addEventListener('click', async () => {
+    if (!currentOrganizeFile || !organizePagesList.length) return;
+
+    const btn = $('organizeBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Menyusun Dokumen PDF…';
+    $('organizeAlert').classList.remove('show');
+
+    const pageOrder = organizePagesList.map(x => x.page);
+
+    const fd = new FormData();
+    fd.append('file', currentOrganizeFile);
+    fd.append('order', JSON.stringify(pageOrder));
+
+    try {
+      const res = await fetch('/api/converter/pdf/reorder', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Penyusunan halaman gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'dokumen_tersusun.pdf';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastOrganizeBlob = await res.blob();
+      lastOrganizeFilename = filename;
+      triggerDownload(lastOrganizeBlob, filename);
+
+      $('organizeResult').classList.add('show');
+      $('organizeResultMeta').textContent = `Urutan baru (${pageOrder.join(', ')}) berhasil disimpan ke ${filename} (${fmtBytes(lastOrganizeBlob.size)}).`;
+
+      $('organizeStatus').textContent = '✓ Berkas berhasil diunduh.';
+      setTimeout(() => $('organizeStatus').textContent = '', 5000);
+    } catch (err) {
+      $('organizeAlert').textContent = err.message;
+      $('organizeAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Simpan &amp; Unduh PDF Baru</span>';
+    }
+  });
+
+  $('organizeDownloadBtn').addEventListener('click', () => {
+    if (lastOrganizeBlob && lastOrganizeFilename) triggerDownload(lastOrganizeBlob, lastOrganizeFilename);
+  });
+
+  // ===========================================================================
+  // 13. PDF KE WORD (.docx) LOGIC
+  // ===========================================================================
+  let currentP2wFile = null;
+  let lastP2wBlob = null;
+  let lastP2wFilename = '';
+
+  setupDrop($('p2wDrop'), $('p2wFile'), files => {
+    currentP2wFile = files[0];
+    handleP2wFile(currentP2wFile);
+  });
+  $('p2wChangeBtn').addEventListener('click', () => $('p2wFile').click());
+
+  async function handleP2wFile(file) {
+    $('p2wAlert').classList.remove('show');
+    $('p2wResult').classList.remove('show');
+    $('p2wFileName').textContent = file.name;
+    $('p2wFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa berkas PDF…`;
+    $('p2wFileBox').classList.add('show');
+    $('p2wDrop').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas PDF.');
+
+      if (data.info.is_encrypted) {
+        throw new Error('Berkas PDF ini dilindungi kata sandi. Harap buka kunci terlebih dahulu.');
+      }
+
+      $('p2wFileDesc').textContent = `${fmtBytes(file.size)} • Total ${data.info.page_count} halaman siap dikonversi ke Word`;
+      $('p2wOptions').style.display = 'block';
+    } catch (err) {
+      $('p2wAlert').textContent = err.message;
+      $('p2wAlert').classList.add('show');
+      $('p2wFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('p2wBtn').addEventListener('click', async () => {
+    if (!currentP2wFile) return;
+
+    const btn = $('p2wBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengonversi ke Word (.docx)…';
+    $('p2wAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentP2wFile);
+
+    try {
+      const res = await fetch('/api/converter/pdf-to-docx', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Konversi PDF ke Word gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'dokumen.docx';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastP2wBlob = await res.blob();
+      lastP2wFilename = filename;
+      triggerDownload(lastP2wBlob, filename);
+
+      $('p2wResult').classList.add('show');
+      $('p2wResultMeta').textContent = `Berkas Word ${filename} (${fmtBytes(lastP2wBlob.size)}) berhasil dibuat dan diunduh.`;
+
+      $('p2wStatus').textContent = '✓ Berkas berhasil diunduh.';
+      setTimeout(() => $('p2wStatus').textContent = '', 5000);
+    } catch (err) {
+      $('p2wAlert').textContent = err.message;
+      $('p2wAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Konversi &amp; Unduh Word (.docx)</span>';
+    }
+  });
+
+  $('p2wDownloadBtn').addEventListener('click', () => {
+    if (lastP2wBlob && lastP2wFilename) triggerDownload(lastP2wBlob, lastP2wFilename);
+  });
+
+  // ===========================================================================
+  // 14. WORD (.docx) KE PDF LOGIC
+  // ===========================================================================
+  let currentW2pFile = null;
+  let lastW2pBlob = null;
+  let lastW2pFilename = '';
+
+  setupDrop($('w2pDrop'), $('w2pFile'), files => {
+    currentW2pFile = files[0];
+    handleW2pFile(currentW2pFile);
+  });
+  $('w2pChangeBtn').addEventListener('click', () => $('w2pFile').click());
+
+  async function handleW2pFile(file) {
+    $('w2pAlert').classList.remove('show');
+    $('w2pResult').classList.remove('show');
+    $('w2pFileName').textContent = file.name;
+    $('w2pFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa struktur naskah Word…`;
+    $('w2pFileBox').classList.add('show');
+    $('w2pDrop').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/docx/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas Word.');
+
+      const info = data.info;
+      $('w2pFileDesc').textContent = `${fmtBytes(file.size)} • ${info.paragraph_count} paragraf, ${info.table_count} tabel (~${info.estimated_pages} halaman)`;
+      $('w2pParasVal').textContent = info.paragraph_count;
+      $('w2pTablesVal').textContent = info.table_count;
+      $('w2pWordsVal').textContent = `~${info.word_count}`;
+      $('w2pOptions').style.display = 'block';
+    } catch (err) {
+      $('w2pAlert').textContent = err.message;
+      $('w2pAlert').classList.add('show');
+      $('w2pFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('w2pBtn').addEventListener('click', async () => {
+    if (!currentW2pFile) return;
+
+    const btn = $('w2pBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengonversi ke PDF…';
+    $('w2pAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentW2pFile);
+
+    try {
+      const res = await fetch('/api/converter/docx-to-pdf', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Konversi Word ke PDF gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'dokumen.pdf';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastW2pBlob = await res.blob();
+      lastW2pFilename = filename;
+      triggerDownload(lastW2pBlob, filename);
+
+      $('w2pResult').classList.add('show');
+      $('w2pResultMeta').textContent = `Berkas PDF ${filename} (${fmtBytes(lastW2pBlob.size)}) berhasil dibuat dan diunduh.`;
+
+      $('w2pStatus').textContent = '✓ Berkas berhasil diunduh.';
+      setTimeout(() => $('w2pStatus').textContent = '', 5000);
+    } catch (err) {
+      $('w2pAlert').textContent = err.message;
+      $('w2pAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Konversi &amp; Unduh PDF</span>';
+    }
+  });
+
+  $('w2pDownloadBtn').addEventListener('click', () => {
+    if (lastW2pBlob && lastW2pFilename) triggerDownload(lastW2pBlob, lastW2pFilename);
   });
 
 })();

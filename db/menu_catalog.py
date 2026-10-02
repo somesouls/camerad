@@ -86,8 +86,8 @@ MENU_KEYS = [m["key"] for m in MENU_CATALOG]
 # bukan jatuh kembali ke izin area/API lama.
 _CONFIG_MARKER = "__configured__"
 
-# Menu yang SELALU tampil untuk user yang sudah login (beranda Studio/chat).
-_BASELINE_MENUS = {"m_studio"}
+# Menu yang SELALU tampil untuk user yang sudah login (beranda Studio/chat & converter).
+_BASELINE_MENUS = {"m_studio", "m_converter"}
 
 # Peta {menu_key: area_coarse}. Diisi app_core lewat set_menu_areas() memakai
 # _route_area() sebagai satu sumber kebenaran. Dipakai untuk fallback kompat.
@@ -184,6 +184,9 @@ def menu_allowed(role, menu_key, user_id=None):
     mkey = menu_key or ""
     if mkey not in _BY_KEY:
         return False
+    if not role:
+        # User belum login: hanya menu publik (Converter) yang diizinkan tampil
+        return mkey == "m_converter"
     if mkey in _BASELINE_MENUS:
         return True
     snap = _snap()

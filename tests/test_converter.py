@@ -7,6 +7,7 @@ import zipfile
 import unittest
 import openpyxl
 import pypdf
+import fitz
 from PIL import Image
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -321,8 +322,99 @@ class ConverterEngineTest(unittest.TestCase):
         self.assertEqual(reader.pages[1].rotation, 0)
         self.assertEqual(reader.pages[2].rotation, 270)
 
+    def test_reorder_pdf_pages(self):
+        # Buat PDF 3 halaman dengan dimensi berbeda untuk verifikasi urutan
+        w = pypdf.PdfWriter()
+        w.add_blank_page(width=100, height=100) # Hal 1
+        w.add_blank_page(width=200, height=200) # Hal 2
+        w.add_blank_page(width=300, height=300) # Hal 3
+        buf = io.BytesIO()
+        w.write(buf)
+        test_pdf = buf.getvalue()
+
+        # Susun ulang: Hal 3, Hal 1, Hal 2
+        reord_bytes, fname, mime, meta = eng.reorder_pdf_pages(
+            test_pdf, page_order=[3, 1, 2], base_filename="surat"
+        )
+        self.assertEqual(mime, "application/pdf")
+        self.assertTrue(fname.endswith(".pdf"))
+        self.assertEqual(meta["new_order"], [3, 1, 2])
+
+        reader = pypdf.PdfReader(io.BytesIO(reord_bytes))
+        self.assertEqual(len(reader.pages), 3)
+        self.assertEqual(reader.pages[0].mediabox.width, 300) # Eks hal 3
+        self.assertEqual(reader.pages[1].mediabox.width, 100) # Eks hal 1
+        self.assertEqual(reader.pages[2].mediabox.width, 200) # Eks hal 2
+
+    def test_inspect_and_docx_to_pdf(self):
+        import docx
+        doc = docx.Document()
+        doc.add_heading("Judul Dokumen Dinas", level=1)
+        doc.add_paragraph("Ini adalah contoh isi naskah dinas resmi.")
+        t = doc.add_table(rows=2, cols=2)
+        t.cell(0, 0).text = "Kolom A"
+        t.cell(0, 1).text = "Kolom B"
+        t.cell(1, 0).text = "Data 1"
+        t.cell(1, 1).text = "Data 2"
+        buf = io.BytesIO()
+        doc.save(buf)
+        docx_bytes = buf.getvalue()
+
+        # 1. Test inspect_docx
+        info = eng.inspect_docx(docx_bytes)
+        self.assertEqual(info["table_count"], 1)
+        self.assertGreaterEqual(info["paragraph_count"], 2)
+        self.assertGreater(info["word_count"], 5)
+        self.assertGreaterEqual(len(info["preview_snippets"]), 1)
+
+        # 2. Test docx_to_pdf
+        pdf_bytes, fname, mime, meta = eng.docx_to_pdf(docx_bytes, base_filename="surat_tugas")
+        self.assertEqual(mime, "application/pdf")
+        self.assertTrue(fname.endswith(".pdf"))
+        self.assertGreater(meta["total_pages"], 0)
+        self.assertGreater(len(pdf_bytes), 1000)
+
+        # Verify output PDF
+        out_doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        self.assertGreater(len(out_doc), 0)
+        text_full = out_doc[0].get_text()
+        self.assertIn("Judul Dokumen Dinas", text_full)
+        self.assertIn("Kolom A", text_full)
+        out_doc.close()
+
+    def test_pdf_to_docx(self):
+        import docx
+        # Buat PDF dengan teks & tabel
+        doc_pdf = fitz.open()
+        p = doc_pdf.new_page(width=595.32, height=841.92)
+        p.insert_text((54, 80), "SURAT PERINTAH TUGAS", fontsize=14)
+        p.insert_text((54, 110), "Sehubungan dengan dinas luar, ditugaskan nama berikut:", fontsize=11)
+        p.draw_rect(fitz.Rect(54, 130, 350, 190))
+        p.draw_line(fitz.Point(54, 155), fitz.Point(350, 155))
+        p.draw_line(fitz.Point(120, 130), fitz.Point(120, 190))
+        p.insert_text((60, 148), "No", fontsize=10)
+        p.insert_text((130, 148), "Nama Pegawai", fontsize=10)
+        p.insert_text((60, 178), "1", fontsize=10)
+        p.insert_text((130, 178), "Budi Santoso", fontsize=10)
+        pdf_bytes = doc_pdf.tobytes()
+        doc_pdf.close()
+
+        # Konversi PDF ke Word (.docx)
+        docx_bytes, fname, mime, meta = eng.pdf_to_docx(pdf_bytes, base_filename="surat_dinas")
+        self.assertEqual(mime, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        self.assertTrue(fname.endswith(".docx"))
+        self.assertEqual(meta["total_pages"], 1)
+        self.assertGreaterEqual(meta["total_paragraphs"], 1)
+
+        # Verifikasi docx yang dihasilkan dapat dibaca oleh python-docx
+        word_doc = docx.Document(io.BytesIO(docx_bytes))
+        full_text = " ".join(p.text for p in word_doc.paragraphs)
+        self.assertIn("SURAT PERINTAH TUGAS", full_text)
+
 
 if __name__ == "__main__":
     unittest.main()
+
+
 
 

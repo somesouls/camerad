@@ -16,6 +16,10 @@ from converter.engine import (
     watermark_pdf,
     delete_pages_pdf,
     generate_pdf_thumbnails,
+    reorder_pdf_pages,
+    inspect_docx,
+    pdf_to_docx,
+    docx_to_pdf,
 )
 
 __all__ = [
@@ -34,4 +38,9 @@ __all__ = [
     "watermark_pdf",
     "delete_pages_pdf",
     "generate_pdf_thumbnails",
+    "reorder_pdf_pages",
+    "inspect_docx",
+    "pdf_to_docx",
+    "docx_to_pdf",
 ]
+
