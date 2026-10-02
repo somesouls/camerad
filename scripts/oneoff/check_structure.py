@@ -21,7 +21,7 @@ def rel(p):
 
 def py_files():
     for base, dirs, files in os.walk(ROOT):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not d.startswith(".venv")]
         for fn in files:
             if fn.endswith(".py"):
                 yield os.path.join(base, fn)

@@ -146,6 +146,240 @@
   .cv-alert.show { display: block; }
   .cv-alert.error { background: rgba(229,62,62,.1); border: 1px solid rgba(229,62,62,.3); color: var(--c-red-txt, #e53e3e); }
   .cv-alert.success { background: rgba(40,167,69,.1); border: 1px solid rgba(40,167,69,.3); color: var(--c-green-txt, #28a745); }
+
+  /* Image Grid for Images to PDF */
+  .cv-img-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 12px; margin-top: 14px; }
+  .cv-img-card {
+    position: relative; border: 1px solid var(--panel-border); border-radius: 9px; overflow: hidden;
+    background: var(--panel-bg); display: flex; flex-direction: column; text-align: center;
+  }
+  .cv-img-card img { width: 100%; height: 95px; object-fit: cover; background: #1a1a1a; display: block; }
+  .cv-img-card .cv-img-name { font-size: 11px; padding: 4px 6px; word-break: break-all; color: var(--text-main); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cv-img-card .cv-img-del {
+    position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%;
+    background: rgba(0,0,0,0.65); color: #fff; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1;
+  }
+  .cv-img-card .cv-img-del:hover { background: #e53e3e; }
+  .cv-img-card .cv-img-order {
+    position: absolute; top: 4px; left: 4px; padding: 1px 6px; border-radius: 4px;
+    background: rgba(0,0,0,0.65); color: #fff; font-size: 10px; font-weight: bold;
+  }
+
+  /* Stat / Savings box for compression */
+  .cv-stat-box {
+    display: flex; gap: 18px; flex-wrap: wrap; margin-top: 14px; padding: 14px 18px; border-radius: 10px;
+    background: var(--ui-hover); border: 1px solid var(--panel-border);
+  }
+  .cv-stat-item { display: flex; flex-direction: column; gap: 3px; }
+  .cv-stat-val { font-size: 17px; font-weight: 800; color: var(--text-main); }
+  .cv-stat-val.highlight { color: var(--c-green-txt, #28a745); }
+  .cv-stat-lbl { font-size: 11.5px; color: var(--text-muted); }
+
+  /* Preset Pills for Watermark */
+  .cv-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .cv-pill {
+    padding: 4px 10px; border-radius: 999px; border: 1px solid var(--panel-border);
+    background: var(--ui-hover); color: var(--text-main); font-size: 11.5px; font-weight: 600;
+    cursor: pointer; transition: all .15s ease;
+  }
+  .cv-pill:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ========================================================================= */
+  /* iLovePDF / SmallPDF Style Page Thumbnails Grid & Previews                 */
+  /* ========================================================================= */
+  .cv-page-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
+    max-height: 480px;
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    background: var(--ui-hover);
+  }
+  .cv-page-card {
+    position: relative;
+    border: 2px solid var(--panel-border);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--panel-bg);
+    cursor: pointer;
+    transition: all .2s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    user-select: none;
+  }
+  .cv-page-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-3px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.12);
+  }
+  .cv-page-thumb-wrap {
+    width: 100%;
+    height: 160px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.03);
+    overflow: hidden;
+    padding: 6px;
+  }
+  .cv-page-thumb-wrap img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.18);
+    border-radius: 3px;
+    transition: transform 0.25s ease;
+    background: #ffffff;
+  }
+  .cv-page-badge {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.75);
+    color: #fff;
+    backdrop-filter: blur(4px);
+    z-index: 2;
+  }
+  .cv-page-action-btn {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: rgba(15, 23, 42, 0.75);
+    color: #fff;
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    transition: all .15s ease;
+    z-index: 2;
+  }
+  .cv-page-action-btn:hover {
+    background: var(--accent);
+    transform: scale(1.12);
+  }
+  .cv-page-footer {
+    width: 100%;
+    padding: 6px 8px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-align: center;
+    border-top: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+  }
+
+  /* State: Selected (for Split PDF) */
+  .cv-page-card.selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 2px var(--accent), 0 4px 12px rgba(0,0,0,0.1);
+  }
+  .cv-page-card.selected .cv-page-badge {
+    background: var(--accent);
+  }
+
+  /* State: Marked Deleted (for Delete Pages) */
+  .cv-page-card.deleted {
+    border-color: #ef4444;
+    opacity: 0.65;
+    background: rgba(239, 68, 68, 0.05);
+  }
+  .cv-page-card.deleted .cv-page-thumb-wrap img {
+    filter: grayscale(80%) blur(0.5px);
+  }
+  .cv-page-card.deleted .cv-page-badge {
+    background: #ef4444;
+  }
+  .cv-page-card.deleted::after {
+    content: "✕ Dihapus";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: #ef4444;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 4px 10px;
+    border-radius: 6px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    z-index: 3;
+  }
+
+  /* Live Watermark Canvas Box */
+  .cv-wm-preview-wrap {
+    position: relative;
+    max-width: 280px;
+    margin: 16px auto 0;
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    background: #fff;
+    user-select: none;
+  }
+  .cv-wm-preview-img {
+    width: 100%;
+    display: block;
+    height: auto;
+  }
+  .cv-wm-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-weight: 900;
+    font-size: 22px;
+    text-transform: uppercase;
+    white-space: nowrap;
+    pointer-events: none;
+    transition: all .15s ease;
+  }
+
+  /* PDF Merge File Cards with cover thumbnail */
+  .cv-merge-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 14px;
+  }
+  .cv-merge-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px 14px;
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    background: var(--panel-bg);
+    transition: all .15s ease;
+  }
+  .cv-merge-card:hover {
+    border-color: var(--accent);
+  }
+  .cv-merge-thumb {
+    width: 44px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+    background: #fff;
+    flex-shrink: 0;
+  }
 </style>
 {% endblock %}
 
@@ -153,9 +387,9 @@
 <div class="cv-wrap">
   <div class="cv-head">
     <h1>Converter Dokumen &amp; Data</h1>
-    <p>Utilitas konversi dan manipulasi berkas lokal (Excel, CSV, PDF) yang dijalankan murni di server internal tanpa mengirim data ke pihak ketiga. Cepat, aman, dan menjaga kerahasiaan dokumen.</p>
+    <p>Utilitas konversi dan manipulasi berkas lokal (Excel, CSV, PDF, Gambar) yang dijalankan murni di server internal tanpa mengirim data ke pihak ketiga. Cepat, aman, dan menjaga kerahasiaan dokumen.</p>
     <div class="cv-badges">
-      <span class="cv-badge accent">✓ 4 Alat Aktif</span>
+      <span class="cv-badge accent">✓ 11 Alat Aktif</span>
       <span class="cv-badge">🔒 100% Server Lokal &amp; Privat</span>
       <span class="cv-badge">⚡ Maksimum 50 MB / proses</span>
     </div>
@@ -169,11 +403,32 @@
     <button class="cv-tab" data-target="tab-csv2xl" type="button" role="tab">
       <span>📑</span> CSV ke Excel
     </button>
+    <button class="cv-tab" data-target="tab-csv2csv" type="button" role="tab">
+      <span>🔄</span> CSV ke CSV
+    </button>
     <button class="cv-tab" data-target="tab-pdfmerge" type="button" role="tab">
       <span>📄</span> Gabung PDF
     </button>
     <button class="cv-tab" data-target="tab-pdfsplit" type="button" role="tab">
       <span>✂️</span> Pisah PDF
+    </button>
+    <button class="cv-tab" data-target="tab-img2pdf" type="button" role="tab">
+      <span>🖼️</span> Gambar ke PDF
+    </button>
+    <button class="cv-tab" data-target="tab-pdf2img" type="button" role="tab">
+      <span>📸</span> PDF ke Gambar
+    </button>
+    <button class="cv-tab" data-target="tab-compresspdf" type="button" role="tab">
+      <span>🗜️</span> Kompres PDF
+    </button>
+    <button class="cv-tab" data-target="tab-pdfrotate" type="button" role="tab">
+      <span>🔄</span> Putar PDF
+    </button>
+    <button class="cv-tab" data-target="tab-pdfwatermark" type="button" role="tab">
+      <span>🔖</span> Cap &amp; Watermark
+    </button>
+    <button class="cv-tab" data-target="tab-pdfdelpages" type="button" role="tab">
+      <span>🗑️</span> Hapus Halaman
     </button>
   </div>
 
@@ -341,6 +596,110 @@
   </div>
 
   <!-- ========================================================================= -->
+  <!-- TAB 2B: CSV KE CSV -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-csv2csv">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Ubah Format &amp; Pemisah CSV (CSV ke CSV)</span>
+      </div>
+
+      <div class="cv-drop" id="c2cDrop">
+        <input type="file" id="c2cFile" hidden accept=".csv,.tsv,.txt">
+        <div class="icon">🔄</div>
+        <div class="big">Tarik &amp; letakkan berkas CSV ke sini</div>
+        <div class="sub">atau klik untuk memilih berkas dari komputer</div>
+        <div class="formats">Ubah pemisah (koma &harr; titik koma), encoding (UTF-8 / BOM), dan rapikan spasi data</div>
+      </div>
+
+      <div class="cv-file-box" id="c2cFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">CSV</span>
+          <div>
+            <div class="cv-file-name" id="c2cFileName">nama_berkas.csv</div>
+            <div class="cv-file-desc" id="c2cFileDesc">Mendeteksi format berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="c2cChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="c2cOptions" style="display:none;margin-top:16px;">
+        <div class="cv-opt-grid">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="c2cSrcDelimiter">Pemisah Sumber:</label>
+            <select class="cv-select" id="c2cSrcDelimiter">
+              <option value="auto">Deteksi Otomatis</option>
+              <option value="semicolon">Titik Koma (;)</option>
+              <option value="comma">Koma (,)</option>
+              <option value="tab">Tab (\t)</option>
+              <option value="pipe">Garis Tegak (|)</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="c2cTargetDelimiter">Target Pemisah Baru:</label>
+            <select class="cv-select" id="c2cTargetDelimiter">
+              <option value="comma">Koma (,) — Standar Internasional / Database</option>
+              <option value="semicolon">Titik Koma (;) — Standar Excel Regional Indonesia</option>
+              <option value="tab">Tab (\t) — Format TSV</option>
+              <option value="pipe">Garis Tegak (|) — Format Pipe</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="c2cTargetEncoding">Target Encoding Teks:</label>
+            <select class="cv-select" id="c2cTargetEncoding">
+              <option value="utf-8-sig">UTF-8 dengan BOM (Rekomendasi Excel Windows)</option>
+              <option value="utf-8">UTF-8 Standar (Database, API, Linux)</option>
+              <option value="latin-1">ANSI / Windows-1252 / Latin-1</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="c2cQuoting">Gaya Tanda Kutip (Quoting):</label>
+            <select class="cv-select" id="c2cQuoting">
+              <option value="minimal">Minimal (Hanya kutip sel yang berisi pemisah/spasi)</option>
+              <option value="all">Kutip Semua Sel ("kolom1","kolom2")</option>
+              <option value="nonnumeric">Kutip Hanya Teks (Angka tanpa kutip)</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="margin-top:14px;display:flex;flex-direction:column;gap:8px;">
+          <label class="cv-check-label">
+            <input type="checkbox" id="c2cTrimWhitespace" checked>
+            <span><b>Bersihkan spasi di awal &amp; akhir setiap sel (Trim whitespace)</b></span>
+          </label>
+          <label class="cv-check-label">
+            <input type="checkbox" id="c2cRemoveEmpty" checked>
+            <span><b>Abaikan baris kosong</b> (tidak menyertakan baris tanpa data ke berkas baru)</span>
+          </label>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:10px;">
+          <button class="cv-btn" id="c2cConvertBtn" type="button">
+            <span>Reformat &amp; Unduh CSV Baru</span>
+          </button>
+          <span id="c2cConvertStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="c2cAlert"></div>
+    </section>
+
+    <!-- Pratinjau CSV Baru -->
+    <section class="cv-result" id="c2cResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Pratinjau Data CSV Asli</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="c2cResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="c2cDownloadBtn" type="button">Unduh Lagi (.csv)</button>
+      </div>
+      <div class="cv-table-scroll">
+        <table class="cv-table" id="c2cTable"></table>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
   <!-- TAB 3: GABUNG PDF (MERGE) -->
   <!-- ========================================================================= -->
   <div class="cv-panel" id="tab-pdfmerge">
@@ -446,11 +805,19 @@
         <!-- Opsi Mode Range -->
         <div id="rangeOptWrap" style="display:none;margin-top:16px;">
           <div class="cv-opt-group">
-            <label class="cv-opt-label" for="pdfRangeInput">Ketik Rentang Halaman:</label>
+            <label class="cv-opt-label" for="pdfRangeInput">Ketik Rentang Halaman atau Klik Kartu di Bawah:</label>
             <input class="cv-input" id="pdfRangeInput" type="text" placeholder="Contoh: 1-3, 5, 8-10">
             <div style="font-size:12px;color:var(--text-muted);" id="pdfRangeHint">Dokumen memiliki total halaman yang valid.</div>
           </div>
-          <label class="cv-check-label">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;">
+            <b style="font-size:12.5px;color:var(--text-main);">Pilih Halaman Langsung (Klik Kartu):</b>
+            <div style="display:flex;gap:6px;">
+              <button class="cv-btn ghost" id="splitSelectAllBtn" type="button" style="padding:4px 8px;font-size:11px;">Pilih Semua</button>
+              <button class="cv-btn ghost" id="splitDeselectBtn" type="button" style="padding:4px 8px;font-size:11px;">Hapus Pilihan</button>
+            </div>
+          </div>
+          <div class="cv-page-grid" id="pdfSplitPreviewGrid" style="display:none;"></div>
+          <label class="cv-check-label" style="margin-top:14px;">
             <input type="checkbox" id="pdfMergeRangeCheck" checked>
             <span>Gabungkan rentang terpilih menjadi satu berkas PDF tunggal (jika tidak dicentang, akan diunduh sebagai berkas terpisah dalam ZIP)</span>
           </label>
@@ -483,6 +850,522 @@
           <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="pdfSplitResultMeta"></div>
         </div>
         <button class="cv-btn" id="pdfSplitDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 5: GAMBAR KE PDF -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-img2pdf">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Pilih Berkas Gambar (JPG, PNG, WebP, BMP)</span>
+        <button class="cv-btn ghost" id="imgClearBtn" type="button" style="display:none;padding:5px 12px;font-size:12px;">Kosongkan Daftar</button>
+      </div>
+
+      <div class="cv-drop" id="imgDrop">
+        <input type="file" id="imgFiles" hidden accept=".jpg,.jpeg,.png,.webp,.bmp" multiple>
+        <div class="icon">🖼️</div>
+        <div class="big">Tarik &amp; letakkan beberapa berkas gambar ke sini</div>
+        <div class="sub">atau klik untuk memilih berkas dari komputer (dapat pilih sekaligus banyak)</div>
+        <div class="formats">Mendukung format JPG, PNG, WebP, BMP (maks 50 MB)</div>
+      </div>
+
+      <!-- Grid Pratinjau Gambar -->
+      <div class="cv-img-grid" id="imgPreviewGrid" style="display:none;"></div>
+
+      <div id="imgOptions" style="display:none;margin-top:18px;">
+        <div class="cv-opt-grid">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="imgPageSize">Ukuran Halaman:</label>
+            <select class="cv-select" id="imgPageSize">
+              <option value="A4">A4 Standar Dokumen (Rekomendasi Cetak / Arsip)</option>
+              <option value="fit">Pas Ukuran Gambar (Fit Image Dimension)</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="imgOrientation">Orientasi Halaman:</label>
+            <select class="cv-select" id="imgOrientation">
+              <option value="auto">Otomatis (Potret/Lanskap Mengikuti Gambar)</option>
+              <option value="portrait">Tegak (Potret)</option>
+              <option value="landscape">Mendatar (Lanskap)</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="imgMargin">Margin / Batas Tepi:</label>
+            <select class="cv-select" id="imgMargin">
+              <option value="10">Standar (10 mm)</option>
+              <option value="0">Tanpa Margin (Rata Tepi / Borderless)</option>
+              <option value="20">Lebar (20 mm)</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="imgOutputName">Nama Berkas PDF Keluaran:</label>
+            <input class="cv-input" id="imgOutputName" type="text" value="dokumen_gambar.pdf" placeholder="dokumen_gambar.pdf">
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="imgConvertBtn" type="button">
+            <span>Gabungkan &amp; Unduh PDF</span>
+          </button>
+          <span id="imgConvertStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="imgAlert"></div>
+    </section>
+
+    <!-- Hasil Img2Pdf -->
+    <section class="cv-result" id="imgResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>PDF Berhasil Dibuat!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="imgResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="imgDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 6: PDF KE GAMBAR -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-pdf2img">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas PDF</span>
+      </div>
+
+      <div class="cv-drop" id="pdf2imgDrop">
+        <input type="file" id="pdf2imgFile" hidden accept=".pdf">
+        <div class="icon">📸</div>
+        <div class="big">Tarik &amp; letakkan berkas PDF ke sini</div>
+        <div class="sub">atau klik untuk memilih dari komputer</div>
+        <div class="formats">Mendukung berkas PDF multipage (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="pdf2imgFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">PDF</span>
+          <div>
+            <div class="cv-file-name" id="pdf2imgFileName">nama_berkas.pdf</div>
+            <div class="cv-file-desc" id="pdf2imgFileDesc">Memeriksa isi berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="pdf2imgChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="pdf2imgOptions" style="display:none;margin-top:18px;">
+        <div class="cv-opt-grid">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="pdf2imgFormat">Format Gambar Keluaran:</label>
+            <select class="cv-select" id="pdf2imgFormat">
+              <option value="jpeg">JPEG (.jpg) — Ukuran Ringan &amp; Kompresi Baik</option>
+              <option value="png">PNG (.png) — Tajam Tanpa Hilang Kualitas</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="pdf2imgDpi">Ketajaman Resolusi (DPI):</label>
+            <select class="cv-select" id="pdf2imgDpi">
+              <option value="150">150 DPI — Standar (Optimal untuk dibaca di layar &amp; diprint)</option>
+              <option value="72">72 DPI — Ringan / Web (Ukuran berkas terkecil)</option>
+              <option value="300">300 DPI — Kualitas Tinggi / Cetak Percetakan</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="font-size:12px;color:var(--text-muted);margin-top:14px;">
+          Catatan: Jika dokumen terdiri dari 1 halaman, berkas gambar akan langsung diunduh (.jpg/.png). Jika multi-halaman, berkas akan otomatis dikemas ke dalam arsip ZIP (.zip).
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="pdf2imgConvertBtn" type="button">
+            <span>Ekstrak ke Gambar</span>
+          </button>
+          <span id="pdf2imgStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="pdf2imgAlert"></div>
+    </section>
+
+    <!-- Hasil PDF to Img -->
+    <section class="cv-result" id="pdf2imgResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Ekstraksi Gambar Selesai!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="pdf2imgResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="pdf2imgDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 7: KOMPRES PDF -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-compresspdf">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas PDF yang Ingin Dikecilkan</span>
+      </div>
+
+      <div class="cv-drop" id="compressDrop">
+        <input type="file" id="compressFile" hidden accept=".pdf">
+        <div class="icon">🗜️</div>
+        <div class="big">Tarik &amp; letakkan berkas PDF ke sini</div>
+        <div class="sub">atau klik untuk memilih dari komputer</div>
+        <div class="formats">Mendukung berkas PDF hasil scan, laporan, formulir pajak (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="compressFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">PDF</span>
+          <div>
+            <div class="cv-file-name" id="compressFileName">nama_berkas.pdf</div>
+            <div class="cv-file-desc" id="compressFileDesc">Memeriksa ukuran berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="compressChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="compressOptions" style="display:none;margin-top:18px;">
+        <label class="cv-opt-label">Pilih Tingkat Kompresi:</label>
+        <div class="cv-mode-grid" style="margin-top:8px;">
+          <div class="cv-mode-card selected" data-level="medium" id="compCardMedium">
+            <div class="ttl"><span>⚡</span> Sedang (Medium) — Rekomendasi</div>
+            <div class="desc">Keseimbangan terbaik antara ukuran berkas dan kejernihan gambar/teks. Sangat cocok untuk upload portal DJP &amp; pelaporan.</div>
+          </div>
+          <div class="cv-mode-card" data-level="low" id="compCardLow">
+            <div class="ttl"><span>🔍</span> Rendah (Low) — Kualitas Maksimal</div>
+            <div class="desc">Hanya membersihkan metadata tak terpakai &amp; kompresi stream tanpa menurunkan resolusi gambar sama sekali.</div>
+          </div>
+          <div class="cv-mode-card" data-level="high" id="compCardHigh">
+            <div class="ttl"><span>📦</span> Ekstrem (High) — Ukuran Terkecil</div>
+            <div class="desc">Kompresi agresif untuk PDF hasil scan yang sangat tebal agar muat di batas kuota email/portal online.</div>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="compressBtn" type="button">
+            <span>Kompres &amp; Unduh PDF</span>
+          </button>
+          <span id="compressStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="compressAlert"></div>
+    </section>
+
+    <!-- Hasil Kompres PDF -->
+    <section class="cv-result" id="compressResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Kompresi Berhasil!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="compressResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="compressDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+      <div class="cv-stat-box" id="compressStatBox">
+        <div class="cv-stat-item">
+          <span class="cv-stat-val" id="compOrigVal">0 KB</span>
+          <span class="cv-stat-lbl">Ukuran Awal</span>
+        </div>
+        <div class="cv-stat-item">
+          <span class="cv-stat-val" id="compNewVal">0 KB</span>
+          <span class="cv-stat-lbl">Ukuran Baru</span>
+        </div>
+        <div class="cv-stat-item">
+          <span class="cv-stat-val highlight" id="compSavedVal">0% (0 KB)</span>
+          <span class="cv-stat-lbl">Penghematan Ruang</span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 8: PUTAR PDF -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-pdfrotate">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas PDF yang Ingin Diputar</span>
+      </div>
+
+      <div class="cv-drop" id="rotateDrop">
+        <input type="file" id="rotateFile" hidden accept=".pdf">
+        <div class="icon">🔄</div>
+        <div class="big">Tarik &amp; letakkan berkas PDF ke sini</div>
+        <div class="sub">atau klik untuk memilih dari komputer</div>
+        <div class="formats">Putar halaman yang miring atau terbalik secara lossless (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="rotateFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">PDF</span>
+          <div>
+            <div class="cv-file-name" id="rotateFileName">nama_berkas.pdf</div>
+            <div class="cv-file-desc" id="rotateFileDesc">Memeriksa isi berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="rotateChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="rotateOptions" style="display:none;margin-top:18px;">
+        <div class="cv-opt-grid">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="rotateAngle">Sudut Putaran:</label>
+            <select class="cv-select" id="rotateAngle">
+              <option value="90">90° Searah Jarum Jam (Putar Kanan)</option>
+              <option value="180">180° Putar Balik (Atas ke Bawah)</option>
+              <option value="270">270° Berlawanan Jarum Jam (Putar Kiri)</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="rotatePagesMode">Halaman yang Diputar:</label>
+            <select class="cv-select" id="rotatePagesMode">
+              <option value="all">Semua Halaman Dokumen</option>
+              <option value="range">Hanya Halaman Tertentu</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="rotateRangeWrap" style="display:none;margin-top:12px;">
+          <label class="cv-opt-label" for="rotateRangeInput">Nomor / Rentang Halaman:</label>
+          <input class="cv-input" id="rotateRangeInput" type="text" placeholder="Contoh: 1, 3-5" style="max-width:320px;">
+          <div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;" id="rotateRangeHint">Rentang valid: 1 s.d. N</div>
+        </div>
+
+        <!-- Pratinjau Visual & Rotasi Kartu -->
+        <div style="margin-top:18px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <b style="font-size:12.5px;color:var(--text-main);">Pratinjau Halaman &amp; Putar Langsung:</b>
+            <div style="display:flex;gap:6px;">
+              <button class="cv-btn ghost" id="rotateAllRightBtn" type="button" style="padding:4px 9px;font-size:11px;">Putar Semua 90° ↻</button>
+              <button class="cv-btn ghost" id="rotateAllFlipBtn" type="button" style="padding:4px 9px;font-size:11px;">Balik Semua 180° ⮌</button>
+              <button class="cv-btn ghost" id="rotateResetBtn" type="button" style="padding:4px 9px;font-size:11px;">Reset</button>
+            </div>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">Klik tombol ↻ pada kartu halaman mana saja untuk memutar halaman tersebut.</div>
+          <div class="cv-page-grid" id="rotatePreviewGrid" style="display:none;"></div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="rotateBtn" type="button">
+            <span>Putar &amp; Unduh PDF</span>
+          </button>
+          <span id="rotateStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="rotateAlert"></div>
+    </section>
+
+    <!-- Hasil Rotasi -->
+    <section class="cv-result" id="rotateResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>PDF Berhasil Diputar!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="rotateResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="rotateDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 9: CAP & WATERMARK PDF -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-pdfwatermark">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas PDF untuk Diberi Cap / Watermark</span>
+      </div>
+
+      <div class="cv-drop" id="wmDrop">
+        <input type="file" id="wmFile" hidden accept=".pdf">
+        <div class="icon">🔖</div>
+        <div class="big">Tarik &amp; letakkan berkas PDF ke sini</div>
+        <div class="sub">atau klik untuk memilih dari komputer</div>
+        <div class="formats">Sematkan stempel teks seperti SALINAN, RAHASIA, atau DRAF (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="wmFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">PDF</span>
+          <div>
+            <div class="cv-file-name" id="wmFileName">nama_berkas.pdf</div>
+            <div class="cv-file-desc" id="wmFileDesc">Memeriksa isi berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="wmChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="wmOptions" style="display:none;margin-top:18px;">
+        <div class="cv-opt-group">
+          <label class="cv-opt-label" for="wmText">Teks Cap / Watermark:</label>
+          <input class="cv-input" id="wmText" type="text" value="SALINAN" placeholder="Ketik teks cap, misal: SALINAN">
+          <div class="cv-pills">
+            <span style="font-size:11.5px;color:var(--text-muted);display:inline-flex;align-items:center;">Preset cepat:</span>
+            <button class="cv-pill" type="button" data-val="SALINAN">SALINAN</button>
+            <button class="cv-pill" type="button" data-val="RAHASIA">RAHASIA</button>
+            <button class="cv-pill" type="button" data-val="DRAF">DRAF</button>
+            <button class="cv-pill" type="button" data-val="ARSIP">ARSIP</button>
+            <button class="cv-pill" type="button" data-val="TIDAK UNTUK DIKUTIP">TIDAK UNTUK DIKUTIP</button>
+          </div>
+        </div>
+
+        <div class="cv-opt-grid" style="margin-top:14px;">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="wmColor">Warna Cap:</label>
+            <select class="cv-select" id="wmColor">
+              <option value="gray">Abu-Abu Netral (Elegan &amp; Lembut)</option>
+              <option value="red">Merah Cap Dinas (Tegas &amp; Menonjol)</option>
+              <option value="blue">Biru Resmi (Formal)</option>
+              <option value="dark">Hitam Transparan</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="wmOpacity">Tingkat Transparansi (Opacity):</label>
+            <select class="cv-select" id="wmOpacity">
+              <option value="0.25">25% — Rekomendasi (Teks Asli Tetap Jelas)</option>
+              <option value="0.15">15% — Sangat Samar (Subtle)</option>
+              <option value="0.40">40% — Tegas</option>
+              <option value="0.60">60% — Jelas / Kontras</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="wmRotation">Kemiringan Teks:</label>
+            <select class="cv-select" id="wmRotation">
+              <option value="45">Diagonal 45° (Standar Cap Melintang)</option>
+              <option value="0">Mendatar (Horizontal 0°)</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="wmFontSize">Ukuran Huruf:</label>
+            <select class="cv-select" id="wmFontSize">
+              <option value="44">Standar (44 pt)</option>
+              <option value="32">Kecil (32 pt)</option>
+              <option value="60">Besar (60 pt)</option>
+              <option value="76">Ekstra Besar (76 pt)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="cv-opt-grid" style="margin-top:14px;">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="wmPagesMode">Halaman yang Diberi Cap:</label>
+            <select class="cv-select" id="wmPagesMode">
+              <option value="all">Semua Halaman Dokumen</option>
+              <option value="range">Hanya Halaman Tertentu</option>
+            </select>
+          </div>
+          <div class="cv-opt-group" id="wmRangeWrap" style="display:none;">
+            <label class="cv-opt-label" for="wmRangeInput">Nomor / Rentang Halaman:</label>
+            <input class="cv-input" id="wmRangeInput" type="text" placeholder="Contoh: 1, 3-5">
+          </div>
+        </div>
+
+        <!-- Pratinjau Langsung (Live Preview) -->
+        <div style="margin-top:18px;">
+          <div style="font-size:12.5px;font-weight:700;color:var(--text-main);text-align:center;">Pratinjau Langsung (Live Preview):</div>
+          <div class="cv-wm-preview-wrap" id="wmLivePreviewWrap" style="display:none;">
+            <img class="cv-wm-preview-img" id="wmLivePreviewImg" src="" alt="Pratinjau Halaman">
+            <div class="cv-wm-overlay" id="wmLiveOverlay">SALINAN</div>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn" id="wmBtn" type="button">
+            <span>Beri Cap &amp; Unduh PDF</span>
+          </button>
+          <span id="wmStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="wmAlert"></div>
+    </section>
+
+    <!-- Hasil Watermark -->
+    <section class="cv-result" id="wmResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Cap Watermark Berhasil Disematkan!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="wmResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="wmDownloadBtn" type="button">Unduh Lagi</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 10: HAPUS HALAMAN PDF -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-pdfdelpages">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Unggah Berkas PDF untuk Menghapus Halaman</span>
+      </div>
+
+      <div class="cv-drop" id="delPagesDrop">
+        <input type="file" id="delPagesFile" hidden accept=".pdf">
+        <div class="icon">🗑️</div>
+        <div class="big">Tarik &amp; letakkan berkas PDF ke sini</div>
+        <div class="sub">atau klik untuk memilih dari komputer</div>
+        <div class="formats">Buang halaman kosong atau salah pindai dari dokumen PDF (maks 50 MB)</div>
+      </div>
+
+      <div class="cv-file-box" id="delPagesFileBox">
+        <div class="cv-file-meta">
+          <span class="icon-tag">PDF</span>
+          <div>
+            <div class="cv-file-name" id="delPagesFileName">nama_berkas.pdf</div>
+            <div class="cv-file-desc" id="delPagesFileDesc">Memeriksa isi berkas…</div>
+          </div>
+        </div>
+        <button class="cv-btn ghost" id="delPagesChangeBtn" type="button" style="padding:6px 12px;font-size:12px;">Ganti Berkas</button>
+      </div>
+
+      <div id="delPagesOptions" style="display:none;margin-top:18px;">
+        <div class="cv-opt-group">
+          <label class="cv-opt-label" for="delPagesInput">Halaman yang Ingin Dihapus (Ketik atau Klik Kartu Halaman di Bawah):</label>
+          <input class="cv-input" id="delPagesInput" type="text" placeholder="Contoh: 1 (halaman awal), atau 3, 5-7" style="max-width:380px;">
+          <div style="font-size:12px;color:var(--text-muted);margin-top:6px;" id="delPagesHint">
+            Dokumen memiliki total N halaman (rentang valid: 1 s.d. N). Gunakan koma atau tanda hubung.
+          </div>
+        </div>
+
+        <!-- Pratinjau Visual Kartu Halaman Hapus -->
+        <div style="margin-top:16px;">
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+            <b style="font-size:12.5px;color:var(--text-main);">Pilih Halaman yang Ingin Dihapus (Klik Kartu):</b>
+            <button class="cv-btn ghost" id="delPagesResetBtn" type="button" style="padding:4px 9px;font-size:11px;">Batal Hapus Semua</button>
+          </div>
+          <div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">Halaman yang ditandai akan disilang merah.</div>
+          <div class="cv-page-grid" id="delPagesPreviewGrid" style="display:none;"></div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:12px;">
+          <button class="cv-btn danger" id="delPagesBtn" type="button">
+            <span>Hapus Halaman &amp; Unduh PDF</span>
+          </button>
+          <span id="delPagesStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="delPagesAlert"></div>
+    </section>
+
+    <!-- Hasil Hapus Halaman -->
+    <section class="cv-result" id="delPagesResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>Halaman Berhasil Dihapus!</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="delPagesResultMeta"></div>
+        </div>
+        <button class="cv-btn" id="delPagesDownloadBtn" type="button">Unduh Lagi</button>
       </div>
     </section>
   </div>
@@ -565,6 +1448,62 @@
         onFileSelected(e.dataTransfer.files);
       }
     });
+  }
+
+  // Helper fetch PDF thumbnails from backend
+  async function fetchPdfThumbnails(file, maxPages = 60) {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('max_pages', maxPages);
+    const res = await fetch('/api/converter/pdf/thumbnails', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal memuat thumbnail PDF.');
+    return data;
+  }
+
+  // Convert array or Set of page numbers to range string: [1, 2, 3, 5] -> "1-3, 5"
+  function numbersToRangeStr(numbers) {
+    if (!numbers) return '';
+    const arr = Array.from(numbers).map(Number).filter(n => !isNaN(n) && n > 0);
+    if (!arr.length) return '';
+    const sorted = Array.from(new Set(arr)).sort((a, b) => a - b);
+    const ranges = [];
+    let start = sorted[0];
+    let prev = start;
+    for (let i = 1; i < sorted.length; i++) {
+      const curr = sorted[i];
+      if (curr === prev + 1) {
+        prev = curr;
+      } else {
+        ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+        start = curr;
+        prev = curr;
+      }
+    }
+    ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+    return ranges.join(', ');
+  }
+
+  // Parse range string into a Set of 1-based page numbers: "1-3, 5" -> Set(1, 2, 3, 5)
+  function parseRangeStrToSet(rangeStr, maxPage = 999999) {
+    const set = new Set();
+    if (!rangeStr) return set;
+    const parts = rangeStr.split(/[,;\s]+/);
+    for (const part of parts) {
+      if (!part) continue;
+      if (part.includes('-')) {
+        const [s, e] = part.split('-').map(x => parseInt(x.trim(), 10));
+        if (!isNaN(s) && !isNaN(e)) {
+          const from = Math.max(1, Math.min(s, e));
+          const to = Math.min(maxPage, Math.max(s, e));
+          for (let i = from; i <= to; i++) set.add(i);
+        }
+      } else {
+        const num = parseInt(part.trim(), 10);
+        if (!isNaN(num) && num >= 1 && num <= maxPage) set.add(num);
+      }
+    }
+    return set;
   }
 
   // ===========================================================================
@@ -765,6 +1704,106 @@
   });
 
   // ===========================================================================
+  // 2B. CSV KE CSV LOGIC
+  // ===========================================================================
+  let currentC2cFile = null;
+  let lastC2cBlob = null;
+  let lastC2cFilename = '';
+
+  setupDrop($('c2cDrop'), $('c2cFile'), files => {
+    currentC2cFile = files[0];
+    handleC2cFile(currentC2cFile);
+  });
+  $('c2cChangeBtn').addEventListener('click', () => $('c2cFile').click());
+
+  async function handleC2cFile(file) {
+    $('c2cAlert').classList.remove('show');
+    $('c2cResult').classList.remove('show');
+    $('c2cFileName').textContent = file.name;
+    $('c2cFileDesc').textContent = `${fmtBytes(file.size)} • Mendeteksi format…`;
+    $('c2cFileBox').classList.add('show');
+    $('c2cDrop').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/csv/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas CSV.');
+
+      const info = data.info;
+      const delName = info.detected_delimiter === ',' ? 'Koma (,)' : (info.detected_delimiter === ';' ? 'Titik Koma (;)' : (info.detected_delimiter === '\t' ? 'Tab' : info.detected_delimiter));
+      $('c2cFileDesc').textContent = `${fmtBytes(file.size)} • Terdeteksi pemisah: ${delName}, encoding: ${info.detected_encoding.toUpperCase()}`;
+
+      if (info.detected_delimiter === ';') {
+        $('c2cTargetDelimiter').value = 'comma';
+      } else {
+        $('c2cTargetDelimiter').value = 'semicolon';
+      }
+
+      $('c2cOptions').style.display = 'block';
+
+      if (info.preview && info.preview.length) {
+        $('c2cResult').classList.add('show');
+        $('c2cResultMeta').textContent = `Pratinjau ~${info.estimated_rows} baris data CSV sumber`;
+        renderPreviewTable($('c2cTable'), info.preview);
+      }
+    } catch (err) {
+      $('c2cAlert').textContent = err.message;
+      $('c2cAlert').classList.add('show');
+      $('c2cFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('c2cConvertBtn').addEventListener('click', async () => {
+    if (!currentC2cFile) return;
+    const btn = $('c2cConvertBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Memproses CSV…';
+    $('c2cAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentC2cFile);
+    fd.append('src_delimiter', $('c2cSrcDelimiter').value);
+    fd.append('target_delimiter', $('c2cTargetDelimiter').value);
+    fd.append('target_encoding', $('c2cTargetEncoding').value);
+    fd.append('quoting', $('c2cQuoting').value);
+    fd.append('trim_whitespace', $('c2cTrimWhitespace').checked ? '1' : '0');
+    fd.append('remove_empty_rows', $('c2cRemoveEmpty').checked ? '1' : '0');
+
+    try {
+      const res = await fetch('/api/converter/csv-to-csv', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Reformat CSV gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'reformatted_data.csv';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastC2cBlob = await res.blob();
+      lastC2cFilename = filename;
+      triggerDownload(lastC2cBlob, filename);
+
+      $('c2cConvertStatus').textContent = `✓ Berkas ${filename} berhasil diunduh.`;
+      setTimeout(() => $('c2cConvertStatus').textContent = '', 5000);
+    } catch (err) {
+      $('c2cAlert').textContent = err.message;
+      $('c2cAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Reformat &amp; Unduh CSV Baru</span>';
+    }
+  });
+
+  $('c2cDownloadBtn').addEventListener('click', () => {
+    if (lastC2cBlob && lastC2cFilename) triggerDownload(lastC2cBlob, lastC2cFilename);
+  });
+
+  // ===========================================================================
   // 3. GABUNG PDF (MERGE) LOGIC
   // ===========================================================================
   let pdfMergeFilesList = [];
@@ -783,16 +1822,26 @@
   async function addPdfFiles(newFiles) {
     for (const f of newFiles) {
       if (!f.name.toLowerCase().endsWith('.pdf')) continue;
-      // Fetch inspect for page count
       let pages = '?';
+      let thumbUrl = '';
       try {
-        const fd = new FormData();
-        fd.append('file', f);
-        const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
-        const data = await res.json();
-        if (data.ok && data.info) pages = data.info.page_count;
-      } catch (_) {}
-      pdfMergeFilesList.push({ file: f, pages: pages });
+        const thumbData = await fetchPdfThumbnails(f, 1);
+        if (thumbData && thumbData.ok) {
+          pages = thumbData.total_pages;
+          if (thumbData.thumbnails && thumbData.thumbnails.length) {
+            thumbUrl = thumbData.thumbnails[0].thumb;
+          }
+        }
+      } catch (_) {
+        try {
+          const fd = new FormData();
+          fd.append('file', f);
+          const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+          const data = await res.json();
+          if (data.ok && data.info) pages = data.info.page_count;
+        } catch (_) {}
+      }
+      pdfMergeFilesList.push({ file: f, pages: pages, thumbUrl: thumbUrl });
     }
     renderPdfMergeList();
   }
@@ -812,8 +1861,13 @@
     pdfMergeFilesList.forEach((item, idx) => {
       const row = document.createElement('div');
       row.className = 'cv-list-item';
+      const thumbHtml = item.thumbUrl
+        ? `<img class="cv-merge-thumb" src="${item.thumbUrl}" alt="Cover" loading="lazy">`
+        : `<div class="cv-merge-thumb" style="display:flex;align-items:center;justify-content:center;font-size:20px;">📄</div>`;
+
       row.innerHTML = `
         <span class="cv-list-num">${idx + 1}</span>
+        ${thumbHtml}
         <div class="cv-list-info">
           <div class="t">${esc(item.file.name)}</div>
           <div class="m">${fmtBytes(item.file.size)} • ${item.pages} halaman</div>
@@ -908,6 +1962,8 @@
   let currentSplitMode = 'all';
   let lastPdfSplitBlob = null;
   let lastPdfSplitFilename = '';
+  let splitThumbnails = [];
+  let splitSelectedPages = new Set();
 
   setupDrop($('pdfSplitDrop'), $('pdfSplitFile'), files => {
     currentPdfSplitFile = files[0];
@@ -924,7 +1980,75 @@
       currentSplitMode = c.dataset.mode;
       $('rangeOptWrap').style.display = currentSplitMode === 'range' ? 'block' : 'none';
       $('stepOptWrap').style.display = currentSplitMode === 'step' ? 'block' : 'none';
+      if (currentSplitMode === 'range' && splitThumbnails.length) {
+        renderSplitThumbnails();
+      }
     });
+  });
+
+  function renderSplitThumbnails() {
+    const grid = $('pdfSplitPreviewGrid');
+    grid.innerHTML = '';
+    if (!splitThumbnails.length) {
+      grid.style.display = 'none';
+      return;
+    }
+    grid.style.display = 'grid';
+    splitThumbnails.forEach(item => {
+      const p = item.page;
+      const isSel = splitSelectedPages.has(p);
+      const card = document.createElement('div');
+      card.className = 'cv-page-card' + (isSel ? ' selected' : '');
+      card.dataset.page = p;
+      card.innerHTML = `
+        <div class="cv-page-thumb-wrap">
+          <img src="${item.thumb}" alt="Halaman ${p}" loading="lazy">
+          <div class="cv-page-badge">Hal ${p}</div>
+          <div class="cv-page-check">✓</div>
+        </div>
+      `;
+      card.addEventListener('click', () => {
+        if (splitSelectedPages.has(p)) {
+          splitSelectedPages.delete(p);
+          card.classList.remove('selected');
+        } else {
+          splitSelectedPages.add(p);
+          card.classList.add('selected');
+        }
+        $('pdfRangeInput').value = numbersToRangeStr(Array.from(splitSelectedPages));
+      });
+      grid.appendChild(card);
+    });
+  }
+
+  function syncSplitInputToCards() {
+    splitSelectedPages = parseRangeStrToSet($('pdfRangeInput').value, pdfSplitTotalPages);
+    const cards = $('pdfSplitPreviewGrid').querySelectorAll('.cv-page-card');
+    cards.forEach(c => {
+      const p = parseInt(c.dataset.page, 10);
+      if (splitSelectedPages.has(p)) {
+        c.classList.add('selected');
+      } else {
+        c.classList.remove('selected');
+      }
+    });
+  }
+
+  $('pdfRangeInput').addEventListener('input', syncSplitInputToCards);
+
+  $('splitSelectAllBtn').addEventListener('click', () => {
+    splitSelectedPages.clear();
+    for (let i = 1; i <= pdfSplitTotalPages; i++) splitSelectedPages.add(i);
+    $('pdfRangeInput').value = numbersToRangeStr(Array.from(splitSelectedPages));
+    const cards = $('pdfSplitPreviewGrid').querySelectorAll('.cv-page-card');
+    cards.forEach(c => c.classList.add('selected'));
+  });
+
+  $('splitDeselectBtn').addEventListener('click', () => {
+    splitSelectedPages.clear();
+    $('pdfRangeInput').value = '';
+    const cards = $('pdfSplitPreviewGrid').querySelectorAll('.cv-page-card');
+    cards.forEach(c => c.classList.remove('selected'));
   });
 
   async function handlePdfSplitFile(file) {
@@ -934,6 +2058,10 @@
     $('pdfSplitFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa berkas PDF…`;
     $('pdfSplitFileBox').classList.add('show');
     $('pdfSplitDrop').style.display = 'none';
+
+    splitThumbnails = [];
+    splitSelectedPages.clear();
+    $('pdfRangeInput').value = '';
 
     const fd = new FormData();
     fd.append('file', file);
@@ -952,6 +2080,14 @@
       $('pdfRangeHint').textContent = `Dokumen memiliki total ${pdfSplitTotalPages} halaman (rentang valid: 1 s.d. ${pdfSplitTotalPages}).`;
       $('pdfRangeInput').placeholder = `Contoh: 1-${Math.min(3, pdfSplitTotalPages)}${pdfSplitTotalPages > 3 ? ', ' + pdfSplitTotalPages : ''}`;
       $('pdfSplitOptions').style.display = 'block';
+
+      // Muat pratinjau halaman visual
+      fetchPdfThumbnails(file, 60).then(resThumb => {
+        if (resThumb && resThumb.thumbnails) {
+          splitThumbnails = resThumb.thumbnails;
+          if (currentSplitMode === 'range') renderSplitThumbnails();
+        }
+      }).catch(() => {});
     } catch (err) {
       $('pdfSplitAlert').textContent = err.message;
       $('pdfSplitAlert').classList.add('show');
@@ -963,7 +2099,7 @@
     if (!currentPdfSplitFile) return;
 
     if (currentSplitMode === 'range' && !$('pdfRangeInput').value.trim()) {
-      $('pdfSplitAlert').textContent = 'Ketik nomor atau rentang halaman yang ingin diekstrak.';
+      $('pdfSplitAlert').textContent = 'Ketik nomor atau klik kartu halaman yang ingin diekstrak.';
       $('pdfSplitAlert').classList.add('show');
       $('pdfRangeInput').focus();
       return;
@@ -1015,7 +2151,879 @@
     if (lastPdfSplitBlob && lastPdfSplitFilename) triggerDownload(lastPdfSplitBlob, lastPdfSplitFilename);
   });
 
+  // ===========================================================================
+  // 5. GAMBAR KE PDF (IMAGES TO PDF) LOGIC
+  // ===========================================================================
+  let imgFilesList = [];
+  let lastImgBlob = null;
+  let lastImgFilename = '';
+
+  setupDrop($('imgDrop'), $('imgFiles'), files => addImageFiles(files));
+  $('imgClearBtn').addEventListener('click', () => {
+    imgFilesList = [];
+    renderImgGrid();
+  });
+
+  function addImageFiles(files) {
+    $('imgAlert').classList.remove('show');
+    $('imgResult').classList.remove('show');
+    const validExts = ['.jpg', '.jpeg', '.png', '.webp', '.bmp'];
+
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const ext = '.' + f.name.split('.').pop().toLowerCase();
+      if (validExts.includes(ext)) {
+        imgFilesList.push(f);
+      }
+    }
+
+    if (!imgFilesList.length) {
+      $('imgAlert').textContent = 'Pilih berkas gambar yang valid (.jpg, .jpeg, .png, .webp, .bmp).';
+      $('imgAlert').classList.add('show');
+      return;
+    }
+
+    renderImgGrid();
+  }
+
+  function renderImgGrid() {
+    const grid = $('imgPreviewGrid');
+    const clearBtn = $('imgClearBtn');
+    const opt = $('imgOptions');
+
+    if (!imgFilesList.length) {
+      grid.innerHTML = '';
+      grid.style.display = 'none';
+      clearBtn.style.display = 'none';
+      opt.style.display = 'none';
+      $('imgDrop').style.display = 'block';
+      return;
+    }
+
+    clearBtn.style.display = 'inline-block';
+    opt.style.display = 'block';
+    grid.style.display = 'grid';
+    grid.innerHTML = '';
+
+    // Update default output name from first image if still default
+    if ($('imgOutputName').value === 'dokumen_gambar.pdf' && imgFilesList.length > 0) {
+      const base0 = imgFilesList[0].name.replace(/\.[^.]+$/, '');
+      $('imgOutputName').value = `${base0}_gabungan.pdf`;
+    }
+
+    imgFilesList.forEach((file, idx) => {
+      const card = document.createElement('div');
+      card.className = 'cv-img-card';
+
+      const thumbUrl = URL.createObjectURL(file);
+      card.innerHTML = `
+        <span class="cv-img-order">#${idx + 1}</span>
+        <button class="cv-img-del" title="Hapus gambar" type="button" data-idx="${idx}">&times;</button>
+        <img src="${thumbUrl}" alt="Preview" loading="lazy">
+        <div class="cv-img-name" title="${esc(file.name)}">${esc(file.name)}</div>
+      `;
+
+      card.querySelector('.cv-img-del').addEventListener('click', e => {
+        e.stopPropagation();
+        const delIdx = parseInt(e.currentTarget.dataset.idx, 10);
+        imgFilesList.splice(delIdx, 1);
+        renderImgGrid();
+      });
+
+      grid.appendChild(card);
+    });
+  }
+
+  $('imgConvertBtn').addEventListener('click', async () => {
+    if (!imgFilesList.length) return;
+
+    const btn = $('imgConvertBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Menggabungkan Gambar ke PDF…';
+    $('imgAlert').classList.remove('show');
+
+    const fd = new FormData();
+    imgFilesList.forEach(f => fd.append('files', f));
+    fd.append('page_size', $('imgPageSize').value);
+    fd.append('orientation', $('imgOrientation').value);
+    fd.append('margin_mm', $('imgMargin').value);
+    fd.append('output_name', $('imgOutputName').value.trim() || 'dokumen_gambar.pdf');
+
+    try {
+      const res = await fetch('/api/converter/images-to-pdf', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Pembuatan PDF gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'dokumen_gambar.pdf';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastImgBlob = await res.blob();
+      lastImgFilename = filename;
+      triggerDownload(lastImgBlob, filename);
+
+      $('imgResult').classList.add('show');
+      $('imgResultMeta').textContent = `Total ${imgFilesList.length} gambar berhasil dijadikan ${filename} (${fmtBytes(lastImgBlob.size)}).`;
+
+      $('imgConvertStatus').textContent = '✓ PDF berhasil diunduh.';
+      setTimeout(() => $('imgConvertStatus').textContent = '', 5000);
+    } catch (err) {
+      $('imgAlert').textContent = err.message;
+      $('imgAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Gabungkan &amp; Unduh PDF</span>';
+    }
+  });
+
+  $('imgDownloadBtn').addEventListener('click', () => {
+    if (lastImgBlob && lastImgFilename) triggerDownload(lastImgBlob, lastImgFilename);
+  });
+
+  // ===========================================================================
+  // 6. PDF KE GAMBAR (PDF TO IMAGES) LOGIC
+  // ===========================================================================
+  let currentPdf2ImgFile = null;
+  let lastPdf2ImgBlob = null;
+  let lastPdf2ImgFilename = '';
+
+  setupDrop($('pdf2imgDrop'), $('pdf2imgFile'), files => {
+    currentPdf2ImgFile = files[0];
+    handlePdf2ImgFile(currentPdf2ImgFile);
+  });
+  $('pdf2imgChangeBtn').addEventListener('click', () => $('pdf2imgFile').click());
+
+  async function handlePdf2ImgFile(file) {
+    $('pdf2imgAlert').classList.remove('show');
+    $('pdf2imgResult').classList.remove('show');
+    $('pdf2imgFileName').textContent = file.name;
+    $('pdf2imgFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa berkas PDF…`;
+    $('pdf2imgFileBox').classList.add('show');
+    $('pdf2imgDrop').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas PDF.');
+
+      const totalPages = data.info.page_count;
+      if (data.info.is_encrypted) {
+        throw new Error('Berkas PDF ini dilindungi kata sandi. Harap buka kunci terlebih dahulu.');
+      }
+
+      $('pdf2imgFileDesc').textContent = `${fmtBytes(file.size)} • Total ${totalPages} halaman`;
+      $('pdf2imgOptions').style.display = 'block';
+    } catch (err) {
+      $('pdf2imgAlert').textContent = err.message;
+      $('pdf2imgAlert').classList.add('show');
+      $('pdf2imgFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('pdf2imgConvertBtn').addEventListener('click', async () => {
+    if (!currentPdf2ImgFile) return;
+
+    const btn = $('pdf2imgConvertBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengekstrak Gambar…';
+    $('pdf2imgAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentPdf2ImgFile);
+    fd.append('format', $('pdf2imgFormat').value);
+    fd.append('dpi', $('pdf2imgDpi').value);
+
+    try {
+      const res = await fetch('/api/converter/pdf-to-images', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Ekstraksi gambar gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'hasil_gambar.zip';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastPdf2ImgBlob = await res.blob();
+      lastPdf2ImgFilename = filename;
+      triggerDownload(lastPdf2ImgBlob, filename);
+
+      $('pdf2imgResult').classList.add('show');
+      $('pdf2imgResultMeta').textContent = `Berkas ${filename} (${fmtBytes(lastPdf2ImgBlob.size)}) berhasil diunduh.`;
+
+      $('pdf2imgStatus').textContent = '✓ Gambar berhasil diunduh.';
+      setTimeout(() => $('pdf2imgStatus').textContent = '', 5000);
+    } catch (err) {
+      $('pdf2imgAlert').textContent = err.message;
+      $('pdf2imgAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Ekstrak ke Gambar</span>';
+    }
+  });
+
+  $('pdf2imgDownloadBtn').addEventListener('click', () => {
+    if (lastPdf2ImgBlob && lastPdf2ImgFilename) triggerDownload(lastPdf2ImgBlob, lastPdf2ImgFilename);
+  });
+
+  // ===========================================================================
+  // 7. KOMPRES PDF (COMPRESS PDF) LOGIC
+  // ===========================================================================
+  let currentCompressFile = null;
+  let currentCompressLevel = 'medium';
+  let lastCompressBlob = null;
+  let lastCompressFilename = '';
+
+  setupDrop($('compressDrop'), $('compressFile'), files => {
+    currentCompressFile = files[0];
+    handleCompressFile(currentCompressFile);
+  });
+  $('compressChangeBtn').addEventListener('click', () => $('compressFile').click());
+
+  // Mode Selection for Compression
+  const compCards = document.querySelectorAll('#tab-compresspdf .cv-mode-card');
+  compCards.forEach(c => {
+    c.addEventListener('click', () => {
+      compCards.forEach(m => m.classList.remove('selected'));
+      c.classList.add('selected');
+      currentCompressLevel = c.dataset.level;
+    });
+  });
+
+  async function handleCompressFile(file) {
+    $('compressAlert').classList.remove('show');
+    $('compressResult').classList.remove('show');
+    $('compressFileName').textContent = file.name;
+    $('compressFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa berkas PDF…`;
+    $('compressFileBox').classList.add('show');
+    $('compressDrop').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas PDF.');
+
+      const totalPages = data.info.page_count;
+      if (data.info.is_encrypted) {
+        throw new Error('Berkas PDF ini dilindungi kata sandi. Harap buka kunci terlebih dahulu.');
+      }
+
+      $('compressFileDesc').textContent = `${fmtBytes(file.size)} • Total ${totalPages} halaman`;
+      $('compressOptions').style.display = 'block';
+    } catch (err) {
+      $('compressAlert').textContent = err.message;
+      $('compressAlert').classList.add('show');
+      $('compressFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('compressBtn').addEventListener('click', async () => {
+    if (!currentCompressFile) return;
+
+    const btn = $('compressBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengompres Dokumen PDF…';
+    $('compressAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentCompressFile);
+    fd.append('level', currentCompressLevel);
+
+    try {
+      const res = await fetch('/api/converter/pdf/compress', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Kompresi PDF gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'dokumen_kompres.pdf';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      const origBytes = parseInt(res.headers.get('X-Original-Size') || currentCompressFile.size, 10);
+      const compBytes = parseInt(res.headers.get('X-Compressed-Size') || '0', 10);
+      const savedPct = parseFloat(res.headers.get('X-Saved-Percent') || '0');
+
+      lastCompressBlob = await res.blob();
+      lastCompressFilename = filename;
+      triggerDownload(lastCompressBlob, filename);
+
+      $('compOrigVal').textContent = fmtBytes(origBytes);
+      $('compNewVal').textContent = fmtBytes(compBytes || lastCompressBlob.size);
+      const savedBytes = Math.max(0, origBytes - (compBytes || lastCompressBlob.size));
+      $('compSavedVal').textContent = `${savedPct}% (Hemat ${fmtBytes(savedBytes)})`;
+
+      $('compressResult').classList.add('show');
+      $('compressResultMeta').textContent = `Dokumen ${filename} berhasil dikompresi &amp; diunduh.`;
+
+      $('compressStatus').textContent = '✓ Berkas terkompresi berhasil diunduh.';
+      setTimeout(() => $('compressStatus').textContent = '', 5000);
+    } catch (err) {
+      $('compressAlert').textContent = err.message;
+      $('compressAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Kompres &amp; Unduh PDF</span>';
+    }
+  });
+
+  $('compressDownloadBtn').addEventListener('click', () => {
+    if (lastCompressBlob && lastCompressFilename) triggerDownload(lastCompressBlob, lastCompressFilename);
+  });
+
+  // ===========================================================================
+  // 8. PUTAR PDF (ROTATE PDF) LOGIC
+  // ===========================================================================
+  let currentRotateFile = null;
+  let rotateTotalPages = 0;
+  let lastRotateBlob = null;
+  let lastRotateFilename = '';
+  let rotateThumbnails = [];
+  let rotatePageAngles = {}; // { pageNumber: angle (0, 90, 180, 270) }
+
+  setupDrop($('rotateDrop'), $('rotateFile'), files => {
+    currentRotateFile = files[0];
+    handleRotateFile(currentRotateFile);
+  });
+  $('rotateChangeBtn').addEventListener('click', () => $('rotateFile').click());
+
+  $('rotatePagesMode').addEventListener('change', e => {
+    $('rotateRangeWrap').style.display = e.target.value === 'range' ? 'block' : 'none';
+  });
+
+  function renderRotateThumbnails() {
+    const grid = $('rotatePreviewGrid');
+    grid.innerHTML = '';
+    if (!rotateThumbnails.length) {
+      grid.style.display = 'none';
+      return;
+    }
+    grid.style.display = 'grid';
+    rotateThumbnails.forEach(item => {
+      const p = item.page;
+      const curAng = rotatePageAngles[p] || 0;
+      const card = document.createElement('div');
+      card.className = 'cv-page-card';
+      card.dataset.page = p;
+      card.innerHTML = `
+        <div class="cv-page-thumb-wrap">
+          <img src="${item.thumb}" alt="Halaman ${p}" id="rotImg-${p}" style="transform: rotate(${curAng}deg); transition: transform 0.25s ease;" loading="lazy">
+          <div class="cv-page-badge" id="rotBadge-${p}">Hal ${p}${curAng ? ' (' + curAng + '°)' : ''}</div>
+          <button class="cv-page-action-btn" type="button" title="Putar 90° Searah Jarum Jam">↻</button>
+        </div>
+      `;
+      card.querySelector('.cv-page-action-btn').addEventListener('click', e => {
+        e.stopPropagation();
+        rotatePageAngles[p] = ((rotatePageAngles[p] || 0) + 90) % 360;
+        const ang = rotatePageAngles[p];
+        const img = document.getElementById(`rotImg-${p}`);
+        const badge = document.getElementById(`rotBadge-${p}`);
+        if (img) img.style.transform = `rotate(${ang}deg)`;
+        if (badge) badge.textContent = `Hal ${p}${ang ? ' (' + ang + '°)' : ''}`;
+      });
+      grid.appendChild(card);
+    });
+  }
+
+  $('rotateAllRightBtn').addEventListener('click', () => {
+    rotateThumbnails.forEach(item => {
+      const p = item.page;
+      rotatePageAngles[p] = ((rotatePageAngles[p] || 0) + 90) % 360;
+      const ang = rotatePageAngles[p];
+      const img = document.getElementById(`rotImg-${p}`);
+      const badge = document.getElementById(`rotBadge-${p}`);
+      if (img) img.style.transform = `rotate(${ang}deg)`;
+      if (badge) badge.textContent = `Hal ${p}${ang ? ' (' + ang + '°)' : ''}`;
+    });
+  });
+
+  $('rotateAllFlipBtn').addEventListener('click', () => {
+    rotateThumbnails.forEach(item => {
+      const p = item.page;
+      rotatePageAngles[p] = ((rotatePageAngles[p] || 0) + 180) % 360;
+      const ang = rotatePageAngles[p];
+      const img = document.getElementById(`rotImg-${p}`);
+      const badge = document.getElementById(`rotBadge-${p}`);
+      if (img) img.style.transform = `rotate(${ang}deg)`;
+      if (badge) badge.textContent = `Hal ${p}${ang ? ' (' + ang + '°)' : ''}`;
+    });
+  });
+
+  $('rotateResetBtn').addEventListener('click', () => {
+    rotatePageAngles = {};
+    rotateThumbnails.forEach(item => {
+      const p = item.page;
+      const img = document.getElementById(`rotImg-${p}`);
+      const badge = document.getElementById(`rotBadge-${p}`);
+      if (img) img.style.transform = 'rotate(0deg)';
+      if (badge) badge.textContent = `Hal ${p}`;
+    });
+  });
+
+  async function handleRotateFile(file) {
+    $('rotateAlert').classList.remove('show');
+    $('rotateResult').classList.remove('show');
+    $('rotateFileName').textContent = file.name;
+    $('rotateFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa berkas PDF…`;
+    $('rotateFileBox').classList.add('show');
+    $('rotateDrop').style.display = 'none';
+
+    rotateThumbnails = [];
+    rotatePageAngles = {};
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas PDF.');
+
+      rotateTotalPages = data.info.page_count;
+      if (data.info.is_encrypted) {
+        throw new Error('Berkas PDF ini dilindungi kata sandi. Harap buka kunci terlebih dahulu.');
+      }
+
+      $('rotateFileDesc').textContent = `${fmtBytes(file.size)} • Total ${rotateTotalPages} halaman`;
+      $('rotateRangeHint').textContent = `Dokumen memiliki total ${rotateTotalPages} halaman (rentang valid: 1 s.d. ${rotateTotalPages}).`;
+      $('rotateRangeInput').placeholder = `Contoh: 1-${Math.min(3, rotateTotalPages)}${rotateTotalPages > 3 ? ', ' + rotateTotalPages : ''}`;
+      $('rotateOptions').style.display = 'block';
+
+      // Muat pratinjau thumbnail
+      fetchPdfThumbnails(file, 60).then(resThumb => {
+        if (resThumb && resThumb.thumbnails) {
+          rotateThumbnails = resThumb.thumbnails;
+          renderRotateThumbnails();
+        }
+      }).catch(() => {});
+    } catch (err) {
+      $('rotateAlert').textContent = err.message;
+      $('rotateAlert').classList.add('show');
+      $('rotateFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('rotateBtn').addEventListener('click', async () => {
+    if (!currentRotateFile) return;
+
+    const mode = $('rotatePagesMode').value;
+    const rangeVal = $('rotateRangeInput').value.trim();
+    if (mode === 'range' && !rangeVal) {
+      $('rotateAlert').textContent = 'Ketik nomor atau rentang halaman yang ingin diputar.';
+      $('rotateAlert').classList.add('show');
+      $('rotateRangeInput').focus();
+      return;
+    }
+
+    const btn = $('rotateBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Memutar Dokumen PDF…';
+    $('rotateAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentRotateFile);
+    fd.append('rotation', $('rotateAngle').value);
+    fd.append('pages_mode', mode);
+    fd.append('range_str', rangeVal);
+
+    // Kirim mapping rotasi visual jika ada kartu yang diputar tersendiri
+    const customEntries = Object.entries(rotatePageAngles).filter(([k, v]) => (v % 360) !== 0);
+    if (customEntries.length > 0) {
+      const customMap = {};
+      customEntries.forEach(([k, v]) => { customMap[k] = v; });
+      fd.append('rotations_json', JSON.stringify(customMap));
+    }
+
+    try {
+      const res = await fetch('/api/converter/pdf/rotate', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Pemutaran PDF gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'dokumen_putar.pdf';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastRotateBlob = await res.blob();
+      lastRotateFilename = filename;
+      triggerDownload(lastRotateBlob, filename);
+
+      $('rotateResult').classList.add('show');
+      const rotAngle = $('rotateAngle').value;
+      $('rotateResultMeta').textContent = `Dokumen ${filename} berhasil diputar (${fmtBytes(lastRotateBlob.size)}).`;
+
+      $('rotateStatus').textContent = '✓ Berkas berhasil diunduh.';
+      setTimeout(() => $('rotateStatus').textContent = '', 5000);
+    } catch (err) {
+      $('rotateAlert').textContent = err.message;
+      $('rotateAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Putar &amp; Unduh PDF</span>';
+    }
+  });
+
+  $('rotateDownloadBtn').addEventListener('click', () => {
+    if (lastRotateBlob && lastRotateFilename) triggerDownload(lastRotateBlob, lastRotateFilename);
+  });
+
+  // ===========================================================================
+  // 9. WATERMARK / CAP PDF LOGIC
+  // ===========================================================================
+  let currentWmFile = null;
+  let wmTotalPages = 0;
+  let lastWmBlob = null;
+  let lastWmFilename = '';
+
+  setupDrop($('wmDrop'), $('wmFile'), files => {
+    currentWmFile = files[0];
+    handleWmFile(currentWmFile);
+  });
+  $('wmChangeBtn').addEventListener('click', () => $('wmFile').click());
+
+  function updateWmLivePreview() {
+    const overlay = $('wmLiveOverlay');
+    if (!overlay) return;
+    const textVal = ($('wmText').value || 'SALINAN').trim();
+    const colorVal = $('wmColor').value;
+    const opacityVal = parseFloat($('wmOpacity').value || '0.25');
+    const rotVal = parseInt($('wmRotation').value || '45', 10);
+    const sizeVal = parseInt($('wmFontSize').value || '44', 10);
+
+    const colors = {
+      gray: `rgba(100, 116, 139, ${opacityVal})`,
+      red: `rgba(220, 38, 38, ${opacityVal})`,
+      blue: `rgba(37, 99, 235, ${opacityVal})`,
+      dark: `rgba(15, 23, 42, ${opacityVal})`
+    };
+    const chosenColor = colors[colorVal] || colors.gray;
+    const scaledSize = Math.max(12, Math.min(36, Math.round(sizeVal * 0.42)));
+
+    overlay.textContent = textVal;
+    overlay.style.color = chosenColor;
+    overlay.style.fontSize = scaledSize + 'px';
+    overlay.style.transform = `translate(-50%, -50%) rotate(-${rotVal}deg)`;
+  }
+
+  $('wmText').addEventListener('input', updateWmLivePreview);
+  $('wmColor').addEventListener('change', updateWmLivePreview);
+  $('wmOpacity').addEventListener('change', updateWmLivePreview);
+  $('wmRotation').addEventListener('change', updateWmLivePreview);
+  $('wmFontSize').addEventListener('change', updateWmLivePreview);
+
+  // Preset pills
+  document.querySelectorAll('#tab-pdfwatermark .cv-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      $('wmText').value = pill.dataset.val;
+      updateWmLivePreview();
+    });
+  });
+
+  $('wmPagesMode').addEventListener('change', e => {
+    $('wmRangeWrap').style.display = e.target.value === 'range' ? 'block' : 'none';
+  });
+
+  async function handleWmFile(file) {
+    $('wmAlert').classList.remove('show');
+    $('wmResult').classList.remove('show');
+    $('wmFileName').textContent = file.name;
+    $('wmFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa berkas PDF…`;
+    $('wmFileBox').classList.add('show');
+    $('wmDrop').style.display = 'none';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas PDF.');
+
+      wmTotalPages = data.info.page_count;
+      if (data.info.is_encrypted) {
+        throw new Error('Berkas PDF ini dilindungi kata sandi. Harap buka kunci terlebih dahulu.');
+      }
+
+      $('wmFileDesc').textContent = `${fmtBytes(file.size)} • Total ${wmTotalPages} halaman`;
+      $('wmRangeInput').placeholder = `Contoh: 1-${Math.min(3, wmTotalPages)}`;
+      $('wmOptions').style.display = 'block';
+
+      // Muat pratinjau halaman pertama untuk Live Preview
+      fetchPdfThumbnails(file, 1).then(resThumb => {
+        if (resThumb && resThumb.thumbnails && resThumb.thumbnails.length) {
+          $('wmLivePreviewImg').src = resThumb.thumbnails[0].thumb;
+          $('wmLivePreviewWrap').style.display = 'block';
+          updateWmLivePreview();
+        }
+      }).catch(() => {});
+    } catch (err) {
+      $('wmAlert').textContent = err.message;
+      $('wmAlert').classList.add('show');
+      $('wmFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('wmBtn').addEventListener('click', async () => {
+    if (!currentWmFile) return;
+
+    const textVal = $('wmText').value.trim();
+    if (!textVal) {
+      $('wmAlert').textContent = 'Ketik teks cap / watermark yang ingin disematkan.';
+      $('wmAlert').classList.add('show');
+      $('wmText').focus();
+      return;
+    }
+
+    const mode = $('wmPagesMode').value;
+    const rangeVal = $('wmRangeInput').value.trim();
+    if (mode === 'range' && !rangeVal) {
+      $('wmAlert').textContent = 'Ketik nomor atau rentang halaman yang ingin diberi cap.';
+      $('wmAlert').classList.add('show');
+      $('wmRangeInput').focus();
+      return;
+    }
+
+    const btn = $('wmBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Menyematkan Cap Watermark…';
+    $('wmAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentWmFile);
+    fd.append('text', textVal);
+    fd.append('opacity', $('wmOpacity').value);
+    fd.append('font_size', $('wmFontSize').value);
+    fd.append('color', $('wmColor').value);
+    fd.append('rotation_deg', $('wmRotation').value);
+    fd.append('pages_mode', mode);
+    fd.append('range_str', rangeVal);
+
+    try {
+      const res = await fetch('/api/converter/pdf/watermark', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Penyematan watermark gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'dokumen_cap.pdf';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastWmBlob = await res.blob();
+      lastWmFilename = filename;
+      triggerDownload(lastWmBlob, filename);
+
+      $('wmResult').classList.add('show');
+      $('wmResultMeta').textContent = `Cap "${textVal}" berhasil disematkan ke ${filename} (${fmtBytes(lastWmBlob.size)}).`;
+
+      $('wmStatus').textContent = '✓ Berkas berhasil diunduh.';
+      setTimeout(() => $('wmStatus').textContent = '', 5000);
+    } catch (err) {
+      $('wmAlert').textContent = err.message;
+      $('wmAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Beri Cap &amp; Unduh PDF</span>';
+    }
+  });
+
+  $('wmDownloadBtn').addEventListener('click', () => {
+    if (lastWmBlob && lastWmFilename) triggerDownload(lastWmBlob, lastWmFilename);
+  });
+
+  // ===========================================================================
+  // 10. HAPUS HALAMAN PDF (DELETE PAGES) LOGIC
+  // ===========================================================================
+  let currentDelPagesFile = null;
+  let delPagesTotalPages = 0;
+  let lastDelPagesBlob = null;
+  let lastDelPagesFilename = '';
+  let delPagesThumbnails = [];
+  let delPagesSelectedSet = new Set();
+
+  setupDrop($('delPagesDrop'), $('delPagesFile'), files => {
+    currentDelPagesFile = files[0];
+    handleDelPagesFile(currentDelPagesFile);
+  });
+  $('delPagesChangeBtn').addEventListener('click', () => $('delPagesFile').click());
+
+  function renderDelPagesThumbnails() {
+    const grid = $('delPagesPreviewGrid');
+    grid.innerHTML = '';
+    if (!delPagesThumbnails.length) {
+      grid.style.display = 'none';
+      return;
+    }
+    grid.style.display = 'grid';
+    delPagesThumbnails.forEach(item => {
+      const p = item.page;
+      const isDel = delPagesSelectedSet.has(p);
+      const card = document.createElement('div');
+      card.className = 'cv-page-card' + (isDel ? ' deleted' : '');
+      card.dataset.page = p;
+      card.innerHTML = `
+        <div class="cv-page-thumb-wrap">
+          <img src="${item.thumb}" alt="Halaman ${p}" loading="lazy">
+          <div class="cv-page-badge">Hal ${p}</div>
+        </div>
+      `;
+      card.addEventListener('click', () => {
+        if (delPagesSelectedSet.has(p)) {
+          delPagesSelectedSet.delete(p);
+          card.classList.remove('deleted');
+        } else {
+          if (delPagesSelectedSet.size >= delPagesTotalPages - 1) {
+            $('delPagesAlert').textContent = 'Tidak dapat menghapus seluruh halaman dokumen. Sisakan minimal 1 halaman.';
+            $('delPagesAlert').classList.add('show');
+            return;
+          }
+          $('delPagesAlert').classList.remove('show');
+          delPagesSelectedSet.add(p);
+          card.classList.add('deleted');
+        }
+        $('delPagesInput').value = numbersToRangeStr(Array.from(delPagesSelectedSet));
+      });
+      grid.appendChild(card);
+    });
+  }
+
+  function syncDelPagesInputToCards() {
+    delPagesSelectedSet = parseRangeStrToSet($('delPagesInput').value, delPagesTotalPages);
+    const cards = $('delPagesPreviewGrid').querySelectorAll('.cv-page-card');
+    cards.forEach(c => {
+      const p = parseInt(c.dataset.page, 10);
+      if (delPagesSelectedSet.has(p)) {
+        c.classList.add('deleted');
+      } else {
+        c.classList.remove('deleted');
+      }
+    });
+  }
+
+  $('delPagesInput').addEventListener('input', syncDelPagesInputToCards);
+
+  $('delPagesResetBtn').addEventListener('click', () => {
+    delPagesSelectedSet.clear();
+    $('delPagesInput').value = '';
+    const cards = $('delPagesPreviewGrid').querySelectorAll('.cv-page-card');
+    cards.forEach(c => c.classList.remove('deleted'));
+    $('delPagesAlert').classList.remove('show');
+  });
+
+  async function handleDelPagesFile(file) {
+    $('delPagesAlert').classList.remove('show');
+    $('delPagesResult').classList.remove('show');
+    $('delPagesFileName').textContent = file.name;
+    $('delPagesFileDesc').textContent = `${fmtBytes(file.size)} • Memeriksa berkas PDF…`;
+    $('delPagesFileBox').classList.add('show');
+    $('delPagesDrop').style.display = 'none';
+
+    delPagesThumbnails = [];
+    delPagesSelectedSet.clear();
+    $('delPagesInput').value = '';
+
+    const fd = new FormData();
+    fd.append('file', file);
+
+    try {
+      const res = await fetch('/api/converter/pdf/inspect', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Gagal membaca berkas PDF.');
+
+      delPagesTotalPages = data.info.page_count;
+      if (data.info.is_encrypted) {
+        throw new Error('Berkas PDF ini dilindungi kata sandi. Harap buka kunci terlebih dahulu.');
+      }
+
+      $('delPagesFileDesc').textContent = `${fmtBytes(file.size)} • Total ${delPagesTotalPages} halaman`;
+      $('delPagesHint').textContent = `Dokumen memiliki total ${delPagesTotalPages} halaman (rentang valid: 1 s.d. ${delPagesTotalPages}). Contoh: 1, atau 2, 4-5.`;
+      $('delPagesInput').placeholder = `Contoh: 1${delPagesTotalPages > 2 ? ', ' + delPagesTotalPages : ''}`;
+      $('delPagesOptions').style.display = 'block';
+
+      // Muat pratinjau thumbnail kartu halaman
+      fetchPdfThumbnails(file, 60).then(resThumb => {
+        if (resThumb && resThumb.thumbnails) {
+          delPagesThumbnails = resThumb.thumbnails;
+          renderDelPagesThumbnails();
+        }
+      }).catch(() => {});
+    } catch (err) {
+      $('delPagesAlert').textContent = err.message;
+      $('delPagesAlert').classList.add('show');
+      $('delPagesFileDesc').textContent = 'Pemeriksaan gagal.';
+    }
+  }
+
+  $('delPagesBtn').addEventListener('click', async () => {
+    if (!currentDelPagesFile) return;
+
+    const delVal = $('delPagesInput').value.trim();
+    if (!delVal) {
+      $('delPagesAlert').textContent = 'Ketik nomor atau klik kartu halaman yang ingin dihapus.';
+      $('delPagesAlert').classList.add('show');
+      $('delPagesInput').focus();
+      return;
+    }
+
+    const btn = $('delPagesBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Menghapus Halaman…';
+    $('delPagesAlert').classList.remove('show');
+
+    const fd = new FormData();
+    fd.append('file', currentDelPagesFile);
+    fd.append('pages_to_delete', delVal);
+
+    try {
+      const res = await fetch('/api/converter/pdf/delete-pages', { method: 'POST', body: fd });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'Penghapusan halaman gagal.');
+      }
+
+      const disp = res.headers.get('Content-Disposition') || '';
+      let filename = 'dokumen_hasil.pdf';
+      const m = disp.match(/filename="?([^";]+)"?/);
+      if (m && m[1]) filename = m[1];
+
+      lastDelPagesBlob = await res.blob();
+      lastDelPagesFilename = filename;
+      triggerDownload(lastDelPagesBlob, filename);
+
+      $('delPagesResult').classList.add('show');
+      $('delPagesResultMeta').textContent = `Halaman ${delVal} berhasil dihapus. Berkas baru: ${filename} (${fmtBytes(lastDelPagesBlob.size)}).`;
+
+      $('delPagesStatus').textContent = '✓ Berkas berhasil diunduh.';
+      setTimeout(() => $('delPagesStatus').textContent = '', 5000);
+    } catch (err) {
+      $('delPagesAlert').textContent = err.message;
+      $('delPagesAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>Hapus Halaman &amp; Unduh PDF</span>';
+    }
+  });
+
+  $('delPagesDownloadBtn').addEventListener('click', () => {
+    if (lastDelPagesBlob && lastDelPagesFilename) triggerDownload(lastDelPagesBlob, lastDelPagesFilename);
+  });
+
 })();
 </script>
 {% endblock %}
+
 

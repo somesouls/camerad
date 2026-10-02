@@ -5,9 +5,17 @@ from converter.engine import (
     excel_to_csv,
     inspect_csv,
     csv_to_excel,
+    csv_to_csv,
     inspect_pdf,
     merge_pdfs,
     split_pdf,
+    images_to_pdf,
+    pdf_to_images,
+    compress_pdf,
+    rotate_pdf,
+    watermark_pdf,
+    delete_pages_pdf,
+    generate_pdf_thumbnails,
 )
 
 __all__ = [
@@ -15,8 +23,15 @@ __all__ = [
     "excel_to_csv",
     "inspect_csv",
     "csv_to_excel",
+    "csv_to_csv",
     "inspect_pdf",
     "merge_pdfs",
     "split_pdf",
+    "images_to_pdf",
+    "pdf_to_images",
+    "compress_pdf",
+    "rotate_pdf",
+    "watermark_pdf",
+    "delete_pages_pdf",
+    "generate_pdf_thumbnails",
 ]
-
