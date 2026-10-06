@@ -15,6 +15,21 @@
     <div class="kpi" id="kpiAI">—</div>
   </div>
 
+  <details class="guide" open>
+    <summary>📌 Panduan pengisian kamus (untuk analis/admin)</summary>
+    <div class="gbody">
+      <p style="margin:0 0 6px;"><b>Cara kerja singkat.</b> Mesin hanya membaca dua kolom: <b>Istilah baku</b> dan <b>Sinonim</b>. Bila salah satu bentuk itu muncul pada pertanyaan pengguna, semua bentuk lain pada entri yang sama otomatis <i>ditambahkan</i> ke kueri pencarian peraturan — berlaku dua arah (awam→formal maupun sebaliknya). Pencocokan bersifat kata utuh dan tidak peka huruf besar/kecil.</p>
+      <ul>
+        <li><b>Istilah baku</b> — isi dengan bentuk <b>resmi persis seperti tertulis di peraturan</b> (mis. <code>Subjek Pajak Luar Negeri</code>). Kolom inilah yang membuat pencarian menemukan pasal yang tepat.</li>
+        <li><b>Sinonim / variasi awam</b> — daftar semua bentuk tidak resmi, dipisah koma: akronim (<code>SPLN, WPLN</code>), singkatan, ejaan/spasi berbeda, slang, salah ketik yang umum, istilah asing. Makin lengkap makin baik.</li>
+        <li><b>Kategori</b> — <b>opsional, teks bebas.</b> Hanya untuk mengelompokkan &amp; mencari entri di halaman ini. <b>Tidak dikirim ke mesin/LLM dan tidak memengaruhi hasil pencarian.</b> Jadi bukan hanya “akronim”; gunakan label yang konsisten, mis. <code>akronim</code>, <code>istilah</code>, <code>objek</code>, <code>singkatan</code>, <code>ejaan/typo</code>, <code>slang</code>, <code>alias</code>. Anda bebas membuat kategori sendiri.</li>
+        <li><b>Catatan (opsional)</b> — <b>hanya memo antar-admin</b> (mis. sumber, tanggal berlaku, atau peringatan). <b>Tidak dibaca mesin/LLM, tidak di-embedding, dan tidak memengaruhi jawaban.</b></li>
+        <li><b>Aktif</b> — hilangkan centang untuk menyimpan entri tanpa memakainya saat pencarian.</li>
+      </ul>
+      <p style="margin:6px 0 0;"><b>Contoh (kasus SPLN).</b> Istilah baku: <code>Subjek Pajak Luar Negeri</code> · Sinonim: <code>SPLN, WPLN, WP Luar Negeri</code> · Kategori: <code>akronim</code>. Uji dulu lewat kotak “Uji Rewriting Otomatis” di atas sebelum menyimpan.</p>
+    </div>
+  </details>
+
   <section style="background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:18px 20px;margin-bottom:24px;">
     <h2 style="margin:0 0 4px;font-size:16px;">🤖 Uji Rewriting Otomatis (AI) untuk Peraturan/Pasal</h2>
     <p style="color:var(--text-muted);margin:0 0 12px;font-size:13px;">Ketik pertanyaan awam; sistem mengubahnya jadi kueri hukum formal, memperluas dengan kamus, lalu menampilkan pratinjau peraturan (dengan skor reranker).</p>
@@ -29,10 +44,12 @@
     <h2 style="margin:0 0 12px;font-size:16px;">🗂️ Kelola Kamus Sinonim</h2>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
       <input id="fIstilah" placeholder="Istilah baku (mis. Pajak Pertambahan Nilai)" class="inp">
-      <input id="fKategori" placeholder="Kategori (mis. akronim)" class="inp">
+      <input id="fKategori" placeholder="Kategori — opsional (mis. akronim)" class="inp" list="katList" autocomplete="off">
     </div>
     <input id="fSinonim" placeholder="Sinonim/variasi awam, pisahkan koma (mis. PPN, pajak jualan)" class="inp" style="margin-top:10px;width:100%;">
-    <input id="fCatatan" placeholder="Catatan (opsional)" class="inp" style="margin-top:10px;width:100%;">
+    <input id="fCatatan" placeholder="Catatan — opsional, memo internal (tidak dipakai mesin)" class="inp" style="margin-top:10px;width:100%;">
+    <div class="fhint">Mesin pencari hanya memakai <b>Istilah baku</b> + <b>Sinonim</b>. <b>Kategori</b> &amp; <b>Catatan</b> hanya untuk keperluan admin dan tidak memengaruhi jawaban.</div>
+    <datalist id="katList"><option value="akronim"></option><option value="istilah"></option><option value="objek"></option><option value="singkatan"></option><option value="ejaan/typo"></option><option value="slang"></option><option value="alias"></option></datalist>
     <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap;">
       <label style="font-size:13px;color:var(--text-muted);display:flex;gap:6px;align-items:center;"><input type="checkbox" id="fAktif" checked> Aktif</label>
       <input type="hidden" id="fId">
@@ -60,6 +77,16 @@
 .linkbtn{border:none;background:transparent;color:var(--accent,#4f46e5);cursor:pointer;font-size:12.5px;padding:2px 4px;}
 .linkbtn.del{color:#dc2626;}
 code{word-break:break-word;}
+.guide{background:var(--panel-bg);border:1px solid var(--panel-border);border-radius:14px;padding:12px 18px;margin-bottom:22px;}
+.guide>summary{cursor:pointer;font-weight:800;font-size:14px;list-style:none;}
+.guide>summary::-webkit-details-marker{display:none;}
+.guide>summary::before{content:"▸ ";}
+.guide[open]>summary::before{content:"▾ ";}
+.guide .gbody{margin-top:10px;font-size:13px;color:var(--text-main);line-height:1.6;}
+.guide .gbody ul{margin:8px 0;padding-left:18px;}
+.guide .gbody li{margin:5px 0;}
+.guide .gbody code{background:rgba(79,70,229,0.12);border-radius:5px;padding:1px 6px;font-size:12px;}
+.fhint{font-size:11.5px;color:var(--text-muted);margin-top:6px;}
 </style>
 {% endblock %}
 {% block scripts %}
