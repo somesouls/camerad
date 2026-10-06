@@ -74,6 +74,7 @@ MENU_CATALOG = [
     {"key": "m_voicebot_intents",  "group": "voicebot",    "label": "Intents",              "path": "/voicebot/intents"},
     {"key": "m_voicebot_lab",      "group": "voicebot",    "label": "Lab",                  "path": "/voicebot/lab"},
     {"key": "m_studio",            "group": "umum",        "label": "Studio",               "path": "/studio"},
+    {"key": "m_converter", "group": "umum", "label": "Converter", "path": "/converter"},
     {"key": "m_laporan",           "group": "umum",        "label": "Laporan AI",           "path": "/laporan"},
     {"key": "m_users",             "group": "umum",        "label": "Pengguna & Peran",     "path": "/users"},
 ]

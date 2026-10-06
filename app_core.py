@@ -185,6 +185,8 @@ def _route_area(path):
     # konfigurasi (/df-webhook, /api/df/webhook/...) diperlakukan 'peraturan'.
     if path == "/df-webhook" or path.startswith("/api/df/webhook/"):
         return "peraturan"
+    if path == "/converter" or path.startswith("/api/converter/"):
+        return "chat"
     if path == "/profil" or path.startswith("/api/profil"):
         return "account"
     # Menu Voicebot (mesin suara lokal) memakai area akses Peraturan (admin).
@@ -508,3 +510,11 @@ try:
     print("[AGENTIC-LIMITS] batas loop: iters=%s query=%s rows=%s rows_llm=%s chars=%s" % (_agentic_mod.MAX_ITERS, _agentic_mod.MAX_QUERY_STEPS, _agentic_mod.MAX_ROWS, _agentic_mod.MAX_ROWS_TO_LLM, _agentic_mod.MAX_RESULT_CHARS), flush=True)
 except Exception as _agentic_limits_exc:
     print("[AGENTIC-LIMITS] penyetelan batas dilewati:", _agentic_limits_exc, flush=True)
+
+
+# Local text converter; isolated from Studio/RAG.
+try:
+    from routes import converter_routes as _converter_routes
+    _converter_routes.register(app, render_page, mc.menu_allowed)
+except Exception as _converter_exc:
+    print("[CONVERTER] registrasi route dilewati:", _converter_exc, flush=True)
