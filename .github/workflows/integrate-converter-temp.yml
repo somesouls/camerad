@@ -1,0 +1,26 @@
+name: Integrate converter temporarily
+on:
+  push:
+    branches: [feature/converter-text-ocr]
+    paths: ['scripts/oneoff/integrate_converter_temp.py', '.github/workflows/integrate-converter-temp.yml']
+permissions:
+  contents: write
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply surgical integration
+        run: python scripts/oneoff/integrate_converter_temp.py
+      - name: Validate syntax and structure
+        run: |
+          python scripts/oneoff/check_structure.py
+          node --check static/app/converter.js
+          git diff --check
+      - name: Commit integration
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app_core.py db/menu_catalog.py templates/base.html Dockerfile
+          git commit -m "Daftarkan converter dan pasang dependensi OCR Docker [skip ci]"
+          git push
