@@ -32,6 +32,8 @@
       '.p6r{background:var(--soft2);border:1px solid var(--border);border-bottom-left-radius:4px;align-self:flex-start}',
       '.p6meta{font-size:10.5px;color:var(--text2);margin:3px 2px 0}',
       '.p6fb{display:inline-block;margin-left:6px;padding:0 6px;border-radius:999px;background:rgba(239,68,68,.15);color:#ef4444;font-size:10px;font-weight:700}',
+      '.p6b.p6u.p6target{border:2px solid #f59e0b;box-shadow:0 0 10px rgba(245,158,11,.35)}',
+      '.p6target-badge{display:inline-block;margin-left:6px;padding:0 6px;border-radius:999px;background:rgba(245,158,11,.18);color:#d97706;font-size:10px;font-weight:700}',
       '.p6empty{color:var(--text2);text-align:center;padding:24px}'
     ].join('');
     document.head.appendChild(st);
@@ -53,7 +55,7 @@
     return ov;
   }
 
-  function showTranscript(sid){
+  function showTranscript(sid, targetPhrase){
     injectCss(); ensureModal();
     var ov=document.getElementById('p6ov');
     document.getElementById('p6sid').textContent='session: '+sid;
@@ -66,17 +68,25 @@
         if(!d||!d.ok){ body.innerHTML='<div class="p6empty">Gagal memuat: '+esc2((d&&d.error)||'tidak diketahui')+'</div>'; return; }
         var turns=d.turns||[];
         if(!turns.length){ body.innerHTML='<div class="p6empty">Tidak ada percakapan untuk sesi ini.</div>'; return; }
+        var targetClean = (targetPhrase || '').trim().toLowerCase();
         var h='';
         turns.forEach(function(t){
           var fb=t.is_fallback?'<span class="p6fb">fallback</span>':'';
           var it=t.intent?(' · '+esc2(t.intent)):'';
+          var uClean = (t.user_phrase || '').trim().toLowerCase();
+          var isMatch = targetClean && (uClean === targetClean || uClean.indexOf(targetClean) !== -1 || targetClean.indexOf(uClean) !== -1);
+          var matchBadge = isMatch ? '<span class="p6target-badge">Pertanyaan Baris Ini</span>' : '';
           h+='<div class="p6turn">';
-          if(t.user_phrase){ h+='<div class="p6b p6u">'+esc2(t.user_phrase)+'</div>'; }
+          if(t.user_phrase){ h+='<div class="p6b p6u'+(isMatch?' p6target':'')+'">'+esc2(t.user_phrase)+'</div>'; }
           if(t.bot_response){ h+='<div class="p6b p6r">'+esc2(t.bot_response)+'</div>'; }
-          h+='<div class="p6meta">'+esc2(t.ts||'')+it+fb+'</div>';
+          h+='<div class="p6meta">'+esc2(t.ts||'')+it+fb+matchBadge+'</div>';
           h+='</div>';
         });
         body.innerHTML=h;
+        var mEl = body.querySelector('.p6target');
+        if(mEl && mEl.scrollIntoView){
+          setTimeout(function(){ mEl.scrollIntoView({behavior:'smooth', block:'center'}); }, 100);
+        }
       })
       .catch(function(){ body.innerHTML='<div class="p6empty">Gagal memuat percakapan.</div>'; });
   }
@@ -99,11 +109,12 @@
       var inp=tr.querySelector('.s6intent[data-i]');
       var i=inp?parseInt(inp.dataset.i,10):-1;
       var r=(i>=0&&rows[i])?rows[i]:null;
-      var sid=(r&&(r.id_trace||r.session_id||r.insert_id))||'';
+      var sid=(r&&(r.id_trace||r.session_id))||'';
+      var q=(r&&(r.pertanyaan||r.user))||'';
       var cell=tr.querySelector('td.s6q'); if(!cell)continue;
       var btn=document.createElement('button');
       btn.type='button'; btn.className='eyebtn'; btn.textContent='👁';
-      if(sid){ btn.title='Lihat percakapan penuh'; (function(s){ btn.onclick=function(e){ e.stopPropagation(); showTranscript(s); }; })(sid); }
+      if(sid){ btn.title='Lihat percakapan penuh'; (function(s, targetQ){ btn.onclick=function(e){ e.stopPropagation(); showTranscript(s, targetQ); }; })(sid, q); }
       else { btn.disabled=true; btn.title='ID percakapan tidak tersedia untuk baris ini'; }
       cell.insertBefore(btn, cell.firstChild);
     }

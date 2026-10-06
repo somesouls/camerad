@@ -17,7 +17,7 @@ terpasang; kedua patch membungkus pr.step6_load secara berantai).
 import os
 
 import pipeline.routes as pr
-from pipeline.helpers import run_dir, _wb_from_bytes, read_sheet, _sv
+from pipeline.helpers import run_dir, _wb_from_bytes, read_sheet, _sv, _find_header
 
 try:
     import db.analytics_db as adb
@@ -26,33 +26,61 @@ except Exception:
 
 _orig_step6_load = pr.step6_load
 
+SID_HEADERS = [
+    "ID Percakapan", "ID_Percakapan", "ID Sesi", "ID_Sesi",
+    "session_id", "SessionId", "Session ID", "ID trace", "ID Trace", "id_trace"
+]
+INS_HEADERS = ["InsertId", "InserId", "insertId", "insert_id"]
 
-def _row_to_insertid(cfg, ctx):
-    """Map nomor baris sheet 'Analisis Fallback' -> InsertId."""
-    out = {}
+
+def _row_to_session_and_insertid(cfg, ctx):
+    """Map nomor baris sheet 'Analisis Fallback' -> (row_to_sid, row_to_ins).
+    
+    Prioritas session_id:
+    1. Kolom 'ID Percakapan' / 'ID Sesi' / 'session_id' langsung dari sheet (100% akurat).
+    2. Fallback: bila kolom ID Percakapan tidak ada/kosong, petakan InsertId -> session_id
+       via tabel interactions di analytics.db.
+    """
+    row_to_sid = {}
+    row_to_ins = {}
+    missing_ins_for_sid = {}
     try:
         p = os.path.join(run_dir(cfg, ctx.run), "step6_source.xlsx")
         if not os.path.isfile(p):
-            return out
+            return row_to_sid, row_to_ins
         with open(p, "rb") as f:
             b = f.read()
         wb = _wb_from_bytes(b)
         if "Analisis Fallback" not in wb.sheetnames:
-            return out
+            return row_to_sid, row_to_ins
         sh = read_sheet(wb["Analisis Fallback"])
-        H = sh["headers"]
-        c_ins = H.get("InsertId") or H.get("InserId")
-        if not c_ins:
-            return out
-        for rn, cells in sh["rows"].items():
+        H = sh.get("headers") or {}
+        c_sid = _find_header(H, SID_HEADERS)
+        c_ins = _find_header(H, INS_HEADERS)
+        if not c_sid and not c_ins:
+            return row_to_sid, row_to_ins
+        for rn, cells in sh.get("rows", {}).items():
             if rn == 1:
                 continue
-            ins = _sv(cells, c_ins).strip()
+            sid = _sv(cells, c_sid).strip() if c_sid else ""
+            ins = _sv(cells, c_ins).strip() if c_ins else ""
             if ins:
-                out[rn] = ins
+                row_to_ins[rn] = ins
+            if sid:
+                row_to_sid[rn] = sid
+            elif ins:
+                missing_ins_for_sid.setdefault(ins, []).append(rn)
+        # Fallback via analytics.db HANYA jika sid kosong tapi ada ins
+        if missing_ins_for_sid and adb is not None:
+            i2s = _insertid_to_session(list(missing_ins_for_sid.keys()))
+            for ins_val, rns in missing_ins_for_sid.items():
+                found_sid = i2s.get(ins_val)
+                if found_sid:
+                    for rn in rns:
+                        row_to_sid[rn] = found_sid
     except Exception:
         pass
-    return out
+    return row_to_sid, row_to_ins
 
 
 def _insertid_to_session(insert_ids):
@@ -91,15 +119,15 @@ def step6_load(cfg, ctx):
     try:
         rows = res.get("rows") or []
         if rows:
-            r2i = _row_to_insertid(cfg, ctx)
-            i2s = _insertid_to_session(list(set(r2i.values())))
+            r2s, r2i = _row_to_session_and_insertid(cfg, ctx)
             for r in rows:
-                ins = r2i.get(r.get("row"))
+                rn = r.get("row")
+                ins = r2i.get(rn)
                 if ins:
                     r["insert_id"] = ins
-                    sid = i2s.get(ins)
-                    if sid:
-                        r["id_trace"] = sid
+                sid = r2s.get(rn)
+                if sid:
+                    r["id_trace"] = sid
     except Exception:
         pass
     return res
