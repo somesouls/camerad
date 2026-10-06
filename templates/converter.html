@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Converter — Camerad Studio{% endblock %}
+{% block page_label %}Converter{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/app/converter.css?v=text-ocr-v1">{% endblock %}
+{% block content %}
+<section class="converter" id="converterApp">
+  <header class="cv-hero"><p class="cv-eyebrow">PDF &amp; gambar → teks</p><h1>Dari dokumen ke kata.</h1><p>Unggah dokumen atau tempel screenshot. Periksa hasilnya, lalu salin atau unduh sebagai teks.</p><div class="cv-tags"><span>PDF digital &amp; scan</span><span>OCR Indonesia + Inggris</span><span>Tanpa layanan AI eksternal</span></div></header>
+  <div class="cv-layout">
+    <section class="cv-panel" aria-labelledby="inputTitle">
+      <h2 id="inputTitle">1. Tambahkan file</h2>
+      <div class="cv-drop" id="dropZone" tabindex="0" role="button" aria-label="Pilih file, seret file, atau tekan Ctrl+V untuk paste screenshot" aria-describedby="fileHelp">
+        <span class="cv-drop-icon" aria-hidden="true">↥</span><strong>Letakkan file di sini</strong><span>Klik untuk memilih beberapa file</span><span class="cv-paste">Screenshot? Tekan <kbd>Ctrl</kbd> + <kbd>V</kbd> / <kbd>⌘</kbd> + <kbd>V</kbd></span>
+      </div>
+      <input type="file" id="fileInput" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff" hidden>
+      <p class="cv-help" id="fileHelp">PDF, PNG, JPG, WEBP, BMP, TIFF • 20 MB/file • PDF maksimal 30 halaman • maksimal 10 file dalam antrean.</p>
+      <div class="cv-controls"><button type="button" class="cv-button" id="chooseFiles">Pilih file</button><button type="button" class="cv-button" id="pasteImage">Tempel gambar</button></div>
+      <div class="cv-controls"><button type="button" class="cv-button cv-primary" id="convertFiles" disabled>Ekstrak teks</button><button type="button" class="cv-button" id="clearFiles" disabled>Bersihkan</button></div>
+      <p id="converterMessage" class="cv-message" role="status" aria-live="polite"></p>
+      <ul class="cv-queue" id="fileQueue" aria-label="Antrean file"></ul>
+      <aside class="cv-note"><strong>Sebelum menyalin</strong><p>OCR dapat keliru membaca ejaan, tabel, atau kolom. Periksa hasil terlebih dahulu. File tidak dimasukkan ke basis pengetahuan; hasil sementara server kedaluwarsa setelah 30 menit. Muat ulang halaman akan menghapus hasil di browser.</p></aside>
+    </section>
+    <section class="cv-panel cv-output" aria-labelledby="outputTitle">
+      <header class="cv-output-head"><div><p class="cv-eyebrow">Hasil per file</p><h2 id="outputTitle">2. Periksa &amp; gunakan teks</h2></div><div class="cv-controls"><button type="button" class="cv-button" id="copyAll" disabled>Salin semua</button><button type="button" class="cv-button" id="downloadAll" disabled>Unduh gabungan .txt</button></div></header>
+      <div id="resultEmpty" class="cv-empty"><span aria-hidden="true">Aa</span><h3>Teks Anda akan muncul di sini</h3><p>Beberapa file tetap menghasilkan teks terpisah. Satu file gagal tidak menghapus hasil lainnya.</p></div>
+      <div class="cv-results" id="fileResults"></div>
+    </section>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/app/converter.js?v=text-ocr-v1" defer></script>{% endblock %}
