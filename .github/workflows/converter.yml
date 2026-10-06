@@ -1,0 +1,27 @@
+name: Converter tests
+on:
+  pull_request:
+    paths: ['common/converter_*.py', 'routes/converter_routes.py', 'templates/converter.html', 'static/app/converter.*', 'tests/test_converter*.py', '.github/workflows/converter.yml', 'app_core.py', 'db/menu_catalog.py']
+  push:
+    branches: [main, feature/converter-text-ocr]
+    paths: ['common/converter_*.py', 'routes/converter_routes.py', 'templates/converter.html', 'static/app/converter.*', 'tests/test_converter*.py', '.github/workflows/converter.yml']
+permissions:
+  contents: read
+jobs:
+  converter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install local OCR and test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-ind fonts-dejavu-core
+          pip install fastapi httpx python-multipart PyMuPDF Pillow pytesseract
+      - name: PDF, native OCR, upload and isolation tests
+        run: |
+          python -m unittest tests.test_converter tests.test_converter_routes -v
+          node --check static/app/converter.js
+          python scripts/oneoff/check_structure.py
