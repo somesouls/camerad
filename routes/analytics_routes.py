@@ -292,6 +292,59 @@ async def api_percakapan_list(request: Request):
         return JSONResponse({"ok": False, "error": str(ex)})
 
 
+# ——— D7: Topik Berulang Fallback (Semantik NLP) ———
+async def api_deflection_semantic_topics(request: Request):
+    """GET /api/deflection/semantic-topics
+    Mengembalikan daftar topik berulang fallback yang dikelompokkan
+    berdasarkan makna (embedding semantik NLP), bukan keyword eksak.
+
+    Hanya memproses pertanyaan user (user_phrase); jawaban bot TIDAK
+    diikutsertakan karena pada fallback selalu berupa template baku statis.
+
+    Query params: range, start, end, lang, limit, threshold, min_size
+    Response: {"ok": true, "topics": [...], "total": N, "range": {...}}
+    """
+    q = request.query_params
+    s, e, lang = _defl_range(q)
+    try:
+        limit = min(int(q.get("limit", 50)), 200)
+    except Exception:
+        limit = 50
+    try:
+        threshold = float(q.get("threshold", "0.74"))
+        threshold = max(0.5, min(0.95, threshold))
+    except Exception:
+        threshold = 0.74
+    try:
+        min_size = max(1, int(q.get("min_size", 1)))
+    except Exception:
+        min_size = 1
+
+    def _run():
+        conn = adb.init_db(adb.connect())
+        try:
+            topics = adb.fallback_semantic_topics(
+                conn, s, e, lang,
+                threshold=threshold,
+                min_size=min_size,
+                limit=limit,
+            )
+            return {
+                "ok": True,
+                "range": {"start": s, "end": e},
+                "total": len(topics),
+                "threshold": threshold,
+                "topics": topics,   # field 'topics' sesuai ekspektasi JS
+            }
+        finally:
+            conn.close()
+
+    try:
+        return JSONResponse(await run_in_threadpool(_run))
+    except Exception as ex:
+        return JSONResponse({"ok": False, "error": str(ex)})
+
+
 def register(app):
     app.add_api_route("/dashboard", dashboard, methods=["GET"])
     app.add_api_route("/api/analytics/summary", api_analytics_summary, methods=["GET"])
@@ -303,3 +356,5 @@ def register(app):
     app.add_api_route("/api/deflection/transcript", api_deflection_transcript, methods=["GET"])
     app.add_api_route("/api/deflection/status/save", api_deflection_status_save, methods=["POST"])
     app.add_api_route("/api/percakapan/list", api_percakapan_list, methods=["GET"])
+    # D7 — Topik Berulang Fallback (Semantik NLP)
+    app.add_api_route("/api/deflection/semantic-topics", api_deflection_semantic_topics, methods=["GET"])

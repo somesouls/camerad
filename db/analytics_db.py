@@ -1063,3 +1063,218 @@ def candidate_followup_check(conn, phrase):
         "followup_at": fu, "still_fallback_since": after,
         "resolved": (after == 0),
     }
+
+
+
+# ============================================================
+# D7: Topik Berulang Fallback — Analisis Semantik NLP
+# ============================================================
+# Catatan desain:
+#   - Hanya memproses user_phrase (pertanyaan user), BUKAN bot_response.
+#     Pada fallback, bot_response selalu berupa template baku statis dari
+#     Dialogflow, sehingga ikut-serta di embedding hanya menimbulkan
+#     kesamaan semu antar kalimat yang sebenarnya beda topik.
+#   - Membutuhkan knowledge.semantic (SentenceTransformer). Jika modul
+#     tidak tersedia / model belum dimuat, fungsi mengembalikan list kosong
+#     secara fail-soft tanpa exception.
+#   - Cache sederhana berbasis hash parameter agar tidak encoding ulang
+#     bila parameter identik dipanggil berulang kali dalam satu proses.
+
+_SEMANTIC_CACHE: dict = {}   # cache_key -> (result, monotonic_ts)
+_CACHE_TTL_SECS = 300        # 5 menit
+
+# Noise: kalimat singkat/sapaan/angka murni yang tidak merepresentasikan topik
+_NOISE_PHRASES = frozenset([
+    "halo", "hallo", "hai", "hi", "hello", "selamat pagi", "selamat siang",
+    "selamat sore", "selamat malam", "selamat datang", "kriing", "kring",
+    "tring", "tes", "test", "testing", "p", "ok", "oke", "ya", "yep",
+    "tidak", "nggak", "ada", "siang", "pagi", "sore", "malam",
+])
+
+
+def _is_noise(text):
+    """True bila teks tidak cukup bermakna untuk clustering topik."""
+    t = text.strip().lower()
+    if len(t) < 4:
+        return True
+    if t in _NOISE_PHRASES:
+        return True
+    # Angka murni atau kode-kode tanpa huruf bermakna
+    if re.fullmatch(r"[\d\s\-\+\/\.\,]+", t):
+        return True
+    # Simbol/tanda baca tanpa huruf
+    if not re.search(r"[a-zA-Z\u00c0-\u024f\u0100-\u017E]", t):
+        return True
+    return False
+
+
+def fallback_semantic_topics(
+    conn,
+    start=None,
+    end=None,
+    lang=None,
+    threshold=0.74,
+    min_size=1,
+    limit=50,
+    max_phrases=2000,
+    max_sessions_per_topic=8,
+):
+    """Mengelompokkan pertanyaan fallback berdasarkan makna/arti (bukan keyword eksak).
+
+    Output format (sesuai ekspektasi JS deflection.html):
+        [
+            {
+                "topic":          str,   # kalimat representatif (exemplar)
+                "count":          int,   # total kemunculan semua variasi kalimat
+                "variation_count": int,  # jumlah variasi kalimat unik dalam topik
+                "variations":     [{"phrase": str, "count": int}, ...],  # top-5
+                "nearest_intent": str|None,   # intent terdekat (bila ada)
+                "is_novel":       bool,  # True = belum terlayani intent eksisting
+                "sessions":       [str], # contoh session_id terkait (max 8)
+            },
+            ...
+        ]
+
+    Fail-soft: mengembalikan [] bila model embedding tidak tersedia.
+    Hanya memproses user_phrase; bot_response TIDAK diikutsertakan.
+    """
+    import time as _time
+
+    cache_key = (start, end, lang, threshold, min_size, limit)
+    _now = _time.monotonic()
+    if cache_key in _SEMANTIC_CACHE:
+        result, ts = _SEMANTIC_CACHE[cache_key]
+        if _now - ts < _CACHE_TTL_SECS:
+            return result
+
+    # --- 1. Ambil semua pertanyaan fallback pada rentang waktu ---
+    where, params = _range_where(start, end)
+    where = _lang_where(where, params, lang)
+    extra = (" AND " if where else " WHERE ") + "is_fallback=1 AND user_phrase IS NOT NULL"
+    rows = conn.execute(
+        "SELECT user_phrase, session_id FROM interactions" + where + extra,
+        params,
+    ).fetchall()
+
+    # --- 2. Hitung frekuensi per kalimat unik, kumpulkan session_id ---
+    freq: dict = {}     # phrase -> count
+    phrase_sess: dict = {}  # phrase -> set of session_id
+    for r in rows:
+        raw = (r["user_phrase"] or "").strip()
+        if _is_noise(raw):
+            continue
+        freq[raw] = freq.get(raw, 0) + 1
+        phrase_sess.setdefault(raw, set()).add(r["session_id"] or "")
+
+    if not freq:
+        _SEMANTIC_CACHE[cache_key] = ([], _now)
+        return []
+
+    # Batasi jumlah frasa unik (urutkan dari yang paling sering dulu)
+    phrase_list = sorted(freq.keys(), key=lambda p: -freq[p])[:max_phrases]
+
+    # --- 3. Embedding semantik (knowledge.semantic) ---
+    try:
+        from knowledge import semantic as _ks
+        import numpy as _np
+        if not _ks.is_available():
+            _SEMANTIC_CACHE[cache_key] = ([], _now)
+            return []
+        embs = _ks._encode(phrase_list)
+        if embs is None:
+            _SEMANTIC_CACHE[cache_key] = ([], _now)
+            return []
+    except Exception:
+        _SEMANTIC_CACHE[cache_key] = ([], _now)
+        return []
+
+    # --- 4. Greedy centroid clustering berbasis cosine similarity ---
+    clusters: list = []
+    for i, phrase in enumerate(phrase_list):
+        vec = embs[i]
+        count = freq[phrase]
+        placed = False
+        for c in clusters:
+            sim = float(_np.dot(vec, c["centroid"]))
+            if sim >= threshold:
+                c["members"].append((phrase, count))
+                c["count"] += count
+                c["all_sessions"].update(phrase_sess.get(phrase, set()))
+                # Perbarui centroid inkremental (running mean ternormalisasi)
+                c["vecs"].append(vec)
+                new_c = _np.mean(c["vecs"], axis=0)
+                norm_val = float(_np.linalg.norm(new_c))
+                c["centroid"] = new_c / norm_val if norm_val > 0 else new_c
+                placed = True
+                break
+        if not placed:
+            clusters.append({
+                "members": [(phrase, count)],
+                "count": count,
+                "centroid": vec.copy(),
+                "vecs": [vec],
+                "all_sessions": set(phrase_sess.get(phrase, set())),
+            })
+
+    # --- 5. Opsional: ambil daftar intent eksisting untuk nearest_intent ---
+    _intent_names: list = []
+    _intent_embs = None
+    try:
+        from knowledge import semantic as _ks
+        import numpy as _np
+        # Katalog intent: daftar nama intent unik yang bukan fallback/system
+        irows = conn.execute(
+            "SELECT DISTINCT intent_name FROM interactions "
+            "WHERE is_fallback=0 AND is_system=0 AND intent_name IS NOT NULL "
+            "LIMIT 300"
+        ).fetchall()
+        _intent_names = [r["intent_name"] for r in irows if r["intent_name"]]
+        if _intent_names:
+            _intent_embs = _ks._encode(_intent_names)
+    except Exception:
+        _intent_names = []
+        _intent_embs = None
+
+    # Ambang kemiripan minimum agar dianggap "mendekati" intent eksisting
+    _NOVEL_THRESHOLD = 0.55
+
+    # --- 6. Rangkai output ---
+    out = []
+    for c in clusters:
+        if len(c["members"]) < max(min_size, 1):
+            continue
+        # Exemplar = kalimat dengan frekuensi terbanyak, atau terpanjang jika seri
+        exemplar = max(c["members"], key=lambda m: (m[1], len(m[0])))[0]
+        # Variasi: top-5, diurutkan frekuensi turun
+        top_vars = sorted(c["members"], key=lambda m: -m[1])[:5]
+        # Session sampel
+        sess_sample = [s for s in list(c["all_sessions"])[:max_sessions_per_topic] if s]
+        # Nearest intent (opsional)
+        nearest_intent = None
+        is_novel = True
+        if _intent_embs is not None and _intent_names:
+            try:
+                sims = [float(_np.dot(c["centroid"], ie)) for ie in _intent_embs]
+                best_idx = max(range(len(sims)), key=lambda k: sims[k])
+                if sims[best_idx] >= _NOVEL_THRESHOLD:
+                    nearest_intent = _intent_names[best_idx]
+                    is_novel = False
+            except Exception:
+                pass
+
+        out.append({
+            "topic": exemplar,
+            "count": c["count"],
+            "variation_count": len(c["members"]),
+            "variations": [{"phrase": p, "count": cnt} for p, cnt in top_vars],
+            "nearest_intent": nearest_intent,
+            "is_novel": is_novel,
+            "sessions": sess_sample,
+        })
+
+    # Urutkan: count turun, lalu variation_count turun
+    out.sort(key=lambda x: (-x["count"], -x["variation_count"]))
+    out = out[:limit]
+
+    _SEMANTIC_CACHE[cache_key] = (out, _now)
+    return out
