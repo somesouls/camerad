@@ -411,6 +411,85 @@ class ConverterEngineTest(unittest.TestCase):
         full_text = " ".join(p.text for p in word_doc.paragraphs)
         self.assertIn("SURAT PERINTAH TUGAS", full_text)
 
+    def test_check_ocr_support(self):
+        support = eng.check_ocr_support()
+        self.assertIn("available", support)
+        self.assertIn("languages", support)
+        self.assertIsInstance(support["available"], bool)
+
+    def test_pdf_to_text_digital(self):
+        doc = fitz.open()
+        p1 = doc.new_page(width=300, height=300)
+        p1.insert_text((30, 50), "Halaman pertama dokumen resmi", fontsize=11)
+        p2 = doc.new_page(width=300, height=300)
+        p2.insert_text((30, 50), "Halaman kedua berisi rincian tarif", fontsize=11)
+        pdf_b = doc.tobytes()
+        doc.close()
+
+        res = eng.pdf_to_text(pdf_b, base_filename="naskah_uji")
+        self.assertEqual(res["total_pages"], 2)
+        self.assertEqual(res["filename"], "naskah_uji.txt")
+        self.assertIn("Halaman pertama dokumen resmi", res["text"])
+        self.assertIn("Halaman kedua berisi rincian tarif", res["text"])
+        self.assertIn("--- Halaman 1 ---", res["text"])
+        self.assertIn("--- Halaman 2 ---", res["text"])
+        self.assertGreater(res["word_count"], 5)
+        self.assertGreater(res["char_count"], 20)
+
+    def test_batch_pdf_to_text(self):
+        doc = fitz.open()
+        p = doc.new_page(width=200, height=200)
+        p.insert_text((20, 40), "Teks dari PDF batch", fontsize=10)
+        pdf_b = doc.tobytes()
+        doc.close()
+
+        res = eng.batch_pdf_to_text([("docA.pdf", pdf_b), ("docB.pdf", pdf_b)])
+        self.assertEqual(res["total_files"], 2)
+        self.assertEqual(len(res["files"]), 2)
+        self.assertIn("docA.pdf", res["combined_text"])
+        self.assertIn("docB.pdf", res["combined_text"])
+        self.assertGreater(len(res["zip_bytes"]), 100)
+
+        # Cek isi zip
+        zf = zipfile.ZipFile(io.BytesIO(res["zip_bytes"]))
+        names = zf.namelist()
+        self.assertIn("docA.txt", names)
+        self.assertIn("docB.txt", names)
+
+    def test_image_to_text_ocr(self):
+        # Buat gambar dengan teks yang jelas
+        from PIL import ImageDraw
+        img = Image.new("RGB", (320, 80), color=(255, 255, 255))
+        d = ImageDraw.Draw(img)
+        d.text((10, 25), "Kring Pajak 1500200", fill=(0, 0, 0))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        img_bytes = buf.getvalue()
+
+        support = eng.check_ocr_support()
+        if support["available"]:
+            res = eng.image_to_text(img_bytes, filename="screenshot_pajak.png", lang="ind+eng")
+            self.assertEqual(res["filename"], "screenshot_pajak.txt")
+            self.assertIn("1500200", res["text"])
+            self.assertGreaterEqual(res["word_count"], 1)
+
+    def test_batch_image_to_text(self):
+        from PIL import ImageDraw
+        img = Image.new("RGB", (250, 60), color=(255, 255, 255))
+        d = ImageDraw.Draw(img)
+        d.text((10, 20), "NPWP 012345", fill=(0, 0, 0))
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        img_bytes = buf.getvalue()
+
+        support = eng.check_ocr_support()
+        if support["available"]:
+            res = eng.batch_image_to_text([("s1.png", img_bytes), ("s2.png", img_bytes)])
+            self.assertEqual(res["total_files"], 2)
+            self.assertIn("s1.png", res["combined_text"])
+            self.assertIn("s2.png", res["combined_text"])
+            self.assertGreater(len(res["zip_bytes"]), 50)
+
 
 if __name__ == "__main__":
     unittest.main()

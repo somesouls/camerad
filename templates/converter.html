@@ -439,6 +439,49 @@
     background: #fff;
     flex-shrink: 0;
   }
+
+  /* Text Extraction & OCR Styles */
+  .cv-textarea {
+    width: 100%; min-height: 280px; max-height: 560px; padding: 14px 16px;
+    border: 1px solid var(--panel-border); border-radius: 10px; background: var(--bg-base, var(--panel-bg));
+    color: var(--text-main); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 13px; line-height: 1.6; resize: vertical; box-sizing: border-box; white-space: pre-wrap; word-break: break-word;
+  }
+  .cv-textarea:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+  .cv-text-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+  .cv-text-stats { font-size: 12.5px; color: var(--text-muted); display: flex; align-items: center; gap: 14px; }
+  .cv-copy-feedback { font-size: 12.5px; font-weight: 600; color: #10b981; margin-left: 8px; transition: opacity .2s; }
+  .cv-paste-hint {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px;
+    background: rgba(16,185,129,0.12); color: #059669; font-size: 12px; font-weight: 600; margin-top: 10px;
+    border: 1px dashed rgba(16,185,129,0.3);
+  }
+  .cv-file-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; margin-bottom: 12px; }
+  .cv-file-chip {
+    display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px;
+    border: 1px solid var(--panel-border); background: var(--ui-hover); font-size: 12px; color: var(--text-main);
+  }
+  .cv-file-chip .thumb {
+    width: 24px; height: 24px; object-fit: cover; border-radius: 4px; background: #fff;
+  }
+  .cv-file-chip-remove { cursor: pointer; color: var(--text-muted); font-weight: bold; padding: 0 4px; border-radius: 4px; }
+  .cv-file-chip-remove:hover { color: #ef4444; background: rgba(239,68,68,0.1); }
+  .cv-tab-sub {
+    display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid var(--panel-border); margin-bottom: 12px; padding-bottom: 6px;
+  }
+  .cv-tab-sub-btn {
+    padding: 5px 12px; border-radius: 6px; border: 1px solid transparent; background: transparent;
+    color: var(--text-muted); font-size: 12px; font-weight: 600; cursor: pointer; transition: all .15s ease;
+  }
+  .cv-tab-sub-btn:hover { color: var(--text-main); background: var(--ui-hover); }
+  .cv-tab-sub-btn.active { background: var(--accent-glow); color: var(--accent); border-color: var(--accent); }
+  .cv-toast {
+    position: fixed; bottom: 24px; right: 24px; padding: 12px 18px; border-radius: 10px;
+    background: #111827; color: #fff; font-size: 13.5px; font-weight: 600; box-shadow: 0 10px 25px rgba(0,0,0,0.25);
+    z-index: 9999; display: flex; align-items: center; gap: 10px; opacity: 0; pointer-events: none;
+    transform: translateY(12px); transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .cv-toast.show { opacity: 1; pointer-events: auto; transform: translateY(0); }
 </style>
 {% endblock %}
 
@@ -448,7 +491,7 @@
     <h1>Converter Dokumen &amp; Data</h1>
     <p>Utilitas konversi dan manipulasi berkas lokal (Excel, CSV, PDF, Gambar) yang dijalankan murni di server internal tanpa mengirim data ke pihak ketiga. Cepat, aman, dan menjaga kerahasiaan dokumen.</p>
     <div class="cv-badges">
-      <span class="cv-badge accent">✓ 14 Alat Aktif</span>
+      <span class="cv-badge accent">✓ 16 Alat Aktif</span>
       <span class="cv-badge">🔒 100% Server Lokal &amp; Privat</span>
       <span class="cv-badge">⚡ Maksimum 50 MB / proses</span>
     </div>
@@ -497,6 +540,12 @@
     </button>
     <button class="cv-tab" data-target="tab-word2pdf" type="button" role="tab">
       <span>📝</span> Word ke PDF
+    </button>
+    <button class="cv-tab" data-target="tab-pdf2text" type="button" role="tab">
+      <span>📄</span> PDF ke Teks
+    </button>
+    <button class="cv-tab" data-target="tab-img2text" type="button" role="tab">
+      <span>🔍</span> Gambar ke Teks (OCR)
     </button>
   </div>
 
@@ -1626,6 +1675,167 @@
       </div>
     </section>
   </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 15: PDF KE TEKS (PDF TO TEXT) -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-pdf2text">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Ekstraksi Teks dari Berkas PDF (Digital &amp; Scan)</span>
+      </div>
+
+      <div class="cv-drop" id="p2tDrop">
+        <input type="file" id="p2tFiles" hidden accept=".pdf" multiple>
+        <div class="icon">📄</div>
+        <div class="big">Tarik &amp; letakkan satu atau beberapa berkas PDF ke sini</div>
+        <div class="sub">atau klik untuk memilih berkas dari komputer (bisa pilih banyak berkas)</div>
+        <div class="formats">Mendukung ekstraksi teks digital langsung &amp; OCR otomatis jika ada halaman scan</div>
+      </div>
+
+      <div id="p2tFilesContainer" style="display:none;margin-top:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <b style="font-size:13px;color:var(--text-main);">Berkas PDF Terpilih (<span id="p2tFileCount">0</span>):</b>
+          <div style="display:flex;gap:8px;">
+            <button class="cv-btn ghost" id="p2tAddMoreBtn" type="button" style="padding:4px 10px;font-size:11.5px;">+ Tambah PDF Lain</button>
+            <button class="cv-btn danger" id="p2tClearBtn" type="button" style="padding:4px 10px;font-size:11.5px;">Bersihkan</button>
+          </div>
+        </div>
+        <div class="cv-file-chips" id="p2tFileChips"></div>
+      </div>
+
+      <div id="p2tOptions" style="display:none;margin-top:16px;">
+        <div class="cv-opt-grid">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="p2tLang">Bahasa Teks / Dokumen:</label>
+            <select class="cv-select" id="p2tLang">
+              <option value="ind+eng">Bahasa Indonesia + Inggris (Rekomendasi)</option>
+              <option value="ind">Bahasa Indonesia Saja</option>
+              <option value="eng">Bahasa Inggris Saja</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label">Opsi Format &amp; Ekstraksi:</label>
+            <label class="cv-check-label"><input type="checkbox" id="p2tUseOcr" checked> Gunakan OCR otomatis jika halaman merupakan scan/gambar</label>
+            <label class="cv-check-label"><input type="checkbox" id="p2tPageSep" checked> Sertakan penanda nomor halaman (--- Halaman X ---)</label>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:10px;">
+          <button class="cv-btn" id="p2tBtn" type="button">
+            <span>🔍 Ekstrak Teks dari PDF</span>
+          </button>
+          <span id="p2tStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="p2tAlert"></div>
+    </section>
+
+    <!-- Hasil Ekstraksi PDF -->
+    <section class="cv-result" id="p2tResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>📝 Teks Hasil Ekstraksi PDF</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="p2tResultMeta"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button class="cv-btn" id="p2tCopyBtn" type="button">📋 Salin Teks (Copy)</button>
+          <button class="cv-btn ghost" id="p2tDownloadBtn" type="button">💾 Unduh .txt</button>
+          <button class="cv-btn ghost" id="p2tDownloadZipBtn" type="button" style="display:none;">📦 Unduh ZIP (.txt per berkas)</button>
+        </div>
+      </div>
+      <div class="cv-tab-sub" id="p2tSubTabs" style="display:none;"></div>
+      <textarea class="cv-textarea" id="p2tTextArea" placeholder="Teks hasil ekstraksi akan muncul di sini..."></textarea>
+      <div class="cv-text-actions" style="margin-top:8px;">
+        <div class="cv-text-stats">
+          <span id="p2tWordStat">0 kata</span> • <span id="p2tCharStat">0 karakter</span>
+          <span class="cv-copy-feedback" id="p2tCopyFeedback"></span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- ========================================================================= -->
+  <!-- TAB 16: GAMBAR KE TEKS (IMAGE TO TEXT / OCR) -->
+  <!-- ========================================================================= -->
+  <div class="cv-panel" id="tab-img2text">
+    <section class="cv-card">
+      <div class="cv-card-title">
+        <span>Ekstraksi Teks dari Gambar &amp; Screenshot (OCR)</span>
+      </div>
+
+      <div class="cv-drop" id="i2tDrop">
+        <input type="file" id="i2tFiles" hidden accept="image/*,.png,.jpg,.jpeg,.webp,.bmp,.tiff" multiple>
+        <div class="icon">🖼️</div>
+        <div class="big">Tarik &amp; letakkan gambar ke sini, atau klik untuk memilih</div>
+        <div class="sub">Mendukung format PNG, JPG/JPEG, WEBP, BMP, TIFF (bisa banyak gambar sekaligus)</div>
+        <div class="cv-paste-hint">📋 <b>TIP CLIPBOARD:</b> Anda bisa langsung menekan <b>Ctrl + V</b> di halaman ini untuk menempel screenshot!</div>
+      </div>
+
+      <div id="i2tFilesContainer" style="display:none;margin-top:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+          <b style="font-size:13px;color:var(--text-main);">Gambar Terpilih / Ditempel (<span id="i2tFileCount">0</span>):</b>
+          <div style="display:flex;gap:8px;">
+            <button class="cv-btn ghost" id="i2tAddMoreBtn" type="button" style="padding:4px 10px;font-size:11.5px;">+ Tambah Gambar Lain</button>
+            <button class="cv-btn danger" id="i2tClearBtn" type="button" style="padding:4px 10px;font-size:11.5px;">Bersihkan</button>
+          </div>
+        </div>
+        <div class="cv-file-chips" id="i2tFileChips"></div>
+      </div>
+
+      <div id="i2tOptions" style="display:none;margin-top:16px;">
+        <div class="cv-opt-grid">
+          <div class="cv-opt-group">
+            <label class="cv-opt-label" for="i2tLang">Bahasa Teks pada Gambar:</label>
+            <select class="cv-select" id="i2tLang">
+              <option value="ind+eng">Bahasa Indonesia + Inggris (Rekomendasi)</option>
+              <option value="ind">Bahasa Indonesia Saja</option>
+              <option value="eng">Bahasa Inggris Saja</option>
+            </select>
+          </div>
+          <div class="cv-opt-group">
+            <label class="cv-opt-label">Optimasi Gambar:</label>
+            <label class="cv-check-label"><input type="checkbox" id="i2tPreprocess" checked> Tingkatkan kontras otomatis (sangat direkomendasikan untuk screenshot/foto)</label>
+          </div>
+        </div>
+
+        <div style="margin-top:20px;display:flex;align-items:center;gap:10px;">
+          <button class="cv-btn" id="i2tBtn" type="button">
+            <span>🔍 Ekstrak Teks via OCR</span>
+          </button>
+          <span id="i2tStatus" style="font-size:13px;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
+      <div class="cv-alert error" id="i2tAlert"></div>
+    </section>
+
+    <!-- Hasil OCR Gambar -->
+    <section class="cv-result" id="i2tResult">
+      <div class="cv-result-hd">
+        <div>
+          <b>📝 Teks Hasil OCR Gambar</b>
+          <div style="font-size:12px;color:var(--text-muted);margin-top:2px;" id="i2tResultMeta"></div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <button class="cv-btn" id="i2tCopyBtn" type="button">📋 Salin Teks (Copy)</button>
+          <button class="cv-btn ghost" id="i2tDownloadBtn" type="button">💾 Unduh .txt</button>
+          <button class="cv-btn ghost" id="i2tDownloadZipBtn" type="button" style="display:none;">📦 Unduh ZIP (.txt per gambar)</button>
+        </div>
+      </div>
+      <div class="cv-tab-sub" id="i2tSubTabs" style="display:none;"></div>
+      <textarea class="cv-textarea" id="i2tTextArea" placeholder="Teks hasil OCR akan muncul di sini..."></textarea>
+      <div class="cv-text-actions" style="margin-top:8px;">
+        <div class="cv-text-stats">
+          <span id="i2tWordStat">0 kata</span> • <span id="i2tCharStat">0 karakter</span>
+          <span class="cv-copy-feedback" id="i2tCopyFeedback"></span>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="cv-toast" id="cvToast"></div>
 </div>
 {% endblock %}
 
@@ -3729,6 +3939,478 @@
 
   $('w2pDownloadBtn').addEventListener('click', () => {
     if (lastW2pBlob && lastW2pFilename) triggerDownload(lastW2pBlob, lastW2pFilename);
+  });
+
+  // ===========================================================================
+  // SHARED UTILITIES: TOAST & COPY & STATS
+  // ===========================================================================
+  function showToast(msg) {
+    const toast = $('cvToast');
+    if (!toast) return;
+    toast.textContent = msg;
+    toast.classList.add('show');
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => {
+      toast.classList.remove('show');
+    }, 3500);
+  }
+
+  async function copyToClipboard(text, btnEl, feedbackEl) {
+    if (!text) {
+      alert('Teks kosong, tidak ada yang dapat disalin.');
+      return;
+    }
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      if (btnEl) {
+        const orig = btnEl.innerHTML;
+        btnEl.innerHTML = '✅ Tersalin!';
+        btnEl.disabled = true;
+        setTimeout(() => {
+          btnEl.innerHTML = orig;
+          btnEl.disabled = false;
+        }, 2200);
+      }
+      if (feedbackEl) {
+        feedbackEl.textContent = '✓ Teks berhasil disalin ke clipboard';
+        setTimeout(() => { feedbackEl.textContent = ''; }, 3000);
+      }
+      showToast('📋 Teks berhasil disalin ke clipboard!');
+    } catch (err) {
+      alert('Gagal menyalin teks: ' + err.message);
+    }
+  }
+
+  function updateTextStats(text, wordEl, charEl) {
+    const words = (text.match(/\b\w+\b/g) || []).length;
+    const chars = text.length;
+    if (wordEl) wordEl.textContent = `${words.toLocaleString()} kata`;
+    if (charEl) charEl.textContent = `${chars.toLocaleString()} karakter`;
+  }
+
+  function downloadTextFile(text, filename) {
+    if (!text) return;
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    triggerDownload(blob, filename || 'teks_ekstraksi.txt');
+  }
+
+  // ===========================================================================
+  // 15. PDF KE TEKS (PDF TO TEXT) LOGIC
+  // ===========================================================================
+  let p2tFilesList = [];
+  let p2tLastResult = null;
+  let p2tCurrentIdx = -1; // -1 = gabungan
+
+  setupDrop($('p2tDrop'), $('p2tFiles'), files => {
+    addP2tFiles(files);
+  });
+
+  $('p2tAddMoreBtn').addEventListener('click', () => $('p2tFiles').click());
+  $('p2tClearBtn').addEventListener('click', () => {
+    p2tFilesList = [];
+    renderP2tChips();
+  });
+
+  function addP2tFiles(files) {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.name.toLowerCase().endsWith('.pdf')) {
+        p2tFilesList.push(f);
+      }
+    }
+    renderP2tChips();
+  }
+
+  function renderP2tChips() {
+    const container = $('p2tFilesContainer');
+    const chipsEl = $('p2tFileChips');
+    const opts = $('p2tOptions');
+    $('p2tFileCount').textContent = p2tFilesList.length;
+
+    if (!p2tFilesList.length) {
+      container.style.display = 'none';
+      opts.style.display = 'none';
+      $('p2tDrop').style.display = 'block';
+      $('p2tResult').classList.remove('show');
+      return;
+    }
+
+    container.style.display = 'block';
+    opts.style.display = 'block';
+    $('p2tDrop').style.display = 'none';
+
+    let html = '';
+    p2tFilesList.forEach((f, idx) => {
+      html += `
+        <div class="cv-file-chip">
+          <span>📄</span>
+          <b>${esc(f.name)}</b>
+          <span style="color:var(--text-muted);font-size:11px;">(${fmtBytes(f.size)})</span>
+          <span class="cv-file-chip-remove" data-idx="${idx}" title="Hapus berkas ini">&times;</span>
+        </div>
+      `;
+    });
+    chipsEl.innerHTML = html;
+
+    chipsEl.querySelectorAll('.cv-file-chip-remove').forEach(el => {
+      el.addEventListener('click', e => {
+        const idx = parseInt(e.target.dataset.idx, 10);
+        p2tFilesList.splice(idx, 1);
+        renderP2tChips();
+      });
+    });
+  }
+
+  $('p2tTextArea').addEventListener('input', () => {
+    updateTextStats($('p2tTextArea').value, $('p2tWordStat'), $('p2tCharStat'));
+  });
+
+  $('p2tBtn').addEventListener('click', async () => {
+    if (!p2tFilesList.length) return;
+
+    const btn = $('p2tBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengekstrak teks dari PDF…';
+    $('p2tAlert').classList.remove('show');
+
+    const fd = new FormData();
+    p2tFilesList.forEach(f => fd.append('files', f));
+    fd.append('lang', $('p2tLang').value);
+    fd.append('use_ocr', $('p2tUseOcr').checked ? '1' : '0');
+    fd.append('page_sep', $('p2tPageSep').checked ? '1' : '0');
+
+    try {
+      const res = await fetch('/api/converter/pdf-to-text', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Ekstraksi teks gagal.');
+
+      p2tLastResult = data;
+      p2tCurrentIdx = -1;
+
+      $('p2tResult').classList.add('show');
+      $('p2tResultMeta').textContent = `${data.total_files} berkas diproses • ${data.total_words.toLocaleString()} kata • ${data.total_chars.toLocaleString()} karakter total`;
+
+      renderP2tSubTabs();
+      showP2tTextForCurrentTab();
+
+      $('p2tDownloadZipBtn').style.display = data.total_files > 1 ? 'inline-flex' : 'none';
+      showToast(`✓ Berhasil mengekstrak ${data.total_words.toLocaleString()} kata dari PDF!`);
+    } catch (err) {
+      $('p2tAlert').textContent = err.message;
+      $('p2tAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>🔍 Ekstrak Teks dari PDF</span>';
+    }
+  });
+
+  function renderP2tSubTabs() {
+    const subTabs = $('p2tSubTabs');
+    if (!p2tLastResult || p2tLastResult.total_files <= 1) {
+      subTabs.style.display = 'none';
+      return;
+    }
+    subTabs.style.display = 'flex';
+    let html = `<button class="cv-tab-sub-btn ${p2tCurrentIdx === -1 ? 'active' : ''}" data-idx="-1" type="button">Semua Teks (Gabungan)</button>`;
+    p2tLastResult.files.forEach((f, idx) => {
+      html += `<button class="cv-tab-sub-btn ${p2tCurrentIdx === idx ? 'active' : ''}" data-idx="${idx}" type="button">${esc(f.original_name)}</button>`;
+    });
+    subTabs.innerHTML = html;
+
+    subTabs.querySelectorAll('.cv-tab-sub-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        p2tCurrentIdx = parseInt(b.dataset.idx, 10);
+        renderP2tSubTabs();
+        showP2tTextForCurrentTab();
+      });
+    });
+  }
+
+  function showP2tTextForCurrentTab() {
+    if (!p2tLastResult) return;
+    const ta = $('p2tTextArea');
+    if (p2tCurrentIdx === -1) {
+      ta.value = p2tLastResult.combined_text;
+    } else {
+      const f = p2tLastResult.files[p2tCurrentIdx];
+      ta.value = f ? f.text : '';
+    }
+    updateTextStats(ta.value, $('p2tWordStat'), $('p2tCharStat'));
+  }
+
+  $('p2tCopyBtn').addEventListener('click', () => {
+    copyToClipboard($('p2tTextArea').value, $('p2tCopyBtn'), $('p2tCopyFeedback'));
+  });
+
+  $('p2tDownloadBtn').addEventListener('click', () => {
+    let fname = 'teks_pdf.txt';
+    if (p2tLastResult) {
+      if (p2tCurrentIdx === -1) {
+        fname = p2tLastResult.total_files === 1 ? p2tLastResult.files[0].filename : 'semua_teks_pdf_gabungan.txt';
+      } else {
+        const f = p2tLastResult.files[p2tCurrentIdx];
+        if (f) fname = f.filename;
+      }
+    }
+    downloadTextFile($('p2tTextArea').value, fname);
+  });
+
+  $('p2tDownloadZipBtn').addEventListener('click', async () => {
+    if (!p2tFilesList.length) return;
+    const btn = $('p2tDownloadZipBtn');
+    btn.disabled = true;
+    const oldText = btn.innerHTML;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengunduh ZIP…';
+
+    const fd = new FormData();
+    p2tFilesList.forEach(f => fd.append('files', f));
+    fd.append('lang', $('p2tLang').value);
+    fd.append('use_ocr', $('p2tUseOcr').checked ? '1' : '0');
+    fd.append('page_sep', $('p2tPageSep').checked ? '1' : '0');
+
+    try {
+      const res = await fetch('/api/converter/pdf-to-text/download-zip', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Gagal mengunduh ZIP teks.');
+      const blob = await res.blob();
+      triggerDownload(blob, 'teks_ekstraksi_pdf.zip');
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = oldText;
+    }
+  });
+
+  // ===========================================================================
+  // 16. GAMBAR KE TEKS (IMAGE TO TEXT / OCR) LOGIC & CLIPBOARD PASTE
+  // ===========================================================================
+  let i2tFilesList = [];
+  let i2tLastResult = null;
+  let i2tCurrentIdx = -1;
+
+  setupDrop($('i2tDrop'), $('i2tFiles'), files => {
+    addI2tFiles(files);
+  });
+
+  $('i2tAddMoreBtn').addEventListener('click', () => $('i2tFiles').click());
+  $('i2tClearBtn').addEventListener('click', () => {
+    i2tFilesList = [];
+    renderI2tChips();
+  });
+
+  function addI2tFiles(files) {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (f.type.startsWith('image/') || /\.(png|jpe?g|webp|bmp|tiff?)$/i.test(f.name)) {
+        i2tFilesList.push(f);
+      }
+    }
+    renderI2tChips();
+  }
+
+  function renderI2tChips() {
+    const container = $('i2tFilesContainer');
+    const chipsEl = $('i2tFileChips');
+    const opts = $('i2tOptions');
+    $('i2tFileCount').textContent = i2tFilesList.length;
+
+    if (!i2tFilesList.length) {
+      container.style.display = 'none';
+      opts.style.display = 'none';
+      $('i2tDrop').style.display = 'block';
+      $('i2tResult').classList.remove('show');
+      return;
+    }
+
+    container.style.display = 'block';
+    opts.style.display = 'block';
+    $('i2tDrop').style.display = 'none';
+
+    let html = '';
+    i2tFilesList.forEach((f, idx) => {
+      const thumbUrl = URL.createObjectURL(f);
+      html += `
+        <div class="cv-file-chip">
+          <img class="thumb" src="${thumbUrl}" alt="thumb">
+          <b>${esc(f.name)}</b>
+          <span style="color:var(--text-muted);font-size:11px;">(${fmtBytes(f.size)})</span>
+          <span class="cv-file-chip-remove" data-idx="${idx}" title="Hapus gambar ini">&times;</span>
+        </div>
+      `;
+    });
+    chipsEl.innerHTML = html;
+
+    chipsEl.querySelectorAll('.cv-file-chip-remove').forEach(el => {
+      el.addEventListener('click', e => {
+        const idx = parseInt(e.target.dataset.idx, 10);
+        i2tFilesList.splice(idx, 1);
+        renderI2tChips();
+      });
+    });
+  }
+
+  // GLOBAL CLIPBOARD PASTE LISTENER (Ctrl + V / Snipping Tool / Screenshot)
+  window.addEventListener('paste', e => {
+    if (!e.clipboardData || !e.clipboardData.items) return;
+    const items = e.clipboardData.items;
+    let addedCount = 0;
+
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (item.type && item.type.indexOf('image') !== -1) {
+        const blob = item.getAsFile();
+        if (blob) {
+          const now = new Date();
+          const pad = n => String(n).padStart(2, '0');
+          const timeStr = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+          const ext = blob.type === 'image/jpeg' ? 'jpg' : 'png';
+          const fname = `screenshot_${timeStr}${addedCount > 0 ? '_' + (addedCount+1) : ''}.${ext}`;
+          const file = new File([blob], fname, { type: blob.type || 'image/png' });
+          i2tFilesList.push(file);
+          addedCount++;
+        }
+      }
+    }
+
+    if (addedCount > 0) {
+      renderI2tChips();
+      // Auto-switch to Gambar ke Teks tab
+      const imgTabBtn = document.querySelector('.cv-tab[data-target="tab-img2text"]');
+      if (imgTabBtn && !imgTabBtn.classList.contains('active')) {
+        imgTabBtn.click();
+      }
+      showToast(`📸 ${addedCount} gambar screenshot dari clipboard berhasil ditempel!`);
+    }
+  });
+
+  $('i2tTextArea').addEventListener('input', () => {
+    updateTextStats($('i2tTextArea').value, $('i2tWordStat'), $('i2tCharStat'));
+  });
+
+  $('i2tBtn').addEventListener('click', async () => {
+    if (!i2tFilesList.length) return;
+
+    const btn = $('i2tBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengekstrak teks via OCR…';
+    $('i2tAlert').classList.remove('show');
+
+    const fd = new FormData();
+    i2tFilesList.forEach(f => fd.append('files', f));
+    fd.append('lang', $('i2tLang').value);
+    fd.append('preprocess', $('i2tPreprocess').checked ? '1' : '0');
+
+    try {
+      const res = await fetch('/api/converter/image-to-text', { method: 'POST', body: fd });
+      const data = await res.json();
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Ekstraksi OCR gambar gagal.');
+
+      i2tLastResult = data;
+      i2tCurrentIdx = -1;
+
+      $('i2tResult').classList.add('show');
+      $('i2tResultMeta').textContent = `${data.total_files} gambar diproses • ${data.total_words.toLocaleString()} kata • ${data.total_chars.toLocaleString()} karakter total`;
+
+      renderI2tSubTabs();
+      showI2tTextForCurrentTab();
+
+      $('i2tDownloadZipBtn').style.display = data.total_files > 1 ? 'inline-flex' : 'none';
+      showToast(`✓ Berhasil mengekstrak ${data.total_words.toLocaleString()} kata dari gambar!`);
+    } catch (err) {
+      $('i2tAlert').textContent = err.message;
+      $('i2tAlert').classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>🔍 Ekstrak Teks via OCR</span>';
+    }
+  });
+
+  function renderI2tSubTabs() {
+    const subTabs = $('i2tSubTabs');
+    if (!i2tLastResult || i2tLastResult.total_files <= 1) {
+      subTabs.style.display = 'none';
+      return;
+    }
+    subTabs.style.display = 'flex';
+    let html = `<button class="cv-tab-sub-btn ${i2tCurrentIdx === -1 ? 'active' : ''}" data-idx="-1" type="button">Semua Teks (Gabungan)</button>`;
+    i2tLastResult.files.forEach((f, idx) => {
+      html += `<button class="cv-tab-sub-btn ${i2tCurrentIdx === idx ? 'active' : ''}" data-idx="${idx}" type="button">${esc(f.original_name)}</button>`;
+    });
+    subTabs.innerHTML = html;
+
+    subTabs.querySelectorAll('.cv-tab-sub-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        i2tCurrentIdx = parseInt(b.dataset.idx, 10);
+        renderI2tSubTabs();
+        showI2tTextForCurrentTab();
+      });
+    });
+  }
+
+  function showI2tTextForCurrentTab() {
+    if (!i2tLastResult) return;
+    const ta = $('i2tTextArea');
+    if (i2tCurrentIdx === -1) {
+      ta.value = i2tLastResult.combined_text;
+    } else {
+      const f = i2tLastResult.files[i2tCurrentIdx];
+      ta.value = f ? f.text : '';
+    }
+    updateTextStats(ta.value, $('i2tWordStat'), $('i2tCharStat'));
+  }
+
+  $('i2tCopyBtn').addEventListener('click', () => {
+    copyToClipboard($('i2tTextArea').value, $('i2tCopyBtn'), $('i2tCopyFeedback'));
+  });
+
+  $('i2tDownloadBtn').addEventListener('click', () => {
+    let fname = 'teks_ocr.txt';
+    if (i2tLastResult) {
+      if (i2tCurrentIdx === -1) {
+        fname = i2tLastResult.total_files === 1 ? i2tLastResult.files[0].filename : 'semua_teks_gambar_gabungan.txt';
+      } else {
+        const f = i2tLastResult.files[i2tCurrentIdx];
+        if (f) fname = f.filename;
+      }
+    }
+    downloadTextFile($('i2tTextArea').value, fname);
+  });
+
+  $('i2tDownloadZipBtn').addEventListener('click', async () => {
+    if (!i2tFilesList.length) return;
+    const btn = $('i2tDownloadZipBtn');
+    btn.disabled = true;
+    const oldText = btn.innerHTML;
+    btn.innerHTML = '<span class="cv-spin"></span> Mengunduh ZIP…';
+
+    const fd = new FormData();
+    i2tFilesList.forEach(f => fd.append('files', f));
+    fd.append('lang', $('i2tLang').value);
+    fd.append('preprocess', $('i2tPreprocess').checked ? '1' : '0');
+
+    try {
+      const res = await fetch('/api/converter/image-to-text/download-zip', { method: 'POST', body: fd });
+      if (!res.ok) throw new Error('Gagal mengunduh ZIP teks.');
+      const blob = await res.blob();
+      triggerDownload(blob, 'teks_ekstraksi_gambar.zip');
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = oldText;
+    }
   });
 
 })();

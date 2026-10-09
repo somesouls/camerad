@@ -566,5 +566,158 @@ def register(app, *, render_page):
         except Exception as e:
             return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
 
+    # ---------- STATUS DUKUNGAN OCR ----------
+    @app.get("/api/converter/ocr-status")
+    async def api_ocr_status():
+        try:
+            status = await run_in_threadpool(engine.check_ocr_support)
+            return JSONResponse({"ok": True, **status})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    # ---------- 14. PDF KE TEKS (PDF TO TEXT) ----------
+    @app.post("/api/converter/pdf-to-text")
+    async def api_pdf_to_text(request: Request):
+        try:
+            form = await request.form()
+            files_up = form.getlist("files")
+            if not files_up:
+                single_up = form.get("file")
+                if single_up:
+                    files_up = [single_up]
+
+            if not files_up:
+                return JSONResponse({"ok": False, "error": "Pilih minimal 1 berkas PDF untuk diekstrak teksnya."}, status_code=400)
+
+            pdf_list = []
+            for up in files_up:
+                content = await _read_upload(up)
+                pdf_list.append((up.filename or "dokumen.pdf", content))
+
+            lang = str(form.get("lang") or "ind+eng").strip()
+            use_ocr = str(form.get("use_ocr", "1")).lower() in ("1", "true", "yes")
+            page_sep = str(form.get("page_sep", "1")).lower() in ("1", "true", "yes")
+
+            result = await run_in_threadpool(
+                engine.batch_pdf_to_text,
+                pdf_list,
+                use_ocr=use_ocr,
+                lang=lang,
+                page_sep=page_sep,
+            )
+
+            # Jangan kembalikan zip_bytes mentah dalam respons JSON
+            result_clean = {k: v for k, v in result.items() if k != "zip_bytes"}
+            return JSONResponse({"ok": True, **result_clean})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/converter/pdf-to-text/download-zip")
+    async def api_pdf_to_text_download_zip(request: Request):
+        try:
+            form = await request.form()
+            files_up = form.getlist("files")
+            if not files_up:
+                single_up = form.get("file")
+                if single_up:
+                    files_up = [single_up]
+
+            if not files_up:
+                return JSONResponse({"ok": False, "error": "Pilih minimal 1 berkas PDF."}, status_code=400)
+
+            pdf_list = []
+            for up in files_up:
+                content = await _read_upload(up)
+                pdf_list.append((up.filename or "dokumen.pdf", content))
+
+            lang = str(form.get("lang") or "ind+eng").strip()
+            use_ocr = str(form.get("use_ocr", "1")).lower() in ("1", "true", "yes")
+            page_sep = str(form.get("page_sep", "1")).lower() in ("1", "true", "yes")
+
+            result = await run_in_threadpool(
+                engine.batch_pdf_to_text,
+                pdf_list,
+                use_ocr=use_ocr,
+                lang=lang,
+                page_sep=page_sep,
+            )
+
+            zip_bytes = result.get("zip_bytes") or b""
+            fname = result.get("zip_filename") or "teks_ekstraksi_pdf.zip"
+            headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+            return Response(content=zip_bytes, media_type="application/zip", headers=headers)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    # ---------- 15. GAMBAR KE TEKS (IMAGE TO TEXT / OCR) ----------
+    @app.post("/api/converter/image-to-text")
+    async def api_image_to_text(request: Request):
+        try:
+            form = await request.form()
+            files_up = form.getlist("files")
+            if not files_up:
+                single_up = form.get("file")
+                if single_up:
+                    files_up = [single_up]
+
+            if not files_up:
+                return JSONResponse({"ok": False, "error": "Pilih minimal 1 gambar atau tempel screenshot dari clipboard."}, status_code=400)
+
+            img_list = []
+            for up in files_up:
+                content = await _read_upload(up)
+                img_list.append((up.filename or "gambar.png", content))
+
+            lang = str(form.get("lang") or "ind+eng").strip()
+            preprocess = str(form.get("preprocess", "1")).lower() in ("1", "true", "yes")
+
+            result = await run_in_threadpool(
+                engine.batch_image_to_text,
+                img_list,
+                lang=lang,
+                preprocess=preprocess,
+            )
+
+            result_clean = {k: v for k, v in result.items() if k != "zip_bytes"}
+            return JSONResponse({"ok": True, **result_clean})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/converter/image-to-text/download-zip")
+    async def api_image_to_text_download_zip(request: Request):
+        try:
+            form = await request.form()
+            files_up = form.getlist("files")
+            if not files_up:
+                single_up = form.get("file")
+                if single_up:
+                    files_up = [single_up]
+
+            if not files_up:
+                return JSONResponse({"ok": False, "error": "Pilih minimal 1 gambar."}, status_code=400)
+
+            img_list = []
+            for up in files_up:
+                content = await _read_upload(up)
+                img_list.append((up.filename or "gambar.png", content))
+
+            lang = str(form.get("lang") or "ind+eng").strip()
+            preprocess = str(form.get("preprocess", "1")).lower() in ("1", "true", "yes")
+
+            result = await run_in_threadpool(
+                engine.batch_image_to_text,
+                img_list,
+                lang=lang,
+                preprocess=preprocess,
+            )
+
+            zip_bytes = result.get("zip_bytes") or b""
+            fname = result.get("zip_filename") or "teks_ekstraksi_gambar.zip"
+            headers = {"Content-Disposition": f'attachment; filename="{fname}"'}
+            return Response(content=zip_bytes, media_type="application/zip", headers=headers)
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+
 
 

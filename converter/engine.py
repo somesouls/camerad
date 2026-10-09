@@ -17,13 +17,21 @@ import csv
 import base64
 import zipfile
 import datetime
+import os
+import shutil
 import html
 from typing import List, Tuple, Dict, Any, Optional, Iterator
 
 import openpyxl
 import pypdf
 import fitz
-from PIL import Image
+from PIL import Image, ImageOps
+
+try:
+    import pytesseract
+    HAVE_PYTESSERACT = True
+except ImportError:
+    HAVE_PYTESSERACT = False
 
 try:
     import docx
@@ -1696,6 +1704,321 @@ def docx_to_pdf(
             "tables_processed": t_count,
         },
     )
+
+
+# ==============================================================================
+# 15 & 16. PDF TO TEXT & IMAGE TO TEXT (OCR) ENGINE
+# ==============================================================================
+
+TESSERACT_CANDIDATE_PATHS = [
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+    r"C:\Users\USER\AppData\Local\Programs\Tesseract-OCR\tesseract.exe",
+    r"C:\tesseract\tesseract.exe",
+    "/usr/bin/tesseract",
+    "/usr/local/bin/tesseract",
+]
+
+_OCR_INITIALIZED = False
+_OCR_AVAILABLE = False
+_OCR_LANGUAGES: List[str] = []
+
+
+def init_tesseract() -> Tuple[bool, List[str]]:
+    """Inisialisasi path binary tesseract dan periksa bahasa OCR yang tersedia."""
+    global _OCR_INITIALIZED, _OCR_AVAILABLE, _OCR_LANGUAGES
+    if _OCR_INITIALIZED:
+        return _OCR_AVAILABLE, _OCR_LANGUAGES
+
+    _OCR_INITIALIZED = True
+    if not HAVE_PYTESSERACT:
+        _OCR_AVAILABLE = False
+        _OCR_LANGUAGES = []
+        return False, []
+
+    cmd = shutil.which("tesseract")
+    if not cmd:
+        for p in TESSERACT_CANDIDATE_PATHS:
+            if os.path.isfile(p):
+                cmd = p
+                break
+
+    if cmd:
+        try:
+            pytesseract.pytesseract.tesseract_cmd = cmd
+            langs = pytesseract.get_languages()
+            _OCR_AVAILABLE = True
+            _OCR_LANGUAGES = langs or ["eng"]
+            return True, _OCR_LANGUAGES
+        except Exception:
+            _OCR_AVAILABLE = False
+            _OCR_LANGUAGES = []
+            return False, []
+    else:
+        _OCR_AVAILABLE = False
+        _OCR_LANGUAGES = []
+        return False, []
+
+
+def check_ocr_support() -> Dict[str, Any]:
+    """Cek ketersediaan OCR dan bahasa yang didukung untuk frontend / API."""
+    avail, langs = init_tesseract()
+    return {
+        "available": avail,
+        "languages": langs,
+        "has_indonesian": "ind" in langs,
+        "has_english": "eng" in langs,
+    }
+
+
+def _resolve_ocr_lang(requested_lang: str) -> str:
+    avail, langs = init_tesseract()
+    if not avail or not langs:
+        return "eng"
+    req = (requested_lang or "ind+eng").strip().lower()
+    if req in ("ind+eng", "eng+ind"):
+        has_ind = "ind" in langs
+        has_eng = "eng" in langs
+        if has_ind and has_eng:
+            return "ind+eng"
+        elif has_ind:
+            return "ind"
+        elif has_eng:
+            return "eng"
+        return langs[0]
+    elif req in ("ind", "indonesia"):
+        return "ind" if "ind" in langs else ("eng" if "eng" in langs else langs[0])
+    elif req in ("eng", "english"):
+        return "eng" if "eng" in langs else langs[0]
+    return req if req in langs else langs[0]
+
+
+def pdf_to_text(
+    data: bytes,
+    base_filename: str = "dokumen",
+    use_ocr: bool = True,
+    lang: str = "ind+eng",
+    page_sep: bool = True,
+) -> Dict[str, Any]:
+    """Ekstraksi teks dari berkas PDF.
+    
+    Mendukung ekstraksi teks digital (PyMuPDF) dan fallback OCR otomatis (Tesseract)
+    untuk halaman yang berupa pindaian (scan) / gambar.
+    """
+    if not data or len(data) < 4:
+        raise ValueError("Data PDF kosong atau tidak valid.")
+
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+    except Exception as e:
+        raise ValueError(f"Gagal membuka berkas PDF: {e}")
+
+    total_pages = len(doc)
+    if total_pages == 0:
+        doc.close()
+        raise ValueError("Berkas PDF tidak memiliki halaman.")
+
+    eff_lang = _resolve_ocr_lang(lang)
+    ocr_avail, _ = init_tesseract()
+
+    pages_results = []
+    ocr_pages_count = 0
+
+    for idx, page in enumerate(doc, start=1):
+        txt = (page.get_text("text") or "").strip()
+        used_ocr = False
+
+        # Fallback ke OCR bila teks digital kosong / sangat pendek dan OCR diizinkan
+        if (not txt or len(txt) < 15) and use_ocr and ocr_avail:
+            try:
+                pix = page.get_pixmap(dpi=150)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                ocr_txt = (pytesseract.image_to_string(img, lang=eff_lang) or "").strip()
+                if ocr_txt:
+                    txt = ocr_txt
+                    used_ocr = True
+                    ocr_pages_count += 1
+            except Exception:
+                pass
+
+        pages_results.append({
+            "page_num": idx,
+            "text": txt,
+            "used_ocr": used_ocr,
+        })
+
+    doc.close()
+
+    full_text_parts = []
+    for p in pages_results:
+        p_txt = p["text"]
+        if page_sep and total_pages > 1:
+            header = f"--- Halaman {p['page_num']} ---"
+            if p["used_ocr"]:
+                header += " [OCR]"
+            full_text_parts.append(f"{header}\n{p_txt}" if p_txt else f"{header}\n(Halaman kosong / tidak ada teks)")
+        else:
+            if p_txt:
+                full_text_parts.append(p_txt)
+
+    full_text = "\n\n".join(full_text_parts).strip()
+    word_count = len(re.findall(r"\b\w+\b", full_text))
+    char_count = len(full_text)
+
+    safe_base = re.sub(r'[\\/*?:"<>|]', "_", base_filename.replace(".pdf", "")).strip() or "dokumen"
+    return {
+        "filename": f"{safe_base}.txt",
+        "original_name": base_filename,
+        "text": full_text,
+        "total_pages": total_pages,
+        "ocr_pages": ocr_pages_count,
+        "word_count": word_count,
+        "char_count": char_count,
+        "pages": pages_results,
+    }
+
+
+def batch_pdf_to_text(
+    pdf_list: List[Tuple[str, bytes]],
+    use_ocr: bool = True,
+    lang: str = "ind+eng",
+    page_sep: bool = True,
+) -> Dict[str, Any]:
+    """Ekstraksi teks dari beberapa berkas PDF sekaligus (Batch Processing)."""
+    if not pdf_list:
+        raise ValueError("Tidak ada berkas PDF yang dipilih.")
+
+    file_results = []
+    for fname, b in pdf_list:
+        res = pdf_to_text(b, base_filename=fname, use_ocr=use_ocr, lang=lang, page_sep=page_sep)
+        file_results.append(res)
+
+    combined_parts = []
+    for idx, f in enumerate(file_results, start=1):
+        header = f"================================================================================\nBERKAS [{idx}/{len(file_results)}]: {f['original_name']} ({f['total_pages']} halaman, {f['word_count']} kata)\n================================================================================"
+        combined_parts.append(f"{header}\n\n{f['text']}")
+    combined_text = "\n\n\n".join(combined_parts)
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in file_results:
+            zf.writestr(f["filename"], f["text"].encode("utf-8-sig"))
+        if len(file_results) > 1:
+            zf.writestr("_SEMUA_TEKS_GABUNGAN.txt", combined_text.encode("utf-8-sig"))
+    zip_bytes = zip_buf.getvalue()
+
+    total_words = sum(f["word_count"] for f in file_results)
+    total_chars = sum(f["char_count"] for f in file_results)
+
+    return {
+        "total_files": len(file_results),
+        "files": file_results,
+        "combined_text": combined_text,
+        "total_words": total_words,
+        "total_chars": total_chars,
+        "zip_bytes": zip_bytes,
+        "zip_filename": "teks_ekstraksi_pdf.zip",
+    }
+
+
+def image_to_text(
+    data: bytes,
+    filename: str = "gambar.png",
+    lang: str = "ind+eng",
+    preprocess: bool = True,
+) -> Dict[str, Any]:
+    """Ekstraksi teks dari berkas gambar / screenshot via OCR (Tesseract)."""
+    if not data or len(data) < 4:
+        raise ValueError("Data gambar kosong atau tidak valid.")
+
+    ocr_avail, _ = init_tesseract()
+    if not ocr_avail:
+        raise ValueError("Engine Tesseract OCR tidak tersedia di sistem server.")
+
+    try:
+        img = Image.open(io.BytesIO(data))
+    except Exception as e:
+        raise ValueError(f"Gagal membaca format gambar: {e}")
+
+    # Konversi RGBA / Palette ke RGB dengan background putih
+    if img.mode in ("RGBA", "LA"):
+        bg = Image.new("RGB", img.size, (255, 255, 255))
+        bg.paste(img, mask=img.split()[-1])
+        img = bg
+    elif img.mode != "RGB":
+        img = img.convert("RGB")
+
+    # Preprocessing kontras untuk meningkatkan ketajaman teks/screenshot
+    if preprocess:
+        try:
+            gray = img.convert("L")
+            img_processed = ImageOps.autocontrast(gray, cutoff=2)
+        except Exception:
+            img_processed = img
+    else:
+        img_processed = img
+
+    eff_lang = _resolve_ocr_lang(lang)
+    try:
+        text = (pytesseract.image_to_string(img_processed, lang=eff_lang) or "").strip()
+    except Exception as e:
+        raise ValueError(f"Gagal melakukan proses OCR pada gambar: {e}")
+
+    text = re.sub(r"\r\n|\r", "\n", text)
+    word_count = len(re.findall(r"\b\w+\b", text))
+    char_count = len(text)
+
+    safe_base = re.sub(r'[\\/*?:"<>|]', "_", re.sub(r"\.[^.]+$", "", filename)).strip() or "gambar"
+    return {
+        "filename": f"{safe_base}.txt",
+        "original_name": filename,
+        "text": text,
+        "word_count": word_count,
+        "char_count": char_count,
+        "image_size": f"{img.width}x{img.height}",
+    }
+
+
+def batch_image_to_text(
+    img_list: List[Tuple[str, bytes]],
+    lang: str = "ind+eng",
+    preprocess: bool = True,
+) -> Dict[str, Any]:
+    """Ekstraksi teks dari beberapa berkas gambar sekaligus (termasuk screenshot clipboard)."""
+    if not img_list:
+        raise ValueError("Tidak ada gambar yang dipilih.")
+
+    file_results = []
+    for fname, b in img_list:
+        res = image_to_text(b, filename=fname, lang=lang, preprocess=preprocess)
+        file_results.append(res)
+
+    combined_parts = []
+    for idx, f in enumerate(file_results, start=1):
+        header = f"================================================================================\nGAMBAR [{idx}/{len(file_results)}]: {f['original_name']} ({f['image_size']}, {f['word_count']} kata)\n================================================================================"
+        combined_parts.append(f"{header}\n\n{f['text']}")
+    combined_text = "\n\n\n".join(combined_parts)
+
+    zip_buf = io.BytesIO()
+    with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for f in file_results:
+            zf.writestr(f["filename"], f["text"].encode("utf-8-sig"))
+        if len(file_results) > 1:
+            zf.writestr("_SEMUA_TEKS_GABUNGAN.txt", combined_text.encode("utf-8-sig"))
+    zip_bytes = zip_buf.getvalue()
+
+    total_words = sum(f["word_count"] for f in file_results)
+    total_chars = sum(f["char_count"] for f in file_results)
+
+    return {
+        "total_files": len(file_results),
+        "files": file_results,
+        "combined_text": combined_text,
+        "total_words": total_words,
+        "total_chars": total_chars,
+        "zip_bytes": zip_bytes,
+        "zip_filename": "teks_ekstraksi_gambar.zip",
+    }
 
 
 

@@ -424,12 +424,11 @@ KETENTUAN "MEMENUHI" (dinilai untuk setiap peringkat yang diperiksa):
 4) Isi intent membahas beberapa hal yang masih SATU KONTEKS dan salah satunya
    menjawab. Contoh: intent error login memuat solusi
    "nama pengguna tidak ditemukan" dan user melaporkan hal itu -> menang.
-5) Intent masih memiliki konteks yang sama dengan pertanyaan user.
 
 Jika masih bingung memilih di antara beberapa peringkat, pertimbangkan
 training phrase terdekat (trigger phrase) sebagai penentu tambahan.
 
-Pilih 0 HANYA jika SEMUA peringkat (1-5) sudah diperiksa dan tak ada yang memenuhi.
+Pilih 0 HANYA jika SEMUA peringkat (1-5) sudah diperiksa dan tak ada yang memenuhi, tidak ada yang berhubungan ada tidak ada konteks yang sama.
 
 Pilih 6 jika pertanyaan TIDAK MANDIRI (butuh percakapan sebelumnya), mis.:
 jawaban singkat (ya, tidak, sudah, belum, oke, "masih tidak bisa");
@@ -442,6 +441,7 @@ LARANGAN:
 - Jangan memilih hanya karena kebetulan mirip training phrase.
 - Jangan mengurutkan ulang kandidat; hormati urutan peringkat sebagai prior kuat.
 - Jangan turun ke peringkat lebih rendah tanpa bukti jelas peringkat atas gagal.
+- Jangan paksakan selalu memilih 1-5 bila tidak ada yang cocok; pilih 0 bila semua gagal.
 
 OUTPUT: keluarkan TEPAT satu angka (0, 1, 2, 3, 4, 5, atau 6). Tanpa penjelasan.
 """.strip()

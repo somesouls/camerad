@@ -1108,68 +1108,6 @@ def _is_noise(text):
     return False
 
 
-# --- Normalisasi teks untuk D7 (typo / slang / pengulangan huruf) ---
-_SLANG_MAP = {
-    "gk": "tidak", "ga": "tidak", "gak": "tidak", "nggak": "tidak", "ngga": "tidak",
-    "tdk": "tidak", "g": "tidak", "yg": "yang", "dgn": "dengan", "dg": "dengan",
-    "utk": "untuk", "untk": "untuk", "bgmn": "bagaimana", "gmn": "bagaimana",
-    "gimana": "bagaimana", "gmana": "bagaimana", "bagaimna": "bagaimana",
-    "knp": "kenapa", "kenapa": "kenapa", "knapa": "kenapa", "blm": "belum",
-    "udh": "sudah", "udah": "sudah", "sdh": "sudah", "sy": "saya", "aq": "saya",
-    "aku": "saya", "pw": "password", "pass": "password", "pswd": "password",
-    "psswrd": "password", "passwd": "password", "akun": "akun", "acc": "akun",
-    "account": "akun", "tlg": "tolong", "tolongin": "tolong", "mohon": "tolong",
-    "bs": "bisa", "bisakah": "bisa", "dpt": "dapat", "caranya": "cara",
-    "gmna": "bagaimana", "dmn": "dimana", "dimna": "dimana", "kpn": "kapan",
-    "brp": "berapa", "berapakah": "berapa", "apakah": "apa", "pls": "tolong",
-    "plis": "tolong", "dong": "", "deh": "", "sih": "", "nih": "", "ya": "",
-    "kak": "", "min": "", "admin": "", "gan": "", "mas": "", "mbak": "",
-}
-_FILLER_PREFIX = re.compile(r"^(halo|hai|hallo|hi|permisi|selamat (pagi|siang|sore|malam))\b[\s,\.!]*")
-
-
-def _d7_normalize(text):
-    """Normalisasi untuk pengelompokan: lowercase, buang tanda baca & emoji,
-    ringkas huruf berulang ('passwordddd' -> 'passwordd'; sisanya digabung lewat typo-merge),
-    ganti singkatan/slang umum, buang kata pengisi."""
-    t = (text or "").lower().strip()
-    t = _FILLER_PREFIX.sub("", t)
-    t = re.sub(r"[^\w\s]", " ", t, flags=re.UNICODE)
-    t = re.sub(r"_", " ", t)
-    words = []
-    for w in t.split():
-        w = re.sub(r"(.)\1{2,}", r"\1\1", w)          # >=3 huruf sama -> 2
-        w = _SLANG_MAP.get(w, w)
-        if w:
-            words.append(w)
-    return " ".join(words)
-
-
-def _d7_merge_typos(keys, freq_by_key, ratio=0.88):
-    """Gabungkan kunci ternormalisasi yang nyaris identik secara ejaan
-    (typo satu-dua huruf). Mengembalikan dict key -> key kanonik (yang paling sering)."""
-    import difflib
-    order = sorted(keys, key=lambda k: -freq_by_key[k])
-    canon = {}
-    buckets: dict = {}          # panjang -> list kanonik
-    for k in order:
-        match = None
-        for L in (len(k) - 2, len(k) - 1, len(k), len(k) + 1, len(k) + 2):
-            for c in buckets.get(L, ()):
-                sm = difflib.SequenceMatcher(None, k, c)
-                if sm.real_quick_ratio() >= ratio and sm.quick_ratio() >= ratio and sm.ratio() >= ratio:
-                    match = c
-                    break
-            if match:
-                break
-        if match:
-            canon[k] = match
-        else:
-            canon[k] = k
-            buckets.setdefault(len(k), []).append(k)
-    return canon
-
-
 def fallback_semantic_topics(
     conn,
     start=None,
@@ -1181,28 +1119,35 @@ def fallback_semantic_topics(
     max_phrases=2000,
     max_sessions_per_topic=8,
 ):
-    """Mengelompokkan pertanyaan fallback berdasarkan makna/arti.
+    """Mengelompokkan pertanyaan fallback berdasarkan makna/arti (bukan keyword eksak).
 
-    Pipeline:
-      1. Normalisasi teks (typo, slang, huruf berulang, tanda baca) lalu
-         gabungkan kalimat yang identik setelah normalisasi.
-      2. Embedding SentenceTransformer pada teks ternormalisasi.
-      3. Agglomerative clustering (average-linkage, jarak cosine) — tidak ada
-         centroid drift dan tidak bergantung urutan data.
-      4. Output: topic, count (total kejadian), variation_count, variations.
+    Output format (sesuai ekspektasi JS deflection.html):
+        [
+            {
+                "topic":          str,   # kalimat representatif (exemplar)
+                "count":          int,   # total kemunculan semua variasi kalimat
+                "variation_count": int,  # jumlah variasi kalimat unik dalam topik
+                "variations":     [{"phrase": str, "count": int}, ...],  # top-5
+                "nearest_intent": str|None,   # intent terdekat (bila ada)
+                "is_novel":       bool,  # True = belum terlayani intent eksisting
+                "sessions":       [str], # contoh session_id terkait (max 8)
+            },
+            ...
+        ]
 
     Fail-soft: mengembalikan [] bila model embedding tidak tersedia.
+    Hanya memproses user_phrase; bot_response TIDAK diikutsertakan.
     """
     import time as _time
 
-    cache_key = (start, end, lang, threshold, min_size, limit, "v2")
+    cache_key = (start, end, lang, threshold, min_size, limit)
     _now = _time.monotonic()
     if cache_key in _SEMANTIC_CACHE:
         result, ts = _SEMANTIC_CACHE[cache_key]
         if _now - ts < _CACHE_TTL_SECS:
             return result
 
-    # --- 1. Ambil pertanyaan fallback ---
+    # --- 1. Ambil semua pertanyaan fallback pada rentang waktu ---
     where, params = _range_where(start, end)
     where = _lang_where(where, params, lang)
     extra = (" AND " if where else " WHERE ") + "is_fallback=1 AND user_phrase IS NOT NULL"
@@ -1211,119 +1156,86 @@ def fallback_semantic_topics(
         params,
     ).fetchall()
 
-    # --- 2. Frekuensi per kalimat mentah ---
-    raw_freq: dict = {}
+    # --- 2. Hitung frekuensi per kalimat unik, kumpulkan session_id ---
+    freq: dict = {}     # phrase -> count
+    phrase_sess: dict = {}  # phrase -> set of session_id
     for r in rows:
-        raw = re.sub(r"\s+", " ", (r["user_phrase"] or "").strip())
+        raw = (r["user_phrase"] or "").strip()
         if _is_noise(raw):
             continue
-        raw_freq[raw] = raw_freq.get(raw, 0) + 1
-    if not raw_freq:
+        freq[raw] = freq.get(raw, 0) + 1
+        phrase_sess.setdefault(raw, set()).add(r["session_id"] or "")
+
+    if not freq:
         _SEMANTIC_CACHE[cache_key] = ([], _now)
         return []
 
-    # --- 3. Normalisasi + gabung typo -> 'unit' (kunci ternormalisasi) ---
-    norm_of = {}
-    key_freq: dict = {}
-    for raw, c in raw_freq.items():
-        k = _d7_normalize(raw)
-        if len(k) < 3:
-            continue
-        norm_of[raw] = k
-        key_freq[k] = key_freq.get(k, 0) + c
-    if not key_freq:
-        _SEMANTIC_CACHE[cache_key] = ([], _now)
-        return []
-    canon = _d7_merge_typos(list(key_freq.keys()), key_freq)
-    unit_freq: dict = {}
-    for k, c in key_freq.items():
-        unit_freq[canon[k]] = unit_freq.get(canon[k], 0) + c
-    units = sorted(unit_freq, key=lambda u: -unit_freq[u])[:max_phrases]
-    unit_idx = {u: i for i, u in enumerate(units)}
+    # Batasi jumlah frasa unik (urutkan dari yang paling sering dulu)
+    phrase_list = sorted(freq.keys(), key=lambda p: -freq[p])[:max_phrases]
 
-    # unit -> daftar kalimat mentah asli (untuk tampilan variasi)
-    unit_raws: dict = {u: [] for u in units}
-    for raw, k in norm_of.items():
-        u = canon[k]
-        if u in unit_raws:
-            unit_raws[u].append((raw, raw_freq[raw]))
-
-    # --- 4. Embedding ---
+    # --- 3. Embedding semantik (knowledge.semantic) ---
     try:
         from knowledge import semantic as _ks
         import numpy as _np
         if not _ks.is_available():
             _SEMANTIC_CACHE[cache_key] = ([], _now)
             return []
-        embs = _ks._encode(units)
+        embs = _ks._encode(phrase_list)
         if embs is None:
             _SEMANTIC_CACHE[cache_key] = ([], _now)
             return []
-        embs = _np.asarray(embs, dtype="float32")
-        nrm = _np.linalg.norm(embs, axis=1, keepdims=True)
-        embs = embs / _np.where(nrm == 0, 1.0, nrm)
     except Exception:
         _SEMANTIC_CACHE[cache_key] = ([], _now)
         return []
 
-    # --- 5. Clustering ---
-    n = len(units)
-    labels = None
-    if n == 1:
-        labels = _np.array([0])
-    else:
-        try:
-            from scipy.cluster.hierarchy import linkage, fcluster
-            from scipy.spatial.distance import pdist
-            Z = linkage(pdist(embs, metric="cosine"), method="average")
-            # average-linkage lebih ketat dari greedy -> sedikit longgarkan
-            dist_cut = max(0.05, 1.0 - (threshold - 0.04))
-            labels = fcluster(Z, t=dist_cut, criterion="distance") - 1
-        except Exception:
-            labels = None
-    if labels is None:
-        # Fallback tanpa scipy: seed tetap (tanpa mean ulang) + pilih seed TERMIRIP
-        seeds, labels = [], _np.zeros(n, dtype=int)
-        for i in range(n):
-            best, best_s = -1, -1.0
-            for j, s in enumerate(seeds):
-                sim = float(_np.dot(embs[i], embs[s]))
-                if sim > best_s:
-                    best, best_s = j, sim
-            if best >= 0 and best_s >= threshold:
-                labels[i] = best
-            else:
-                seeds.append(i)
-                labels[i] = len(seeds) - 1
+    # --- 4. Greedy centroid clustering berbasis cosine similarity ---
+    clusters: list = []
+    for i, phrase in enumerate(phrase_list):
+        vec = embs[i]
+        count = freq[phrase]
+        placed = False
+        for c in clusters:
+            sim = float(_np.dot(vec, c["centroid"]))
+            if sim >= threshold:
+                c["members"].append((phrase, count))
+                c["count"] += count
+                c["all_sessions"].update(phrase_sess.get(phrase, set()))
+                # Perbarui centroid inkremental (running mean ternormalisasi)
+                c["vecs"].append(vec)
+                new_c = _np.mean(c["vecs"], axis=0)
+                norm_val = float(_np.linalg.norm(new_c))
+                c["centroid"] = new_c / norm_val if norm_val > 0 else new_c
+                placed = True
+                break
+        if not placed:
+            clusters.append({
+                "members": [(phrase, count)],
+                "count": count,
+                "centroid": vec.copy(),
+                "vecs": [vec],
+                "all_sessions": set(phrase_sess.get(phrase, set())),
+            })
 
-    groups: dict = {}
-    for i, lb in enumerate(labels):
-        groups.setdefault(int(lb), []).append(i)
-
-    # --- 6. Output ---
+    # --- 5. Rangkai output ---
     out = []
-    for idxs in groups.values():
-        members = {}
-        for i in idxs:
-            for raw, c in unit_raws[units[i]]:
-                members[raw] = members.get(raw, 0) + c
-        if not members:
+    for c in clusters:
+        if len(c["members"]) < max(min_size, 1):
             continue
-        # Representatif: unit dengan frekuensi tertinggi di klaster
-        best_unit = max(idxs, key=lambda i: unit_freq[units[i]])
-        exemplar = max(unit_raws[units[best_unit]], key=lambda m: (m[1], -len(m[0])))[0]
-        total = sum(members.values())
-        if len(members) < max(min_size, 1):
-            continue
-        top_vars = sorted(members.items(), key=lambda m: (-m[1], m[0]))[:100]
+        # Exemplar = kalimat dengan frekuensi terbanyak, atau terpanjang jika seri
+        exemplar = max(c["members"], key=lambda m: (m[1], len(m[0])))[0]
+        # Variasi: tampilkan sampai 100 teratas agar perhitungan frekuensi di tabel dan detail jelas
+        top_vars = sorted(c["members"], key=lambda m: -m[1])[:100]
+
         out.append({
             "topic": exemplar,
-            "count": total,
-            "variation_count": len(members),
+            "count": c["count"],
+            "variation_count": len(c["members"]),
             "variations": [{"phrase": p, "count": cnt} for p, cnt in top_vars],
         })
 
+    # Urutkan: count turun, lalu variation_count turun
     out.sort(key=lambda x: (-x["count"], -x["variation_count"]))
     out = out[:limit]
+
     _SEMANTIC_CACHE[cache_key] = (out, _now)
     return out

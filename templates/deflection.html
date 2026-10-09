@@ -219,14 +219,11 @@ input,select{ background:var(--panel2); border:1px solid var(--line); color:var(
         <thead>
           <tr>
             <th style="width:44px">#</th>
-            <th style="width:260px">Maksud / Topik Masalah</th>
-            <th style="width:80px">Total</th>
-            <th>Contoh Variasi Kalimat Pengguna</th>
-            <th style="width:190px">Kesesuaian Intent</th>
-            <th style="width:75px; text-align:center;">Aksi</th>
+            <th>Nama Topik (Representasi Makna Serupa)</th>
+            <th style="width:120px">Total Kejadian</th>
           </tr>
         </thead>
-        <tbody id="topicBody"><tr><td colspan="6" class="empty">Memuat topik semantik…</td></tr></tbody>
+        <tbody id="topicBody"><tr><td colspan="3" class="empty">Memuat topik semantik…</td></tr></tbody>
       </table>
       <div class="pager" id="topicPager"></div>
     </div>
@@ -428,7 +425,7 @@ async function openTranscript(sid){
   $('#modalBody').innerHTML=`
     <h3>Transkrip percakapan</h3>
     <div class="mono">${esc(sid)}</div>
-    <div style="margin:10px 0"><button class="btn sm" id="backBtn">‹ Kembali</button></div>
+    <div style="margin:10px 0"><button class="btn sm" id="backBtn">‹ Tutup Transkrip</button></div>
     <div id="turns"></div>`;
   $('#backBtn').onclick=()=>{ closeModal(); };
   $('#turns').innerHTML = turns.length? turns.map(t=>`
@@ -439,13 +436,11 @@ async function openTranscript(sid){
     </div>`).join('') : '<div class="empty">Tidak ada data.</div>';
 }
 
-}
-
 // ------- semantic recurring topics (D7) -------
 let TOPICS=[], TPAGE=1, TPS=15, TFILTER='', TMIN=2, CUR_TOPIC_IDX=null;
 
 async function loadTopics(){
-  $('#topicBody').innerHTML = '<tr><td colspan="6" class="empty">Memproses pemetaan semantik &amp; clustering AI…</td></tr>';
+  $('#topicBody').innerHTML = '<tr><td colspan="4" class="empty">Memproses pemetaan semantik &amp; clustering AI…</td></tr>';
   $('#topicCount').textContent = 'Memuat topik semantik…';
   try {
     const r = await fetch('/api/deflection/semantic-topics?' + qs() + '&min_size=' + TMIN + '&limit=100');
@@ -454,7 +449,7 @@ async function loadTopics(){
     TPAGE = 1;
     renderTopics();
   } catch(e) {
-    $('#topicBody').innerHTML = '<tr><td colspan="6" class="empty">Gagal memuat topik semantik: ' + esc(e.message) + '</td></tr>';
+    $('#topicBody').innerHTML = '<tr><td colspan="4" class="empty">Gagal memuat topik semantik: ' + esc(e.message) + '</td></tr>';
   }
 }
 
@@ -479,33 +474,20 @@ function renderTopics(){
   $('#topicCount').textContent = num(tot) + ' topik semantik ditemukan' + (rows.length !== TOPICS.length ? ' (difilter)' : '');
   
   if(!pg.length){
-    $('#topicBody').innerHTML = '<tr><td colspan="6" class="empty">Tidak ada topik semantik pada kriteria ini.</td></tr>';
+    $('#topicBody').innerHTML = '<tr><td colspan="3" class="empty">Tidak ada topik semantik pada kriteria ini.</td></tr>';
     $('#topicPager').innerHTML = '';
     return;
   }
   
   $('#topicBody').innerHTML = pg.map((t, i) => {
-    const varsHtml = (t.variations || []).slice(0, 3).map(v => 
-      `<span class="var-pill" title="${esc(v.phrase)} (${num(v.count)}x)">${esc(v.phrase)} <b style="color:var(--brand)">(${v.count})</b></span>`
-    ).join('') + ((t.variations || []).length > 3 ? `<span class="note" style="margin-left:4px;">+${t.variations.length - 3} variasi</span>` : '');
-
-    const intentTag = t.is_novel || !t.nearest_intent
-      ? `<span class="tag novel" title="Pertanyaan ini belum ada padanannya di katalog intent">✨ Murni Topik Baru</span>`
-      : `<span class="tag matched" title="Mendekati intent yang sudah ada">Mirip: <b>${esc(t.nearest_intent)}</b></span>`;
-
     return `
       <tr class="clk" data-tidx="${st + i}">
         <td class="mono">${st + i + 1}</td>
         <td>
-          <div style="font-weight:600; color:var(--text); line-height:1.35; margin-bottom:3px;">${esc(t.topic || '–')}</div>
-          <div class="note">${num(t.variation_count || 1)} pola kalimat berbeda</div>
+          <div style="font-weight:600; color:var(--text); margin-bottom:3px;">${esc(t.topic || '–')}</div>
+          <div class="note">${num(t.variation_count || 1)} pola kalimat (variasi) berbeda</div>
         </td>
-        <td><b style="font-size:14px; color:var(--brand);">${num(t.count)}</b><span class="note"> sesi</span></td>
-        <td><div style="display:flex; flex-wrap:wrap; align-items:center;">${varsHtml}</div></td>
-        <td>${intentTag}</td>
-        <td style="text-align:center;">
-          <button class="btn sm" type="button" onclick="event.stopPropagation(); openTopicModal(${st + i})">Rincian</button>
-        </td>
+        <td><b>${num(t.count)}</b></td>
       </tr>`;
   }).join('');
 
@@ -527,48 +509,43 @@ function openTopicModal(idx){
   openModal();
   
   const varsList = (t.variations || []).map((v, i) => `
-    <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 0; border-bottom:1px solid var(--line);">
-      <div style="font-size:12.5px; color:var(--text);">${i+1}. ${esc(v.phrase)}</div>
-      <div class="mono" style="font-weight:600; color:var(--brand);">${num(v.count)}x</div>
-    </div>
+    <tr class="clk" data-p="${esc(v.phrase)}">
+      <td class="mono">${i+1}</td>
+      <td>${esc(v.phrase)}</td>
+      <td style="width:70px"><b>${num(v.count)}</b></td>
+      <td style="width:140px; text-align:right;">
+        <button class="btn sm" type="button" onclick="event.stopPropagation(); openCandidate('${esc(v.phrase).replace(/'/g, "\\'")}')">Detail Percakapan</button>
+      </td>
+    </tr>
   `).join('');
-
-  const sessList = (t.sessions || []).map((sid, i) => `
-    <div class="sess-item">
-      <span class="mono">${i+1}.</span>
-      <span class="sid" title="${esc(sid)}">${esc(sid)}</span>
-      <button class="btn sm" onclick="openTranscript('${esc(sid)}')">Buka Transkrip</button>
-    </div>
-  `).join('');
-
-  const statusBadge = t.is_novel || !t.nearest_intent
-    ? `<span class="tag novel">✨ Murni Topik Baru (Belum Terlayani Intent)</span>`
-    : `<span class="tag matched">Mendekati Intent: <b>${esc(t.nearest_intent)}</b></span>`;
 
   $('#modalBody').innerHTML = `
     <div style="display:flex; justify-content:space-between; align-items:flex-start; gap:10px; margin-bottom:12px;">
       <div>
         <h3 style="margin:0 0 4px; font-size:16px;">${esc(t.topic)}</h3>
-        <div class="note">Total kemunculan: <b style="color:var(--brand);">${num(t.count)} kejadian</b> · ${num(t.variation_count)} variasi kalimat</div>
-      </div>
-      <div>${statusBadge}</div>
-    </div>
-    <div style="margin:16px 0 8px;">
-      <h4 style="margin:0 0 6px; font-size:13px; color:var(--text);">Variasi Pertanyaan Pengguna:</h4>
-      <div style="max-height:180px; overflow-y:auto; background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:8px 12px;">
-        ${varsList || '<div class="empty">Tidak ada data variasi.</div>'}
+        <div class="note">Total: <b style="color:var(--brand);">${num(t.count)} kejadian</b> · ${num(t.variation_count)} variasi kalimat pengguna</div>
       </div>
     </div>
     <div style="margin:16px 0 8px;">
-      <h4 style="margin:0 0 6px; font-size:13px; color:var(--text);">Sampel Sesi Terkait (Klik untuk Transkrip):</h4>
-      <div style="max-height:200px; overflow-y:auto; background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:8px 12px;">
-        ${sessList || '<div class="empty">Tidak ada sampel sesi.</div>'}
+      <h4 style="margin:0 0 6px; font-size:13px; color:var(--text);">Daftar Contoh Kalimat (Variasi):</h4>
+      <p class="note" style="margin-bottom:10px;">Klik tombol "Detail Percakapan" pada salah satu kalimat untuk melihat rincian sesi, intent pecahan, dan transkrip percakapan aslinya.</p>
+      <div style="max-height:400px; overflow-y:auto; border:1px solid var(--line); border-radius:10px;">
+        <table class="tbl" style="margin:0; border:0;">
+          <tbody id="topicVarsBody">
+            ${varsList || '<tr><td class="empty">Tidak ada data variasi.</td></tr>'}
+          </tbody>
+        </table>
       </div>
     </div>
     <div style="margin-top:14px; text-align:right;">
       <button class="btn sm" onclick="closeModal()">Tutup</button>
     </div>
   `;
+  
+  // Make the entire row clickable to open the detail view too
+  $$('#topicVarsBody tr.clk').forEach(tr => {
+    tr.onclick = () => openCandidate(tr.dataset.p);
+  });
 }
 
 $('#topicSearch').oninput = e => { TFILTER = e.target.value; TPAGE = 1; renderTopics(); };
