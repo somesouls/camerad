@@ -33,14 +33,47 @@ function s9SehCounts(){
   return {filled:filled, empty:empty, total:filled+empty};
 }
 
+function injectS9MarkCss(){
+  if(document.getElementById('s9markcss')) return;
+  var st=document.createElement('style'); st.id='s9markcss';
+  st.textContent=[
+    '.s9star{border:1px solid var(--border);background:var(--soft2);border-radius:7px;cursor:pointer;font-size:13px;line-height:1;padding:3px 6px;margin-right:6px;color:var(--text2);vertical-align:middle;transition:all .15s}',
+    '.s9star:hover{background:var(--soft);color:#f59e0b;border-color:#f59e0b}',
+    '.s9star.marked{background:rgba(245,158,11,.18);color:#f59e0b;border-color:#f59e0b;font-weight:700}',
+    '.s9row-marked{background:rgba(245,158,11,.04)}',
+    '.s9row-marked:hover td{background:rgba(245,158,11,.09)!important}'
+  ].join('');
+  document.head.appendChild(st);
+}
+
+function s9MarkedKey(){
+  return 's9_marked_' + ((window.STATE && window.STATE.run) ? window.STATE.run : 'default');
+}
+function s9GetMarkedSet(){
+  try{
+    var raw = localStorage.getItem(s9MarkedKey());
+    return raw ? JSON.parse(raw) : {};
+  }catch(e){ return {}; }
+}
+function s9SaveMarkedSet(map){
+  try{
+    localStorage.setItem(s9MarkedKey(), JSON.stringify(map));
+  }catch(e){}
+}
+
 function s9UpdateCounts(){
   var el=document.getElementById('s9seh'); if(!el) return;
   var c=s9SehCounts();
-  el.innerHTML='<b style="color:#10b981">'+c.filled+'</b> ditindaklanjuti (ada isi) · <b style="color:#f59e0b">'+c.empty+'</b> TANPA CATATAN (kosong)';
+  var markedCount = 0;
+  var rows = (typeof STEP9!=='undefined' && STEP9.rows) ? STEP9.rows : [];
+  rows.forEach(function(r){ if(r.marked) markedCount++; });
+  var markedBadge = markedCount > 0 ? (' · <b style="color:#f59e0b">★ ' + markedCount + '</b> ditandai (ragu)') : '';
+  el.innerHTML='<b style="color:#10b981">'+c.filled+'</b> ditindaklanjuti (ada isi) · <b style="color:#f59e0b">'+c.empty+'</b> TANPA CATATAN (kosong)' + markedBadge;
 }
 
 function openModal9(st){
   if(typeof injectSigCss==='function') injectSigCss();
+  injectS9MarkCss();
   var modal=document.getElementById('modal');
   modal.classList.add('wide');
   modal.innerHTML=
@@ -48,7 +81,15 @@ function openModal9(st){
       '<div><h2>'+esc(st.title)+'</h2><p>'+esc(st.sub)+'</p></div>'+
       '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>'+
     '<div class="s6bar">'+
-      '<div class="fg"><label>Skor Bahasa &lt; (ambang sheet)</label><input type="number" id="f9qa" min="0" max="1" step="0.05" value="0.5" style="width:110px"></div>'+
+      '<div class="fg"><label>Skor Bahasa &lt; (ambang sheet)</label>'+
+        '<input type="number" id="f9qa" list="f9qa_presets" min="0" max="1" step="any" value="0.6" style="width:110px">'+
+        '<datalist id="f9qa_presets">'+
+          '<option value="0.4"><option value="0.45"><option value="0.5"><option value="0.55">'+
+          '<option value="0.6"><option value="0.65"><option value="0.7"><option value="0.715">'+
+          '<option value="0.725"><option value="0.735"><option value="0.75"><option value="0.8">'+
+        '</datalist>'+
+      '</div>'+
+      '<div class="fg"><label>Status Tandai</label><select id="f9marked"><option value="">Semua</option><option value="1">⭐ Ditandai saja</option><option value="0">Belum ditandai</option></select></div>'+
       '<div class="fg"><label>PUTUSAN</label><select id="f9put"><option value="">Semua</option></select></div>'+
       '<div class="fg"><label>Kategori Mesin</label><select id="f9kat"><option value="">Semua</option></select></div>'+
       '<div class="fg"><label>Skor Dialogflow ≤</label><input type="number" id="f9df" min="0" max="1" step="0.05" placeholder="0" style="width:100px"></div>'+
@@ -75,7 +116,7 @@ function openModal9(st){
   document.getElementById('overlay').classList.add('show');
   document.getElementById('mxBtn').onclick=closeModal;
   document.getElementById('s9save').onclick=saveStep9;
-  ['f9qa','f9put','f9kat','f9df','f9dfmin','f9nli','f9q','f9seh'].forEach(function(id){ var el=document.getElementById(id); el.oninput=renderStep9; el.onchange=renderStep9; });
+  ['f9qa','f9marked','f9put','f9kat','f9df','f9dfmin','f9nli','f9q','f9seh'].forEach(function(id){ var el=document.getElementById(id); if(el){ el.oninput=renderStep9; el.onchange=renderStep9; } });
   bindSigChips('f9sig',renderStep9);
   var cw=document.getElementById('f9cw'); if(cw) cw.onclick=s9presetConfidentlyWrong;
   var clr=document.getElementById('f9clr'); if(clr) clr.onclick=s9resetFilter;
@@ -98,6 +139,7 @@ function s9resetFilter(){
   var p=document.getElementById('f9put'); if(p) p.value='';
   var k=document.getElementById('f9kat'); if(k) k.value='';
   var s=document.getElementById('f9seh'); if(s) s.value='';
+  var m=document.getElementById('f9marked'); if(m) m.value='';
   document.querySelectorAll('#f9sig input[data-sig]').forEach(function(c){ c.checked=false; });
   if(typeof renderStep9==='function') renderStep9();
 }
@@ -112,9 +154,14 @@ function renderStep9(){
   var fnli=parseFloat(document.getElementById('f9nli').value);
   var fq=document.getElementById('f9q').value.trim().toLowerCase();
   var fsehEl=document.getElementById('f9seh'); var fseh=fsehEl?fsehEl.value:'';
+  var fmarkedEl=document.getElementById('f9marked'); var fmarked=fmarkedEl?fmarkedEl.value:'';
   var fsig=activeSigs('f9sig');
   var CAP=400, shown=0, matched=0, underThr=0, parts=[];
-  var order = STEP9.rows.map(function(r,i){ return i; });
+  var markedMap = s9GetMarkedSet();
+  var order = STEP9.rows.map(function(r,i){
+    if(r.marked === undefined) r.marked = Boolean(markedMap[r.row]);
+    return i;
+  });
   order.sort(function(a,b){ var pa=s9num(STEP9.rows[a].prioritas), pb=s9num(STEP9.rows[b].prioritas); return (pb===null?-1:pb)-(pa===null?-1:pa); });
   order.forEach(function(i){
     var r=STEP9.rows[i];
@@ -122,6 +169,8 @@ function renderStep9(){
     var inThr = !isNaN(thr) ? (qa!==null && qa<thr) : true;
     if(inThr) underThr++;
     if(!inThr) return;
+    if(fmarked==='1' && !r.marked) return;
+    if(fmarked==='0' && r.marked) return;
     if(fput && r.putusan!==fput) return;
     if(fkat && r.kategori!==fkat) return;
     if(!isNaN(fdf)){ var d=s9num(r.df); if(d===null || d>fdf) return; }
@@ -133,9 +182,11 @@ function renderStep9(){
     matched++;
     if(shown>=CAP) return; shown++;
     var alasan = r.alasan ? '<div style="color:#9aa4b2;font-size:11px;margin-top:3px">'+esc(r.alasan)+'</div>' : '';
+    var starTitle = r.marked ? 'Ditandai ragu (klik untuk batal)' : 'Tandai pertanyaan ini jika masih ragu';
+    var starBtn = '<button type="button" class="s9star'+(r.marked?' marked':'')+'" data-i="'+i+'" title="'+esc(starTitle)+'">'+(r.marked?'★':'☆')+'</button>';
     parts.push(
-      '<tr><td>'+esc(r.prioritas||'')+'</td>'+
-      '<td class="s6q">'+esc(r.pertanyaan||'')+'</td>'+
+      '<tr class="'+(r.marked?'s9row-marked ':'')+'"><td>'+esc(r.prioritas||'')+'</td>'+
+      '<td class="s6q">'+starBtn+esc(r.pertanyaan||'')+'</td>'+
       '<td class="s6q">'+esc(r.intent||'')+'</td>'+
       '<td>'+esc(r.kategori||'')+'</td>'+
       '<td>'+s9fmt(r.qa)+'</td>'+
@@ -147,6 +198,23 @@ function renderStep9(){
     );
   });
   body.innerHTML=parts.join('');
+  body.querySelectorAll('.s9star').forEach(function(btn){
+    btn.onclick = function(e){
+      e.stopPropagation();
+      var i = parseInt(btn.dataset.i, 10);
+      var r = STEP9.rows[i];
+      if(!r) return;
+      r.marked = !r.marked;
+      var map = s9GetMarkedSet();
+      if(r.marked){
+        map[r.row] = true;
+      } else {
+        delete map[r.row];
+      }
+      s9SaveMarkedSet(map);
+      renderStep9();
+    };
+  });
   body.querySelectorAll('.s6intent').forEach(function(inp){ var i=parseInt(inp.dataset.i,10); inp.oninput=function(){ STEP9.rows[i].seharusnya=inp.value; STEP9.rows[i].edited=true; inp.classList.add('edited'); s9UpdateCounts(); }; inp.onfocus=function(){ if(typeof openS6Menu==='function') openS6Menu(i); }; });
   body.querySelectorAll('.s6arrow').forEach(function(btn){ var i=parseInt(btn.dataset.i,10); btn.onclick=function(e){ e.preventDefault(); var m=document.getElementById('menu'+i); if(m && m.classList.contains('open')){ if(typeof closeS6Menus==='function') closeS6Menus(); } else if(typeof openS6Menu==='function'){ openS6Menu(i); } }; });
   document.getElementById('s9count').textContent = matched+' tampil · '+underThr+' akan disimpan (Skor<'+(isNaN(thr)?'-':thr)+')'+(matched>CAP?(' · tampil '+CAP):'');

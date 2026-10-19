@@ -155,6 +155,8 @@ def _route_action(method, path):
         return "ingest"
     if path == "/api/sosmed/status" or path == "/api/sosmed/topik":
         return "edit"
+    if path == "/api/awe/assess/transcript":
+        return "read"
     if path.startswith("/api/awe/assess") or path.startswith("/api/assess"):
         return "assess"
     if path in ("/api/intentmap/approve", "/api/intentmap/describe", "/api/intentmap/describe/start", "/api/intentmap/describe/stop"):
@@ -243,6 +245,8 @@ def _route_area(path):
             or path.startswith("/api/awe/stage") or path.startswith("/api/awe/process")
             or path.startswith("/api/awe/delete")):
         return "awe_manage"
+    if path == "/api/awe/assess/transcript":
+        return "awe"
     if (path == "/awe/penilaian" or path.startswith("/api/awe/assess")
             or path.startswith("/api/assess")):
         return "assess"
@@ -344,6 +348,8 @@ async def _auth_middleware(request: Request, call_next):
     _mkey = _route_menu(path)
     if _mkey is not None:
         _allowed = mc.menu_allowed(role, _mkey, user_id=_uid)
+    elif path == "/api/awe/assess/transcript":
+        _allowed = usr.area_allowed(role, "awe", user_id=_uid) or usr.area_allowed(role, "assess", user_id=_uid)
     else:
         _allowed = usr.area_allowed(role, _route_area(path), user_id=_uid)
     if not _allowed:

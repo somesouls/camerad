@@ -1070,12 +1070,11 @@ def step8_load(cfg, ctx):
         sc = _sv(sh["rows"][rn], col_score)
         if _is_numeric(sc):
             scores.append(float(sc))
+    thresholds = [0.4, 0.45, 0.5, 0.55, 0.6, 0.65, 0.7, 0.715, 0.725, 0.735, 0.75, 0.8]
     counts = []
-    th = 0.4
-    while th <= 0.8 + 1e-9:
+    for th in thresholds:
         c = sum(1 for s in scores if s < th)
-        counts.append({"th": round(th, 2), "count": c})
-        th += 0.05
+        counts.append({"th": th, "count": c})
     return {"step": 8, "mode": "auto", "total": len(scores), "counts": counts}
 
 

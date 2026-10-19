@@ -43,8 +43,8 @@
 * { box-sizing: border-box; transition: background-color 0.3s, border-color 0.3s, color 0.3s; }
 html, body { margin: 0; padding: 0; height: 100%; }
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  background-color: var(--bg-base);
+font-family: var(--ui-font);
+      background-color: var(--bg-base);
   background: radial-gradient(circle at 15% 50%, var(--accent-glow), transparent 25%),
               linear-gradient(135deg, var(--bg-grad-1), var(--bg-grad-2));
   color: var(--text-main); font-size: 15px; line-height: 1.6;

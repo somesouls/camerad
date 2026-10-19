@@ -41,7 +41,7 @@ function openModal9(st){
       '<div><h2>'+esc(st.title)+'</h2><p>'+esc(st.sub)+'</p></div>'+
       '<button class="mx" id="mxBtn" title="Tutup">&times;</button></div>'+
     '<div class="s6bar">'+
-      '<div class="fg"><label>Skor Bahasa &lt; (ambang sheet)</label><input type="number" id="f9qa" min="0" max="1" step="0.05" value="0.5" style="width:110px"></div>'+
+      '<div class="fg"><label>Skor Bahasa &lt; (ambang sheet)</label><input type="number" id="f9qa" min="0" max="1" step="any" value="0.5" style="width:110px"></div>'+
       '<div class="fg"><label>PUTUSAN</label><select id="f9put"><option value="">Semua</option></select></div>'+
       '<div class="fg"><label>Kategori Mesin</label><select id="f9kat"><option value="">Semua</option></select></div>'+
       '<div class="fg"><label>Skor Dialogflow \u2264</label><input type="number" id="f9df" min="0" max="1" step="0.05" placeholder="0" style="width:100px"></div>'+
