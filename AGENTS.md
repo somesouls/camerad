@@ -52,7 +52,7 @@ Detail arsitektur lengkap: `docs/ARCHITECTURE.md`.
 > Dirawat agar asisten tidak menanyakan hal yang sama berulang. Perbarui bila lingkungan/keputusan berubah. Terakhir diperbarui: 27 Agu 2026 (HEAD 55ff2f9).
 
 ### Lingkungan & deploy
-- Repo `somesouls/camerad`, branch kerja `main`. Deploy: `chat.agenthebat.com` (satu proses `web_app.py`).
+- Repo `somesouls/camerad`, branch kerja `main`. Deploy: `camerad.desouls.com` (satu proses `web_app.py`).
 - Dev lokal: `C:\Users\USER\chatbot\pipeline_lokal`, virtualenv `.venv` (PowerShell). GPU NVIDIA RTX 5060 Ti. LLM: Azure `gpt-5.4-mini`.
 - Model: embedding `BAAI/bge-m3` (1024-d), reranker `BAAI/bge-reranker-v2-m3`, intent `paraphrase-multilingual-mpnet-base-v2`.
 - Basis data SQLite (di-`.gitignore`, TIDAK ada di repo): `peraturan.db`, `golden.db`, `evaluation.db`, log agent. Semua diagnostik/eval dijalankan di mesin dev/produksi, bukan dari repo.

@@ -297,4 +297,4 @@ cloudflared tunnel run --url http://localhost:8080 bot-tunnel
 
 Tunggu beberapa detik sampai muncul tulisan `INF Registered tunnel connection` (seperti log yang sebelumnya pernah Anda lihat).
 
-Jika log tersebut sudah muncul, silakan *refresh* (F5) kembali halaman web **`[https://chat.agenthebat.com/livechat](https://chat.agenthebat.com/livechat)`** di *browser* Anda. Halamannya pasti akan langsung terbuka! 
+Jika log tersebut sudah muncul, silakan *refresh* (F5) kembali halaman web **`[https://camerad.desouls.com/livechat](https://camerad.desouls.com/livechat)`** di *browser* Anda. Halamannya pasti akan langsung terbuka! 

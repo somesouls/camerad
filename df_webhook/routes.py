@@ -225,13 +225,13 @@ def _public_url(request):
     alamat INTERNAL (mis. http://0.0.0.0:8080) sehingga URL yang ditampilkan
     salah bila dicopy ke konsol Dialogflow. Utamakan basis publik dari env
     CAMERAD_PUBLIC_BASE; bila kosong dan base_url terlihat internal, pakai
-    domain publik bawaan (https://api.agenthebat.com).
+    domain publik bawaan (https://camerad.desouls.com).
     """
     base = (os.environ.get("CAMERAD_PUBLIC_BASE") or "").strip().rstrip("/")
     if not base:
         rb = str(request.base_url).rstrip("/")
         if any(h in rb for h in ("0.0.0.0", "127.0.0.1", "localhost")):
-            base = "https://api.agenthebat.com"
+            base = "https://camerad.desouls.com"
         else:
             base = rb
     return base + "/api/df/webhook"
